@@ -46,16 +46,20 @@ export const SidebarNav = () => {
         <div className={cn("flex items-center", expanded ? "" : "justify-center w-full")}>
           {expanded && (
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-soroman-orange flex items-center justify-center text-soroman-blue font-bold">
-                S
-              </div>
+                <img
+                src="/logo.png"
+                alt=""
+                className='w-10 h-10 '
+                />
               <span className="font-bold text-xl">Soroman</span>
             </div>
           )}
           {!expanded && (
-            <div className="w-8 h-8 rounded-full bg-soroman-orange flex items-center justify-center text-soroman-blue font-bold">
-              S
-            </div>
+            <img
+            src="/logo.png"
+            alt=""
+            className='w-5 h-5 '
+            />
           )}
         </div>
         <button 
@@ -79,12 +83,12 @@ export const SidebarNav = () => {
               }}
               className={cn(
                 "flex items-center py-3 px-4 hover:bg-slate-700 transition-colors",
-                isActive && "bg-slate-700/50 border-l-4 border-soroman-orange"
+                isActive && "bg-slate-700/50 border-l-4 border-[#169061]"
               )}
             >
-              <item.icon className={cn("text-slate-300", isActive && "text-soroman-orange")} size={20} />
+              <item.icon className={cn("text-slate-300", isActive && "text-[#169061]")} size={20} />
               {expanded && (
-                <span className={cn("ml-3", isActive && "text-soroman-orange")}>{item.title}</span>
+                <span className={cn("ml-3", isActive && "text-[#169061]")}>{item.title}</span>
               )}
             </a>
           );

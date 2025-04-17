@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Customer } from '@/type';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiClient } from '@/api/client';
+import { Link } from 'react-router-dom';
 
 export const CustomerList = () => {
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
@@ -35,9 +36,11 @@ export const CustomerList = () => {
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div className="flex justify-between items-center p-5 border-b border-slate-200">
         <h3 className="font-semibold text-lg text-slate-800">Top Customers</h3>
-        <button className="text-sm text-soroman-blue hover:text-soroman-orange font-medium transition-colors">
+        <Link to='/orders'>
+        <button className="text-sm text-[#169061] hover:text-[#169061] font-medium transition-colors">
           View All
         </button>
+        </Link>
       </div>
 
       <div className="p-5">
@@ -50,7 +53,7 @@ export const CustomerList = () => {
             {customers.map((customer) => (
               <li key={customer?.id} className="py-3 flex items-center justify-between">
                 <div className="flex items-center">
-                  <div className="w-10 h-10 rounded-full bg-soroman-blue flex items-center justify-center text-white">
+                  <div className="w-10 h-10 rounded-full bg-[#169061] flex items-center justify-center text-white">
                     {customer?.name?.substring(0, 2).toUpperCase() || 'NA'}
                   </div>
                   <div className="ml-3">

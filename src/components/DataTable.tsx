@@ -80,7 +80,7 @@ export function DataTable<T extends object>({
 
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-soroman-blue text-white">
+            <thead className="bg-[#169061] text-white">
               {table.getHeaderGroups().map(headerGroup => (
                 <tr key={headerGroup.id}>
                   <th className="px-4 py-3 text-left text-sm font-semibold uppercase tracking-wider">
@@ -153,7 +153,7 @@ export function DataTable<T extends object>({
                       <td className="px-4 py-3">
                         <button
                           onClick={() => onRowClick(row.original)}
-                          className="px-3 py-1.5 text-sm font-medium text-soroman-blue hover:text-white hover:bg-soroman-blue rounded-md border border-soroman-blue transition-colors"
+                          className="px-3 py-1.5 text-sm font-medium text-[#169061] hover:text-white hover:bg-[#169061] rounded-md border border-soroman-blue transition-colors"
                         >
                           {viewButtonText}
                         </button>

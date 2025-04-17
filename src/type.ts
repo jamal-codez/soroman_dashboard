@@ -39,17 +39,64 @@ export interface AnalyticsData {
   
   export interface Order {
     id: string;
-    customer_name: string;
+    customer: {
+      name: string;
+      email: string;
+    };
     product: string;
-    quantity: number;
-    total_price: number;
-    status: 'pending' | 'completed' | 'cancelled' | 'processing' | 'shipping';
-    created_at: string;
-  }
-  
-  export type Customer = {
-    id: string;
-    name: string;
-    company_name?: string;
-    total_orders?: number;
+    quantity: string;
+    date: string;
+    amount: string;
+    status: 'Completed' | 'Processing' | 'Shipping' | 'Cancelled';
   };
+  
+  
+export interface AnalyticsData {
+  orders: number;
+  orders_change: number;
+  sales_revenue: number;
+  sales_revenue_change: number;
+  quantity_sold: Array<{
+    product_name: string;
+    current_quantity: number;
+    change: number;
+  }>;
+  active_customers: number;
+  active_customers_change: number;
+}
+
+export interface SalesData {
+  month: string;
+  [product: string]: number | string;
+}
+
+export interface Product {
+  id: number;
+  name: string;
+  abbreviation: string;
+  description: string;
+  unit_price: number;
+  stock_quantity: number;
+  created_at: string;
+}
+
+export interface Order {
+  id: number;
+  total_price: number;
+  status: string;
+  created_at: string;
+  products: Array<{
+    product: number;
+    quantity: number;
+    price: number;
+  }>;
+}
+
+export interface Customer {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  company_name?: string;
+}

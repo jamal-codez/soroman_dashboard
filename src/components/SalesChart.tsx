@@ -9,9 +9,64 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Skeleton } from '@/components/ui/skeleton';
-import { SalesData } from '@/type';
+import { format } from 'date-fns';
 
-export const SalesChart = ({ data }: { data?: SalesData[] }) => {
+interface SalesData {
+  [product: string]: {
+    [month: string]: number;
+  };
+}
+
+interface ChartData {
+  month: string;
+  pms: number;
+  ago: number;
+  lpg: number;
+  jet: number;
+}
+
+export const SalesChart = ({ data }: { data?: SalesData }) => {
+  // Transform API data into chart-compatible format
+  const transformData = (salesData: SalesData): ChartData[] => {
+    if (!salesData) return [];
+    
+    const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
+    const products = ['Petrol', 'Diesel', 'Cooking Gas', 'Jet Fuel'];
+    
+    return months.map(month => {
+      const monthData: ChartData = {
+        month: format(new Date(2023, parseInt(month) - 1, 1), 'MMM'),
+        pms: 0,
+        ago: 0,
+        lpg: 0,
+        jet: 0
+      };
+      
+      // Map each product to its abbreviation key
+      Object.entries(salesData).forEach(([product, monthlySales]) => {
+        const value = monthlySales[month] || 0;
+        switch(product) {
+          case 'Petrol':
+            monthData.pms = value / 1000; // Convert to thousands
+            break;
+          case 'Diesel':
+            monthData.ago = value / 1000;
+            break;
+          case 'Cooking Gas':
+            monthData.lpg = value / 1000;
+            break;
+          case 'Jet Fuel':
+            monthData.jet = value / 1000;
+            break;
+        }
+      });
+      
+      return monthData;
+    });
+  };
+
+  const chartData = data ? transformData(data) : [];
+
   return (
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div className="flex justify-between items-center p-5 border-b border-slate-200">
@@ -26,7 +81,7 @@ export const SalesChart = ({ data }: { data?: SalesData[] }) => {
       <div className="p-5 h-[300px]">
         {data ? (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data}>
+            <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="colorPMS" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
@@ -65,13 +120,31 @@ export const SalesChart = ({ data }: { data?: SalesData[] }) => {
                   boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
                   border: "1px solid #e2e8f0"
                 }}
-                formatter={(value) => [`₦${value}K`, ""]}
+                formatter={(value: number, name: string) => {
+                  const productNames: Record<string, string> = {
+                    pms: 'Petrol (PMS)',
+                    ago: 'Diesel (AGO)',
+                    lpg: 'Cooking Gas (LPG)',
+                    jet: 'Jet Fuel (JET)'
+                  };
+                  return [`₦${(value * 1000).toLocaleString()}`, productNames[name] || name];
+                }}
               />
-              <Legend />
+              <Legend 
+                formatter={(value) => {
+                  const legendMap: Record<string, string> = {
+                    pms: 'PMS',
+                    ago: 'AGO',
+                    lpg: 'LPG',
+                    jet: 'JET'
+                  };
+                  return legendMap[value] || value;
+                }}
+              />
               <Area
                 type="monotone"
                 dataKey="pms"
-                name="PMS"
+                name="pms"
                 stroke="#f59e0b"
                 fillOpacity={1}
                 fill="url(#colorPMS)"
@@ -80,7 +153,7 @@ export const SalesChart = ({ data }: { data?: SalesData[] }) => {
               <Area
                 type="monotone"
                 dataKey="ago"
-                name="AGO"
+                name="ago"
                 stroke="#3b82f6"
                 fillOpacity={1}
                 fill="url(#colorAGO)"
@@ -89,7 +162,7 @@ export const SalesChart = ({ data }: { data?: SalesData[] }) => {
               <Area
                 type="monotone"
                 dataKey="lpg"
-                name="LPG"
+                name="lpg"
                 stroke="#10b981"
                 fillOpacity={1}
                 fill="url(#colorLPG)"
@@ -98,7 +171,7 @@ export const SalesChart = ({ data }: { data?: SalesData[] }) => {
               <Area
                 type="monotone"
                 dataKey="jet"
-                name="JET"
+                name="jet"
                 stroke="#8b5cf6"
                 fillOpacity={1}
                 fill="url(#colorJET)"

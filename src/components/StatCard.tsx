@@ -19,7 +19,7 @@ export const StatCard = ({
   change,
   changeDirection = 'up',
   icon: Icon,
-  iconColor = 'text-soroman-orange',
+  iconColor = 'text-[#169061]',
   iconBgColor = 'bg-soroman-orange/10',
 }: StatCardProps) => {
   return (
@@ -31,15 +31,15 @@ export const StatCard = ({
           
           {change && (
             <div className="flex items-center mt-2">
-              <span
+              {/* <span
                 className={cn(
                   "text-xs font-medium px-1.5 py-0.5 rounded",
                   changeDirection === 'up' ? 'text-green-800 bg-green-100' : 'text-red-800 bg-red-100'
                 )}
               >
                 {change}
-              </span>
-              <span className="text-xs text-slate-500 ml-1.5">vs. last month</span>
+              </span> */}
+              {/* <span className="text-xs text-slate-500 ml-1.5">vs. last month</span> */}
             </div>
           )}
         </div>
