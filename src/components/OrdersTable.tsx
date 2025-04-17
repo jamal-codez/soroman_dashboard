@@ -1,5 +1,4 @@
-
-import React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { 
   CheckCircle, 
   Clock, 
@@ -8,113 +7,100 @@ import {
   MoreHorizontal, 
   Download
 } from 'lucide-react';
+import { apiClient } from '@/api/client';
+import { Link } from 'react-router-dom';
+import { Skeleton } from '@/components/ui/skeleton';
 
-import { Order } from '@/type';
-
-// Mock data for recent orders
-const recentOrders: Order[] = [
-  {
-    id: 'ORD-71205',
-    customer: {
-      name: 'Dangote Industries',
-      email: 'orders@dangoteind.com',
-    },
-    product: 'PMS',
-    quantity: '5,000 L',
-    date: 'Apr 01, 2025',
-    amount: '₦2,450,000',
-    status: 'Completed',
-  },
-  {
-    id: 'ORD-71204',
-    customer: {
-      name: 'Nigeria Airways',
-      email: 'supply@ngairways.com',
-    },
-    product: 'Jet Fuel',
-    quantity: '8,000 L',
-    date: 'Mar 31, 2025',
-    amount: '₦4,720,000',
-    status: 'Shipping',
-  },
-  {
-    id: 'ORD-71203',
-    customer: {
-      name: 'ABC Transport',
-      email: 'purchases@abctransport.com',
-    },
-    product: 'AGO',
-    quantity: '3,000 L',
-    date: 'Mar 31, 2025',
-    amount: '₦1,725,000',
-    status: 'Processing',
-  },
-  {
-    id: 'ORD-71202',
-    customer: {
-      name: 'Green Energy Ltd',
-      email: 'contact@greenenergy.com',
-    },
-    product: 'LPG',
-    quantity: '1,500 kg',
-    date: 'Mar 30, 2025',
-    amount: '₦915,000',
-    status: 'Completed',
-  },
-  {
-    id: 'ORD-71201',
-    customer: {
-      name: 'EasyRide Logistics',
-      email: 'fuel@easyride.com',
-    },
-    product: 'PMS',
-    quantity: '2,000 L',
-    date: 'Mar 30, 2025',
-    amount: '₦980,000',
-    status: 'Cancelled',
-  },
-];
+interface Order {
+  id: number;
+  user: {
+    first_name: string;
+    last_name: string;
+    email: string;
+  };
+  products: Array<{
+    name: string;
+    abbreviation: string;
+  }>;
+  quantity: number;
+  created_at: string;
+  total_price: string;
+  status: 'pending' | 'completed' | 'shipping' | 'cancelled';
+}
 
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
-    case 'Completed':
-      return <CheckCircle className="text-green-500" size={16} />;
-    case 'Processing':
-      return <Clock className="text-blue-500" size={16} />;
-    case 'Shipping':
-      return <Truck className="text-orange-500" size={16} />;
-    case 'Cancelled':
-      return <AlertCircle className="text-red-500" size={16} />;
-    default:
-      return null;
+    case 'completed': return <CheckCircle className="text-green-500" size={16} />;
+    case 'pending': return <Clock className="text-blue-500" size={16} />;
+    case 'shipping': return <Truck className="text-orange-500" size={16} />;
+    case 'cancelled': return <AlertCircle className="text-red-500" size={16} />;
+    default: return <Clock className="text-blue-500" size={16} />;
   }
 };
 
 const getStatusClass = (status: Order['status']) => {
   switch (status) {
-    case 'Completed':
-      return 'bg-green-50 text-green-700 border-green-200';
-    case 'Processing':
-      return 'bg-blue-50 text-blue-700 border-blue-200';
-    case 'Shipping':
-      return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'Cancelled':
-      return 'bg-red-50 text-red-700 border-red-200';
-    default:
-      return '';
+    case 'completed': return 'bg-green-50 text-green-700 border-green-200';
+    case 'pending': return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'shipping': return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'cancelled': return 'bg-red-50 text-red-700 border-red-200';
+    default: return 'bg-blue-50 text-blue-700 border-blue-200';
   }
 };
 
+const statusDisplayMap = {
+  pending: 'Processing',
+  completed: 'Completed',
+  shipping: 'Shipping',
+  cancelled: 'Cancelled',
+};
+
 export const OrdersTable = () => {
+  const { data: orders, isLoading, isError } = useQuery<Order[]>({
+    queryKey: ['recent-orders'],
+    queryFn: async () => {
+      const response = await apiClient.admin.getRecentOrders();
+      return response.results.slice(0, 5); // Show last 5 orders
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <div className="p-5 border-b border-slate-200 flex justify-between items-center">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-8 w-24" />
+        </div>
+        <div className="p-4 space-y-4">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="flex items-center justify-between border-b border-slate-200 pb-4">
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+              <Skeleton className="h-4 w-24" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="bg-white rounded-lg border border-slate-200 p-6 text-center text-red-500">
+        Failed to load recent orders
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div className="flex justify-between items-center p-5 border-b border-slate-200">
         <h3 className="font-semibold text-lg text-slate-800">Recent Orders</h3>
-        <div className="flex items-center">
-          <button className="text-[#169061] hover:text-[#169061] transition-colors flex items-center text-sm font-medium">
-            <Download size={16} className="mr-1" /> Export
-          </button>
-        </div>
+        <button className="text-[#169061] hover:text-[#169061]/80 transition-colors flex items-center text-sm font-medium">
+          <Download size={16} className="mr-1" /> Export
+        </button>
       </div>
 
       <div className="overflow-x-auto">
@@ -128,33 +114,45 @@ export const OrdersTable = () => {
               <th className="text-left text-xs font-semibold text-slate-500 p-4">DATE</th>
               <th className="text-right text-xs font-semibold text-slate-500 p-4">AMOUNT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">STATUS</th>
-              <th className="text-center text-xs font-semibold text-slate-500 p-4">ACTIONS</th>
+              <th className="text-center text-xs font-semibold text-slate-500 p-4">Delivery Method</th>
             </tr>
           </thead>
           <tbody>
-            {recentOrders.map((order) => (
+            {orders?.map((order) => (
               <tr key={order.id} className="border-t border-slate-200 hover:bg-slate-50">
-                <td className="p-4 text-sm font-medium text-slate-900">{order.id}</td>
+                <td className="p-4 text-sm font-medium text-slate-900">#{order.id}</td>
                 <td className="p-4">
                   <div>
-                    <div className="text-sm font-medium text-slate-900">{order.customer.name}</div>
-                    <div className="text-xs text-slate-500">{order.customer.email}</div>
+                    <div className="text-sm font-medium text-slate-900">
+                      {order.user.first_name} {order.user.last_name}
+                    </div>
+                    <div className="text-xs text-slate-500">{order.user.email}</div>
                   </div>
                 </td>
-                <td className="p-4 text-sm text-slate-700">{order.product}</td>
-                <td className="p-4 text-sm text-slate-700">{order.quantity}</td>
-                <td className="p-4 text-sm text-slate-700">{order.date}</td>
-                <td className="p-4 text-sm font-medium text-slate-900 text-right">{order.amount}</td>
+                <td className="p-4 text-sm text-slate-700">
+                  {order.products.map(p => p.abbreviation).join(', ')}
+                </td>
+                <td className="p-4 text-sm text-slate-700">{order.quantity.toLocaleString()} L</td>
+                <td className="p-4 text-sm text-slate-700">
+                  {new Date(order.created_at).toLocaleDateString('en-GB', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric'
+                  })}
+                </td>
+                <td className="p-4 text-sm font-medium text-slate-900 text-right">
+                  ₦{parseFloat(order.total_price).toLocaleString()}
+                </td>
                 <td className="p-4">
                   <div className={`inline-flex items-center px-2 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
                     {getStatusIcon(order.status)}
-                    <span className="ml-1.5">{order.status}</span>
+                    <span className="ml-1.5">{statusDisplayMap[order.status]}</span>
                   </div>
                 </td>
-                <td className="p-4 text-center">
-                  <button className="text-slate-400 hover:text-slate-600">
-                    <MoreHorizontal size={16} />
-                  </button>
+                <td className="p-4">
+                  <div className={`inline-flex items-center px-2 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.delivery_method)}`}>
+                    Pickup
+                  </div>
                 </td>
               </tr>
             ))}
@@ -163,9 +161,9 @@ export const OrdersTable = () => {
       </div>
       
       <div className="p-4 border-t border-slate-200 text-center">
-        <button className="text-[#169061] hover:text-[#169061] transition-colors text-sm font-medium">
+        <Link to="/orders" className="text-[#169061] hover:text-[#169061]/80 transition-colors text-sm font-medium">
           View All Orders
-        </button>
+        </Link>
       </div>
     </div>
   );

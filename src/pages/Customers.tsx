@@ -23,37 +23,53 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { useState } from 'react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type Customer = {
-  id: string;
-  name: string;
+  id: number;
+  first_name: string;
+  last_name: string;
   email: string;
-  phone?: string;
-  company?: string;
-  status: 'Active' | 'Inactive' | 'Pending';
-  lastOrderDate?: string;
-  totalSpent?: string;
+  phone_number?: string;
+  company_name?: string;
+  created_at: string;
 };
+
+interface ApiResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: Customer[];
+}
 
 const Customers = () => {
   const [searchQuery, setSearchQuery] = useState('');
   
-  const { data: customers = [], isLoading, isError, error, refetch } = useQuery<Customer[]>({
+  const { data: response, isLoading, isError, error, refetch } = useQuery<ApiResponse>({
     queryKey: ['customers'],
     queryFn: async () => {
       const response = await apiClient.admin.adminGetAllCustomers();
-      return Array.isArray(response) ? response : [];
+      return {
+        count: response.count || 0,
+        next: response.next || null,
+        previous: response.previous || null,
+        results: Array.isArray(response.results) ? response.results : []
+      };
     },
     retry: 2,
     refetchOnWindowFocus: false
   });
 
-  const filteredCustomers = customers.filter(customer => 
-    customer.id.toLowerCase().includes(searchQuery) ||
-    customer.name.toLowerCase().includes(searchQuery) ||
-    customer.email.toLowerCase().includes(searchQuery) ||
-    (customer.company && customer.company.toLowerCase().includes(searchQuery))
-  );
+  const customers = response?.results || [];
+  const filteredCustomers = customers.filter(customer => {
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      customer.id.toString().includes(searchLower) ||
+      `${customer.first_name} ${customer.last_name}`.toLowerCase().includes(searchLower) ||
+      customer.email.toLowerCase().includes(searchLower) ||
+      (customer.company_name && customer.company_name.toLowerCase().includes(searchLower))
+    );
+  });
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value.toLowerCase());
@@ -76,7 +92,7 @@ const Customers = () => {
               </Button>
             </div>
             
-            {/* Search and Filters - Always visible */}
+            {/* Search and Filters */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">
@@ -102,39 +118,46 @@ const Customers = () => {
               </div>
             </div>
             
-            {/* Customers Table with inline loading */}
+            {/* Customers Table */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>CUSTOMER ID</TableHead>
+                    <TableHead>ID</TableHead>
                     <TableHead>NAME</TableHead>
                     <TableHead>COMPANY</TableHead>
                     <TableHead>EMAIL</TableHead>
                     <TableHead>PHONE</TableHead>
-                    <TableHead>LAST ORDER</TableHead>
-                    <TableHead className="text-right">TOTAL SPENT</TableHead>
-                    <TableHead>STATUS</TableHead>
-                    <TableHead className="text-center">ACTIONS</TableHead>
+                    <TableHead>JOINED</TableHead>
+                    <TableHead className="text-right">ACTIONS</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    // Loading skeleton
-                    <TableRow>
-                      <TableCell colSpan={9} className="text-center">
-                        Loading customers...
-                      </TableCell>
-                    </TableRow>
+                    // Loading state
+                    Array.from({ length: 5 }).map((_, index) => (
+                      <TableRow key={index}>
+                        <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell className="text-right">
+                          <Skeleton className="h-8 w-8 mx-auto" />
+                        </TableCell>
+                      </TableRow>
+                    ))
                   ) : isError ? (
                     // Error state
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-red-500 py-8">
-                        <div className="space-y-2">
+                      <TableCell colSpan={7} className="text-center py-8">
+                        <div className="text-red-500 space-y-2">
                           <p>{(error as Error)?.message || 'Failed to load customers'}</p>
                           <Button 
                             onClick={() => refetch()}
                             size="sm"
+                            variant="outline"
                           >
                             Retry
                           </Button>
@@ -142,13 +165,13 @@ const Customers = () => {
                       </TableCell>
                     </TableRow>
                   ) : filteredCustomers.length === 0 ? (
-                    // No results
+                    // Empty state
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8">
+                      <TableCell colSpan={7} className="text-center py-8">
                         <p className="text-slate-500">
                           {searchQuery.trim() ? 
-                            'No customers found matching your search criteria.' : 
-                            'No customers available.'
+                            'No customers found matching your search' : 
+                            'No customers available'
                           }
                         </p>
                       </TableCell>
@@ -157,7 +180,23 @@ const Customers = () => {
                     // Customer data
                     filteredCustomers.map((customer) => (
                       <TableRow key={customer.id}>
-                        {/* ... existing customer row cells ... */}
+                        <TableCell className="font-medium">#{customer.id}</TableCell>
+                        <TableCell>
+                          {customer.first_name} {customer.last_name}
+                        </TableCell>
+                        <TableCell>
+                          {customer.company_name || 'N/A'}
+                        </TableCell>
+                        <TableCell>{customer.email}</TableCell>
+                        <TableCell>{customer.phone_number || 'N/A'}</TableCell>
+                        <TableCell>
+                          {new Date(customer.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal size={16} />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}

@@ -11,38 +11,6 @@ const notifications = [
     type: 'order',
     read: false,
   },
-  {
-    id: 2,
-    title: 'Payment confirmed',
-    message: 'Payment of ₦4,720,000 for order #71204 has been received',
-    time: '1 hour ago',
-    type: 'payment',
-    read: false,
-  },
-  {
-    id: 3,
-    title: 'Low inventory alert',
-    message: 'LPG stock is below 50% at Lagos depot',
-    time: '2 hours ago',
-    type: 'inventory',
-    read: true,
-  },
-  {
-    id: 4,
-    title: 'Delivery completed',
-    message: 'Order #71198 has been successfully delivered to ABC Transport',
-    time: '5 hours ago',
-    type: 'delivery',
-    read: true,
-  },
-  {
-    id: 5,
-    title: 'New customer registration',
-    message: 'Green Energy Ltd has created a new account',
-    time: 'Yesterday',
-    type: 'customer',
-    read: true,
-  },
 ];
 
 const getNotificationIcon = (type: string) => {
@@ -72,7 +40,9 @@ export const NotificationList = () => {
         </button>
       </div>
 
-      <div className="divide-y divide-slate-200 max-h-[400px] overflow-y-auto">
+      <h1 className='text-center text-2xl font-bold text-slate-800'>Coming Soon</h1>
+
+      {/* <div className="divide-y divide-slate-200 max-h-[400px] overflow-y-auto">
         {notifications.map((notification) => (
           <div 
             key={notification.id} 
@@ -97,7 +67,7 @@ export const NotificationList = () => {
             )}
           </div>
         ))}
-      </div>
+      </div> */}
       
       <div className="p-4 border-t border-slate-200 text-center">
         <button className="text-soroman-blue hover:text-soroman-orange transition-colors text-sm font-medium">

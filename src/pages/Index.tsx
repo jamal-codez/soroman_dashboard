@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { StatCard } from '@/components/StatCard';
@@ -18,14 +18,22 @@ import { apiClient } from '@/api/client';
 import { OrdersTable } from '@/components/OrdersTable';
 import { AnalyticsData, Product, Order, Customer } from '@/type';
 
+// Helper function to format millions
+const formatMillion = (num) => {
+  if (num >= 1_000_000) {
+    return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`;
+  }
+  return num.toLocaleString();
+};
+
 const Dashboard = () => {
-  // Fetch analytics data
+  const queryClient = useQueryClient();
+
   const { data: analytics, isLoading: analyticsLoading } = useQuery<AnalyticsData>({
     queryKey: ['analytics'],
     queryFn: () => apiClient.admin.getAnalytics(),
   });
 
-  // Fetch and transform sales overview data
   const { data: salesOverview } = useQuery({
     queryKey: ['sales-overview'],
     queryFn: () => apiClient.admin.getSalesOverview(),
@@ -41,25 +49,21 @@ const Dashboard = () => {
     }
   });
 
-  // Fetch product inventory
   const { data: products } = useQuery<Product[]>({
     queryKey: ['products'],
     queryFn: () => apiClient.admin.getProductInventory(),
   });
 
-  // Fetch all orders
   const { data: orders } = useQuery<Order[]>({
     queryKey: ['orders'],
     queryFn: () => apiClient.admin.getAllAdminOrders(),
   });
 
-  // Fetch customers
   const { data: customers } = useQuery<Customer[]>({
     queryKey: ['customers'],
     queryFn: () => apiClient.admin.adminGetAllCustomers(),
   });
 
-  // Calculate fuel metrics from analytics
   const fuelMetrics = analytics?.quantity_sold?.reduce((acc, product) => ({
     volume: acc.volume + product.current_quantity,
     change: acc.change + product.change
@@ -68,18 +72,17 @@ const Dashboard = () => {
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
-      
+
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
-        
+
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="mb-6">
               <h1 className="text-2xl font-bold text-slate-800">Dashboard</h1>
               <p className="text-slate-500">Welcome back, monitor your business at a glance.</p>
             </div>
-            
-            {/* Stats Overview */}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               <StatCard
                 title="Total Orders"
@@ -93,7 +96,7 @@ const Dashboard = () => {
               />
               <StatCard
                 title="Sales Revenue"
-                value={`₦${(analytics?.sales_revenue || 0).toLocaleString()}`}
+                value={`₦${formatMillion(analytics?.sales_revenue || 0)}`}
                 change={`+${analytics?.sales_revenue_change}%`}
                 changeDirection="up"
                 icon={TrendingUp}
@@ -148,12 +151,12 @@ const Dashboard = () => {
             </div>
             
             {/* Quick Actions */}
-            <div className="mb-6">
+            {/* <div className="mb-6">
               <QuickActions 
                 onNotify={(data) => apiClient.admin.sendNotification(data)}
                 onStockUpdate={(productId, data) => apiClient.admin.adminUpdateProduct(productId, data)}
               />
-            </div>
+            </div> */}
             
             {/* Bottom Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

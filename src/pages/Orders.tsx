@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -15,7 +16,6 @@ import {
   Download,
   Filter,
   Search,
-  Plus,
   CheckCircle,
   Clock,
   Truck,
@@ -23,7 +23,6 @@ import {
   MoreHorizontal
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { useState } from 'react';
 import { format } from 'date-fns';
 
 interface Order {
@@ -69,20 +68,39 @@ const getStatusClass = (status: Order['status']) => {
   }
 };
 
+const pageSize = 10;
+
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['all-orders'],
+    queryKey: ['all-orders', currentPage],
     queryFn: async () => {
-      const response = await apiClient.admin.getAllAdminOrders();
-      return response.results || [];
+      const response = await apiClient.admin.getAllAdminOrders({
+        page: currentPage,
+        page_size: pageSize
+      });
+      return {
+        results: response.results || [],
+        count: response.count || 0,
+      };
     },
     retry: 2,
     refetchOnWindowFocus: false
   });
 
-  const filteredOrders = (apiResponse || []).filter(order => {
+  const totalPages = Math.ceil((apiResponse?.count || 0) / pageSize);
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) setCurrentPage(prev => prev - 1);
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage(prev => prev + 1);
+  };
+
+  const filteredOrders = (apiResponse?.results || []).filter(order => {
     const searchLower = searchQuery.toLowerCase();
     return (
       order.id.toString().includes(searchLower) ||
@@ -143,14 +161,9 @@ const Orders = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Orders</h1>
-              <Button className="bg-soroman-orange hover:bg-[#169061]/90">
-                <Plus className="mr-1" size={16} />
-                New Order
-              </Button>
+              <h1 className="text-2xl font-bold text-slate-800">Orders Dashboard</h1>
             </div>
             
-            {/* Search and Filters */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">
@@ -176,7 +189,6 @@ const Orders = () => {
               </div>
             </div>
             
-            {/* Orders Table */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <Table>
                 <TableHeader>
@@ -188,7 +200,7 @@ const Orders = () => {
                     <TableHead>DATE</TableHead>
                     <TableHead className="text-right">AMOUNT</TableHead>
                     <TableHead>STATUS</TableHead>
-                    <TableHead className="text-center">ACTIONS</TableHead>
+                    <TableHead className="text-center">Delivery Method</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -223,21 +235,45 @@ const Orders = () => {
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-center">
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal size={16} />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+                      <TableCell>
+                        <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.delivery_method)}`}>
+                          Pickup
+                        </div>
+                      </TableCell>                    
+                      </TableRow>
                   ))}
                 </TableBody>
               </Table>
               
-              {filteredOrders.length === 0 && (
+              {filteredOrders.length === 0 ? (
                 <div className="p-8 text-center">
                   <p className="text-slate-500">
                     {searchQuery.trim() ? 'No orders found matching your search criteria.' : 'No orders available.'}
                   </p>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
+                  <div className="text-sm text-slate-600">
+                    Showing {(currentPage - 1) * pageSize + 1} -{' '}
+                    {Math.min(currentPage * pageSize, apiResponse?.count || 0)} of{' '}
+                    {apiResponse?.count || 0} results
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handlePreviousPage}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleNextPage}
+                      disabled={currentPage === totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
