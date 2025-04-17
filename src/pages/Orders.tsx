@@ -20,7 +20,8 @@ import {
   Clock,
   Truck,
   AlertCircle,
-  MoreHorizontal
+  MoreHorizontal,
+  Loader2
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { format } from 'date-fns';
@@ -121,7 +122,7 @@ const Orders = () => {
           <TopBar />
           <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
             <div className="text-center">
-              <p>Loading orders...</p>
+              <Loader2 className='animate-spin' color='green' size={54} />
             </div>
           </div>
         </div>

@@ -85,11 +85,11 @@ const Customers = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Customers</h1>
-              <Button className="bg-soroman-orange hover:bg-soroman-orange/90">
+              <h1 className="text-2xl font-bold text-slate-800">Customers Dashboard</h1>
+              {/* <Button className="bg-soroman-orange hover:bg-soroman-orange/90">
                 <Plus className="mr-1" size={16} />
                 New Customer
-              </Button>
+              </Button> */}
             </div>
             
             {/* Search and Filters */}

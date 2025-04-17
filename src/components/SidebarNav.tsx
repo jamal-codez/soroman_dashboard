@@ -14,7 +14,8 @@ import {
   LogOut,
   User,
   TruckIcon,
-  BanknoteIcon
+  BanknoteIcon,
+  HandHelpingIcon
 } from "lucide-react";
 
 const navItems = [
@@ -24,6 +25,7 @@ const navItems = [
   { title: "Customers", icon: Users, path: "/customers" },
   { title: "Finance", icon: BanknoteIcon, path: "/finance" },
   { title: "Release", icon: TruckIcon, path: "/release" },
+  { title: "Payment Verify", icon: HandHelpingIcon, path: "/payment-verify" },
   { title: "Notifications", icon: Bell, path: "/notifications" },
   { title: "Settings", icon: Settings, path: "/settings" }
 ];
