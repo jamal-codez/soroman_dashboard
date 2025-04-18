@@ -1,0 +1,50 @@
+name: Deploy Frontend to EC2 on Push
+
+on:
+  push:
+    branches: [ master ]  # Change to your deployment branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: SSH and Deploy DASHBOARD on EC2
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "Deploying frontend..."
+          cd soroman_dashboard || exit 1
+          git pull origin master || exit 1
+          npm install || exit 1
+          npm run build || exit 1
+          sudo rm -rf /var/www/react-dashboard/* || exit 1
+          sudo cp -r dist/* /var/www/react-dashboard/ || exit 1
+          sudo systemctl restart nginx || exit 1
+          echo "Frontend deployed successfully ✅"
+
+    - name: Notify on failure
+      if: failure()
+      uses: slackapi/slack-github-action@v1.24.0
+      with:
+        payload: |
+          {
+            "text": "🚨 DASHBOARD deployment failed to ${{ secrets.EC2_HOST }}"
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify on success
+      if: success()
+      uses: slackapi/slack-github-action@v1.24.0
+      with:
+        payload: |
+          {
+            "text": "✅ DASHBOARD deployment to ${{ secrets.EC2_HOST }} *succeeded*! 🎉"
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
