@@ -40,6 +40,12 @@ interface Order {
     name: string;
   }>;
   quantity: number;
+  delivery_method: 'pickup' | 'delivery'; // Added missing field
+}
+
+interface OrderResponse {
+  count: number;
+  results: Order[];
 }
 
 const statusDisplayMap = {
@@ -59,12 +65,13 @@ const getStatusIcon = (status: Order['status']) => {
   }
 };
 
-const getStatusClass = (status: Order['status']) => {
+const getStatusClass = (status: string) => {
   switch (status) {
     case 'completed': return 'bg-green-50 text-green-700 border-green-200';
     case 'pending': return 'bg-blue-50 text-blue-700 border-blue-200';
     case 'shipping': return 'bg-orange-50 text-orange-700 border-orange-200';
     case 'cancelled': return 'bg-red-50 text-red-700 border-red-200';
+    case 'delivery': return 'bg-purple-50 text-purple-700 border-purple-200';
     default: return 'bg-blue-50 text-blue-700 border-blue-200';
   }
 };
@@ -75,17 +82,24 @@ const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   
-  const { data: apiResponse, isLoading, isError, error, refetch } = useQuery({
+  const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
     queryKey: ['all-orders', currentPage],
     queryFn: async () => {
-      const response = await apiClient.admin.getAllAdminOrders({
-        page: currentPage,
-        page_size: pageSize
-      });
-      return {
-        results: response.results || [],
-        count: response.count || 0,
-      };
+      try {
+        const response = await apiClient.admin.getAllAdminOrders({
+          page: currentPage,
+          page_size: pageSize
+        });
+        
+        if (!response.results) throw new Error('Invalid response format');
+        
+        return {
+          count: response.count || 0,
+          results: response.results || []
+        };
+      } catch (error) {
+        throw new Error('Failed to fetch orders');
+      }
     },
     retry: 2,
     refetchOnWindowFocus: false
@@ -93,13 +107,8 @@ const Orders = () => {
 
   const totalPages = Math.ceil((apiResponse?.count || 0) / pageSize);
 
-  const handlePreviousPage = () => {
-    if (currentPage > 1) setCurrentPage(prev => prev - 1);
-  };
-
-  const handleNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage(prev => prev + 1);
-  };
+  const handlePreviousPage = () => currentPage > 1 && setCurrentPage(prev => prev - 1);
+  const handleNextPage = () => currentPage < totalPages && setCurrentPage(prev => prev + 1);
 
   const filteredOrders = (apiResponse?.results || []).filter(order => {
     const searchLower = searchQuery.toLowerCase();
@@ -139,10 +148,7 @@ const Orders = () => {
           <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
             <div className="text-center text-red-500">
               <p>Error: {(error as Error)?.message || 'Failed to load orders'}</p>
-              <Button 
-                onClick={() => refetch()} 
-                className="mt-4"
-              >
+              <Button onClick={() => refetch()} className="mt-4">
                 Retry
               </Button>
             </div>
@@ -201,7 +207,7 @@ const Orders = () => {
                     <TableHead>DATE</TableHead>
                     <TableHead className="text-right">AMOUNT</TableHead>
                     <TableHead>STATUS</TableHead>
-                    <TableHead className="text-center">Delivery Method</TableHead>
+                    <TableHead>DELIVERY METHOD</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -238,10 +244,10 @@ const Orders = () => {
                       </TableCell>
                       <TableCell>
                         <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.delivery_method)}`}>
-                          Pickup
+                          {order.delivery_method === 'delivery' ? 'Delivery' : 'Pickup'}
                         </div>
-                      </TableCell>                    
-                      </TableRow>
+                      </TableCell>
+                    </TableRow>
                   ))}
                 </TableBody>
               </Table>

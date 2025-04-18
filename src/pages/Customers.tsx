@@ -42,13 +42,19 @@ interface ApiResponse {
   results: Customer[];
 }
 
+const pageSize = 10; // Add page size constant
+
 const Customers = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1); // Add pagination state
   
   const { data: response, isLoading, isError, error, refetch } = useQuery<ApiResponse>({
-    queryKey: ['customers'],
+    queryKey: ['customers', currentPage], // Include current page in query key
     queryFn: async () => {
-      const response = await apiClient.admin.adminGetAllCustomers();
+      const response = await apiClient.admin.adminGetAllCustomers({
+        page: currentPage,
+        page_size: pageSize
+      });
       return {
         count: response.count || 0,
         next: response.next || null,
@@ -59,6 +65,16 @@ const Customers = () => {
     retry: 2,
     refetchOnWindowFocus: false
   });
+
+  const totalPages = Math.ceil((response?.count || 0) / pageSize); // Calculate total pages
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) setCurrentPage(prev => prev - 1);
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage(prev => prev + 1);
+  };
 
   const customers = response?.results || [];
   const filteredCustomers = customers.filter(customer => {
@@ -86,10 +102,6 @@ const Customers = () => {
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl font-bold text-slate-800">Customers Dashboard</h1>
-              {/* <Button className="bg-soroman-orange hover:bg-soroman-orange/90">
-                <Plus className="mr-1" size={16} />
-                New Customer
-              </Button> */}
             </div>
             
             {/* Search and Filters */}
@@ -202,6 +214,31 @@ const Customers = () => {
                   )}
                 </TableBody>
               </Table>
+              
+              {/* Pagination Controls */}
+              <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
+                <div className="text-sm text-slate-600">
+                  Showing {(currentPage - 1) * pageSize + 1} -{' '}
+                  {Math.min(currentPage * pageSize, response?.count || 0)} of{' '}
+                  {response?.count || 0} results
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handlePreviousPage}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleNextPage}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

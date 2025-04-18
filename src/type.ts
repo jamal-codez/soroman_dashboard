@@ -18,8 +18,20 @@ export interface AnalyticsData {
     lpg: number;
     jet: number;
   }
+
   
-  interface StatCardProps {
+
+  export interface ProductResponse {
+    results: Product[];
+    count: number;
+  }
+
+  export interface OrderResponse {
+    count: number;
+    results: Order[];
+  }
+  
+  export interface StatCardProps {
     title: string;
     value: string;
     change: string;

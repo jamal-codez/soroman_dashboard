@@ -33,23 +33,43 @@ export const apiClient = {
     },
 
     // All Orders (Admin View)
-    getAllAdminOrders: async () => {
-      const response = await fetch(`${ADMIN_BASE}/all-orders/`);
-      return response.json();
-    },
-
+      getAllAdminOrders: async (params?: { page?: number; page_size?: number }) => {
+        const url = new URL(`${ADMIN_BASE}/all-orders/`);
+        if (params) {
+          url.searchParams.append('page', params.page?.toString() || '1');
+          url.searchParams.append('page_size', params.page_size?.toString() || '10');
+        }
+        const response = await fetch(url.toString());
+        return response.json();
+      },
     // Products CRUD
-    adminGetProducts: async () => {
-      const response = await fetch(`${ADMIN_BASE}/products/`);
-      return response.json();
-    },
-
+      adminGetProducts: async (params?: { page?: number; page_size?: number }) => {
+        const url = new URL(`${ADMIN_BASE}/products/`);
+        if (params) {
+          Object.entries(params).forEach(([key, value]) => {
+            url.searchParams.append(key, value.toString());
+          });
+        }
+        const response = await fetch(url.toString());
+        return response.json();
+      },
+    // In client.tsx - Update the adminCreateProduct method
     adminCreateProduct: async (data: any) => {
       const response = await fetch(`${ADMIN_BASE}/products/`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          // Add authorization header if required
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
         body: JSON.stringify(data),
       });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to create product');
+      }
+      
       return response.json();
     },
 
@@ -75,8 +95,14 @@ export const apiClient = {
     },
 
     // Customers
-    adminGetAllCustomers: async () => {
-      const response = await fetch(`${ADMIN_BASE}/customers/`);
+    adminGetAllCustomers: async (params?: { page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/customers/`);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          url.searchParams.append(key, value.toString());
+        });
+      }
+      const response = await fetch(url.toString());
       return response.json();
     },
 
