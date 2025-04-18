@@ -40,7 +40,7 @@ export const NotificationList = () => {
         </button>
       </div>
 
-      <h1 className='text-center text-2xl font-bold text-slate-800'>Coming Soon</h1>
+      <h1 className='text-center text-2xl font-bold text-slate-800'>No Notifications Available</h1>
 
       {/* <div className="divide-y divide-slate-200 max-h-[400px] overflow-y-auto">
         {notifications.map((notification) => (
