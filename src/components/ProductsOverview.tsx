@@ -3,6 +3,7 @@ import { apiClient } from '@/api/client';
 import { Product } from '@/type';
 import { CircleAlert } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Link } from 'react-router-dom';
 
 export const ProductsOverview = () => {
   const { data: products, isLoading } = useQuery<Product[]>({
@@ -32,9 +33,11 @@ export const ProductsOverview = () => {
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div className="flex justify-between items-center p-5 border-b border-slate-200">
         <h3 className="font-semibold text-lg text-slate-800">Product Inventory</h3>
+        <Link to='/inventory'>
         <button className="text-sm text-soroman-blue hover:text-soroman-orange font-medium transition-colors">
           View All
         </button>
+        </Link>
       </div>
 
       <div className="divide-y divide-slate-200">
@@ -55,20 +58,25 @@ export const ProductsOverview = () => {
             </div>
             
             <div className="w-32">
-              <div className="flex justify-between mb-1">
-                <span className="text-xs font-medium text-slate-700">{product.stock_quantity}%</span>
-                <span className="text-xs text-slate-500">Capacity</span>
-              </div>
-              <div className="w-full bg-slate-200 rounded-full h-2">
-                <div 
-                  className={`h-2 rounded-full ${
-                    product.stock_quantity > 70 ? 'bg-green-500' : 
-                    product.stock_quantity > 40 ? 'bg-orange-500' : 'bg-red-500'
-                  }`} 
-                  style={{ width: `${product.stock_quantity}%` }}
-                ></div>
+            <div className="flex justify-between mb-1">
+              <span className="text-xs font-medium text-slate-700">
+                {Math.min(product.stock_quantity, 100)}%
+              </span>
+              <span className="text-xs text-slate-500">Capacity</span>
+            </div>
+            <div className="w-full bg-slate-200 rounded-full h-2">
+              <div 
+                className={`h-2 rounded-full ${
+                  product.stock_quantity > 70 ? 'bg-green-500' : 
+                  product.stock_quantity > 40 ? 'bg-orange-500' : 'bg-red-500'
+                }`} 
+                style={{ width: `${Math.min(product.stock_quantity, 100)}%` }}
+              >
+                
               </div>
             </div>
+          </div>
+          
           </div>
         ))}
       </div>
