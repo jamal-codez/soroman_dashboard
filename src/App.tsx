@@ -33,7 +33,7 @@ const App = () => (
           <Route path="/finance" element={<Finance />} />
           <Route path="/release" element={<Release />} />
           <Route path="/payment-verify" element={<PaymentVerification />} />
-          <Route path="/notification" element={<Notify />} />
+          <Route path="/notifications" element={<Notify />} />
           <Route path="/settings" element={<Settings />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

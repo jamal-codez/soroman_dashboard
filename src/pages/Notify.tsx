@@ -8,8 +8,13 @@ export default function Notify() {
         <SidebarNav />
         <div className='flex-1 flex flex-col overflow-hidden'>
             <TopBar />
-            
+        <div className="text-center h-[500px] grid items-center justify-center">
+  <h1 className="text-4xl font-bold mb-4">Coming Soon</h1>
+  <a href="/" className="text-blue-500 hover:text-blue-700 underline">
+    Return to Home
+  </a>
         </div>
+</div>
     </div>
   )
 }

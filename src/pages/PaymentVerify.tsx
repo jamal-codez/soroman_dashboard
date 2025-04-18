@@ -29,6 +29,7 @@ interface PaymentOrder {
 export default function PaymentVerification() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
 
   const { data: payments = [], isLoading } = useQuery<PaymentOrder[]>({
     queryKey: ['payment-orders'],
@@ -36,32 +37,20 @@ export default function PaymentVerification() {
   });
 
   const updatePaymentMutation = useMutation({
-    mutationFn: (orderId: number) => apiClient.admin.editPaymentOrder(orderId),
+    mutationFn: async (orderId: number) => {
+      setUpdatingPaymentId(orderId);
+      try {
+        await apiClient.admin.editPaymentOrder(orderId);
+      } finally {
+        setUpdatingPaymentId(null);
+      }
+    },
     onSuccess: () => queryClient.invalidateQueries(['payment-orders'])
   });
 
   const filteredPayments = payments.filter(payment =>
     payment.order_id.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  if (isLoading) {
-    return (
-      <div className="flex h-screen bg-slate-100">
-        <SidebarNav />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <TopBar />
-          <div className="flex-1 overflow-auto p-6">
-            <div className="max-w-7xl mx-auto space-y-4">
-              <Skeleton className="h-12 w-64" />
-              {[...Array(5)].map((_, i) => (
-                <Skeleton key={i} className="h-16 rounded-lg" />
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -98,37 +87,59 @@ export default function PaymentVerification() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredPayments.map((payment) => (
-                    <TableRow key={payment.id}>
-                      <TableCell>{payment.order_id}</TableCell>
-                      <TableCell>₦{payment.total_price.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <Badge variant={
-                          payment.payment_status === 'paid' ? 'default' :
-                          payment.payment_status === 'pending' ? 'secondary' : 'destructive'
-                        }>
-                          {payment.payment_status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{payment.payment_method}</TableCell>
-                      <TableCell>{new Date(payment.created_at).toLocaleDateString()}</TableCell>
-                      <TableCell>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          disabled={payment.payment_status !== 'pending'}
-                          onClick={() => updatePaymentMutation.mutate(payment.id)}
-                        >
-                          {updatePaymentMutation.isLoading ? (
-                            <Loader2 className="animate-spin mr-2" size={16} />
-                          ) : (
-                            <ShieldCheck className="mr-2" size={16} />
-                          )}
-                          {payment.payment_status === 'pending' ? 'Verify Payment' : 'Verified'}
-                        </Button>
+                  {isLoading ? (
+                    // Loading state
+                    [...Array(5)].map((_, index) => (
+                      <TableRow key={index}>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-8 w-32" /></TableCell>
+                      </TableRow>
+                    ))
+                  ) : filteredPayments.length === 0 ? (
+                    // Empty state
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center h-24">
+                        No payments found
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    // Data state
+                    filteredPayments.map((payment) => (
+                      <TableRow key={payment.id}>
+                        <TableCell>{payment.order_id}</TableCell>
+                        <TableCell>₦{payment.total_price.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Badge variant={
+                            payment.payment_status === 'paid' ? 'default' :
+                            payment.payment_status === 'pending' ? 'secondary' : 'destructive'
+                          }>
+                            {payment.payment_status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{payment.payment_method}</TableCell>
+                        <TableCell>{new Date(payment.created_at).toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            disabled={payment.payment_status !== 'pending' || updatingPaymentId === payment.id}
+                            onClick={() => updatePaymentMutation.mutate(payment.id)}
+                          >
+                            {updatingPaymentId === payment.id ? (
+                              <Loader2 className="animate-spin mr-2" size={16} />
+                            ) : (
+                              <ShieldCheck className="mr-2" size={16} />
+                            )}
+                            {payment.payment_status === 'pending' ? 'Verify Payment' : 'Verified'}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </div>
