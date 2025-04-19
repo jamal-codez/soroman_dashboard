@@ -25,14 +25,50 @@ interface ChartData {
   jet: number;
 }
 
+const transformData = (salesData: SalesData): ChartData[] => {
+  if (!salesData) return [];
+  
+  const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
+  const products = {
+    'Petroleum': 'pms',
+    'Diesel': 'ago',
+    'Jet Fuel': 'jet'
+  };
+  
+  return months.map(month => {
+    const monthData: ChartData = {
+      month: format(new Date(2023, parseInt(month) - 1, 1), 'MMM'),
+      pms: 0,
+      ago: 0,
+      lpg: 0,
+      jet: 0
+    };
+    
+    // Map each product to its abbreviation key
+    Object.entries(salesData).forEach(([product, monthlySales]) => {
+      const value = monthlySales[month] || 0;
+      const key = products[product];
+      if (key) {
+        monthData[key] = value / 1000; // Convert to thousands
+      }
+    });
+    
+    return monthData;
+  });
+};
+
 export const SalesChart = ({ data }: { data?: SalesData }) => {
+  // Determine the scale based on the maximum value
+  const maxValue = data ? Math.max(...Object.values(data).flatMap(monthlySales => Object.values(monthlySales))) : 0;
+  const scale = maxValue >= 1_000_000 ? 1_000_000 : maxValue >= 1_000 ? 1_000 : 1;
+
   // Transform API data into chart-compatible format
   const transformData = (salesData: SalesData): ChartData[] => {
     if (!salesData) return [];
     
     const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
     const products = ['Petrol', 'Diesel', 'Cooking Gas', 'Jet Fuel'];
-    
+
     return months.map(month => {
       const monthData: ChartData = {
         month: format(new Date(2023, parseInt(month) - 1, 1), 'MMM'),
@@ -47,16 +83,16 @@ export const SalesChart = ({ data }: { data?: SalesData }) => {
         const value = monthlySales[month] || 0;
         switch(product) {
           case 'Petrol':
-            monthData.pms = value / 1000; // Convert to thousands
+            monthData.pms = value / scale; // Adjust based on scale
             break;
           case 'Diesel':
-            monthData.ago = value / 1000;
+            monthData.ago = value / scale;
             break;
           case 'Cooking Gas':
-            monthData.lpg = value / 1000;
+            monthData.lpg = value / scale;
             break;
           case 'Jet Fuel':
-            monthData.jet = value / 1000;
+            monthData.jet = value / scale;
             break;
         }
       });
@@ -111,7 +147,11 @@ export const SalesChart = ({ data }: { data?: SalesData }) => {
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontSize: 12, fill: "#64748b" }}
-                tickFormatter={(value) => `₦${value}K`}
+                tickFormatter={(value) => {
+                  if (scale === 1_000_000) return `₦${value}m`;
+                  if (scale === 1_000) return `₦${value}k`;
+                  return `₦${value}`;
+                }}
               />
               <Tooltip 
                 contentStyle={{ 
@@ -127,7 +167,7 @@ export const SalesChart = ({ data }: { data?: SalesData }) => {
                     lpg: 'Cooking Gas (LPG)',
                     jet: 'Jet Fuel (JET)'
                   };
-                  return [`₦${(value * 1000).toLocaleString()}`, productNames[name] || name];
+                  return [`₦${(value * scale).toLocaleString()}`, productNames[name] || name];
                 }}
               />
               <Legend 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
@@ -21,14 +21,19 @@ import {
   CircleAlert,
   Edit,
   MoreHorizontal,
-  RefreshCw
+  RefreshCw,
+  Trash
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
+import AddProductModal from '@/components/AddProductModal';
+import DeleteConfirmationModal from '@/components/DeleteConfirmationModal';
+import { useToast } from '@/hooks/use-toast';
+import EditProductModal from '@/components/EditProductModal';
 
 interface Product {
   id: number;
   name: string;
-  code: string;
+  abbreviation: string;
   stock_quantity: number;
   unit_price: number;
   status: 'In Stock' | 'Low Stock' | 'Critical Stock';
@@ -38,15 +43,131 @@ interface Product {
 
 const Inventory = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    unit_price: '',
+    stock_quantity: '',
+    abbreviation: '',
+    description: ''
+  });
   
   const { data: inventory, isLoading, isError, refetch } = useQuery<Product[]>({
     queryKey: ['inventory'],
     queryFn: () => apiClient.admin.getProductInventory(),
+    // Force fresh data on mount
+    staleTime: 0,
+    cacheTime: 0
   });
+
+  const queryClient = useQueryClient();
+
+  const { toast } = useToast();
+
+  const updateProductMutation = useMutation({
+    mutationFn: (updatedProduct: Product) =>
+      apiClient.admin.adminUpdateProduct(updatedProduct.id, updatedProduct),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['inventory']);
+      setEditingProduct(null);
+    }
+  });
+
+  const handleProductAdded = () => {
+    // Invalidate query and force refresh
+    refetch();
+  };
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value.toLowerCase());
   };
+
+  const handleAddProductClick = () => {
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteClick = (productId: number) => {
+    setProductToDelete(productId);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (productToDelete !== null) {
+      setIsDeleting(true);
+      try {
+        await apiClient.admin.adminDeleteProduct(productToDelete);
+        refetch(); // Refresh the inventory list
+        toast({
+          title: "Success!",
+          description: "Product deleted successfully",
+        });
+      } catch (error) {
+        console.error("Failed to delete product:", error);
+        toast({
+          title: "Error",
+          description: error.message || "Failed to delete product",
+          variant: "destructive"
+        });
+      } finally {
+        setIsDeleting(false);
+        setIsDeleteModalOpen(false);
+        setProductToDelete(null);
+      }
+    }
+  };
+
+  const handleEditClick = (product: Product) => {
+    setEditingProduct(product);
+    setEditFormData({
+      name: product.name,
+      unit_price: product.unit_price.toString(),
+      stock_quantity: product.stock_quantity.toString(),
+      abbreviation: product.abbreviation,
+      description: '' // Assuming description is not part of the Product interface
+    });
+  };
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditFormData(prev => ({
+      ...prev,
+      [e.target.name]: e.target.value
+    }));
+  };
+
+  const handleEditSubmit = () => {
+    if (editingProduct) {
+      const updatedProduct = {
+        ...editingProduct,
+        ...editFormData,
+        unit_price: parseFloat(editFormData.unit_price),
+        stock_quantity: parseInt(editFormData.stock_quantity, 10)
+      };
+      updateProductMutation.mutate(updatedProduct);
+    }
+  };
+
+  const determineStatus = (percentage: number): 'In Stock' | 'Low Stock' | 'Critical Stock' => {
+    if (percentage > 70) {
+      return 'In Stock';
+    } else if (percentage > 40) {
+      return 'Low Stock';
+    } else {
+      return 'Critical Stock';
+    }
+  };
+
+  const filteredInventory = inventory?.map(item => ({
+    ...item,
+    status: determineStatus(item.stock_quantity / 1000 * 100)
+  })).filter(item => 
+    item.name.toLowerCase().includes(searchQuery) ||
+    item.abbreviation.toLowerCase().includes(searchQuery) ||
+    item.location.toLowerCase().includes(searchQuery)
+  ) || [];
 
   const getStockBadge = (status: string) => {
     switch (status) {
@@ -60,12 +181,6 @@ const Inventory = () => {
         return <Badge>{status}</Badge>;
     }
   };
-
-  const filteredInventory = inventory?.filter(item => 
-    item.name.toLowerCase().includes(searchQuery) ||
-    item.code.toLowerCase().includes(searchQuery) ||
-    item.location.toLowerCase().includes(searchQuery)
-  ) || [];
 
   if (isError) {
     return (
@@ -95,7 +210,7 @@ const Inventory = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
+              <h1 className="text-2xl font-bold text-slate-800">Inventory Dashboard</h1>
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 
@@ -105,7 +220,10 @@ const Inventory = () => {
                   <RefreshCw className={`mr-1 ${isLoading ? 'animate-spin' : ''}`} size={16} />
                   {isLoading ? 'Refreshing...' : 'Refresh'}
                 </Button>
-                <Button className="bg-soroman-orange hover:bg-soroman-orange/90">
+                <Button 
+                  className="bg-[#169061] hover:bg-[#169061]/90"
+                  onClick={handleAddProductClick}
+                >
                   <Plus className="mr-1" size={16} />
                   Add Product
                 </Button>
@@ -144,9 +262,8 @@ const Inventory = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>PRODUCT NAME</TableHead>
-                    <TableHead>CODE</TableHead>
+                    <TableHead>abbreviation</TableHead>
                     <TableHead>PRICE</TableHead>
-                    <TableHead>LOCATION</TableHead>
                     <TableHead>STOCK LEVEL</TableHead>
                     <TableHead>STATUS</TableHead>
                     <TableHead>LAST UPDATED</TableHead>
@@ -167,50 +284,76 @@ const Inventory = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredInventory.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium">{item.name}</TableCell>
-                        <TableCell>{item.code}</TableCell>
-                        <TableCell>₦{item.unit_price}/Liter</TableCell>
-                        <TableCell>{item.location}</TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="flex justify-between mb-1">
-                              <span className="text-xs font-medium">{item.stock_quantity}%</span>
+                    filteredInventory.map((item) => {
+                      const maxStock = 1000;
+                      const stockPercentage = (item.stock_quantity / maxStock) * 100;
+
+                      return (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-medium">{item.name}</TableCell>
+                          <TableCell>{item.abbreviation}</TableCell>
+                          <TableCell>₦{item.unit_price}/Liter</TableCell>
+                          <TableCell>
+                            <div>
+                              <div className="flex justify-between mb-1">
+                                <span className="text-xs font-medium">{stockPercentage.toFixed(0)}%</span>
+                              </div>
+                              <div className="w-full bg-slate-200 rounded-full h-2">
+                                <div 
+                                  className={`h-2 rounded-full ${
+                                    stockPercentage > 70 ? 'bg-green-500' : 
+                                    stockPercentage > 40 ? 'bg-orange-500' : 'bg-red-500'
+                                  }`} 
+                                  style={{ width: `${stockPercentage}%` }}
+                                ></div>
+                              </div>
                             </div>
-                            <div className="w-full bg-slate-200 rounded-full h-2">
-                              <div 
-                                className={`h-2 rounded-full ${
-                                  item.stock_quantity > 70 ? 'bg-green-500' : 
-                                  item.stock_quantity > 40 ? 'bg-orange-500' : 'bg-red-500'
-                                }`} 
-                                style={{ width: `${item.stock_quantity}%` }}
-                              ></div>
+                          </TableCell>
+                          <TableCell>
+                            {getStockBadge(item.status)}
+                          </TableCell>
+                          <TableCell>
+                            {new Date(item.updated_at).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex justify-center gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => handleEditClick(item)}>
+                                <Edit size={16} />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => handleDeleteClick(item.id)}>
+                                <Trash size={16} color='red' />
+                              </Button>
                             </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {getStockBadge(item.status)}
-                        </TableCell>
-                        <TableCell>
-                          {new Date(item.updated_at).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex justify-center gap-1">
-                            <Button variant="ghost" size="icon">
-                              <Edit size={16} />
-                            </Button>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal size={16} />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
             </div>
+
+            <EditProductModal
+              isOpen={!!editingProduct}
+              onClose={() => setEditingProduct(null)}
+              formData={editFormData}
+              onChange={handleEditChange}
+              onSubmit={handleEditSubmit}
+              isLoading={updateProductMutation.isLoading}
+            />
+
+            <AddProductModal 
+              isOpen={isModalOpen} 
+              onClose={() => setIsModalOpen(false)} 
+              onProductAdded={handleProductAdded} 
+            />
+
+            <DeleteConfirmationModal
+              isOpen={isDeleteModalOpen}
+              onClose={() => setIsDeleteModalOpen(false)}
+              onConfirm={handleDeleteConfirm}
+              isLoading={isDeleting}
+            />
           </div>
         </div>
       </div>

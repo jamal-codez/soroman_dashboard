@@ -24,8 +24,8 @@ const navItems = [
   { title: "Inventory", icon: Fuel, path: "/inventory" },
   { title: "Customers", icon: Users, path: "/customers" },
   { title: "Finance", icon: BanknoteIcon, path: "/finance" },
-  { title: "Release", icon: TruckIcon, path: "/release" },
-  { title: "Payment Verify", icon: HandHelpingIcon, path: "/payment-verify" },
+  { title: "Product Release", icon: TruckIcon, path: "/release" },
+  { title: "Payment Verification", icon: HandHelpingIcon, path: "/payment-verify" },
   { title: "Notifications", icon: Bell, path: "/notifications" },
   { title: "Settings", icon: Settings, path: "/settings" }
 ];

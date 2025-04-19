@@ -59,7 +59,7 @@ const Dashboard = () => {
     queryFn: () => apiClient.admin.getAllAdminOrders(),
   });
 
-  const { data: customers } = useQuery<Customer[]>({
+  const { data: customerData } = useQuery({
     queryKey: ['customers'],
     queryFn: () => apiClient.admin.adminGetAllCustomers(),
   });
@@ -96,7 +96,7 @@ const Dashboard = () => {
               />
               <StatCard
                 title="Sales Revenue"
-                value={`₦${formatMillion(analytics?.sales_revenue || 0)}`}
+                value={`₦${formatMillion(analytics?.sales_revenue?.toLocaleString() || 0)}`}
                 change={`+${analytics?.sales_revenue_change}%`}
                 changeDirection="up"
                 icon={TrendingUp}
@@ -115,8 +115,8 @@ const Dashboard = () => {
                 isLoading={analyticsLoading}
               />
               <StatCard
-                title="Active Customers"
-                value={analytics?.active_customers?.toString() || '0'}
+                title="Total Customers"
+                value={customerData?.count.toString() || '0'}
                 change={`+${analytics?.active_customers_change}%`}
                 changeDirection="up"
                 icon={Users}
@@ -161,7 +161,7 @@ const Dashboard = () => {
             {/* Bottom Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <CustomerList 
-                customers={customers || []} 
+                customers={customerData?.customers || []} 
                 onCustomerSelect={(id) => {/* Implement customer detail view */}}
               />
               <NotificationList 

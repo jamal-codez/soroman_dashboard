@@ -34,13 +34,13 @@ interface Order {
     email: string;
   };
   total_price: string;
-  status: 'pending' | 'completed' | 'shipping' | 'cancelled';
+  status: 'pending' | 'paid' | 'cancelled';
   created_at: string;
   products: Array<{
     name: string;
   }>;
   quantity: number;
-  delivery_method: 'pickup' | 'delivery'; // Added missing field
+  release_type: 'pickup' | 'delivery'; // Added missing field
 }
 
 interface OrderResponse {
@@ -49,27 +49,24 @@ interface OrderResponse {
 }
 
 const statusDisplayMap = {
-  pending: 'Processing',
-  completed: 'Completed',
-  shipping: 'Shipping',
+  pending: 'pending',
+  paid: 'paid',
   cancelled: 'Cancelled',
 };
 
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
-    case 'completed': return <CheckCircle className="text-green-500" size={16} />;
-    case 'pending': return <Clock className="text-blue-500" size={16} />;
-    case 'shipping': return <Truck className="text-orange-500" size={16} />;
+    case 'paid': return <CheckCircle className="text-green-500" size={16} />;
+    case 'pending': return <Clock className="text-orange-500" size={16} />;
     case 'cancelled': return <AlertCircle className="text-red-500" size={16} />;
-    default: return <Clock className="text-blue-500" size={16} />;
+    default: return <Clock className="text-orange-500" size={16} />;
   }
 };
 
 const getStatusClass = (status: string) => {
   switch (status) {
-    case 'completed': return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending': return 'bg-blue-50 text-blue-700 border-blue-200';
-    case 'shipping': return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
+    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
     case 'cancelled': return 'bg-red-50 text-red-700 border-red-200';
     case 'delivery': return 'bg-purple-50 text-purple-700 border-purple-200';
     default: return 'bg-blue-50 text-blue-700 border-blue-200';
@@ -90,6 +87,7 @@ const Orders = () => {
           page: currentPage,
           page_size: pageSize
         });
+        console.log(response)
         
         if (!response.results) throw new Error('Invalid response format');
         
@@ -243,8 +241,8 @@ const Orders = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.delivery_method)}`}>
-                          {order.delivery_method === 'delivery' ? 'Delivery' : 'Pickup'}
+                        <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.release_type)}`}>
+                          {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                         </div>
                       </TableCell>
                     </TableRow>

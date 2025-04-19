@@ -62,7 +62,7 @@ export default function PaymentVerification() {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Payment Verification</h1>
+              <h1 className="text-2xl font-bold text-slate-800">Payment Verification Dashboard</h1>
               <div className="relative w-64">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
                 <Input

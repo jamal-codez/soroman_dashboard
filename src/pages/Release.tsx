@@ -60,7 +60,7 @@ export default function Release (){
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold">Product Release</h1>
+            <h1 className="text-2xl font-bold">Product Release Dashboard</h1>
             <Button>
               <ClipboardList className="mr-1" size={16} />
               New Release Order
