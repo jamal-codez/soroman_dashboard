@@ -85,6 +85,11 @@ export default function Finance() {
     productId: null,
     updatedPrice: null,
   });
+  const [confirmStateDialog, setConfirmStateDialog] = useState<{ isOpen: boolean; stateId: number | null; updatedPrice: number | null }>({
+    isOpen: false,
+    stateId: null,
+    updatedPrice: null,
+  });
 
   // Separate queries for each data source
   const financeOverviewQuery = useQuery<FinanceOverview>({
@@ -220,6 +225,16 @@ export default function Finance() {
       );
     }
     setConfirmDialog({ isOpen: false, productId: null, updatedPrice: null });
+  };
+
+  const handleStateConfirm = () => {
+    if (confirmStateDialog.stateId !== null && confirmStateDialog.updatedPrice !== null) {
+      updateStatePriceMutation.mutate({
+        id: confirmStateDialog.stateId,
+        price: confirmStateDialog.updatedPrice,
+      });
+    }
+    setConfirmStateDialog({ isOpen: false, stateId: null, updatedPrice: null });
   };
 
   const paginatedStates = stateQuery.data?.slice(
@@ -445,17 +460,20 @@ export default function Finance() {
                           <TableCell>{new Date(state.updated_at).toISOString().slice(0, 10)}</TableCell>
                           <TableCell>
                             <Button
-                              className="bg-[#169061] hover:bg-[#169061]/90"
+                              className="bg-[#169061] hover:bg-[#169061]/90 flex items-center"
                               onClick={() => {
                                 const updatedPrice = localState[state.id]?.price || state.price;
-                                updateStatePriceMutation.mutate({
-                                  id: state.id,
-                                  price: updatedPrice,
-                                });
+                                if (updatedPrice !== state.price) {
+                                  setConfirmStateDialog({ isOpen: true, stateId: state.id, updatedPrice });
+                                }
                               }}
                               disabled={updateStatePriceMutation.isLoading}
                             >
-                              {updateStatePriceMutation.isLoading ? 'Saving...' : 'Save'}
+                              {updateStatePriceMutation.isLoading ? (
+                                <Loader2 className="animate-spin mr-2" size={16} />
+                              ) : (
+                                'Save'
+                              )}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -600,6 +618,24 @@ export default function Finance() {
               Cancel
             </Button>
             <Button className="bg-[#169061] hover:bg-[#169061]/90" onClick={handleConfirm}>
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation Dialog for State Price */}
+      <Dialog open={confirmStateDialog.isOpen} onOpenChange={() => setConfirmStateDialog({ isOpen: false, stateId: null, updatedPrice: null })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Update</DialogTitle>
+          </DialogHeader>
+          <p>Are you sure you want to update the state price?</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmStateDialog({ isOpen: false, stateId: null, updatedPrice: null })}>
+              Cancel
+            </Button>
+            <Button className="bg-[#169061] hover:bg-[#169061]/90" onClick={handleStateConfirm}>
               Confirm
             </Button>
           </DialogFooter>
