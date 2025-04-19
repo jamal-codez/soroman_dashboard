@@ -36,6 +36,7 @@ import { TopBar } from '@/components/TopBar';
 import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+// import { useToast } from '@/components/ui/toast'; // Import toast hook
 
 interface FinanceOverview {
   total_revenue: number;
@@ -71,12 +72,19 @@ interface BankAccount {
 
 export default function Finance() {
   const queryClient = useQueryClient();
+  // const { toast } = useToast(); // Initialize toast
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', acct_no: '', bank_name: '' });
   const [submissionStatus, setSubmissionStatus] = useState<'success' | 'error' | null>(null);
+  const [localState, setLocalState] = useState<{ [key: number]: StatePrice }>({});
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; productId: number | null; updatedPrice: number | null }>({
+    isOpen: false,
+    productId: null,
+    updatedPrice: null,
+  });
 
   // Separate queries for each data source
   const financeOverviewQuery = useQuery<FinanceOverview>({
@@ -122,8 +130,12 @@ export default function Finance() {
   // Mutations
   const updatePriceMutation = useMutation({
     mutationFn: ({ id, price }: { id: number; price: number }) =>
-      apiClient.admin.adminUpdateProduct(id, { unit_price: price }),
-    onSuccess: () => queryClient.invalidateQueries(['products'])
+      apiClient.admin.updateProductPrice(id, { unit_price: price }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['products']);
+    },
+    onError: () => {
+    },
   });
 
   const updateStatePriceMutation = useMutation({
@@ -172,7 +184,42 @@ export default function Finance() {
       setTimeout(() => setSubmissionStatus(null), 2000);
       return;
     }
-    addBankAccountMutation.mutate(formData);
+    addBankAccountMutation.mutate(formData, {
+      onSuccess: () => {
+        setSubmissionStatus('success');
+      },
+      onError: () => {
+        setSubmissionStatus('error');
+      },
+    });
+  };
+
+  const handleConfirm = () => {
+    if (confirmDialog.productId !== null && confirmDialog.updatedPrice !== null) {
+      updatePriceMutation.mutate(
+        {
+          id: confirmDialog.productId,
+          price: confirmDialog.updatedPrice,
+        },
+        {
+          onSuccess: () => {
+            toast({
+              title: 'Success',
+              description: 'Product price updated successfully!',
+              variant: 'success',
+            });
+          },
+          onError: () => {
+            toast({
+              title: 'Error',
+              description: 'Failed to update product price. Please try again.',
+              variant: 'error',
+            });
+          },
+        }
+      );
+    }
+    setConfirmDialog({ isOpen: false, productId: null, updatedPrice: null });
   };
 
   const paginatedStates = stateQuery.data?.slice(
@@ -251,27 +298,7 @@ export default function Finance() {
                   <Wallet className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {bankAccountsQuery.isLoading ? (
-                    [...Array(2)].map((_, i) => (
-                      <Skeleton key={i} className="h-12 w-full" />
-                    ))
-                  ) : (
-                    bankAccountsQuery.data?.map((account) => (
-                      <div key={account.id} className="flex justify-between items-center">
-                        <div>
-                          <p className="text-sm font-medium">{account.bank_name}</p>
-                          <p className="text-xs text-muted-foreground">{account.account_number}</p>
-                        </div>
-                        <Button variant="ghost" size="sm">
-                          <MoreVertical size={16} />
-                        </Button>
-                      </div>
-                    ))
-                  )}
-                  <Button variant="outline" className="w-full mt-2">
-                    <Plus size={16} className="mr-2" />
-                    Add Account
-                  </Button>
+                  
                 </CardContent>
               </Card>
 
@@ -333,18 +360,34 @@ export default function Finance() {
                         <TableCell>
                           <Input
                             type="number"
-                            value={product.unit_price}
-                            onChange={(e) => updatePriceMutation.mutate({
-                              id: product.id,
-                              price: Number(e.target.value)
-                            })}
+                            value={localState[product.id]?.unit_price ?? product.unit_price}
+                            onChange={(e) => {
+                              const updatedPrice = Number(e.target.value);
+                              setLocalState((prev) => ({
+                                ...prev,
+                                [product.id]: { ...product, unit_price: updatedPrice },
+                              }));
+                            }}
                             className="w-32"
                           />
                         </TableCell>
                         <TableCell>{product.updated_at}</TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical size={16} />
+                          <Button
+                            className="bg-[#169061] hover:bg-[#169061]/90 flex items-center"
+                            onClick={() => {
+                              const updatedPrice = localState[product.id]?.unit_price ?? product.unit_price;
+                              if (updatedPrice !== product.unit_price) {
+                                setConfirmDialog({ isOpen: true, productId: product.id, updatedPrice });
+                              }
+                            }}
+                            disabled={updatePriceMutation.isLoading}
+                          >
+                            {updatePriceMutation.isLoading ? (
+                              <Loader2 className="animate-spin mr-2" size={16} />
+                            ) : (
+                              'Edit'
+                            )}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -388,13 +431,14 @@ export default function Finance() {
                           <TableCell>
                             <Input
                               type="number"
-                              value={state.price}
-                              onChange={(e) =>
-                                updateStatePriceMutation.mutate({
-                                  id: state.id,
-                                  price: Number(e.target.value),
-                                })
-                              }
+                              value={localState[state.id]?.price || state.price}
+                              onChange={(e) => {
+                                const updatedPrice = Number(e.target.value);
+                                setLocalState((prev) => ({
+                                  ...prev,
+                                  [state.id]: { ...state, price: updatedPrice },
+                                }));
+                              }}
                               className="w-32"
                             />
                           </TableCell>
@@ -402,12 +446,13 @@ export default function Finance() {
                           <TableCell>
                             <Button
                               className="bg-[#169061] hover:bg-[#169061]/90"
-                              onClick={() =>
+                              onClick={() => {
+                                const updatedPrice = localState[state.id]?.price || state.price;
                                 updateStatePriceMutation.mutate({
                                   id: state.id,
-                                  price: state.price,
-                                })
-                              }
+                                  price: updatedPrice,
+                                });
+                              }}
                               disabled={updateStatePriceMutation.isLoading}
                             >
                               {updateStatePriceMutation.isLoading ? 'Saving...' : 'Save'}
@@ -530,26 +575,34 @@ export default function Finance() {
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>
               Cancel
             </Button>
-            <Button
-              className="bg-[#169061] hover:bg-[#169061]/90"
-              onClick={handleSubmit}
-              disabled={addBankAccountMutation.isLoading}
-            >
-              {addBankAccountMutation.isLoading ? 'Submitting...' : 'Submit'}
+            <Button className="bg-[#169061] hover:bg-[#169061]/90" onClick={handleSubmit}>
+              {submissionStatus === 'success' ? (
+                <CheckCircle className="mr-2" size={16} />
+              ) : submissionStatus === 'error' ? (
+                <XCircle className="mr-2" size={16} />
+              ) : (
+                'Submit'
+              )}
             </Button>
           </DialogFooter>
-          {submissionStatus === 'success' && (
-            <div className="flex items-center mt-4 text-green-500">
-              <CheckCircle className="mr-2" size={20} />
-              Bank account added successfully!
-            </div>
-          )}
-          {submissionStatus === 'error' && (
-            <div className="flex items-center mt-4 text-red-500">
-              <XCircle className="mr-2" size={20} />
-              Failed to add bank account. Please try again.
-            </div>
-          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Dialog */}
+      <Dialog open={confirmDialog.isOpen} onOpenChange={() => setConfirmDialog({ isOpen: false, productId: null, updatedPrice: null })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Update</DialogTitle>
+          </DialogHeader>
+          <p>Are you sure you want to update the product price?</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDialog({ isOpen: false, productId: null, updatedPrice: null })}>
+              Cancel
+            </Button>
+            <Button className="bg-[#169061] hover:bg-[#169061]/90" onClick={handleConfirm}>
+              Confirm
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
