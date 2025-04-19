@@ -21,7 +21,10 @@ import {
   ArrowDown,
   Plus,
   MoreVertical,
-  Loader2
+  Loader2,
+  RefreshCw,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -32,6 +35,7 @@ import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 interface FinanceOverview {
   total_revenue: number;
@@ -52,19 +56,27 @@ interface Product {
 interface StatePrice {
   id: number;
   name: string;
+  abbreviation: string;
   price: number;
+  updated_at: string;
 }
 
 interface BankAccount {
   id: number;
   bank_name: string;
-  account_number: string;
-  account_name: string;
+  acct_no: string;
+  name: string;
+  created_at: string;
 }
 
 export default function Finance() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState({ name: '', acct_no: '', bank_name: '' });
+  const [submissionStatus, setSubmissionStatus] = useState<'success' | 'error' | null>(null);
 
   // Separate queries for each data source
   const financeOverviewQuery = useQuery<FinanceOverview>({
@@ -89,6 +101,18 @@ export default function Finance() {
     retry: 2
   });
 
+  const bankQuery = useQuery<BankAccount[]>({
+    queryKey: ['banks'],
+    queryFn: () => apiClient.admin.getBanks(),
+    retry: 2
+  });
+
+  const stateQuery = useQuery<StatePrice[]>({
+    queryKey: ['states'],
+    queryFn: () => apiClient.admin.getStates(),
+    retry: 2
+  });
+
   const bankAccountsQuery = useQuery<BankAccount[]>({
     queryKey: ['bank-accounts'],
     queryFn: () => apiClient.consumer.getBankAccounts(),
@@ -104,8 +128,13 @@ export default function Finance() {
 
   const updateStatePriceMutation = useMutation({
     mutationFn: ({ id, price }: { id: number; price: number }) =>
-      apiClient.admin.updateStatePrice(id, price),
-    onSuccess: () => queryClient.invalidateQueries(['state-prices'])
+      apiClient.admin.patchStatePrice(id, { price }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['states']);
+    },
+    onError: (error: any) => {
+      console.error('Error updating state price:', error.message);
+    }
   });
 
   const updateBankAccountMutation = useMutation({
@@ -113,6 +142,45 @@ export default function Finance() {
       apiClient.admin.updateBankAccount(account),
     onSuccess: () => queryClient.invalidateQueries(['bank-accounts'])
   });
+
+  const addBankAccountMutation = useMutation({
+    mutationFn: (data: { name: string; acct_no: string; bank_name: string }) =>
+      apiClient.admin.postBankAccount(data),
+    onSuccess: () => {
+      setSubmissionStatus('success');
+      queryClient.invalidateQueries(['bank-accounts']);
+      setTimeout(() => {
+        setIsModalOpen(false);
+        setSubmissionStatus(null);
+      }, 2000);
+    },
+    onError: (error: any) => {
+      console.error('Error adding bank account:', error.message);
+      setSubmissionStatus('error');
+      setTimeout(() => setSubmissionStatus(null), 2000);
+    }
+  });
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = () => {
+    if (!formData.name || !formData.acct_no || !formData.bank_name) {
+      setSubmissionStatus('error');
+      setTimeout(() => setSubmissionStatus(null), 2000);
+      return;
+    }
+    addBankAccountMutation.mutate(formData);
+  };
+
+  const paginatedStates = stateQuery.data?.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const totalPages = Math.ceil((stateQuery.data?.length || 0) / itemsPerPage);
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -172,32 +240,7 @@ export default function Finance() {
                   <Banknote className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {statePricesQuery.isLoading ? (
-                    [...Array(3)].map((_, i) => (
-                      <div key={i} className="flex justify-between items-center">
-                        <Skeleton className="h-4 w-20" />
-                        <Skeleton className="h-8 w-24" />
-                      </div>
-                    ))
-                  ) : (
-                    statePricesQuery.data?.map((state) => (
-                      <div key={state.id} className="flex justify-between items-center">
-                        <span className="text-sm">{state.name}</span>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="number"
-                            value={state.price}
-                            onChange={(e) => updateStatePriceMutation.mutate({
-                              id: state.id,
-                              price: Number(e.target.value)
-                            })}
-                            className="w-24 h-8"
-                          />
-                          {updateStatePriceMutation.isLoading && <Loader2 className="animate-spin" />}
-                        </div>
-                      </div>
-                    ))
-                  )}
+                  
                 </CardContent>
               </Card>
 
@@ -310,9 +353,205 @@ export default function Finance() {
                 </Table>
               )}
             </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Product Price Management */}
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
+              <h2 className="text-lg font-semibold mb-4">States Settings</h2>
+              {stateQuery.isLoading ? (
+                <div className="space-y-4">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-4">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-8 w-24" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-8 w-8" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>State</TableHead>
+                        <TableHead>Abbreviation</TableHead>
+                        <TableHead>Price (₦)</TableHead>
+                        <TableHead>Last Updated</TableHead>
+                        <TableHead>Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedStates?.map((state) => (
+                        <TableRow key={state.id}>
+                          <TableCell className="font-medium">{state.name}</TableCell>
+                          <TableCell className="font-medium">{state.abbreviation}</TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={state.price}
+                              onChange={(e) =>
+                                updateStatePriceMutation.mutate({
+                                  id: state.id,
+                                  price: Number(e.target.value),
+                                })
+                              }
+                              className="w-32"
+                            />
+                          </TableCell>
+                          <TableCell>{new Date(state.updated_at).toISOString().slice(0, 10)}</TableCell>
+                          <TableCell>
+                            <Button
+                              className="bg-[#169061] hover:bg-[#169061]/90"
+                              onClick={() =>
+                                updateStatePriceMutation.mutate({
+                                  id: state.id,
+                                  price: state.price,
+                                })
+                              }
+                              disabled={updateStatePriceMutation.isLoading}
+                            >
+                              {updateStatePriceMutation.isLoading ? 'Saving...' : 'Save'}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <div className="flex justify-between items-center mt-4">
+                    <Button
+                      onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    <span>
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+            {/* Product Price Management */}
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
+              <h2 className="text-lg font-semibold mb-4">Bank Accounts</h2>
+              {bankQuery.isLoading ? (
+                <div className="space-y-4">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-4">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-8 w-24" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-8 w-8" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Bank Name</TableHead>
+                      <TableHead>Account Name</TableHead>
+                      <TableHead>Account Number</TableHead>
+                      <TableHead>Date Created</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bankQuery.data?.map((bank) => (
+                      <TableRow key={bank.id}>
+                        <TableCell className="font-medium">{bank.bank_name}</TableCell>
+                        {/* <TableCell>
+                          <Input
+                            type="number"
+                            value={product.unit_price}
+                            onChange={(e) => updatePriceMutation.mutate({
+                              id: product.id,
+                              price: Number(e.target.value)
+                            })}
+                            className="w-32"
+                          />
+                        </TableCell> */}
+                        <TableCell className="font-medium">{bank.name}</TableCell>
+                        <TableCell className="font-medium">{bank.acct_no}</TableCell>
+                        <TableCell className="font-medium">{new Date(bank.created_at).toISOString().slice(0, 10)}</TableCell>
+                        {/* <TableCell>
+                          <Button variant="ghost" size="sm">
+                            <MoreVertical size={16} />
+                          </Button>
+                        </TableCell> */}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              <div className="flex justify-end mt-4">
+                <Button className="bg-[#169061] hover:bg-[#169061]/90" onClick={() => setIsModalOpen(true)}>
+                  Add Bank Account
+                </Button>
+              </div>
+            </div>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Modal */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Bank Account</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              name="name"
+              placeholder="Account Name"
+              value={formData.name}
+              onChange={handleInputChange}
+            />
+            <Input
+              name="acct_no"
+              placeholder="Account Number"
+              value={formData.acct_no}
+              onChange={handleInputChange}
+            />
+            <Input
+              name="bank_name"
+              placeholder="Bank Name"
+              value={formData.bank_name}
+              onChange={handleInputChange}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#169061] hover:bg-[#169061]/90"
+              onClick={handleSubmit}
+              disabled={addBankAccountMutation.isLoading}
+            >
+              {addBankAccountMutation.isLoading ? 'Submitting...' : 'Submit'}
+            </Button>
+          </DialogFooter>
+          {submissionStatus === 'success' && (
+            <div className="flex items-center mt-4 text-green-500">
+              <CheckCircle className="mr-2" size={20} />
+              Bank account added successfully!
+            </div>
+          )}
+          {submissionStatus === 'error' && (
+            <div className="flex items-center mt-4 text-red-500">
+              <XCircle className="mr-2" size={20} />
+              Failed to add bank account. Please try again.
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
