@@ -1,4 +1,4 @@
-const ADMIN_BASE = 'https://soroman-backend.vercel.app/api/admin';
+const ADMIN_BASE = 'https://api.ordersoroman.com/api/admin';
 
 export const apiClient = {
   admin: {
@@ -102,6 +102,24 @@ export const apiClient = {
         method: 'DELETE',
       });
       return response.ok ? true : response.json();
+    },
+
+    updateProductPrice: async (productId: number, data: { unit_price: number }) => {
+      const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          // 'Authorization': `Bearer ${localStorage.getItem('token')}` // Ensure token is included if required
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update product');
+      }
+
+      return response.json();
     },
 
     // Customers
