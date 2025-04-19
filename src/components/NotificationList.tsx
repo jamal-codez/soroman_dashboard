@@ -30,6 +30,8 @@ const getNotificationIcon = (type: string) => {
   }
 };
 
+// comment
+
 export const NotificationList = () => {
   return (
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
