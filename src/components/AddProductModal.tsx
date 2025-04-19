@@ -31,6 +31,7 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
       toast({
         title: "Success!",
         description: "Product created successfully",
+        duration: 3000 // Toast will disappear after 3 seconds
       });
       
       // Reset form and close modal
@@ -47,7 +48,8 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
       toast({
         title: "Error",
         description: error.message || "Failed to create product",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 3000 // Toast will disappear after 3 seconds
       });
     } finally {
       setIsLoading(false);
@@ -99,12 +101,17 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
           onChange={handleChange}
         />
         
-        <Button 
-          onClick={handleSubmit}
-          disabled={isLoading}
-        >
-          {isLoading ? 'Creating...' : 'Create Product'}
-        </Button>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isLoading}>
+            Close
+          </Button>
+          <Button 
+            onClick={handleSubmit}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Creating...' : 'Create Product'}
+          </Button>
+        </div>
       </div>
     </Modal>
   );

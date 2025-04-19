@@ -1,4 +1,3 @@
-// src/components/EditProductModal.tsx
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +6,10 @@ import { useToast } from '@/hooks/use-toast';
 
 const EditProductModal = ({ isOpen, onClose, formData, onChange, onSubmit, isLoading }) => {
   const { toast } = useToast();
+
+  const handleSubmit = () => {
+    onSubmit();
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose}>
@@ -25,6 +28,7 @@ const EditProductModal = ({ isOpen, onClose, formData, onChange, onSubmit, isLoa
           type="number"
           value={formData.unit_price}
           onChange={onChange}
+          disabled // Disable editing of the price
         />
         <Input
           name="stock_quantity"
@@ -39,19 +43,18 @@ const EditProductModal = ({ isOpen, onClose, formData, onChange, onSubmit, isLoa
           value={formData.abbreviation}
           onChange={onChange}
         />
-        <Input
-          name="description"
-          placeholder="Description"
-          value={formData.description}
-          onChange={onChange}
-        />
         
-        <Button 
-          onClick={onSubmit}
-          disabled={isLoading}
-        >
-          {isLoading ? 'Updating...' : 'Update Product'}
-        </Button>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isLoading}>
+            Close
+          </Button>
+          <Button 
+            onClick={handleSubmit}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Updating...' : 'Update Product'}
+          </Button>
+        </div>
       </div>
     </Modal>
   );
