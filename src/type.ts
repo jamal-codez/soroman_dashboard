@@ -20,6 +20,25 @@ export interface AnalyticsData {
   }
 
   
+export type NotificationType = 'BID_REVIEW' | 'PAYMENT' | 'INVENTORY' | 'DELIVERY' | 'CUSTOMER';
+
+export interface NotificationPayload {
+  emails: string[];
+  type: NotificationType;
+  project: {
+    name: string;
+  };
+}
+
+export interface Notification {
+  id: number;
+  title: string;
+  message: string;
+  time: string;
+  type: NotificationType;
+  read: boolean;
+}
+
 
   export interface ProductResponse {
     results: Product[];

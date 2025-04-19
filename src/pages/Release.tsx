@@ -1,4 +1,3 @@
-// app/release/page.tsx
 import { useState } from 'react';
 import { 
   Table,
