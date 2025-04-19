@@ -2,13 +2,15 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import Modal from '@/components/ui/modal';
-import { useToast } from '@/hooks/use-toast';
+import { useSnackbar } from 'notistack';
+import { RefreshCw } from 'lucide-react';
 
 const EditProductModal = ({ isOpen, onClose, formData, onChange, onSubmit, isLoading }) => {
-  const { toast } = useToast();
+  const { enqueueSnackbar } = useSnackbar();
 
   const handleSubmit = () => {
     onSubmit();
+    enqueueSnackbar('Product updated successfully!', { variant: 'success', autoHideDuration: 1000 });
   };
 
   return (
@@ -43,7 +45,6 @@ const EditProductModal = ({ isOpen, onClose, formData, onChange, onSubmit, isLoa
           value={formData.abbreviation}
           onChange={onChange}
         />
-        
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose} disabled={isLoading}>
             Close
@@ -52,7 +53,14 @@ const EditProductModal = ({ isOpen, onClose, formData, onChange, onSubmit, isLoa
             onClick={handleSubmit}
             disabled={isLoading}
           >
-            {isLoading ? 'Updating...' : 'Update Product'}
+            {isLoading ? (
+              <div className="flex items-center">
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Updating...
+              </div>
+            ) : (
+              'Update'
+            )}
           </Button>
         </div>
       </div>

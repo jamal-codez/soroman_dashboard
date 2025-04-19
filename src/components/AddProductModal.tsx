@@ -31,7 +31,7 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
       toast({
         title: "Success!",
         description: "Product created successfully",
-        duration: 3000 // Toast will disappear after 3 seconds
+        duration: 1000 // Toast will disappear after 3 seconds
       });
       
       // Reset form and close modal
@@ -49,7 +49,7 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
         title: "Error",
         description: error.message || "Failed to create product",
         variant: "destructive",
-        duration: 3000 // Toast will disappear after 3 seconds
+        duration: 1000 // Toast will disappear after 3 seconds
       });
     } finally {
       setIsLoading(false);
