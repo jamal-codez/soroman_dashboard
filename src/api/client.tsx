@@ -26,6 +26,16 @@ export const apiClient = {
       return response.json();
     },
 
+    getStates: async () => {
+      const response = await fetch(`${ADMIN_BASE}/states/`);
+      return response.json();
+    },
+
+    getBanks: async () => {
+      const response = await fetch(`${ADMIN_BASE}/bank-accounts/`);
+      return response.json();
+    },
+
     // Top Customers
     getTopCustomers: async () => {
       const response = await fetch(`${ADMIN_BASE}/top-customers/`);
@@ -126,10 +136,42 @@ export const apiClient = {
 
     adminGetCustomer: async (customerId: number) => {
       const response = await fetch(`${ADMIN_BASE}/customers/${customerId}/`);
+      return response.json();
+    },
+
+    postBankAccount: async (data: { name: string; acct_no: string; bank_name: string }) => {
+      const response = await fetch(`${ADMIN_BASE}/bank-accounts/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` // Ensure token is included if required
+        },
+        body: JSON.stringify(data),
+      });
+
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to fetch customer');
+        throw new Error(error.error || 'Failed to add bank account');
       }
+
+      return response.json();
+    },
+
+    patchStatePrice: async (id: number, data: { price: number }) => {
+      const response = await fetch(`${ADMIN_BASE}/states/${id}/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` // Ensure token is included if required
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update state price');
+      }
+
       return response.json();
     }
   }
