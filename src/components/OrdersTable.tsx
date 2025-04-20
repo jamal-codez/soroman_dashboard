@@ -26,22 +26,23 @@ interface Order {
   created_at: string;
   total_price: string;
   status: 'pending' | 'completed' | 'shipping' | 'cancelled';
+  release_type: 'delivery' | 'pickup';
 }
 
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
-    case 'completed': return <CheckCircle className="text-green-500" size={16} />;
-    case 'pending': return <Clock className="text-blue-500" size={16} />;
+    case 'paid': return <CheckCircle className="text-green-500" size={16} />;
+    case 'pending': return <Clock className="text-orange-500" size={16} />;
     case 'shipping': return <Truck className="text-orange-500" size={16} />;
     case 'cancelled': return <AlertCircle className="text-red-500" size={16} />;
-    default: return <Clock className="text-blue-500" size={16} />;
+    default: return <Clock className="text-orange-500" size={16} />;
   }
 };
 
 const getStatusClass = (status: Order['status']) => {
   switch (status) {
-    case 'completed': return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending': return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
+    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
     case 'shipping': return 'bg-orange-50 text-orange-700 border-orange-200';
     case 'cancelled': return 'bg-red-50 text-red-700 border-red-200';
     default: return 'bg-blue-50 text-blue-700 border-blue-200';
@@ -49,8 +50,8 @@ const getStatusClass = (status: Order['status']) => {
 };
 
 const statusDisplayMap = {
-  pending: 'Processing',
-  completed: 'Completed',
+  pending: 'pending',
+  paid: 'paid',
   shipping: 'Shipping',
   cancelled: 'Cancelled',
 };
@@ -150,8 +151,8 @@ export const OrdersTable = () => {
                   </div>
                 </td>
                 <td className="p-4">
-                  <div className={`inline-flex items-center px-2 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.delivery_method)}`}>
-                    Pickup
+                  <div className={`inline-flex items-center px-2 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.release_type)}`}>
+                    {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                   </div>
                 </td>
               </tr>

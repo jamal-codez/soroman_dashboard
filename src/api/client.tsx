@@ -142,6 +142,19 @@ export const apiClient = {
       return response.json();
     },
 
+        // Customers
+        adminGetAllCustomers: async (params?: { page?: number; page_size?: number }) => {
+          const url = new URL(`${ADMIN_BASE}/customers/`);
+          if (params) {
+            Object.entries(params).forEach(([key, value]) => {
+              url.searchParams.append(key, value.toString());
+            });
+          }
+          const response = await fetch(url.toString());
+          return response.json();
+        },
+    
+
     // All Orders (Admin View)
     getAllAdminOrders: async (params?: { page?: number; page_size?: number }) => {
       const url = new URL(`${ADMIN_BASE}/all-orders/`);
