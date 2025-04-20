@@ -37,12 +37,15 @@ const Login = () => {
       if (response.token) {
         // Save the token to localStorage or any other storage
         localStorage.setItem('token', response.token);
+        localStorage.setItem('role', response.user.role);
+    
+        console.log(response.user.role)
         
         toast({
           title: "Success",
           description: "Login successful",
         });
-        navigate('/');
+        navigate('/dashboard');
       } else {
         toast({
           title: "Authentication failed",

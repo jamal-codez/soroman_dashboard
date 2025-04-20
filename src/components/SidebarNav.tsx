@@ -18,21 +18,22 @@ import {
 } from "lucide-react";
 
 const navItems = [
-  { title: "Dashboard", icon: Home, path: "/" },
-  { title: "Orders", icon: ShoppingCart, path: "/orders" },
-  { title: "Inventory", icon: Fuel, path: "/inventory" },
-  { title: "Customers", icon: Users, path: "/customers" },
-  { title: "Finance", icon: BanknoteIcon, path: "/finance" },
+  { title: "Dashboard", icon: Home, path: "/dashboard", allowedRoles: [0,1, 2,3,4] },
+  { title: "Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [1,0,3] },
+  { title: "Inventory", icon: Fuel, path: "/inventory", allowedRoles: [0,1,3] },
+  { title: "Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
+  { title: "Finance", icon: BanknoteIcon, path: "/finance", allowedRoles: [0,1,2] },
   // { title: "Product Release", icon: TruckIcon, path: "/release" },
-  { title: "Payment Verification", icon: HandHelpingIcon, path: "/payment-verify" },
+  { title: "Payment Verification", icon: HandHelpingIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
   // { title: "Notifications", icon: Bell, path: "/notifications" },
-  { title: "Users Management", icon: Settings, path: "/users-management" }
+  { title: "Users Management", icon: Settings, path: "/users-management", allowedRoles: [0,1] }
 ];
 
 export const SidebarNav = () => {
   const [expanded, setExpanded] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
+  const role = parseInt(localStorage.getItem('role')||'10');
   
   const handleLogout = () => {
     // Clear tokens and role from localStorage
@@ -78,6 +79,9 @@ export const SidebarNav = () => {
       
       <div className="flex flex-col flex-1 overflow-y-auto py-4">
         {navItems.map((item) => {
+          if (!item.allowedRoles.includes(role)) {
+            return null; // Skip rendering this item if the role is not allowed
+          }
           const isActive = location.pathname === item.path;
           return (
             <a 
