@@ -15,50 +15,148 @@ import { TopBar } from '@/components/TopBar';
 import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, ShieldCheck, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
 
 interface PaymentOrder {
   id: number;
   order_id: string;
-  total_price: number;
-  payment_status: 'paid' | 'pending' | 'failed';
-  payment_method: string;
+  amount: string;
+  status: 'paid' | 'pending' | 'failed';
+  payment_channel: string;
   created_at: string;
+  reference: string;
+}
+
+interface ConfirmationModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  message: string;
+}
+
+function ConfirmationModal({ isOpen, onClose, onConfirm, message }) {
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Confirm Action</DialogTitle>
+        </DialogHeader>
+        <p>{message}</p>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={onConfirm}>Confirm</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default function PaymentVerification() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
+  const { toast } = useToast();
 
-  const { data: payments = [], isLoading } = useQuery<PaymentOrder[]>({
-    queryKey: ['payment-orders'],
-    queryFn: () => apiClient.admin.getPaymentOrders(),
+  // Status styling helper functions
+  const getStatusClass = (status: string) => {
+    switch (status) {
+      case 'paid': return 'bg-green-50 text-green-700 border-green-200';
+      case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
+      case 'failed': return 'bg-red-50 text-red-700 border-red-200';
+      default: return 'bg-blue-50 text-blue-700 border-blue-200';
+    }
+  };
+
+  const getAlertClass = (variant: 'success' | 'error') => {
+    switch (variant) {
+      case 'success': return 'bg-green-50 text-green-700 border-green-200 p-4 rounded-lg';
+      case 'error': return 'bg-red-50 text-red-700 border-red-200 p-4 rounded-lg';
+      default: return 'bg-blue-50 text-blue-700 border-blue-200 p-4 rounded-lg';
+    }
+  };
+
+  const { data: apiResponse, isLoading } = useQuery({
+    queryKey: ['verify-orders', searchQuery, currentPage],
+    queryFn: async () => {
+      const response = await apiClient.admin.getVerifyOrders({
+        search: searchQuery,
+        page: currentPage,
+        page_size: pageSize,
+      });
+      return response;
+    },
+    keepPreviousData: true,
   });
+
+  const payments = apiResponse?.results || [];
+  const totalPages = Math.ceil((apiResponse?.count || 0) / pageSize);
 
   const updatePaymentMutation = useMutation({
     mutationFn: async (orderId: number) => {
       setUpdatingPaymentId(orderId);
       try {
-        await apiClient.admin.editPaymentOrder(orderId);
+        await apiClient.admin.updateOrderStatus({ 
+          id: orderId, 
+          status: 'paid' // Update to match your API's expected status
+        });
       } finally {
         setUpdatingPaymentId(null);
       }
     },
-    onSuccess: () => queryClient.invalidateQueries(['payment-orders'])
+    onSuccess: () => {
+      queryClient.invalidateQueries(['verify-orders']);
+      toast({
+        title: "Success!",
+        description: "Payment verified successfully!",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to verify payment",
+        variant: "destructive"
+      });
+    }
   });
 
-  const filteredPayments = payments.filter(payment =>
-    payment.order_id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(prev => prev - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(prev => prev + 1);
+    }
+  };
+
+  const handleVerifyClick = (paymentId: number) => {
+    setSelectedPaymentId(paymentId);
+    setIsModalOpen(true);
+  };
+
+  const handleConfirm = async () => {
+    if (selectedPaymentId !== null) {
+      try {
+        await updatePaymentMutation.mutateAsync(selectedPaymentId);
+      } finally {
+        setIsModalOpen(false);
+      }
+    }
+  };
 
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
-      
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
-        
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
@@ -83,12 +181,12 @@ export default function PaymentVerification() {
                     <TableHead>Status</TableHead>
                     <TableHead>Method</TableHead>
                     <TableHead>Date</TableHead>
+                    <TableHead>Reference</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    // Loading state
                     [...Array(5)].map((_, index) => (
                       <TableRow key={index}>
                         <TableCell><Skeleton className="h-4 w-32" /></TableCell>
@@ -96,45 +194,42 @@ export default function PaymentVerification() {
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                         <TableCell><Skeleton className="h-8 w-32" /></TableCell>
                       </TableRow>
                     ))
-                  ) : filteredPayments.length === 0 ? (
-                    // Empty state
+                  ) : payments.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center h-24">
+                      <TableCell colSpan={7} className="text-center h-24">
                         No payments found
                       </TableCell>
                     </TableRow>
                   ) : (
-                    // Data state
-                    filteredPayments.map((payment) => (
+                    payments.map((payment) => (
                       <TableRow key={payment.id}>
                         <TableCell>{payment.order_id}</TableCell>
-                        <TableCell>₦{payment.total_price.toLocaleString()}</TableCell>
+                        <TableCell>₦{parseFloat(payment.amount).toLocaleString()}</TableCell>
                         <TableCell>
-                          <Badge variant={
-                            payment.payment_status === 'paid' ? 'default' :
-                            payment.payment_status === 'pending' ? 'secondary' : 'destructive'
-                          }>
-                            {payment.payment_status}
+                          <Badge className={getStatusClass(payment.status.toLowerCase())}>
+                            {payment.status.toLowerCase()}
                           </Badge>
                         </TableCell>
-                        <TableCell>{payment.payment_method}</TableCell>
+                        <TableCell>{payment.payment_channel}</TableCell>
                         <TableCell>{new Date(payment.created_at).toLocaleDateString()}</TableCell>
+                        <TableCell>{payment.reference}</TableCell>
                         <TableCell>
                           <Button 
                             variant="outline" 
                             size="sm"
-                            disabled={payment.payment_status !== 'pending' || updatingPaymentId === payment.id}
-                            onClick={() => updatePaymentMutation.mutate(payment.id)}
+                            disabled={payment.status.toLowerCase() !== 'pending' || updatingPaymentId === payment.id}
+                            onClick={() => handleVerifyClick(payment.id)}
                           >
                             {updatingPaymentId === payment.id ? (
                               <Loader2 className="animate-spin mr-2" size={16} />
                             ) : (
                               <ShieldCheck className="mr-2" size={16} />
                             )}
-                            {payment.payment_status === 'pending' ? 'Verify Payment' : 'Verified'}
+                            {payment.status.toLowerCase() === 'pending' ? 'Verify Payment' : 'Verified'}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -143,9 +238,38 @@ export default function PaymentVerification() {
                 </TableBody>
               </Table>
             </div>
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
+              <div className="text-sm text-slate-600">
+                Showing {(currentPage - 1) * pageSize + 1} -{' '}
+                {Math.min(currentPage * pageSize, apiResponse?.count || 0)} of{' '}
+                {apiResponse?.count || 0} results
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handlePreviousPage}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleNextPage}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
+      <ConfirmationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onConfirm={handleConfirm}
+        message="Are you sure you want to verify this payment?"
+      />
     </div>
   );
 }

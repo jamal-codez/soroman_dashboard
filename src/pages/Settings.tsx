@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
@@ -37,59 +37,52 @@ import {
   Trash2,
   User,
   Shield,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Ban
 } from 'lucide-react';
-
-// Mock user data - In a real app, this would come from your backend
-const initialUsers = [
-  {
-    id: 1,
-    name: 'John Doe',
-    email: 'john@soroman.com',
-    role: 'Super Admin',
-    status: 'Active',
-    lastLogin: 'Apr 19, 2025',
-  },
-  {
-    id: 2,
-    name: 'Sarah Wilson',
-    email: 'sarah@soroman.com',
-    role: 'Admin',
-    status: 'Active',
-    lastLogin: 'Apr 18, 2025',
-  },
-  {
-    id: 3,
-    name: 'Michael Brown',
-    email: 'michael@soroman.com',
-    role: 'User',
-    status: 'Inactive',
-    lastLogin: 'Apr 15, 2025',
-  },
-];
+import { apiClient } from '@/api/client';
 
 type User = {
   id: number;
-  name: string;
+  full_name: string;
   email: string;
-  role: string;
-  status: string;
-  lastLogin: string;
+  phone_number: string;
+  role: number;
+  suspended: boolean;
+  last_login: string;
 };
 
 const Settings = () => {
-  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
-    name: '',
+    full_name: '',
     email: '',
+    password: '',
+    phone_number: '',
     role: 'User',
-    status: 'Active',
+    suspended: false,
+  });
+  const [errors, setErrors] = useState({
+    full_name: '',
+    email: '',
+    password: '',
+    phone_number: '',
   });
   
   const { toast } = useToast();
+
+  const generatePassword = () => {
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let password = "";
+    for (let i = 0; i < 12; i++) {
+      const randomIndex = Math.floor(Math.random() * charset.length);
+      password += charset[randomIndex];
+    }
+    setFormData({ ...formData, password });
+  };
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     const query = event.target.value.toLowerCase();
@@ -97,27 +90,41 @@ const Settings = () => {
   };
 
   const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchQuery.toLowerCase())
+    user.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const validateForm = () => {
+    const newErrors = {
+      full_name: formData.full_name ? '' : 'Full name is required',
+      email: formData.email ? '' : 'Email is required',
+      password: formData.password ? '' : 'Password is required',
+      phone_number: formData.phone_number ? '' : 'Phone number is required',
+    };
+    setErrors(newErrors);
+    return !Object.values(newErrors).some(error => error);
+  };
 
   const handleOpenDialog = (user?: User) => {
     if (user) {
       setEditingUser(user);
       setFormData({
-        name: user.name,
+        full_name: user.full_name,
         email: user.email,
-        role: user.role,
-        status: user.status,
+        password: '', // Password should not be pre-filled for security reasons
+        phone_number: user.phone_number,
+        role: user.role === 1 ? 'Admin' : 'User',
+        suspended: user.suspended,
       });
     } else {
       setEditingUser(null);
       setFormData({
-        name: '',
+        full_name: '',
         email: '',
+        password: '',
+        phone_number: '',
         role: 'User',
-        status: 'Active',
+        suspended: false,
       });
     }
     setIsDialogOpen(true);
@@ -127,51 +134,133 @@ const Settings = () => {
     setIsDialogOpen(false);
     setEditingUser(null);
     setFormData({
-      name: '',
+      full_name: '',
       email: '',
+      password: '',
+      phone_number: '',
       role: 'User',
-      status: 'Active',
+      suspended: false,
+    });
+    setErrors({
+      full_name: '',
+      email: '',
+      password: '',
+      phone_number: '',
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (editingUser) {
-      // Update existing user
-      setUsers(users.map(user => 
-        user.id === editingUser.id 
-          ? { ...user, ...formData }
-          : user
-      ));
+    if (!validateForm()) return;
+
+    try {
+      if (editingUser) {
+        // Update existing user
+        const updatedUser = {
+          email: formData.email,
+          full_name: formData.full_name,
+          phone_number: formData.phone_number,
+          role: formData.role === 'Admin' ? 1 : 2,
+          suspended: formData.suspended,
+          password: formData.password, // Include password in the update
+        };
+
+        await apiClient.admin.updateUser(editingUser.id, updatedUser);
+
+        // Update the local state
+        setUsers(users.map(user => user.id === editingUser.id ? { ...user, ...updatedUser } : user));
+
+        toast({
+          title: 'Success',
+          description: 'User updated successfully',
+        });
+      } else {
+        // Create new user
+        await apiClient.admin.registerUser({
+          email: formData.email,
+          password: formData.password,
+          full_name: formData.full_name,
+          phone_number: formData.phone_number,
+        });
+        toast({
+          title: 'Success',
+          description: 'User created successfully',
+        });
+      }
+      handleCloseDialog();
+      fetchUsers(); // Refresh user list
+    } catch (error) {
       toast({
-        title: "Success",
-        description: "User updated successfully",
-      });
-    } else {
-      // Create new user
-      const newUser: User = {
-        id: users.length + 1,
-        ...formData,
-        lastLogin: 'Never',
-      };
-      setUsers([...users, newUser]);
-      toast({
-        title: "Success",
-        description: "User created successfully",
+        title: 'Error',
+        description: 'Failed to save user',
+        variant: 'destructive',
       });
     }
-    
-    handleCloseDialog();
   };
 
-  const handleDeleteUser = (userId: number) => {
-    setUsers(users.filter(user => user.id !== userId));
-    toast({
-      title: "Success",
-      description: "User deleted successfully",
-    });
+  const handleDeleteUser = async (userId: number) => {
+    try {
+      await apiClient.admin.deleteUser(userId);
+      toast({
+        title: 'Success',
+        description: 'User deleted successfully',
+      });
+      fetchUsers(); // Refresh user list
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete user',
+        variant: 'destructive',
+      });
+    }
   };
+
+  const handleSuspendToggle = async () => {
+    if (!editingUser) return;
+
+    try {
+      const updatedUser = {
+        ...editingUser,
+        suspended: !editingUser.suspended,
+      };
+
+      // Update the suspension status via API
+      await apiClient.admin.updateUser(editingUser.id, {
+        suspended: updatedUser.suspended,
+      });
+
+      // Update the local state
+      setUsers(users.map(user => user.id === editingUser.id ? updatedUser : user));
+      toast({
+        title: 'Success',
+        description: `User ${updatedUser.suspended ? 'suspended' : 'unsuspended'} successfully`,
+      });
+      handleCloseDialog();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update user status',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const response = await apiClient.admin.getUsers();
+      setUsers(response);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch users',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -184,7 +273,7 @@ const Settings = () => {
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h1 className="text-2xl font-bold text-slate-800">Settings</h1>
+                <h1 className="text-2xl font-bold text-slate-800">User Management</h1>
                 <p className="text-slate-500">Manage your users and system settings</p>
               </div>
               <Button 
@@ -231,7 +320,7 @@ const Settings = () => {
                             <User className="text-slate-500" size={16} />
                           </div>
                           <div>
-                            <div className="font-medium">{user.name}</div>
+                            <div className="font-medium">{user.full_name}</div>
                             <div className="text-sm text-slate-500">{user.email}</div>
                           </div>
                         </div>
@@ -239,25 +328,23 @@ const Settings = () => {
                       <TableCell>
                         <div className="flex items-center">
                           <Shield className={`mr-2 ${
-                            user.role === 'Super Admin' 
+                            user.role === 1 
                               ? 'text-soroman-orange' 
-                              : user.role === 'Admin'
-                              ? 'text-blue-500'
                               : 'text-slate-400'
                           }`} size={16} />
-                          {user.role}
+                          {user.role === 1 ? 'Admin' : 'User'}
                         </div>
                       </TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          user.status === 'Active' 
+                          !user.suspended 
                             ? 'bg-green-100 text-green-800' 
                             : 'bg-slate-100 text-slate-800'
                         }`}>
-                          {user.status}
+                          {!user.suspended ? 'Active' : 'Suspended'}
                         </span>
                       </TableCell>
-                      <TableCell>{user.lastLogin}</TableCell>
+                      <TableCell>{user.last_login || 'N/A'}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button
@@ -270,9 +357,12 @@ const Settings = () => {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDeleteUser(user.id)}
+                            onClick={() => {
+                              setEditingUser(user);
+                              handleSuspendToggle();
+                            }}
                           >
-                            <Trash2 size={16} className="text-red-500" />
+                            {user.suspended ? 'Unsuspend' : 'Suspend'}
                           </Button>
                         </div>
                       </TableCell>
@@ -291,7 +381,7 @@ const Settings = () => {
             <DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
             <DialogDescription>
               {editingUser 
-                ? 'Update user details and permissions.' 
+                ? 'Update user details and permissions.'
                 : 'Fill in the information for the new user.'}
             </DialogDescription>
           </DialogHeader>
@@ -299,13 +389,14 @@ const Settings = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
+                <Label htmlFor="full_name">Full Name</Label>
                 <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  id="full_name"
+                  value={formData.full_name}
+                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                   required
                 />
+                {errors.full_name && <p className="text-red-500 text-xs">{errors.full_name}</p>}
               </div>
               
               <div className="space-y-2">
@@ -317,6 +408,36 @@ const Settings = () => {
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
                 />
+                {errors.email && <p className="text-red-500 text-xs">{errors.email}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="flex items-center">
+                  <Input
+                    id="password"
+                    type="text"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    required={!editingUser}
+                  />
+                  <Button type="button" onClick={generatePassword} className="ml-2">
+                    Generate
+                  </Button>
+                </div>
+                {errors.password && <p className="text-red-500 text-xs">{errors.password}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="phone_number">Phone Number</Label>
+                <Input
+                  id="phone_number"
+                  type="tel"
+                  value={formData.phone_number}
+                  onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
+                  required
+                />
+                {errors.phone_number && <p className="text-red-500 text-xs">{errors.phone_number}</p>}
               </div>
 
               <div className="space-y-2">
@@ -324,6 +445,7 @@ const Settings = () => {
                 <Select
                   value={formData.role}
                   onValueChange={(value) => setFormData({ ...formData, role: value })}
+                  required
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a role" />
@@ -331,28 +453,8 @@ const Settings = () => {
                   <SelectContent>
                     <SelectGroup>
                       <SelectLabel>Available Roles</SelectLabel>
-                      <SelectItem value="Super Admin">Super Admin</SelectItem>
-                      <SelectItem value="Admin">Admin</SelectItem>
-                      <SelectItem value="User">User</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select
-                  value={formData.status}
-                  onValueChange={(value) => setFormData({ ...formData, status: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>User Status</SelectLabel>
-                      <SelectItem value="Active">Active</SelectItem>
-                      <SelectItem value="Inactive">Inactive</SelectItem>
+                      <SelectItem value="1">Admin</SelectItem>
+                      <SelectItem value="2">User</SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>

@@ -40,7 +40,8 @@ interface Order {
     name: string;
   }>;
   quantity: number;
-  release_type: 'pickup' | 'delivery'; // Added missing field
+  release_type: 'pickup' | 'delivery';
+  reference: string;
 }
 
 interface OrderResponse {
@@ -206,6 +207,7 @@ const Orders = () => {
                     <TableHead className="text-right">AMOUNT</TableHead>
                     <TableHead>STATUS</TableHead>
                     <TableHead>DELIVERY METHOD</TableHead>
+                    <TableHead>REFERENCE</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -245,6 +247,7 @@ const Orders = () => {
                           {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                         </div>
                       </TableCell>
+                      <TableCell>{order.reference}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

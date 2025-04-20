@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { cn } from "@/lib/utils";
@@ -24,10 +23,10 @@ const navItems = [
   { title: "Inventory", icon: Fuel, path: "/inventory" },
   { title: "Customers", icon: Users, path: "/customers" },
   { title: "Finance", icon: BanknoteIcon, path: "/finance" },
-  { title: "Product Release", icon: TruckIcon, path: "/release" },
+  // { title: "Product Release", icon: TruckIcon, path: "/release" },
   { title: "Payment Verification", icon: HandHelpingIcon, path: "/payment-verify" },
-  { title: "Notifications", icon: Bell, path: "/notifications" },
-  { title: "Settings", icon: Settings, path: "/settings" }
+  // { title: "Notifications", icon: Bell, path: "/notifications" },
+  { title: "Users Management", icon: Settings, path: "/users-management" }
 ];
 
 export const SidebarNav = () => {
@@ -36,6 +35,11 @@ export const SidebarNav = () => {
   const location = useLocation();
   
   const handleLogout = () => {
+    // Clear tokens and role from localStorage
+    localStorage.removeItem('token');
+    localStorage.removeItem('role');
+    
+    // Navigate to login page
     navigate('/login');
   };
 

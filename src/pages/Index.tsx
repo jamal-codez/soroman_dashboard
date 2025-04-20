@@ -105,7 +105,7 @@ const Dashboard = () => {
                 isLoading={analyticsLoading}
               />
               <StatCard
-                title="Fuel Volume Sold"
+                title="Fuel Sold Today"
                 value={`${fuelMetrics.volume.toLocaleString()}L`}
                 change={`+${(fuelMetrics.change / (analytics?.quantity_sold?.length || 1)).toFixed(1)}%`}
                 changeDirection="up"
@@ -159,14 +159,14 @@ const Dashboard = () => {
             </div> */}
             
             {/* Bottom Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
               <CustomerList 
                 customers={customerData?.customers || []} 
                 onCustomerSelect={(id) => {/* Implement customer detail view */}}
               />
-              <NotificationList 
+              {/* <NotificationList 
                 onSendNotification={(data) => apiClient.admin.sendNotification(data)}
-              />
+              /> */}
             </div>
           </div>
         </div>

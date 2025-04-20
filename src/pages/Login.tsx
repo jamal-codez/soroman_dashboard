@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -7,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { apiClient } from '@/api/client';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -31,10 +31,13 @@ const Login = () => {
     
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      // Mock successful login (in a real app, this would be an API call)
-      if (email === 'admin@soroman.com' && password === 'password123') {
+    try {
+      const response = await apiClient.admin.loginUser({ email, password });
+      
+      if (response.token) {
+        // Save the token to localStorage or any other storage
+        localStorage.setItem('token', response.token);
+        
         toast({
           title: "Success",
           description: "Login successful",
@@ -43,12 +46,19 @@ const Login = () => {
       } else {
         toast({
           title: "Authentication failed",
-          description: "Invalid email or password",
+          description: response.error || "Invalid email or password",
           variant: "destructive",
         });
       }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error.message || "An error occurred during login",
+        variant: "destructive",
+      });
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   return (
