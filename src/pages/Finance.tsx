@@ -451,7 +451,7 @@ export default function Finance() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Product Price Management */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <h2 className="text-lg font-semibold mb-4">States Settings</h2>
+              <h2 className="text-lg font-semibold mb-4">Delivery Rates</h2>
               {stateQuery.isLoading ? (
                 <div className="space-y-4">
                   {[...Array(3)].map((_, i) => (
