@@ -16,6 +16,7 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [fullName, setFullName] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +39,7 @@ const Login = () => {
         // Save the token to localStorage or any other storage
         localStorage.setItem('token', response.token);
         localStorage.setItem('role', response.user.role);
+        setFullName(response.user.full_name);
     
         console.log(response.user.role)
         

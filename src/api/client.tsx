@@ -78,16 +78,33 @@ export const apiClient = {
       return response.json();
     },
 
-    patchStatePrice: async (data: { id: number; price: number }) => {
-      const response = await fetch(`${ADMIN_BASE}/states/`, {
+    postBankAccount: async (data: { name: string; acct_no: string; bank_name: string }) => {
+      const response = await fetch(`${ADMIN_BASE}/bank-accounts/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to add bank account');
+      }
+
+      return response.json();
+    },
+
+    patchStatePrice: async (id: number, data: { price: number }) => {
+      const response = await fetch(`${ADMIN_BASE}/states/${id}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
       });
+
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to update state');
+        throw new Error(error.error || 'Failed to update state price');
       }
+
       return response.json();
     },
 
@@ -96,6 +113,21 @@ export const apiClient = {
       const response = await fetch(`${ADMIN_BASE}/bank-accounts/`, {
         headers: getHeaders(),
       });
+      return response.json();
+    },
+
+    updateProductPrice: async (productId: number, data: { unit_price: number }) => {
+      const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+        method: 'PATCH',
+        headers:getHeaders(),
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update product');
+      }
+
       return response.json();
     },
 
@@ -189,6 +221,19 @@ export const apiClient = {
       return response.json();
     },
 
+    adminGetProducts: async (params?: { page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/products/`);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          url.searchParams.append(key, value.toString());
+        });
+      }
+      const response = await fetch(url.toString(), {
+        headers: getHeaders()
+      });
+      return response.json();
+    },
+
     getProductById: async (productId: number) => {
       const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
         headers: getHeaders(),
@@ -251,6 +296,13 @@ export const apiClient = {
     // Payment Orders
     getPaymentOrders: async () => {
       const response = await fetch(`${ADMIN_BASE}/payment-orders/`, {
+        headers: getHeaders(),
+      });
+      return response.json();
+    },
+
+    getBanks: async () => {
+      const response = await fetch(`${ADMIN_BASE}/bank-accounts/`, {
         headers: getHeaders(),
       });
       return response.json();
