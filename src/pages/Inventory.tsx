@@ -297,7 +297,7 @@ const Inventory = () => {
                             <div>
                               <div className="flex justify-between mb-1">
                                 <span className="text-xs font-medium">
-                                  {item.stock_quantity} Units
+                                  {item.stock_quantity} Litres
                                 </span>
                               </div>
                               <div className="w-full bg-slate-200 rounded-full h-2">
