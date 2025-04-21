@@ -26,6 +26,7 @@ export const apiClient = {
         headers: getHeaders(),
         body: JSON.stringify(data),
       });
+      if (!response.ok) throw new Error((await response.json()).error || 'Failed to register user');
       return response.json();
     },
 
@@ -368,18 +369,18 @@ export const apiClient = {
 
     // User Management
     getUsers: async () => {
-      const response = await fetch(`${ADMIN_BASE}/users/`, {
-        headers: getHeaders(),
-      });
+      const response = await fetch(`${ADMIN_BASE}/users/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error('Failed to fetch users');
       return response.json();
     },
 
-    updateUser: async (userId: number, data: { first_name?: string; password?: string }) => {
+    updateUser: async (userId: number, data: any) => {
       const response = await fetch(`${ADMIN_BASE}/users/${userId}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
       });
+      if (!response.ok) throw new Error((await response.json()).error || 'Failed to update user');
       return response.json();
     },
 

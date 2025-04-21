@@ -26,7 +26,7 @@ const navItems = [
   // { title: "Product Release", icon: TruckIcon, path: "/release" },
   { title: "Payment Verification", icon: HandHelpingIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
   // { title: "Notifications", icon: Bell, path: "/notifications" },
-  { title: "Staffs Management", icon: Settings, path: "/users-management", allowedRoles: [0,1] }
+  { title: "Staffs Management", icon: Users, path: "/users-management", allowedRoles: [0,1] }
 ];
 
 export const SidebarNav = () => {
