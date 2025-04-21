@@ -39,6 +39,7 @@ const Login = () => {
         // Save the token to localStorage or any other storage
         localStorage.setItem('token', response.token);
         localStorage.setItem('role', response.user.role);
+        localStorage.setItem('fullname', response.user.full_name);
         setFullName(response.user.full_name);
     
         console.log(response.user.role)

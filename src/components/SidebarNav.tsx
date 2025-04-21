@@ -39,6 +39,7 @@ export const SidebarNav = () => {
     // Clear tokens and role from localStorage
     localStorage.removeItem('token');
     localStorage.removeItem('role');
+    localStorage.removeItem('fullname');
     
     // Navigate to login page
     navigate('/login');
@@ -110,10 +111,16 @@ export const SidebarNav = () => {
           {expanded && (
             <>
               <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center">
-                <span className="text-sm">JD</span>
+                <span className="text-sm">
+                {localStorage.getItem('fullname')
+            ?.split(' ')
+            .map((name) => name[0])
+            .join('')
+            .slice(0, 2) || 'AA'}
+                </span>
               </div>
               <div className="flex flex-col">
-                <p className="text-sm font-medium">John Doe</p>
+                <p className="text-sm font-medium">{localStorage.getItem('fullname')}</p>
                 <p className="text-xs text-slate-400">Administrator</p>
               </div>
             </>
