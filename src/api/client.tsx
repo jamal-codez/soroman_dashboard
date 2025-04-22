@@ -384,6 +384,15 @@ export const apiClient = {
       return response.json();
     },
 
+    adminUpdateProduct: async (productId: number, data: any) => {
+      const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      return response.json();
+    },
+
     deleteUser: async (userId: number) => {
       const response = await fetch(`${ADMIN_BASE}/users/${userId}/`, {
         method: 'DELETE',
