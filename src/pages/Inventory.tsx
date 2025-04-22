@@ -286,7 +286,7 @@ const Inventory = () => {
                     </TableRow>
                   ) : (
                     filteredInventory.map((item) => {
-                      const stockPercentage = item.stock_quantity;
+                      const stockPercentage = item.percentage;
 
                       return (
                         <TableRow key={item.id}>
@@ -297,7 +297,7 @@ const Inventory = () => {
                             <div>
                               <div className="flex justify-between mb-1">
                                 <span className="text-xs font-medium">
-                                  {item.stock_quantity} Litres
+                                  {item.stock_quantity.toLocaleString()} Litres
                                 </span>
                               </div>
                               <div className="w-full bg-slate-200 rounded-full h-2">
@@ -306,7 +306,7 @@ const Inventory = () => {
                                     stockPercentage > 70 ? 'bg-green-500' : 
                                     stockPercentage > 40 ? 'bg-orange-500' : 'bg-red-500'
                                   }`} 
-                                  style={{ width: `${100}%` }}
+                                  style={{ width: `${stockPercentage}%` }}
                                 ></div>
                               </div>
                             </div>
