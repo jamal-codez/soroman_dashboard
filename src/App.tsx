@@ -15,6 +15,9 @@ import Release from "./pages/Release";
 import PaymentVerification from "./pages/PaymentVerify";
 import Notify from "./pages/Notify";
 import Settings from "./pages/Settings";
+import OrderVerification from "./pages/OrderVerification";
+import { DeliveryProcessing } from "./pages/DeliveryProcessing";
+import { PickupProcessing } from "./pages/PickupProcessing";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +39,10 @@ const App = () => (
           <Route path="/notifications" element={<Notify />} />
           <Route path="/users-management" element={<Settings />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/order-verification" element={<OrderVerification />} />
+          <Route path="/delivery-processing" element={<DeliveryProcessing searchQuery={""} />} />
+          <Route path="/pickup-processing" element={<PickupProcessing searchQuery={""} />} />
+          
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

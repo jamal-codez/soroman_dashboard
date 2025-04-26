@@ -14,19 +14,22 @@ import {
   User,
   TruckIcon,
   BanknoteIcon,
-  HandHelpingIcon
+  HandHelpingIcon,
+  FileText
 } from "lucide-react";
+import { Button } from './ui/button';
 
 const navItems = [
-  { title: "Dashboard", icon: Home, path: "/dashboard", allowedRoles: [0,1, 2,3,4] },
-  { title: "Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [1,0,3] },
-  { title: "Inventory", icon: Fuel, path: "/inventory", allowedRoles: [0,1,3] },
-  { title: "Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
-  { title: "Finance", icon: BanknoteIcon, path: "/finance", allowedRoles: [0,1,2] },
-  // { title: "Product Release", icon: TruckIcon, path: "/release" },
-  { title: "Payment Verification", icon: HandHelpingIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
-  // { title: "Notifications", icon: Bell, path: "/notifications" },
-  { title: "Staff Management", icon: Users, path: "/users-management", allowedRoles: [0,1] }
+  { title: "Dashboard", icon: Home, path: "/dashboard", allowedRoles: [0, 1, 2, 3, 4] },
+  { title: "Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [0, 1, 3] },
+  { title: "Inventory", icon: Fuel, path: "/inventory", allowedRoles: [0, 1, 3] },
+  { title: "Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
+  { title: "Finance", icon: BanknoteIcon, path: "/finance", allowedRoles: [0, 1, 2] },
+  { title: "Delivery Processing", icon: TruckIcon, path: "/delivery-processing", allowedRoles: [0, 1, 2, 3] },
+  { title: "Payment Verification", icon: BanknoteIcon, path: "/payment-verify", allowedRoles: [0, 1, 2] },
+  { title: "Pickup Processing", icon: TruckIcon, path: "/pickup-processing", allowedRoles: [0, 1, 2, 3] },
+  { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
+  { title: "Staff Management", icon: User, path: "/users-management", allowedRoles: [0, 1] }
 ];
 
 export const SidebarNav = () => {
@@ -70,12 +73,12 @@ export const SidebarNav = () => {
             />
           )}
         </div>
-        <button 
+        <Button 
           className="text-slate-300 hover:text-white"
           onClick={() => setExpanded(!expanded)}
         >
           {expanded ? <ArrowLeft size={20} /> : <Menu size={20} />}
-        </button>
+        </Button>
       </div>
       
       <div className="flex flex-col flex-1 overflow-y-auto py-4">
@@ -125,7 +128,7 @@ export const SidebarNav = () => {
               </div>
             </>
           )}
-          <button 
+          <Button 
             className={cn(
               "text-slate-300 hover:text-white", 
               expanded ? "ml-auto" : "mx-auto"
@@ -133,7 +136,7 @@ export const SidebarNav = () => {
             onClick={handleLogout}
           >
             <LogOut size={20} />
-          </button>
+          </Button>
         </div>
       </div>
     </div>
