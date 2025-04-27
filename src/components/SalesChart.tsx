@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import {
   AreaChart,
   Area,
@@ -25,17 +26,24 @@ interface ChartData {
   jet: number;
 }
 
-const transformData = (salesData: SalesData): ChartData[] => {
+const transformData = (salesData: SalesData, selectedFuel: string, dateRange: string): ChartData[] => {
   if (!salesData) return [];
   
   const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
   const products = {
-    'Petroleum': 'pms',
+    'Petrol': 'pms',
     'Diesel': 'ago',
+    'Cooking Gas': 'lpg',
     'Jet Fuel': 'jet'
   };
-  
-  return months.map(month => {
+
+  // Filter months based on dateRange
+  const filteredMonths = months.filter(month => {
+    // Implement logic to filter months based on dateRange
+    return true; // Placeholder, implement actual logic
+  });
+
+  return filteredMonths.map(month => {
     const monthData: ChartData = {
       month: format(new Date(2023, parseInt(month) - 1, 1), 'MMM'),
       pms: 0,
@@ -48,7 +56,7 @@ const transformData = (salesData: SalesData): ChartData[] => {
     Object.entries(salesData).forEach(([product, monthlySales]) => {
       const value = monthlySales[month] || 0;
       const key = products[product];
-      if (key) {
+      if (key && (selectedFuel === 'all' || key === selectedFuel)) {
         monthData[key] = value / 1000; // Convert to thousands
       }
     });
@@ -58,60 +66,38 @@ const transformData = (salesData: SalesData): ChartData[] => {
 };
 
 export const SalesChart = ({ data }: { data?: SalesData }) => {
-  // Determine the scale based on the maximum value
-  const maxValue = data ? Math.max(...Object.values(data).flatMap(monthlySales => Object.values(monthlySales))) : 0;
-  const scale = maxValue >= 1_000_000 ? 1_000_000 : maxValue >= 1_000 ? 1_000 : 1;
+  const [selectedFuel, setSelectedFuel] = useState('all');
+  const [dateRange, setDateRange] = useState('year');
 
   // Transform API data into chart-compatible format
-  const transformData = (salesData: SalesData): ChartData[] => {
-    if (!salesData) return [];
-    
-    const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
-    const products = ['Petrol', 'Diesel', 'Cooking Gas', 'Jet Fuel'];
-
-    return months.map(month => {
-      const monthData: ChartData = {
-        month: format(new Date(2023, parseInt(month) - 1, 1), 'MMM'),
-        pms: 0,
-        ago: 0,
-        lpg: 0,
-        jet: 0
-      };
-      
-      // Map each product to its abbreviation key
-      Object.entries(salesData).forEach(([product, monthlySales]) => {
-        const value = monthlySales[month] || 0;
-        switch(product) {
-          case 'Petrol':
-            monthData.pms = value / scale; // Adjust based on scale
-            break;
-          case 'Diesel':
-            monthData.ago = value / scale;
-            break;
-          case 'Cooking Gas':
-            monthData.lpg = value / scale;
-            break;
-          case 'Jet Fuel':
-            monthData.jet = value / scale;
-            break;
-        }
-      });
-      
-      return monthData;
-    });
-  };
-
-  const chartData = data ? transformData(data) : [];
+  const chartData = data ? transformData(data, selectedFuel, dateRange) : [];
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div className="flex justify-between items-center p-5 border-b border-slate-200">
         <h3 className="font-semibold text-lg text-slate-800">Sales Overview</h3>
-        <select className="text-sm border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-soroman-orange/50">
-          <option value="6-months">Last 6 Months</option>
-          <option value="year">Last Year</option>
-          <option value="all-time">All Time</option>
-        </select>
+        <div className="flex space-x-4">
+          <select 
+            className="text-sm border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-soroman-orange/50"
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value)}
+          >
+            <option value="6-months">Last 6 Months</option>
+            <option value="year">Last Year</option>
+            <option value="all-time">All Time</option>
+          </select>
+          <select 
+            className="text-sm border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-soroman-orange/50"
+            value={selectedFuel}
+            onChange={(e) => setSelectedFuel(e.target.value)}
+          >
+            <option value="all">All Fuels</option>
+            <option value="pms">Petrol (PMS)</option>
+            <option value="ago">Diesel (AGO)</option>
+            <option value="lpg">Cooking Gas (LPG)</option>
+            <option value="jet">Jet Fuel (JET)</option>
+          </select>
+        </div>
       </div>
 
       <div className="p-5 h-[300px]">
@@ -147,11 +133,7 @@ export const SalesChart = ({ data }: { data?: SalesData }) => {
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontSize: 12, fill: "#64748b" }}
-                tickFormatter={(value) => {
-                  if (scale === 1_000_000) return `₦${value}m`;
-                  if (scale === 1_000) return `₦${value}k`;
-                  return `₦${value}`;
-                }}
+                tickFormatter={(value) => `₦${value}k`}
               />
               <Tooltip 
                 contentStyle={{ 
@@ -167,7 +149,7 @@ export const SalesChart = ({ data }: { data?: SalesData }) => {
                     lpg: 'Cooking Gas (LPG)',
                     jet: 'Jet Fuel (JET)'
                   };
-                  return [`₦${(value * scale).toLocaleString()}`, productNames[name] || name];
+                  return [`₦${(value * 1000).toLocaleString()}`, productNames[name] || name];
                 }}
               />
               <Legend 
@@ -181,42 +163,50 @@ export const SalesChart = ({ data }: { data?: SalesData }) => {
                   return legendMap[value] || value;
                 }}
               />
-              <Area
-                type="monotone"
-                dataKey="pms"
-                name="pms"
-                stroke="#f59e0b"
-                fillOpacity={1}
-                fill="url(#colorPMS)"
-                strokeWidth={2}
-              />
-              <Area
-                type="monotone"
-                dataKey="ago"
-                name="ago"
-                stroke="#3b82f6"
-                fillOpacity={1}
-                fill="url(#colorAGO)"
-                strokeWidth={2}
-              />
-              <Area
-                type="monotone"
-                dataKey="lpg"
-                name="lpg"
-                stroke="#10b981"
-                fillOpacity={1}
-                fill="url(#colorLPG)"
-                strokeWidth={2}
-              />
-              <Area
-                type="monotone"
-                dataKey="jet"
-                name="jet"
-                stroke="#8b5cf6"
-                fillOpacity={1}
-                fill="url(#colorJET)"
-                strokeWidth={2}
-              />
+              {selectedFuel === 'all' || selectedFuel === 'pms' ? (
+                <Area
+                  type="monotone"
+                  dataKey="pms"
+                  name="pms"
+                  stroke="#f59e0b"
+                  fillOpacity={1}
+                  fill="url(#colorPMS)"
+                  strokeWidth={2}
+                />
+              ) : null}
+              {selectedFuel === 'all' || selectedFuel === 'ago' ? (
+                <Area
+                  type="monotone"
+                  dataKey="ago"
+                  name="ago"
+                  stroke="#3b82f6"
+                  fillOpacity={1}
+                  fill="url(#colorAGO)"
+                  strokeWidth={2}
+                />
+              ) : null}
+              {selectedFuel === 'all' || selectedFuel === 'lpg' ? (
+                <Area
+                  type="monotone"
+                  dataKey="lpg"
+                  name="lpg"
+                  stroke="#10b981"
+                  fillOpacity={1}
+                  fill="url(#colorLPG)"
+                  strokeWidth={2}
+                />
+              ) : null}
+              {selectedFuel === 'all' || selectedFuel === 'jet' ? (
+                <Area
+                  type="monotone"
+                  dataKey="jet"
+                  name="jet"
+                  stroke="#8b5cf6"
+                  fillOpacity={1}
+                  fill="url(#colorJET)"
+                  strokeWidth={2}
+                />
+              ) : null}
             </AreaChart>
           </ResponsiveContainer>
         ) : (

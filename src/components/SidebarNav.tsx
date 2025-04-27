@@ -12,10 +12,12 @@ import {
   ArrowLeft,
   LogOut,
   User,
-  TruckIcon,
-  BanknoteIcon,
-  HandHelpingIcon,
-  FileText
+  Truck,
+  Banknote,
+  FileText,
+  Tag,
+  ClipboardList,
+  BarChart2
 } from "lucide-react";
 import { Button } from './ui/button';
 
@@ -24,11 +26,14 @@ const navItems = [
   { title: "Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [0, 1, 3] },
   { title: "Inventory", icon: Fuel, path: "/inventory", allowedRoles: [0, 1, 3] },
   { title: "Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
-  { title: "Finance", icon: BanknoteIcon, path: "/finance", allowedRoles: [0, 1, 2] },
-  { title: "Delivery Processing", icon: TruckIcon, path: "/delivery-processing", allowedRoles: [0, 1, 2, 3] },
-  { title: "Payment Verification", icon: BanknoteIcon, path: "/payment-verify", allowedRoles: [0, 1, 2] },
-  { title: "Pickup Processing", icon: TruckIcon, path: "/pickup-processing", allowedRoles: [0, 1, 2, 3] },
+  { title: "Finance", icon: Banknote, path: "/finance", allowedRoles: [0, 1, 2] },
+  { title: "Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1] },
+  { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1] },
+  { title: "Delivery Processing", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 3] },
+  { title: "Pickup Processing", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1, 2, 3] },
+  { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1, 2, 3] },
   { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
+  { title: "Payment Verification", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
   { title: "Staff Management", icon: User, path: "/users-management", allowedRoles: [0, 1] }
 ];
 

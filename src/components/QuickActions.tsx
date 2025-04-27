@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { 
   PlusCircle, 
@@ -6,7 +5,9 @@ import {
   UserPlus, 
   Pencil, 
   BarChart3, 
-  Truck 
+  Truck,
+  ShoppingCart,
+  CreditCard
 } from 'lucide-react';
 
 const quickActions = [
@@ -51,6 +52,27 @@ const quickActions = [
     icon: Truck,
     color: 'text-teal-500',
     bgColor: 'bg-teal-100'
+  },
+  {
+    title: 'Recent Orders',
+    description: 'View recent customer orders',
+    icon: ShoppingCart,
+    color: 'text-red-500',
+    bgColor: 'bg-red-100'
+  },
+  {
+    title: 'Add Offline Sale',
+    description: 'Record an offline sale',
+    icon: CreditCard,
+    color: 'text-yellow-500',
+    bgColor: 'bg-yellow-100'
+  },
+  {
+    title: 'View Full Reports',
+    description: 'Access detailed reports',
+    icon: BarChart3,
+    color: 'text-gray-500',
+    bgColor: 'bg-gray-100'
   }
 ];
 

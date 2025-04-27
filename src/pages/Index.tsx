@@ -17,6 +17,7 @@ import {
 import { apiClient } from '@/api/client';
 import { OrdersTable } from '@/components/OrdersTable';
 import { AnalyticsData, Product, Order, Customer } from '@/type';
+import React from 'react';
 
 // Helper function to format millions
 const formatMillion = (num) => {
@@ -26,8 +27,37 @@ const formatMillion = (num) => {
   return num.toLocaleString();
 };
 
+interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}
+
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-lg w-1/3">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">&times;</button>
+        </div>
+        <div className="p-4">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Dashboard = () => {
   const queryClient = useQueryClient();
+
+  // Dummy data for new analytics
+  const pendingOrderValue = 500000; // Example value in your currency
+  const totalUnpaidOrders = 25; // Example count
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery<AnalyticsData>({
     queryKey: ['analytics'],
@@ -124,6 +154,28 @@ const Dashboard = () => {
                 iconBgColor="bg-purple-100"
                 isLoading={analyticsLoading}
               />
+              {/* New StatCard for Pending Order Value */}
+              <StatCard
+                title="Pending Order Value"
+                value={`₦${formatMillion(pendingOrderValue)}`}
+                change={`+5%`} // Example change percentage
+                changeDirection="up"
+                icon={CreditCard}
+                iconColor="text-red-500"
+                iconBgColor="bg-red-100"
+                isLoading={false} // Assuming no loading state for dummy data
+              />
+              {/* New StatCard for Total Unpaid Orders */}
+              <StatCard
+                title="Total Unpaid Orders"
+                value={totalUnpaidOrders.toString()}
+                change={`+10%`} // Example change percentage
+                changeDirection="up"
+                icon={ShoppingCart}
+                iconColor="text-yellow-500"
+                iconBgColor="bg-yellow-100"
+                isLoading={false} // Assuming no loading state for dummy data
+              />
             </div>
             
             {/* Main Content Grid */}
@@ -151,12 +203,12 @@ const Dashboard = () => {
             </div>
             
             {/* Quick Actions */}
-            {/* <div className="mb-6">
+            <div className="mb-6">
               <QuickActions 
                 onNotify={(data) => apiClient.admin.sendNotification(data)}
                 onStockUpdate={(productId, data) => apiClient.admin.adminUpdateProduct(productId, data)}
               />
-            </div> */}
+            </div>
             
             {/* Bottom Section */}
             <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">

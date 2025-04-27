@@ -122,6 +122,21 @@ const Orders = () => {
     setSearchQuery(event.target.value.toLowerCase());
   };
 
+  const handleEdit = (orderId: number) => {
+    console.log(`Edit order ${orderId}`);
+    // Implement edit functionality
+  };
+
+  const handleAssignTruck = (orderId: number) => {
+    console.log(`Assign truck to order ${orderId}`);
+    // Implement assign truck functionality
+  };
+
+  const handleCancelOrder = (orderId: number) => {
+    console.log(`Cancel order ${orderId}`);
+    // Implement cancel order functionality
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-screen bg-slate-100">
@@ -208,6 +223,7 @@ const Orders = () => {
                     <TableHead>STATUS</TableHead>
                     <TableHead>DELIVERY METHOD</TableHead>
                     <TableHead>REFERENCE</TableHead>
+                    <TableHead>ACTIONS</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -248,6 +264,13 @@ const Orders = () => {
                         </div>
                       </TableCell>
                       <TableCell>{order.reference}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button variant="outline" className="bg-blue-500 text-white" onClick={() => handleEdit(order.id)}>Edit</Button>
+                          <Button variant="outline" className="bg-green-500 text-white" onClick={() => handleAssignTruck(order.id)}>Assign Truck</Button>
+                          <Button variant="outline" className="bg-red-500 text-white" onClick={() => handleCancelOrder(order.id)}>Cancel Order</Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

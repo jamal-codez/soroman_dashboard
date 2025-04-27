@@ -10,6 +10,7 @@ import {
 import { apiClient } from '@/api/client';
 import { Link } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 
 interface Order {
   id: number;
@@ -153,6 +154,13 @@ export const OrdersTable = () => {
                 <td className="p-4">
                   <div className={`inline-flex items-center px-2 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.release_type)}`}>
                     {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
+                  </div>
+                </td>
+                <td className="p-4">
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="bg-blue-500 text-white" onClick={() => handleEdit(order.id)}>Edit</Button>
+                    <Button variant="outline" className="bg-green-500 text-white" onClick={() => handleAssignTruck(order.id)}>Assign Truck</Button>
+                    <Button variant="outline" className="bg-red-500 text-white" onClick={() => handleCancelOrder(order.id)}>Cancel Order</Button>
                   </div>
                 </td>
               </tr>

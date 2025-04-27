@@ -18,6 +18,9 @@ import Settings from "./pages/Settings";
 import OrderVerification from "./pages/OrderVerification";
 import { DeliveryProcessing } from "./pages/DeliveryProcessing";
 import { PickupProcessing } from "./pages/PickupProcessing";
+import OfflineSales from "./pages/offlineSales";
+import Report from "./pages/Report";
+import Pricing from "./pages/Pricing";
 
 const queryClient = new QueryClient();
 
@@ -42,8 +45,9 @@ const App = () => (
           <Route path="/order-verification" element={<OrderVerification />} />
           <Route path="/delivery-processing" element={<DeliveryProcessing searchQuery={""} />} />
           <Route path="/pickup-processing" element={<PickupProcessing searchQuery={""} />} />
-          
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="/offline-sales" element={<OfflineSales/>} />
+          <Route path="/report" element={<Report/>} />
+          <Route path="/pricing" element={<Pricing/>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
