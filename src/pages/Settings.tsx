@@ -265,7 +265,7 @@ const Settings = () => {
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h1 className="text-2xl font-bold text-slate-800">Staff Management</h1>
+                <h1 className="text-2xl font-bold text-slate-800">Staff Management Dashboard</h1>
                 <p className="text-slate-500">Manage your staffs</p>
               </div>
               <Button

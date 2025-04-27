@@ -128,7 +128,7 @@ export const DeliveryProcessing = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Fuel Delivery Management</h1>
+              <h1 className="text-2xl font-bold text-slate-800">Delivery Process Dashboard</h1>
             </div>
             
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
