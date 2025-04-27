@@ -28,68 +28,150 @@ import {
   Plus,
   Search,
   Filter,
-  Download
+  Download,
+  Calendar,
+  Wallet,
+  CheckCircle,
+  Clock
 } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { Calendar as DatePicker } from '@/components/ui/calendar';
+import { format } from 'date-fns';
 
 interface OfflineSale {
   id: string;
-  depot: string;
+  date: Date;
   staff: string;
-  litres: number;
-  price: number;
-  truckNumber: string;
+  depot: string;
+  fuelTypes: string[];
+  quantity: number;
+  paymentStatus: 'Pending' | 'Paid';
+  paymentAmount?: number;
+  paymentMethod?: 'Cash' | 'Transfer' | 'Other';
+  truckNumbers: string[];
+  truckDestinations: string[];
+  orderReference?: string;
+  notes?: string;
 }
 
-export default function OfflineSales(){
-  const [sales, setSales] = useState<OfflineSale[]>([]);
+const fuelOptions = [
+  'Petrol (PMS)',
+  'Diesel (AGO)',
+  'LPG',
+  'Jet Fuel (JET-A1)'
+];
+
+export default function OfflineSales() {
+  const [sales, setSales] = useState<OfflineSale[]>([
+    {
+      id: '1',
+      date: new Date(),
+      staff: 'John Doe',
+      depot: 'Depot A',
+      fuelTypes: ['Petrol (PMS)', 'Diesel (AGO)'],
+      quantity: 1000,
+      paymentStatus: 'Paid',
+      paymentAmount: 5000,
+      paymentMethod: 'Cash',
+      truckNumbers: ['ABC123'],
+      truckDestinations: ['City A'],
+      orderReference: 'ORD001',
+      notes: 'Urgent delivery'
+    },
+    // Add more mock data as needed
+  ]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentSale, setCurrentSale] = useState<OfflineSale | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Form state
   const [formData, setFormData] = useState({
-    depot: '',
+    date: new Date(),
     staff: '',
-    litres: '',
-    price: '',
-    truckNumber: ''
+    depot: '',
+    fuelTypes: [] as string[],
+    quantity: '',
+    paymentStatus: 'Pending' as 'Pending' | 'Paid',
+    paymentAmount: '',
+    paymentMethod: undefined as 'Cash' | 'Transfer' | 'Other' | undefined,
+    truckNumbers: [''],
+    truckDestinations: [''],
+    orderReference: '',
+    notes: ''
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const newSale = {
+    const newSale: OfflineSale = {
       id: Date.now().toString(),
-      depot: formData.depot,
+      date: formData.date,
       staff: formData.staff,
-      litres: Number(formData.litres),
-      price: Number(formData.price),
-      truckNumber: formData.truckNumber
+      depot: formData.depot,
+      fuelTypes: formData.fuelTypes,
+      quantity: Number(formData.quantity),
+      paymentStatus: formData.paymentStatus,
+      paymentAmount: formData.paymentStatus === 'Paid' ? Number(formData.paymentAmount) : undefined,
+      paymentMethod: formData.paymentStatus === 'Paid' ? formData.paymentMethod : undefined,
+      truckNumbers: formData.truckNumbers.filter(n => n.trim() !== ''),
+      truckDestinations: formData.truckDestinations.filter(d => d.trim() !== ''),
+      orderReference: formData.orderReference,
+      notes: formData.notes
     };
 
     setSales(prev => currentSale ? 
       prev.map(s => s.id === currentSale.id ? newSale : s) : 
-      [...prev, newSale]
-    );
+      [...prev, newSale]);
     
-    setFormData({ depot: '', staff: '', litres: '', price: '', truckNumber: '' });
-    setIsModalOpen(false);
-    setCurrentSale(null);
+    resetForm();
   };
 
   const handleEdit = (sale: OfflineSale) => {
     setCurrentSale(sale);
     setFormData({
-      depot: sale.depot,
+      date: sale.date,
       staff: sale.staff,
-      litres: sale.litres.toString(),
-      price: sale.price.toString(),
-      truckNumber: sale.truckNumber
+      depot: sale.depot,
+      fuelTypes: sale.fuelTypes,
+      quantity: sale.quantity.toString(),
+      paymentStatus: sale.paymentStatus,
+      paymentAmount: sale.paymentAmount?.toString() || '',
+      paymentMethod: sale.paymentMethod,
+      truckNumbers: [...sale.truckNumbers, ''],
+      truckDestinations: [...sale.truckDestinations, ''],
+      orderReference: sale.orderReference || '',
+      notes: sale.notes || ''
     });
     setIsModalOpen(true);
   };
 
   const handleDelete = (id: string) => {
     setSales(prev => prev.filter(sale => sale.id !== id));
+  };
+
+  const resetForm = () => {
+    setFormData({
+      date: new Date(),
+      staff: '',
+      depot: '',
+      fuelTypes: [],
+      quantity: '',
+      paymentStatus: 'Pending',
+      paymentAmount: '',
+      paymentMethod: undefined,
+      truckNumbers: [''],
+      truckDestinations: [''],
+      orderReference: '',
+      notes: ''
+    });
+    setIsModalOpen(false);
+    setCurrentSale(null);
   };
 
   return (
@@ -134,7 +216,7 @@ export default function OfflineSales(){
                       </Button>
                     </DialogTrigger>
                     
-                    <DialogContent className="sm:max-w-[600px]">
+                    <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
                       <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                           <ClipboardList size={20} />
@@ -145,22 +227,15 @@ export default function OfflineSales(){
                       <form onSubmit={handleSubmit} className="grid gap-4 py-4">
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                              <Fuel size={16} />
-                              Depot
-                            </label>
-                            <Input
-                              required
-                              value={formData.depot}
-                              onChange={(e) => setFormData({...formData, depot: e.target.value})}
+                            <Label>Date</Label>
+                            <DatePicker
+                              selected={formData.date}
+                              onSelect={(date) => date && setFormData({...formData, date})}
                             />
                           </div>
-
+                          
                           <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                              <User size={16} />
-                              Staff
-                            </label>
+                            <Label>Staff Name</Label>
                             <Input
                               required
                               value={formData.staff}
@@ -171,35 +246,147 @@ export default function OfflineSales(){
 
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-700">Litres</label>
+                            <Label>Depot</Label>
                             <Input
-                              type="number"
                               required
-                              value={formData.litres}
-                              onChange={(e) => setFormData({...formData, litres: e.target.value})}
+                              value={formData.depot}
+                              onChange={(e) => setFormData({...formData, depot: e.target.value})}
                             />
                           </div>
-
+                          
                           <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-700">Price (₦/L)</label>
+                            <Label>Fuel Type(s)</Label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {fuelOptions.map((fuel) => (
+                                <label key={fuel} className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={formData.fuelTypes.includes(fuel)}
+                                    onChange={(e) => {
+                                      const updated = e.target.checked
+                                        ? [...formData.fuelTypes, fuel]
+                                        : formData.fuelTypes.filter(f => f !== fuel);
+                                      setFormData({...formData, fuelTypes: updated});
+                                    }}
+                                  />
+                                  <span>{fuel}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Quantity (Litres)</Label>
                             <Input
                               type="number"
                               required
-                              value={formData.price}
-                              onChange={(e) => setFormData({...formData, price: e.target.value})}
+                              value={formData.quantity}
+                              onChange={(e) => setFormData({...formData, quantity: e.target.value})}
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label>Payment Status</Label>
+                            <Select
+                              value={formData.paymentStatus}
+                              onValueChange={(v) => setFormData({...formData, paymentStatus: v as 'Pending' | 'Paid'})}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Pending">Pending</SelectItem>
+                                <SelectItem value="Paid">Paid</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        {formData.paymentStatus === 'Paid' && (
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Payment Amount</Label>
+                              <Input
+                                type="number"
+                                required
+                                value={formData.paymentAmount}
+                                onChange={(e) => setFormData({...formData, paymentAmount: e.target.value})}
+                              />
+                            </div>
+                            
+                            <div className="space-y-2">
+                              <Label>Payment Method</Label>
+                              <Select
+                                value={formData.paymentMethod}
+                                onValueChange={(v) => setFormData({...formData, paymentMethod: v as any})}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select method" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Cash">Cash</SelectItem>
+                                  <SelectItem value="Transfer">Transfer</SelectItem>
+                                  <SelectItem value="Other">Other</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                          <Label>Truck Information</Label>
+                          {formData.truckNumbers.map((_, index) => (
+                            <div key={index} className="grid grid-cols-2 gap-4">
+                              <Input
+                                placeholder="Truck Number"
+                                value={formData.truckNumbers[index]}
+                                onChange={(e) => {
+                                  const newTrucks = [...formData.truckNumbers];
+                                  newTrucks[index] = e.target.value;
+                                  setFormData({...formData, truckNumbers: newTrucks});
+                                }}
+                              />
+                              <Input
+                                placeholder="Destination"
+                                value={formData.truckDestinations[index]}
+                                onChange={(e) => {
+                                  const newDests = [...formData.truckDestinations];
+                                  newDests[index] = e.target.value;
+                                  setFormData({...formData, truckDestinations: newDests});
+                                }}
+                              />
+                            </div>
+                          ))}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setFormData({
+                              ...formData,
+                              truckNumbers: [...formData.truckNumbers, ''],
+                              truckDestinations: [...formData.truckDestinations, '']
+                            })}
+                          >
+                            Add Another Truck
+                          </Button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Order Reference</Label>
+                            <Input
+                              value={formData.orderReference}
+                              onChange={(e) => setFormData({...formData, orderReference: e.target.value})}
                             />
                           </div>
                         </div>
 
                         <div className="space-y-2">
-                          <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                            <Truck size={16} />
-                            Truck Number
-                          </label>
-                          <Input
-                            required
-                            value={formData.truckNumber}
-                            onChange={(e) => setFormData({...formData, truckNumber: e.target.value})}
+                          <Label>Notes</Label>
+                          <Textarea
+                            value={formData.notes}
+                            onChange={(e) => setFormData({...formData, notes: e.target.value})}
                           />
                         </div>
 
@@ -207,7 +394,7 @@ export default function OfflineSales(){
                           <Button 
                             variant="outline" 
                             type="button"
-                            onClick={() => setIsModalOpen(false)}
+                            onClick={resetForm}
                           >
                             Cancel
                           </Button>
@@ -226,29 +413,49 @@ export default function OfflineSales(){
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>DEPOT</TableHead>
-                    <TableHead>STAFF</TableHead>
-                    <TableHead className="text-right">LITRES</TableHead>
-                    <TableHead className="text-right">PRICE (₦/L)</TableHead>
-                    <TableHead>TRUCK NO.</TableHead>
-                    <TableHead className="text-right">ACTIONS</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Staff</TableHead>
+                    <TableHead>Depot</TableHead>
+                    <TableHead>Fuel Types</TableHead>
+                    <TableHead className="text-right">Quantity</TableHead>
+                    <TableHead>Payment</TableHead>
+                    <TableHead>Trucks</TableHead>
+                    <TableHead>Reference</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 
                 <TableBody>
                   {sales.map((sale) => (
                     <TableRow key={sale.id}>
-                      <TableCell className="font-medium">{sale.depot}</TableCell>
+                      <TableCell>{format(sale.date, 'dd/MM/yyyy')}</TableCell>
                       <TableCell>{sale.staff}</TableCell>
-                      <TableCell className="text-right">{sale.litres.toLocaleString()} L</TableCell>
-                      <TableCell className="text-right">₦{sale.price.toLocaleString()}</TableCell>
-                      <TableCell>{sale.truckNumber}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
+                      <TableCell>{sale.depot}</TableCell>
+                      <TableCell>{sale.fuelTypes.join(', ')}</TableCell>
+                      <TableCell className="text-right">{sale.quantity.toLocaleString()} L</TableCell>
+                      <TableCell>
+                        <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs ${
+                          sale.paymentStatus === 'Paid' 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {sale.paymentStatus}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {sale.truckNumbers.map((num, i) => (
+                          <div key={i} className="text-sm">
+                            {num} → {sale.truckDestinations[i]}
+                          </div>
+                        ))}
+                      </TableCell>
+                      <TableCell>{sale.orderReference}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50"
+                            className="text-blue-600 hover:bg-blue-50"
                             onClick={() => handleEdit(sale)}
                           >
                             <Edit size={16} />
@@ -256,7 +463,7 @@ export default function OfflineSales(){
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
+                            className="text-red-600 hover:bg-red-50"
                             onClick={() => handleDelete(sale.id)}
                           >
                             <Trash size={16} />
@@ -279,4 +486,4 @@ export default function OfflineSales(){
       </div>
     </div>
   );
-};
+}
