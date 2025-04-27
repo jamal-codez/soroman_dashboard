@@ -222,6 +222,7 @@ const Orders = () => {
                     <TableHead className="text-right">AMOUNT</TableHead>
                     <TableHead>STATUS</TableHead>
                     <TableHead>DELIVERY METHOD</TableHead>
+                    <TableHead>Trucks</TableHead>
                     <TableHead>REFERENCE</TableHead>
                     <TableHead>ACTIONS</TableHead>
                   </TableRow>
@@ -263,11 +264,13 @@ const Orders = () => {
                           {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                         </div>
                       </TableCell>
+                      <TableCell>{order.quantity}
+                      </TableCell>
                       <TableCell>{order.reference}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button variant="outline" className="bg-blue-500 text-white" onClick={() => handleEdit(order.id)}>Edit</Button>
-                          <Button variant="outline" className="bg-green-500 text-white" onClick={() => handleAssignTruck(order.id)}>Assign Truck</Button>
+                          {/* <Button variant="outline" className="bg-blue-500 text-white" onClick={() => handleEdit(order.id)}>Edit</Button>
+                          <Button variant="outline" className="bg-green-500 text-white" onClick={() => handleAssignTruck(order.id)}>Assign Truck</Button> */}
                           <Button variant="outline" className="bg-red-500 text-white" onClick={() => handleCancelOrder(order.id)}>Cancel Order</Button>
                         </div>
                       </TableCell>

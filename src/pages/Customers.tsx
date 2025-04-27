@@ -141,7 +141,7 @@ const Customers = () => {
                     <TableHead>EMAIL</TableHead>
                     <TableHead>PHONE</TableHead>
                     <TableHead>JOINED</TableHead>
-                    <TableHead className="text-right">ACTIONS</TableHead>
+                    {/* <TableHead className="text-right">ACTIONS</TableHead> */}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -155,9 +155,9 @@ const Customers = () => {
                         <TableCell><Skeleton className="h-4 w-48" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell className="text-right">
+                        {/* <TableCell className="text-right">
                           <Skeleton className="h-8 w-8 mx-auto" />
-                        </TableCell>
+                        </TableCell> */}
                       </TableRow>
                     ))
                   ) : isError ? (

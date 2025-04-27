@@ -203,13 +203,13 @@ const Dashboard = () => {
             </div>
             
             {/* Quick Actions */}
-            <div className="mb-6">
+            {/* <div className="mb-6">
               <QuickActions 
                 onNotify={(data) => apiClient.admin.sendNotification(data)}
                 onStockUpdate={(productId, data) => apiClient.admin.adminUpdateProduct(productId, data)}
               />
             </div>
-            
+             */}
             {/* Bottom Section */}
             <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
               <CustomerList 

@@ -1,4 +1,5 @@
 const ADMIN_BASE = 'https://api.ordersoroman.com/api/admin';
+// const ADMIN_BASE = 'http://127.0.0.1:8000/api/admin';
 
 // Utility function to generate headers
 const getHeaders = (additionalHeaders = {}) => ({

@@ -382,7 +382,7 @@ export default function Finance() {
             </div>
 
             {/* Product Price Management */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
+            {/* <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <h2 className="text-lg font-semibold mb-4">Product Price Management</h2>
               {productsQuery.isLoading ? (
                 <div className="space-y-4">
@@ -447,10 +447,10 @@ export default function Finance() {
                   </TableBody>
                 </Table>
               )}
-            </div>
+            </div> */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Product Price Management */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
+            {/* <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <h2 className="text-lg font-semibold mb-4">Delivery Rates</h2>
               {stateQuery.isLoading ? (
                 <div className="space-y-4">
@@ -536,7 +536,7 @@ export default function Finance() {
                   </div>
                 </>
               )}
-            </div>
+            </div> */}
             {/* Product Price Management */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <h2 className="text-lg font-semibold mb-4">Bank Accounts</h2>
