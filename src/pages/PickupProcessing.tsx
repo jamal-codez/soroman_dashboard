@@ -242,15 +242,15 @@ export const PickupProcessing = () => {
                       </TableCell>
                       <TableCell> {order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.quantity.toLocaleString()}</TableCell>
-                      <TableCell>{order.id}</TableCell>
+                      <TableCell>{order.pickup.pickup_date}</TableCell>
                       <TableCell>
                         {/* {format(new Date(order.scheduledPickup), 'MMM dd, yyyy HH:mm')} */}
-                        jj
+                        {order.trucks}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="border-blue-200 text-blue-800">
                           {/* {order.truckNumber} */}
-                          jj
+                          --
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -262,7 +262,7 @@ export const PickupProcessing = () => {
                         }>
                           {order.status}
                         </Badge> */}
-                        kk
+                        --
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
