@@ -264,7 +264,7 @@ const Orders = () => {
                           {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                         </div>
                       </TableCell>
-                      <TableCell>{order.quantity}
+                      <TableCell>AB2, ABT
                       </TableCell>
                       <TableCell>{order.reference}</TableCell>
                       <TableCell>

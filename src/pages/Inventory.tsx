@@ -264,7 +264,7 @@ const Inventory = () => {
                   <TableRow>
                     <TableHead>PRODUCT NAME</TableHead>
                     <TableHead>ABBREVIATION</TableHead>
-                    <TableHead>PRICE</TableHead>
+                    {/* <TableHead>PRICE</TableHead> */}
                     <TableHead>STOCK QUANTITY</TableHead>
                     <TableHead>STATUS</TableHead>
                     <TableHead>LAST UPDATED</TableHead>
@@ -292,7 +292,7 @@ const Inventory = () => {
                         <TableRow key={item.id}>
                           <TableCell className="font-medium">{item.name}</TableCell>
                           <TableCell>{item.abbreviation}</TableCell>
-                          <TableCell>₦{item.unit_price}/Liter</TableCell>
+                          {/* <TableCell>₦{item.unit_price}/Liter</TableCell> */}
                           <TableCell>
                             <div>
                               <div className="flex justify-between mb-1">

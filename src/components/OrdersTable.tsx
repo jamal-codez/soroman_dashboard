@@ -117,6 +117,7 @@ export const OrdersTable = () => {
               <th className="text-right text-xs font-semibold text-slate-500 p-4">AMOUNT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">STATUS</th>
               <th className="text-center text-xs font-semibold text-slate-500 p-4">Delivery Method</th>
+              <th className="text-center text-xs font-semibold text-slate-500 p-4">Truck No</th>
             </tr>
           </thead>
           <tbody>
@@ -155,6 +156,9 @@ export const OrdersTable = () => {
                   <div className={`inline-flex items-center px-2 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.release_type)}`}>
                     {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                   </div>
+                </td>
+                <td className="p-4 text-sm font-medium text-slate-900 text-right">
+                  ABC-104, KD-586
                 </td>
                 <td className="p-4">
                   <div className="flex gap-2">
