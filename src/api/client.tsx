@@ -80,6 +80,13 @@ export const apiClient = {
       return response.json();
     },
 
+    getStatesPricing: async () => {
+      const response = await fetch(`${ADMIN_BASE}/productprice/`, {
+        headers: getHeaders(),
+      });
+      return response.json();
+    },
+
     postBankAccount: async (data: { name: string; acct_no: string; bank_name: string }) => {
       const response = await fetch(`${ADMIN_BASE}/bank-accounts/`, {
         method: 'POST',
@@ -232,6 +239,31 @@ export const apiClient = {
       }
       const response = await fetch(url.toString(), {
         headers: getHeaders()
+      });
+      return response.json();
+    },
+
+    updateStatePrice: async (updatedState: {
+      id: number;
+      products: { id: number; price: number }[];
+    }) => {
+      const response = await fetch(`${ADMIN_BASE}/states/${updatedState.id}/update-prices/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(updatedState),
+      });
+    
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update state prices');
+      }
+    
+      return response.json();
+    },
+    
+    toggleStateStatus: async (StatetId: String) => {
+      const response = await fetch(`${ADMIN_BASE}/state/${StatetId}/togglestatus/`, {
+        headers: getHeaders(),
       });
       return response.json();
     },
