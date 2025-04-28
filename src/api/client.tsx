@@ -197,6 +197,22 @@ export const apiClient = {
       return response.json();
     },
 
+    getPickupOrders: async (params?: { page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/pickup-orders/`);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          url.searchParams.append(key, value.toString());
+        });
+      }
+      const response = await fetch(url.toString(), {
+        headers: getHeaders(),
+      });
+      return response.json();
+    },
+
+
+    
+
     // Products CRUD
     getProducts: async (params?: { page?: number; page_size?: number }) => {
       const url = new URL(`${ADMIN_BASE}/products/`);

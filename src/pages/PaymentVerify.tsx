@@ -29,6 +29,10 @@ interface PaymentOrder {
   reference: string;
 }
 
+interface OrderResponse {
+  count: number;
+  results: Order[];
+}
 interface ConfirmationModalProps {
   isOpen: boolean;
   onClose: () => void;

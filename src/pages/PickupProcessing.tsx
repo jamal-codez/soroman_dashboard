@@ -25,7 +25,36 @@ import {
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
 import { format } from 'date-fns';
+import { apiClient } from '@/api/client';
 
+interface Order {
+  id: number;
+  user: {
+    first_name: string;
+    last_name: string;
+    email: string;
+  };
+  pickup: {
+    pickup_date: string;  // Date in string format (e.g., "2025-04-30")
+    pickup_time: string;  // Time in string format (e.g., "14:00:00")
+    state: string;        // State name (e.g., "Kaduna")
+  };
+  trucks: string[];      // Array of truck numbers (e.g., ["Truck A123", "Truck B456"])
+  total_price: string;   // Total price as a string (e.g., "100.00")
+  status: 'pending' | 'paid' | 'cancelled';  // Order status
+  created_at: string;    // Date-time string (e.g., "2025-04-28T12:34:56Z")
+  products: Array<{
+    name: string;        // Product name (e.g., "Product A")
+  }>;
+  quantity: number;      // Total quantity of items
+  release_type: 'pickup' | 'delivery';  // Type of release
+  reference: string;     // Reference code (e.g., "ABC123XYZ")
+}
+
+interface OrderResponse {
+  count: number;
+  results: Order[];
+}
 interface PickupOrder {
   id: string;
   reference: string;
@@ -44,29 +73,53 @@ export const PickupProcessing = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
-  const { data: apiResponse, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['pickups', currentPage],
-    queryFn: async () => {
-      // Simulated API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return {
-        count: 1,
-        results: [
-          {
-            id: "ORD-71204",
-            reference: "REF-002",
-            customerName: "Nigeria Airways",
-            depot: "Lagos Terminal",
-            fuelType: "Jet Fuel",
-            quantity: "8,000 L",
-            scheduledPickup: "2025-04-25T10:00:00",
-            truckNumber: "TRK-001",
-            status: "Ready for Pickup"
-          }
-        ]
-      };
-    }
-  });
+  const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
+      queryKey: ['all-orders', currentPage],
+      queryFn: async () => {
+        try {
+          const response = await apiClient.admin.getPickupOrders({
+            page: currentPage,
+            page_size: pageSize
+          });
+          console.log(response)
+          
+          if (!response.results) throw new Error('Invalid response format');
+          
+          return {
+            count: response.count || 0,
+            results: response.results || []
+          };
+        } catch (error) {
+          throw new Error('Failed to fetch orders');
+        }
+      },
+      retry: 2,
+      refetchOnWindowFocus: false
+    });
+
+  // const { data: apiResponse, isLoading, isError, error, refetch } = useQuery({
+  //   queryKey: ['pickups', currentPage],
+  //   queryFn: async () => {
+  //     // Simulated API call
+  //     await new Promise(resolve => setTimeout(resolve, 1000));
+  //     return {
+  //       count: 1,
+  //       results: [
+  //         {
+  //           id: "ORD-71204",
+  //           reference: "REF-002",
+  //           customerName: "Nigeria Airways",
+  //           depot: "Lagos Terminal",
+  //           fuelType: "Jet Fuel",
+  //           quantity: "8,000 L",
+  //           scheduledPickup: "2025-04-25T10:00:00",
+  //           truckNumber: "TRK-001",
+  //           status: "Ready for Pickup"
+  //         }
+  //       ]
+  //     };
+  //   }
+  // });
 
   const totalPages = Math.ceil((apiResponse?.count || 0) / pageSize);
 
@@ -74,10 +127,11 @@ export const PickupProcessing = () => {
   const handleNextPage = () => currentPage < totalPages && setCurrentPage(prev => prev + 1);
 
   const filteredOrders = (apiResponse?.results || []).filter(order => 
-    order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    order.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    order.id.toString().toLowerCase().includes(searchQuery.toLowerCase()) ||
+    `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
     order.reference.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value.toLowerCase());
@@ -162,7 +216,7 @@ export const PickupProcessing = () => {
                     <TableHead>ORDER ID</TableHead>
                     <TableHead>REFERENCE</TableHead>
                     <TableHead>CUSTOMER</TableHead>
-                    <TableHead>DEPOT</TableHead>
+                    {/* <TableHead>STATE</TableHead> */}
                     <TableHead>FUEL TYPE</TableHead>
                     <TableHead>QUANTITY</TableHead>
                     <TableHead>SCHEDULED PICKUP</TableHead>
@@ -176,40 +230,52 @@ export const PickupProcessing = () => {
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">{order.id}</TableCell>
                       <TableCell>{order.reference}</TableCell>
-                      <TableCell>{order.customerName}</TableCell>
-                      <TableCell>{order.depot}</TableCell>
-                      <TableCell>{order.fuelType}</TableCell>
-                      <TableCell>{order.quantity}</TableCell>
                       <TableCell>
-                        {format(new Date(order.scheduledPickup), 'MMM dd, yyyy HH:mm')}
+                      <div>
+                          <div className="font-medium">
+                            {order.user.first_name} {order.user.last_name}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {order.user.email}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell> {order.products.map(p => p.name).join(', ')}</TableCell>
+                      <TableCell>{order.quantity.toLocaleString()}</TableCell>
+                      <TableCell>{order.id}</TableCell>
+                      <TableCell>
+                        {/* {format(new Date(order.scheduledPickup), 'MMM dd, yyyy HH:mm')} */}
+                        jj
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="border-blue-200 text-blue-800">
-                          {order.truckNumber}
+                          {/* {order.truckNumber} */}
+                          jj
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge className={
+                        {/* <Badge 
+                        className={
                           order.status === 'Ready for Pickup' ? 'bg-green-100 text-green-800' :
                           order.status === 'In Progress' ? 'bg-yellow-100 text-yellow-800' :
                           'bg-blue-100 text-blue-800'
                         }>
                           {order.status}
-                        </Badge>
+                        </Badge> */}
+                        kk
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           {/* Your existing dialog buttons kept exactly the same */}
-                          <Dialog>
+                          {/* <Dialog>
                             <DialogTrigger asChild>
                               <Button size="sm" variant="outline" className="h-8 w-8 p-0">
                                 <Edit className="h-4 w-4" />
                               </Button>
                             </DialogTrigger>
                             <DialogContent>
-                              {/* ... your existing dialog content ... */}
                             </DialogContent>
-                          </Dialog>
+                          </Dialog> */}
 
                           <Dialog>
                             <DialogTrigger asChild>
@@ -223,16 +289,15 @@ export const PickupProcessing = () => {
                             </DialogContent>
                           </Dialog>
 
-                          <Dialog>
+                          {/* <Dialog>
                             <DialogTrigger asChild>
                               <Button size="sm" className="h-8 bg-green-600 hover:bg-green-700">
                                 <Check className="h-4 w-4" />
                               </Button>
                             </DialogTrigger>
                             <DialogContent>
-                              {/* ... your existing dialog content ... */}
                             </DialogContent>
-                          </Dialog>
+                          </Dialog> */}
                         </div>
                       </TableCell>
                     </TableRow>
