@@ -9,6 +9,8 @@ export interface AnalyticsData {
     fuel_volume_change: number;
     active_customers: number;
     active_customers_change: number;
+    pending_order_value: number;
+    unpaid_orders: number;
   }
   
   export interface SalesData {
@@ -94,6 +96,8 @@ export interface AnalyticsData {
   }>;
   active_customers: number;
   active_customers_change: number;
+  pending_order_value: number;
+  unpaid_orders:number;
 }
 
 export interface SalesData {

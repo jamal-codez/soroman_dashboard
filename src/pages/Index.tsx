@@ -79,6 +79,8 @@ const Dashboard = () => {
     }
   });
 
+  console.log(salesOverview);
+
   const { data: products } = useQuery<Product[]>({
     queryKey: ['products'],
     queryFn: () => apiClient.admin.getProductInventory(),
@@ -157,7 +159,7 @@ const Dashboard = () => {
               {/* New StatCard for Pending Order Value */}
               <StatCard
                 title="Pending Order Value"
-                value={`₦${formatMillion(pendingOrderValue)}`}
+                value={`₦${formatMillion(analytics?.pending_order_value?.toLocaleString() || 0)}`}
                 change={`+5%`} // Example change percentage
                 changeDirection="up"
                 icon={CreditCard}
@@ -168,7 +170,7 @@ const Dashboard = () => {
               {/* New StatCard for Total Unpaid Orders */}
               <StatCard
                 title="Total Unpaid Orders"
-                value={totalUnpaidOrders.toString()}
+                value={formatMillion(analytics?.unpaid_orders?.toLocaleString() || 0)}
                 change={`+10%`} // Example change percentage
                 changeDirection="up"
                 icon={ShoppingCart}
@@ -185,6 +187,8 @@ const Dashboard = () => {
                   data={salesOverview || []} 
                   products={products?.map(p => p.name) || []}
                 />
+                
+                
               </div>
               <div>
                 <ProductsOverview 
@@ -224,6 +228,7 @@ const Dashboard = () => {
         </div>
       </div>
     </div>
+    
   );
 };
 
