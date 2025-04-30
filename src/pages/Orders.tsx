@@ -55,6 +55,7 @@ const statusDisplayMap = {
   paid: 'paid',
   cancelled: 'Cancelled',
 };
+const queryClient = useQueryClient();
 
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
