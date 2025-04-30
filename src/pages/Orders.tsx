@@ -32,6 +32,7 @@ interface Order {
     first_name: string;
     last_name: string;
     email: string;
+    phone_number: string;
   };
   total_price: string;
   status: 'pending' | 'paid' | 'cancelled';
@@ -222,7 +223,7 @@ const Orders = () => {
                     <TableHead className="text-right">AMOUNT</TableHead>
                     <TableHead>STATUS</TableHead>
                     <TableHead>DELIVERY METHOD</TableHead>
-                    <TableHead>Trucks</TableHead>
+                    {/* <TableHead>Trucks</TableHead> */}
                     <TableHead>REFERENCE</TableHead>
                     <TableHead>ACTIONS</TableHead>
                   </TableRow>
@@ -238,6 +239,9 @@ const Orders = () => {
                           </div>
                           <div className="text-xs text-slate-500">
                             {order.user.email}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {order.user.phone_number}
                           </div>
                         </div>
                       </TableCell>
@@ -264,8 +268,8 @@ const Orders = () => {
                           {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                         </div>
                       </TableCell>
-                      <TableCell>AB2, ABT
-                      </TableCell>
+                      {/* <TableCell>AB2, ABT
+                      </TableCell> */}
                       <TableCell>{order.reference}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
