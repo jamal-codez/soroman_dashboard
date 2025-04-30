@@ -161,6 +161,14 @@ export const apiClient = {
       return response.ok ? true : response.json();
     },
 
+    cancleOrder: async (orderID: number) => {
+      const response = await fetch(`${ADMIN_BASE}/cancleorder/${orderID}/`, {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+      return response.ok ? true : response.json();
+    },
+
     // Top Customers
     getTopCustomers: async () => {
       const response = await fetch(`${ADMIN_BASE}/top-customers/`, {
