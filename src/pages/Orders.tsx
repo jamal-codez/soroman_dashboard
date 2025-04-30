@@ -35,7 +35,7 @@ interface Order {
     phone_number: string;
   };
   total_price: string;
-  status: 'pending' | 'paid' | 'cancelled';
+  status: 'pending' | 'paid' | 'canceled';
   created_at: string;
   products: Array<{
     name: string;
@@ -53,7 +53,7 @@ interface OrderResponse {
 const statusDisplayMap = {
   pending: 'Pending',
   paid: 'Paid',
-  cancelled: 'Cancelled',
+  canceled: 'canceled',
 };
 
 // const queryClient = useQueryClient();
@@ -62,7 +62,7 @@ const getStatusIcon = (status: Order['status']) => {
   switch (status) {
     case 'paid': return <CheckCircle className="text-green-500" size={16} />;
     case 'pending': return <Clock className="text-orange-500" size={16} />;
-    case 'cancelled': return <AlertCircle className="text-red-500" size={16} />;
+    case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
     default: return <Clock className="text-orange-500" size={16} />;
   }
 };
@@ -71,7 +71,7 @@ const getStatusClass = (status: string) => {
   switch (status) {
     case 'paid': return 'bg-green-50 text-green-700 border-green-200';
     case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'cancelled': return 'bg-red-50 text-red-700 border-red-200';
+    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
     case 'delivery': return 'bg-purple-50 text-purple-700 border-purple-200';
     default: return 'bg-blue-50 text-blue-700 border-blue-200';
   }
@@ -118,19 +118,20 @@ const Orders = () => {
     setSearchQuery(event.target.value.toLowerCase());
   };
 
-  // const cancelOrderMutation = useMutation({
-  //   mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
-  //   onSuccess: () => {
-  //     queryClient.invalidateQueries({ queryKey: ['all-orders'] });
-  //   },
-  //   onError: (error) => {
-  //     console.error('Cancel failed:', error);
-  //   }
-  // });
+  const cancelOrderMutation = useMutation({
+    mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
+    onSuccess: () => {
+      // queryClient.invalidateQueries({ queryKey: ['all-orders'] });
+      refetch();
+    },
+    onError: (error) => {
+      console.error('Cancel failed:', error);
+    }
+  });
 
   const cancelOrder = async (orderId: number) => {
-    console.log(orderId);
-    // await cancelOrderMutation.mutateAsync(orderId);
+    // console.log(orderId);
+    await cancelOrderMutation.mutateAsync(orderId);
   };
 
   if (isLoading) {
