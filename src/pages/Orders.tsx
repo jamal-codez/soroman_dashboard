@@ -128,6 +128,24 @@ const Orders = () => {
     // Implement edit functionality
   };
 
+  const cancelOrderMutation = useMutation({
+    mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
+    onSuccess: () => {
+      // Invalidate orders so they refresh with updated status
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    },
+    onError: (error) => {
+      console.error('Cancel failed:', error);
+      // Optionally show a toast or error message here
+    }
+  });
+
+  const cancelOrder = async (orderId: number) => {
+    await cancelOrderMutation.mutateAsync(orderId);
+  };
+  
+  
+
   const handleAssignTruck = (orderId: number) => {
     console.log(`Assign truck to order ${orderId}`);
     // Implement assign truck functionality
@@ -275,7 +293,7 @@ const Orders = () => {
                         <div className="flex gap-2">
                           {/* <Button variant="outline" className="bg-blue-500 text-white" onClick={() => handleEdit(order.id)}>Edit</Button>
                           <Button variant="outline" className="bg-green-500 text-white" onClick={() => handleAssignTruck(order.id)}>Assign Truck</Button> */}
-                          <Button variant="outline" className="bg-red-500 text-white" onClick={() => handleCancelOrder(order.id)}>Cancel Order</Button>
+                          <Button variant="outline" className="bg-red-500 text-white" onClick={() => cancelOrder(order.id)}>Cancel Order</Button>
                         </div>
                       </TableCell>
                     </TableRow>
