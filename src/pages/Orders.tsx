@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
@@ -132,7 +132,7 @@ const Orders = () => {
     mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
     onSuccess: () => {
       // Invalidate orders so they refresh with updated status
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['all-orders'] });
     },
     onError: (error) => {
       console.error('Cancel failed:', error);
