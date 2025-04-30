@@ -51,11 +51,12 @@ interface OrderResponse {
 }
 
 const statusDisplayMap = {
-  pending: 'pending',
-  paid: 'paid',
+  pending: 'Pending',
+  paid: 'Paid',
   cancelled: 'Cancelled',
 };
-const queryClient = useQueryClient();
+
+// const queryClient = useQueryClient();
 
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
@@ -81,26 +82,19 @@ const pageSize = 10;
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  
+
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
     queryKey: ['all-orders', currentPage],
     queryFn: async () => {
-      try {
-        const response = await apiClient.admin.getAllAdminOrders({
-          page: currentPage,
-          page_size: pageSize
-        });
-        console.log(response)
-        
-        if (!response.results) throw new Error('Invalid response format');
-        
-        return {
-          count: response.count || 0,
-          results: response.results || []
-        };
-      } catch (error) {
-        throw new Error('Failed to fetch orders');
-      }
+      const response = await apiClient.admin.getAllAdminOrders({
+        page: currentPage,
+        page_size: pageSize
+      });
+      if (!response.results) throw new Error('Invalid response format');
+      return {
+        count: response.count || 0,
+        results: response.results || []
+      };
     },
     retry: 2,
     refetchOnWindowFocus: false
@@ -124,37 +118,19 @@ const Orders = () => {
     setSearchQuery(event.target.value.toLowerCase());
   };
 
-  const handleEdit = (orderId: number) => {
-    console.log(`Edit order ${orderId}`);
-    // Implement edit functionality
-  };
-
-  const cancelOrderMutation = useMutation({
-    mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
-    onSuccess: () => {
-      // Invalidate orders so they refresh with updated status
-      queryClient.invalidateQueries({ queryKey: ['all-orders'] });
-    },
-    onError: (error) => {
-      console.error('Cancel failed:', error);
-      // Optionally show a toast or error message here
-    }
-  });
+  // const cancelOrderMutation = useMutation({
+  //   mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
+  //   onSuccess: () => {
+  //     queryClient.invalidateQueries({ queryKey: ['all-orders'] });
+  //   },
+  //   onError: (error) => {
+  //     console.error('Cancel failed:', error);
+  //   }
+  // });
 
   const cancelOrder = async (orderId: number) => {
-    await cancelOrderMutation.mutateAsync(orderId);
-  };
-  
-  
-
-  const handleAssignTruck = (orderId: number) => {
-    console.log(`Assign truck to order ${orderId}`);
-    // Implement assign truck functionality
-  };
-
-  const handleCancelOrder = (orderId: number) => {
-    console.log(`Cancel order ${orderId}`);
-    // Implement cancel order functionality
+    console.log(orderId);
+    // await cancelOrderMutation.mutateAsync(orderId);
   };
 
   if (isLoading) {
@@ -164,9 +140,7 @@ const Orders = () => {
         <div className="flex-1 flex flex-col overflow-hidden">
           <TopBar />
           <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
-            <div className="text-center">
-              <Loader2 className='animate-spin' color='green' size={54} />
-            </div>
+            <Loader2 className="animate-spin" color="green" size={54} />
           </div>
         </div>
       </div>
@@ -182,9 +156,7 @@ const Orders = () => {
           <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
             <div className="text-center text-red-500">
               <p>Error: {(error as Error)?.message || 'Failed to load orders'}</p>
-              <Button onClick={() => refetch()} className="mt-4">
-                Retry
-              </Button>
+              <Button onClick={() => refetch()} className="mt-4">Retry</Button>
             </div>
           </div>
         </div>
@@ -195,16 +167,14 @@ const Orders = () => {
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
-      
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
-        
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl font-bold text-slate-800">Orders Dashboard</h1>
             </div>
-            
+
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">
@@ -219,17 +189,15 @@ const Orders = () => {
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex items-center">
-                    <Filter className="mr-1" size={16} />
-                    Filter
+                    <Filter className="mr-1" size={16} /> Filter
                   </Button>
                   <Button variant="outline" className="flex items-center">
-                    <Download className="mr-1" size={16} />
-                    Export
+                    <Download className="mr-1" size={16} /> Export
                   </Button>
                 </div>
               </div>
             </div>
-            
+
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <Table>
                 <TableHeader>
@@ -242,7 +210,6 @@ const Orders = () => {
                     <TableHead className="text-right">AMOUNT</TableHead>
                     <TableHead>STATUS</TableHead>
                     <TableHead>DELIVERY METHOD</TableHead>
-                    {/* <TableHead>Trucks</TableHead> */}
                     <TableHead>REFERENCE</TableHead>
                     <TableHead>ACTIONS</TableHead>
                   </TableRow>
@@ -256,30 +223,20 @@ const Orders = () => {
                           <div className="font-medium">
                             {order.user.first_name} {order.user.last_name}
                           </div>
-                          <div className="text-xs text-slate-500">
-                            {order.user.email}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            {order.user.phone_number}
-                          </div>
+                          <div className="text-xs text-slate-500">{order.user.email}</div>
+                          <div className="text-xs text-slate-500">{order.user.phone_number}</div>
                         </div>
                       </TableCell>
-                      <TableCell>
-                        {order.products.map(p => p.name).join(', ')}
-                      </TableCell>
+                      <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.quantity.toLocaleString()} L</TableCell>
-                      <TableCell>
-                        {format(new Date(order.created_at), 'MMM dd, yyyy HH:mm')}
-                      </TableCell>
+                      <TableCell>{format(new Date(order.created_at), 'MMM dd, yyyy HH:mm')}</TableCell>
                       <TableCell className="text-right font-medium">
                         ₦{parseFloat(order.total_price).toLocaleString()}
                       </TableCell>
                       <TableCell>
                         <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
                           {getStatusIcon(order.status)}
-                          <span className="ml-1.5">
-                            {statusDisplayMap[order.status]}
-                          </span>
+                          <span className="ml-1.5">{statusDisplayMap[order.status]}</span>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -287,21 +244,19 @@ const Orders = () => {
                           {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                         </div>
                       </TableCell>
-                      {/* <TableCell>AB2, ABT
-                      </TableCell> */}
                       <TableCell>{order.reference}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          {/* <Button variant="outline" className="bg-blue-500 text-white" onClick={() => handleEdit(order.id)}>Edit</Button>
-                          <Button variant="outline" className="bg-green-500 text-white" onClick={() => handleAssignTruck(order.id)}>Assign Truck</Button> */}
-                          <Button variant="outline" className="bg-red-500 text-white" onClick={() => cancelOrder(order.id)}>Cancel Order</Button>
+                          <Button variant="outline" className="bg-red-500 text-white" onClick={() => cancelOrder(order.id)}>
+                            Cancel Order
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-              
+
               {filteredOrders.length === 0 ? (
                 <div className="p-8 text-center">
                   <p className="text-slate-500">
