@@ -248,9 +248,22 @@ const Orders = () => {
                       <TableCell>{order.reference}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button variant="outline" className="bg-red-500 text-white" onClick={() => cancelOrder(order.id)}>
+                          {/* <Button variant="outline" className="bg-red-500 text-white" onClick={() => cancelOrder(order.id)}>
                             Cancel Order
-                          </Button>
+                          </Button> */}
+                          <Button
+  variant="outline"
+  onClick={() => cancelOrder(order.id)}
+  disabled={order.status !== 'pending'}
+  className={`${
+    order.status !== 'pending'
+      ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+      : 'bg-red-500 text-white'
+  }`}
+>
+  Cancel Order
+</Button>
+
                         </div>
                       </TableCell>
                     </TableRow>
