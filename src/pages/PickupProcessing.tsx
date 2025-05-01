@@ -1,11 +1,24 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient  } from '@tanstack/react-query';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Truck, Edit, Check, Loader2, Download, Filter, Search } from "lucide-react";
+// import { Truck, Edit, Check, Loader2, Download, Filter, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from '@/hooks/use-toast';
+import {
+  Download,
+  Filter,
+  Search,
+  CheckCircle,
+  Clock,
+  Truck,
+  AlertCircle,
+  MoreHorizontal,
+  Loader2,
+  Edit, Check,
+} from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -41,7 +54,7 @@ interface Order {
   };
   trucks: string[];      // Array of truck numbers (e.g., ["Truck A123", "Truck B456"])
   total_price: string;   // Total price as a string (e.g., "100.00")
-  status: 'pending' | 'paid' | 'cancelled';  // Order status
+  status: 'pending' | 'paid' | 'canceled'|'released';  // Order status
   created_at: string;    // Date-time string (e.g., "2025-04-28T12:34:56Z")
   products: Array<{
     name: string;        // Product name (e.g., "Product A")
@@ -69,9 +82,40 @@ interface PickupOrder {
 
 const pageSize = 10;
 
+const getStatusClass = (status: string) => {
+  switch (status) {
+    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
+    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
+    case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
+    default: return 'bg-blue-50 text-blue-700 border-blue-200';
+  }
+};
+
+const statusDisplayMap = {
+  pending: 'Pending',
+  paid: 'Paid',
+  canceled: 'Canceled',
+  released: 'Released',
+};
+
+
+const getStatusIcon = (status: Order['status']) => {
+  switch (status) {
+    case 'paid': return <CheckCircle className="text-green-500" size={16} />;
+    case 'pending': return <Clock className="text-orange-500" size={16} />;
+    case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
+    case 'released': return <Truck className="text-blue-500" size={16} />;
+    default: return <Clock className="text-orange-500" size={16} />;
+  }
+};
 export const PickupProcessing = () => {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const { toast } = useToast();
 
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
       queryKey: ['all-orders', currentPage],
@@ -135,6 +179,22 @@ export const PickupProcessing = () => {
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value.toLowerCase());
+  };
+
+  const handleReleaseOrder = async (orderId: number) => {
+    try {
+      setIsDialogOpen(false); // Close the dialog immediately
+      await apiClient.admin.releaseOrder(orderId);
+      queryClient.invalidateQueries(['all-orders']);
+      toast({
+        title: "Success!",
+        description: "ORDER RELEASED",
+      });
+      // alert(`Order ${orderId} released successfully.`);
+      // refetch(); // Refetch the orders to update the list
+    } catch (error) {
+      alert(`Failed to release order: ${(error as Error).message}`);
+    }
   };
 
   if (isLoading) {
@@ -220,7 +280,7 @@ export const PickupProcessing = () => {
                     <TableHead>FUEL TYPE</TableHead>
                     <TableHead>QUANTITY</TableHead>
                     <TableHead>SCHEDULED PICKUP</TableHead>
-                    <TableHead>TRUCK NUMBER</TableHead>
+                    {/* <TableHead>TRUCK NUMBER</TableHead> */}
                     <TableHead>STATUS</TableHead>
                     <TableHead className="text-right">ACTIONS</TableHead>
                   </TableRow>
@@ -242,27 +302,18 @@ export const PickupProcessing = () => {
                       </TableCell>
                       <TableCell> {order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.quantity.toLocaleString()}</TableCell>
-                      <TableCell>{order.pickup.pickup_date}</TableCell>
                       <TableCell>
-                        {/* {format(new Date(order.scheduledPickup), 'MMM dd, yyyy HH:mm')} */}
+                        {order.pickup ? order.pickup.pickup_date : '--'}
+                      </TableCell>
+                      {/* <TableCell>
+                       
                         {order.trucks}
-                      </TableCell>
+                      </TableCell> */}
                       <TableCell>
-                        <Badge variant="outline" className="border-blue-200 text-blue-800">
-                          {/* {order.truckNumber} */}
-                          --
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {/* <Badge 
-                        className={
-                          order.status === 'Ready for Pickup' ? 'bg-green-100 text-green-800' :
-                          order.status === 'In Progress' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-blue-100 text-blue-800'
-                        }>
-                          {order.status}
-                        </Badge> */}
-                        --
+                         <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
+                          {getStatusIcon(order.status)}
+                          <span className="ml-1.5">{statusDisplayMap[order.status]}</span>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
@@ -277,15 +328,48 @@ export const PickupProcessing = () => {
                             </DialogContent>
                           </Dialog> */}
 
-                          <Dialog>
+                          <Dialog
+                            open={isDialogOpen && selectedOrderId === order.id}
+                            onOpenChange={(isOpen) => {
+                              if (!isOpen) {
+                                setIsDialogOpen(false);
+                                setSelectedOrderId(null);
+                              }
+                            }}
+                          >
                             <DialogTrigger asChild>
-                              <Button size="sm" className="h-8 gap-1">
+                              <Button
+                                size="sm"
+                                className="h-8 gap-1"
+                                onClick={() => {
+                                  setSelectedOrderId(order.id);
+                                  setIsDialogOpen(true);
+                                }}
+                                disabled={order.status !== 'paid'} // Enable button only for 'paid' status
+                              >
                                 <Truck className="h-4 w-4" />
                                 <span>Release</span>
                               </Button>
                             </DialogTrigger>
                             <DialogContent>
-                              {/* ... your existing dialog content ... */}
+                              <DialogHeader>
+                                <DialogTitle>Confirm Release</DialogTitle>
+                              </DialogHeader>
+                              <p>Are you sure you want to release Order with ID: <strong>{order.id}</strong>?</p>
+                              <p>Scheduled Pickup: <strong>{order.pickup ? order.pickup.pickup_date : '--'}</strong></p>
+                              <p>Quantity: <strong>{order.quantity.toLocaleString()}</strong> Litres</p>
+                              <p>Fuel Type: <strong>{order.products.map(p => p.name).join(', ')}</strong></p>
+                              <DialogFooter>
+                                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                                  Cancel
+                                </Button>
+                                <Button
+                                  className="bg-[#169061] hover:bg-[#169061]/90"
+                                  onClick={() => handleReleaseOrder(order.id)}
+                                >
+                                  Confirm
+                                </Button>
+                              </DialogFooter>
                             </DialogContent>
                           </Dialog>
 

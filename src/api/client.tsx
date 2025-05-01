@@ -197,6 +197,18 @@ export const apiClient = {
       return response.ok ? true : response.json();
     },
 
+    releaseOrder: async (orderId: number) => {
+      const response = await fetch(`${ADMIN_BASE}/release-order/${orderId}/`, {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to release order');
+      }
+      return response.json();
+    },
+
     // Top Customers
     getTopCustomers: async () => {
       const response = await fetch(`${ADMIN_BASE}/top-customers/`, {

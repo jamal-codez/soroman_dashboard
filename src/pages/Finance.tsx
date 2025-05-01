@@ -521,7 +521,7 @@ export default function Finance() {
                 </Table>
               )}
             </div> */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* <div className="grid grid-cols-1 lg:grid-cols-2 gap-6"> */}
               {/* Product Price Management */}
             {/* <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <h2 className="text-lg font-semibold mb-4">Delivery Rates</h2>
@@ -698,7 +698,7 @@ export default function Finance() {
             </div>
           </div>
         </div>
-      </div>
+      {/* </div> */}
 
       {/* Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
