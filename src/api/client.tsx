@@ -40,6 +40,18 @@ export const apiClient = {
       return response.json();
     },
 
+    
+
+    toggleBankSuspend: async (bankid: number) => {
+      const response = await fetch(`${ADMIN_BASE}/banktoggle/${bankid}/`, {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+      return response.ok ? true : response.json();
+    },
+
+    
+
     // Analytics
     getAnalytics: async () => {
       const response = await fetch(`${ADMIN_BASE}/analytics/`, {
@@ -116,6 +128,22 @@ export const apiClient = {
 
       return response.json();
     },
+
+    editBankAccount: async (id: number, data: Partial<{ name: string; acct_no: string; bank_name: string }>) => {
+      const response = await fetch(`${ADMIN_BASE}/banks/${id}/edit/`, {
+        method: 'PATCH',
+        headers: getHeaders(), // assumes it returns Content-Type and Authorization headers
+        body: JSON.stringify(data),
+      });
+    
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update bank account');
+      }
+    
+      return response.json();
+    },
+    
 
     // Bank Accounts
     getBankAccounts: async () => {

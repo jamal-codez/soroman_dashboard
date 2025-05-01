@@ -1,4 +1,6 @@
-import { useState } from 'react';
+// import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Table,
@@ -38,6 +40,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 // import { useToast } from '@/components/ui/toast'; // Import toast hook
 import { useToast } from '@/hooks/use-toast';
+import { Switch } from "@/components/ui/switch";
+// import { Button } from "@/components/ui/button";
+import { Pencil } from "lucide-react";
+
 
 interface FinanceOverview {
   total_revenue: number;
@@ -71,6 +77,7 @@ interface BankAccount {
   acct_no: string;
   name: string;
   created_at: string;
+  suspended: boolean;
 }
 
 export default function Finance() {
@@ -89,6 +96,48 @@ export default function Finance() {
     abbrev:null,
     updatedPrice: null,
   });
+  const [isActive, setIsActive] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingBank, setEditingBank] = useState(null); // holds the selected bank
+
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    acct_no: '',
+    bank_name: '',
+  });
+
+  useEffect(() => {
+    if (editingBank) {
+      setEditFormData({
+        name: editingBank.name,
+        acct_no: editingBank.acct_no,
+        bank_name: editingBank.bank_name,
+      });
+    }
+  }, [editingBank]);
+
+  const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setEditFormData((prev) => ({ ...prev, [name]: value }));
+  };
+  
+  const handleEditSubmit = async () => {
+    if (!editingBank) return;
+  
+    // await editBankAccount({
+    //   id: editingBank.id,
+    //   ...editFormData,
+    // });
+    await apiClient.admin.editBankAccount(editingBank.id, editFormData);
+  
+    setShowEditModal(false);
+    setEditingBank(null);
+    queryClient.invalidateQueries({ queryKey: ['banks'] });
+  };
+  
+
 
   const [confirmDialogState, setConfirmDialogState] = useState<{ isOpen: boolean; stateId: number | null; statename: string | null; updatedPrice: number | null }>({
     isOpen: false,
@@ -193,6 +242,12 @@ export default function Finance() {
     }
   });
 
+  const handleToggle = async (id:number) => {
+    const newStatus = !isActive;
+    setIsActive(newStatus); // immediate UI feedback
+    await toggleSuspend(id, !newStatus); // send the inverse to "suspend"
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -213,6 +268,24 @@ export default function Finance() {
       },
     });
   };
+
+  const toggleSuspendMutation = useMutation({
+    mutationFn: ({ id, suspend }: { id: number; suspend: boolean }) =>
+      apiClient.admin.toggleBankSuspend(id),
+    onSuccess: () => {
+      // refetch(); // or queryClient.invalidateQueries if you're using query keys
+      queryClient.invalidateQueries({ queryKey: ['banks'] });
+    },
+    onError: (error) => {
+      console.error('Toggle suspend failed:', error);
+    }
+  });
+
+  const toggleSuspend = async (id: number, suspend: boolean) => {
+    await toggleSuspendMutation.mutateAsync({ id, suspend });
+  };
+  
+  
 
   const handleConfirm = () => {
     if (confirmDialog.productId !== null && confirmDialog.updatedPrice !== null) {
@@ -579,6 +652,33 @@ export default function Finance() {
                         <TableCell className="font-medium">{bank.name}</TableCell>
                         <TableCell className="font-medium">{bank.acct_no}</TableCell>
                         <TableCell className="font-medium">{new Date(bank.created_at).toISOString().slice(0, 10)}</TableCell>
+                        <TableCell>
+  <div className="flex items-center gap-4">
+    {/* Toggle for suspension */}
+    <Switch
+      checked={!bank.suspended}
+      onCheckedChange={() => handleToggle(bank.id)}
+      className={`${
+        isActive ? 'bg-green-500' : 'bg-red-500'
+      } data-[state=unchecked]:bg-red-500 data-[state=checked]:bg-green-500`}
+    />
+
+    {/* Edit button */}
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => {
+        setEditingBank(bank);
+        setShowEditModal(true);
+      }}
+      // onClick={() => onEditBank(bank)} // Your edit handler
+    >
+      <Pencil size={16} />
+    </Button>
+  </div>
+</TableCell>
+
+                        
                         {/* <TableCell>
                           <Button variant="ghost" size="sm">
                             <MoreVertical size={16} />
@@ -663,6 +763,46 @@ export default function Finance() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Edit Bank Account</DialogTitle>
+    </DialogHeader>
+    <div className="space-y-4">
+      <Input
+        name="name"
+        placeholder="Account Name"
+        value={editFormData.name}
+        onChange={handleEditInputChange}
+      />
+      <Input
+        name="acct_no"
+        placeholder="Account Number"
+        value={editFormData.acct_no}
+        onChange={handleEditInputChange}
+      />
+      <Input
+        name="bank_name"
+        placeholder="Bank Name"
+        value={editFormData.bank_name}
+        onChange={handleEditInputChange}
+      />
+    </div>
+    <DialogFooter>
+      <Button variant="outline" onClick={() => setShowEditModal(false)}>
+        Cancel
+      </Button>
+      <Button
+        className="bg-[#169061] hover:bg-[#169061]/90"
+        onClick={handleEditSubmit}
+      >
+        Update
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+
 
       {/* Confirmation Dialog for States */}
       <Dialog open={confirmDialogState.isOpen} onOpenChange={() => setConfirmDialogState({ isOpen: false, stateId: null, statename:null, updatedPrice: null })}>
