@@ -21,17 +21,18 @@ import {
 } from "lucide-react";
 import { Button } from './ui/button';
 
+
 const navItems = [
   { title: "Dashboard", icon: Home, path: "/dashboard", allowedRoles: [0, 1, 2, 3, 4] },
   { title: "Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [0, 1, 3] },
-  { title: "Inventory", icon: Fuel, path: "/inventory", allowedRoles: [0, 1, 3] },
-  { title: "Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
+  { title: "Inventory", icon: Fuel, path: "/inventory", allowedRoles: [0, 1, 2,4] },
+  { title: "Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 2,3] },
   { title: "Finance", icon: Banknote, path: "/finance", allowedRoles: [0, 1, 2] },
-  { title: "State Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1] },
-  { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1] },
-  { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 3] },
+  { title: "Location Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 2] },
+  { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
+  { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 4] },
   { title: "Release Orders", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1, 2, 3] },
-  { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1, 2, 3] },
+  { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1,4] },
   // { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
   { title: "Payment Verification", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
   { title: "Staff Management", icon: User, path: "/users-management", allowedRoles: [0, 1] }
@@ -48,6 +49,7 @@ export const SidebarNav = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('role');
     localStorage.removeItem('fullname');
+    localStorage.removeItem('label');
     
     // Navigate to login page
     navigate('/login');
@@ -129,7 +131,7 @@ export const SidebarNav = () => {
               </div>
               <div className="flex flex-col">
                 <p className="text-sm font-medium">{localStorage.getItem('fullname')}</p>
-                <p className="text-xs text-slate-400">Administrator</p>
+                <p className="text-xs text-slate-400">{localStorage.getItem('label')}</p>
               </div>
             </>
           )}

@@ -59,6 +59,7 @@ type UserType = {
   role: number;
   suspended: boolean;
   last_login: string;
+  label: string;
 };
 
 const roleMap = {
@@ -320,7 +321,8 @@ const Settings = () => {
                       <TableCell>
                         <div className="flex items-center">
                           <Shield className={`mr-2 ${user.role === 1 ? 'text-soroman-orange' : 'text-slate-400'}`} size={16} />
-                          {roleMap[user.role] || 'User'}
+                          {/* {roleMap[user.role] || 'User'} */}
+                          {user.label}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -411,10 +413,10 @@ const Settings = () => {
                   <SelectContent>
                     <SelectGroup>
                       <SelectLabel>Available Roles</SelectLabel>
-                      <SelectItem value="1">ADMIN</SelectItem>
-                      <SelectItem value="2">FINANCE</SelectItem>
-                      <SelectItem value="3">SALES</SelectItem>
-                      <SelectItem value="4">RELEASE</SelectItem>
+                      <SelectItem value="1">General Admin</SelectItem>
+                      <SelectItem value="2">Finance Admin</SelectItem>
+                      <SelectItem value="3">Marketing Officer</SelectItem>
+                      <SelectItem value="4">Release Officer</SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>
