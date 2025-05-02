@@ -1,15 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
+import {
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
-  TableRow 
+  TableRow
 } from '@/components/ui/table';
 import {
   Dialog,
@@ -19,168 +19,204 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { 
-  Edit,
-  Trash,
-  Fuel,
-  ClipboardList,
-  User,
-  Truck,
-  Plus,
-  Search,
-  Filter,
-  Download,
+  Edit, 
+  Trash, 
+  Plus, 
+  Search, 
+  Filter, 
+  Download, 
   Calendar,
   Wallet,
   CheckCircle,
-  Clock
+  Clock,
+  MapPin,
+  Package,
+  FileText,
+  Truck,
+  Fuel,
+  ClipboardList,
+  Loader2
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar as DatePicker } from '@/components/ui/calendar';
-import { format } from 'date-fns';
+import { apiClient } from '@/api/client';
 
 interface OfflineSale {
   id: string;
-  date: Date;
-  staff: string;
-  depot: string;
-  fuelTypes: string[];
-  quantity: number;
-  paymentStatus: 'Pending' | 'Paid';
-  paymentAmount?: number;
-  paymentMethod?: 'Cash' | 'Transfer' | 'Other';
-  truckNumbers: string[];
-  truckDestinations: string[];
-  orderReference?: string;
+  date: string;
+  state: number;
+  trucks?: string[];
+  status: 'pending' | 'paid';
+  items: Array<{ product: number; quantity: number }>;
   notes?: string;
 }
 
-const fuelOptions = [
-  'Petrol (PMS)',
-  'Diesel (AGO)',
-  'LPG',
-  'Jet Fuel (JET-A1)'
-];
+interface State {
+  id: number;
+  name: string;
+}
+
+interface Product {
+  id: number;
+  name: string;
+  abbreviation?: string;
+  description?: string;
+  unit_price?: number;
+}
 
 export default function OfflineSales() {
-  const [sales, setSales] = useState<OfflineSale[]>([
-    {
-      id: '1',
-      date: new Date(),
-      staff: 'John Doe',
-      depot: 'Depot A',
-      fuelTypes: ['Petrol (PMS)', 'Diesel (AGO)'],
-      quantity: 1000,
-      paymentStatus: 'Paid',
-      paymentAmount: 5000,
-      paymentMethod: 'Cash',
-      truckNumbers: ['ABC123'],
-      truckDestinations: ['City A'],
-      orderReference: 'ORD001',
-      notes: 'Urgent delivery'
-    },
-    // Add more mock data as needed
-  ]);
+  const [sales, setSales] = useState<OfflineSale[]>([]);
+  const [states, setStates] = useState<State[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentSale, setCurrentSale] = useState<OfflineSale | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setLoading] = useState(true);
   
   const [formData, setFormData] = useState({
-    date: new Date(),
-    staff: '',
-    depot: '',
-    fuelTypes: [] as string[],
-    quantity: '',
-    paymentStatus: 'Pending' as 'Pending' | 'Paid',
-    paymentAmount: '',
-    paymentMethod: undefined as 'Cash' | 'Transfer' | 'Other' | undefined,
-    truckNumbers: [''],
-    truckDestinations: [''],
-    orderReference: '',
+    state: 0,
+    trucks: [''],
+    status: 'pending' as 'pending' | 'paid',
+    items: [{ product: 0, quantity: '' }],
     notes: ''
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newSale: OfflineSale = {
-      id: Date.now().toString(),
-      date: formData.date,
-      staff: formData.staff,
-      depot: formData.depot,
-      fuelTypes: formData.fuelTypes,
-      quantity: Number(formData.quantity),
-      paymentStatus: formData.paymentStatus,
-      paymentAmount: formData.paymentStatus === 'Paid' ? Number(formData.paymentAmount) : undefined,
-      paymentMethod: formData.paymentStatus === 'Paid' ? formData.paymentMethod : undefined,
-      truckNumbers: formData.truckNumbers.filter(n => n.trim() !== ''),
-      truckDestinations: formData.truckDestinations.filter(d => d.trim() !== ''),
-      orderReference: formData.orderReference,
-      notes: formData.notes
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [salesRes, statesRes, productsRes] = await Promise.all([
+          apiClient.admin.getOfflineSales(),
+          apiClient.admin.getStates(),
+          apiClient.admin.getProducts({ page_size: 100 }), // Ensure we get all products
+        ]);
+        
+        // Handle potential paginated responses
+        setSales(salesRes.results || salesRes);
+        setStates(statesRes.results || statesRes);
+        setProducts((productsRes.results || productsRes) as Product[]);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setLoading(false);
+      }
     };
-
-    setSales(prev => currentSale ? 
-      prev.map(s => s.id === currentSale.id ? newSale : s) : 
-      [...prev, newSale]);
     
-    resetForm();
+    fetchData();
+  }, []);
+
+  // Error boundary checks
+  if (isLoading) {
+    return (
+      <div className="flex h-screen bg-slate-100">
+        <SidebarNav />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <TopBar />
+          <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
+            <Loader2 className="animate-spin" color="green" size={54} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!sales) {
+    return (
+      <div className="flex h-screen bg-slate-100">
+        <SidebarNav />
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-red-500">Failed to load sales data</p>
+        </div>
+      </div>
+    );
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        ...formData,
+        items: formData.items
+          .filter(item => item.product > 0 && item.quantity)
+          .map(item => ({
+            product: item.product,
+            quantity: Number(item.quantity)
+          })),
+        trucks: formData.trucks.filter(t => t.trim() !== '')
+      };
+
+      const newSale = await apiClient.admin.createOfflineSale(payload);
+      setSales(prev => [...prev, newSale]);
+      resetForm();
+    } catch (error) {
+      console.error('Error creating sale:', error);
+    }
   };
 
   const handleEdit = (sale: OfflineSale) => {
     setCurrentSale(sale);
     setFormData({
-      date: sale.date,
-      staff: sale.staff,
-      depot: sale.depot,
-      fuelTypes: sale.fuelTypes,
-      quantity: sale.quantity.toString(),
-      paymentStatus: sale.paymentStatus,
-      paymentAmount: sale.paymentAmount?.toString() || '',
-      paymentMethod: sale.paymentMethod,
-      truckNumbers: [...sale.truckNumbers, ''],
-      truckDestinations: [...sale.truckDestinations, ''],
-      orderReference: sale.orderReference || '',
+      state: sale.state,
+      trucks: [...(sale.trucks || []), ''],
+      status: sale.status,
+      items: [...sale.items.map(item => ({ ...item, quantity: item.quantity.toString() })), { product: 0, quantity: '' }],
       notes: sale.notes || ''
     });
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    setSales(prev => prev.filter(sale => sale.id !== id));
+  const handleDelete = async (id: string) => {
+    try {
+      // You might need to update this to use the correct API endpoint for deleting offline sales
+      await apiClient.admin.deleteProduct(Number(id));
+      setSales(sales.filter(sale => sale.id !== id));
+    } catch (error) {
+      console.error('Error deleting sale:', error);
+    }
   };
 
   const resetForm = () => {
     setFormData({
-      date: new Date(),
-      staff: '',
-      depot: '',
-      fuelTypes: [],
-      quantity: '',
-      paymentStatus: 'Pending',
-      paymentAmount: '',
-      paymentMethod: undefined,
-      truckNumbers: [''],
-      truckDestinations: [''],
-      orderReference: '',
+      created_at: new Date().toISOString(),
+      state: 0,
+      trucks: [''],
+      status: 'pending',
+      items: [{ product: 0, quantity: '' }],
       notes: ''
     });
     setIsModalOpen(false);
     setCurrentSale(null);
   };
 
+  // Filter sales based on search query with improved null handling
+  const filteredSales = sales.filter(sale => {
+    if (!searchQuery.trim()) return true;
+    
+    const query = searchQuery.toLowerCase();
+    
+    // Handle possible undefined trucks array
+    const truckMatch = (sale.trucks || []).some(truck => 
+      truck.toLowerCase().includes(query)
+    );
+    
+    // Handle possible undefined notes
+    const noteMatch = (sale.notes || '').toLowerCase().includes(query);
+    
+    // Handle possible undefined items array and product names
+    const productMatch = (sale.items || []).some(item => {
+      const product = products.find(p => p.id === item.product);
+      return product?.name?.toLowerCase().includes(query) || false;
+    });
+
+    return truckMatch || noteMatch || productMatch;
+  });
+
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
-      
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
-        
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
@@ -216,191 +252,268 @@ export default function OfflineSales() {
                       </Button>
                     </DialogTrigger>
                     
-                    <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                          <ClipboardList size={20} />
-                          {currentSale ? 'Edit Sale Record' : 'New Offline Sale'}
+                    <DialogContent className="sm:max-w-[1000px] max-h-[85vh] overflow-y-auto p-0">
+                      <DialogHeader className="border-b border-slate-100 px-6 py-4">
+                        <DialogTitle className="flex items-center gap-3 text-slate-800">
+                          <div className="bg-blue-100 p-2 rounded-lg">
+                            <ClipboardList className="w-6 h-6 text-blue-600" />
+                          </div>
+                          <div>
+                            <h2 className="text-xl font-semibold">{currentSale ? 'Edit Sale Record' : 'New Offline Sale'}</h2>
+                            <p className="text-sm font-normal text-slate-500 mt-1">
+                              {currentSale ? 'Update existing sale details' : 'Create new offline sales entry'}
+                            </p>
+                          </div>
                         </DialogTitle>
                       </DialogHeader>
-                      
-                      <form onSubmit={handleSubmit} className="grid gap-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Date</Label>
-                            <DatePicker
-                              selected={formData.date}
-                              onSelect={(date) => date && setFormData({...formData, date})}
-                            />
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label>Staff Name</Label>
-                            <Input
-                              required
-                              value={formData.staff}
-                              onChange={(e) => setFormData({...formData, staff: e.target.value})}
-                            />
-                          </div>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Depot</Label>
-                            <Input
-                              required
-                              value={formData.depot}
-                              onChange={(e) => setFormData({...formData, depot: e.target.value})}
-                            />
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label>Fuel Type(s)</Label>
-                            <div className="grid grid-cols-2 gap-2">
-                              {fuelOptions.map((fuel) => (
-                                <label key={fuel} className="flex items-center space-x-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={formData.fuelTypes.includes(fuel)}
-                                    onChange={(e) => {
-                                      const updated = e.target.checked
-                                        ? [...formData.fuelTypes, fuel]
-                                        : formData.fuelTypes.filter(f => f !== fuel);
-                                      setFormData({...formData, fuelTypes: updated});
-                                    }}
-                                  />
-                                  <span>{fuel}</span>
-                                </label>
-                              ))}
+                      <form onSubmit={handleSubmit} className="flex flex-col h-[70vh]">
+                        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+                          {/* Form Sections */}
+                          <div className="space-y-6">
+                            {/* Header Section */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              {/* Date Picker */}
+                              <div className="space-y-2">
+                                <Label className="block text-sm font-medium text-slate-700 mb-2">
+                                  <span className="flex items-center gap-2">
+                                    <Calendar className="w-5 h-5 text-slate-500" />
+                                    Sale Date
+                                    <span className="text-red-500 ml-1">*</span>
+                                  </span>
+                                </Label>
+                                <DatePicker
+                                  selected={new Date(formData.created_at)}
+                                  onSelect={(date) => date && setFormData({...formData, date: date.toISOString()})}
+                                  className="w-full rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+
+                              {/* Payment Status */}
+                              <div className="space-y-2">
+                                <Label className="block text-sm font-medium text-slate-700 mb-2">
+                                  <span className="flex items-center gap-2">
+                                    <Wallet className="w-5 h-5 text-slate-500" />
+                                    Payment Status
+                                    <span className="text-red-500 ml-1">*</span>
+                                  </span>
+                                </Label>
+                                <Select
+                                  value={formData.status}
+                                  onValueChange={(v) => setFormData({...formData, status: v as 'pending' | 'paid'})}
+                                >
+                                  <SelectTrigger className="w-full h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
+                                    <SelectValue placeholder="Select status" />
+                                  </SelectTrigger>
+                                  <SelectContent className="rounded-lg shadow-lg border border-slate-200">
+                                    <SelectItem 
+                                      value="pending" 
+                                      className="px-4 py-2 hover:bg-slate-50 focus:bg-slate-50"
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Clock className="w-4 h-4 text-amber-600" />
+                                        <span>Pending</span>
+                                      </div>
+                                    </SelectItem>
+                                    <SelectItem 
+                                      value="paid" 
+                                      className="px-4 py-2 hover:bg-slate-50 focus:bg-slate-50"
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <CheckCircle className="w-4 h-4 text-green-600" />
+                                        <span>Paid</span>
+                                      </div>
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+
+                            {/* State and Products Section */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              {/* State Selection */}
+                              <div className="space-y-2">
+                                <Label className="block text-sm font-medium text-slate-700 mb-2">
+                                  <span className="flex items-center gap-2">
+                                    <MapPin className="w-5 h-5 text-slate-500" />
+                                    State
+                                    <span className="text-red-500 ml-1">*</span>
+                                  </span>
+                                </Label>
+                                <Select
+                                  value={formData.state.toString()}
+                                  onValueChange={v => setFormData({...formData, state: Number(v)})}
+                                >
+                                  <SelectTrigger className="w-full h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
+                                    <SelectValue placeholder="Select state" />
+                                  </SelectTrigger>
+                                  <SelectContent className="rounded-lg shadow-lg border border-slate-200 max-h-60">
+                                    {states.map(state => (
+                                      <SelectItem 
+                                        key={state.id} 
+                                        value={state.id.toString()}
+                                        className="px-4 py-2 hover:bg-slate-50"
+                                      >
+                                        {state.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              {/* Products Section */}
+                              <div className="space-y-2">
+                                <Label className="block text-sm font-medium text-slate-700 mb-2">
+                                  <span className="flex items-center gap-2">
+                                    <Package className="w-5 h-5 text-slate-500" />
+                                    Products
+                                    <span className="text-red-500 ml-1">*</span>
+                                  </span>
+                                </Label>
+                                <div className="space-y-4">
+                                  {formData.items.map((item, index) => (
+                                    <div key={index} className="grid grid-cols-2 gap-4 items-center">
+                                      <Select
+                                        value={item.product.toString()}
+                                        onValueChange={v => {
+                                          const newItems = [...formData.items];
+                                          newItems[index].product = Number(v);
+                                          setFormData({...formData, items: newItems});
+                                        }}
+                                      >
+                                        <SelectTrigger className="h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
+                                          <SelectValue placeholder="Select product" />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-lg shadow-lg border border-slate-200 max-h-60">
+                                          {products.map(product => (
+                                            <SelectItem 
+                                              key={product.id} 
+                                              value={product.id.toString()}
+                                              className="px-4 py-2 hover:bg-slate-50"
+                                            >
+                                              <div className="flex items-center gap-3">
+                                                <Fuel className="w-4 h-4 text-slate-500" />
+                                                <span>{product.name}</span>
+                                              </div>
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      <Input
+                                        type="number"
+                                        placeholder="Quantity (Liters)"
+                                        value={item.quantity}
+                                        onChange={e => {
+                                          const newItems = [...formData.items];
+                                          newItems[index].quantity = e.target.value;
+                                          setFormData({...formData, items: newItems});
+                                        }}
+                                        className="h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                      />
+                                    </div>
+                                  ))}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="w-full h-11 rounded-lg border-dashed border-slate-300 text-slate-600 hover:text-slate-800 hover:border-solid hover:bg-slate-50"
+                                    onClick={() => setFormData({
+                                      ...formData,
+                                      items: [...formData.items, { product: 0, quantity: '' }]
+                                    })}
+                                  >
+                                    <Plus className="w-4 h-4 mr-2" /> Add Product Line
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Trucks Section */}
+                            <div className="space-y-4">
+                              <Label className="block text-sm font-medium text-slate-700 mb-2">
+                                <span className="flex items-center gap-2">
+                                  <Truck className="w-5 h-5 text-slate-500" />
+                                  Truck Information
+                                </span>
+                              </Label>
+                              <div className="space-y-3">
+                                {formData.trucks.map((truck, index) => (
+                                  <div key={index} className="flex items-center gap-4">
+                                    <Input
+                                      placeholder={`Truck #${index + 1} Plate Number`}
+                                      value={truck}
+                                      onChange={(e) => {
+                                        const newTrucks = [...formData.trucks];
+                                        newTrucks[index] = e.target.value;
+                                        setFormData({...formData, trucks: newTrucks});
+                                      }}
+                                      className="h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500 flex-1"
+                                    />
+                                    {index > 0 && (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-red-500 hover:bg-red-50"
+                                        onClick={() => setFormData({
+                                          ...formData,
+                                          trucks: formData.trucks.filter((_, i) => i !== index)
+                                        })}
+                                      >
+                                        <Trash className="w-4 h-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                ))}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="w-full h-11 rounded-lg border-dashed border-slate-300 text-slate-600 hover:text-slate-800 hover:border-solid hover:bg-slate-50"
+                                  onClick={() => setFormData({
+                                    ...formData,
+                                    trucks: [...formData.trucks, '']
+                                  })}
+                                >
+                                  <Plus className="w-4 h-4 mr-2" /> Add Truck
+                                </Button>
+                              </div>
+                            </div>
+
+                            {/* Notes Section */}
+                            <div className="space-y-4">
+                              <Label className="block text-sm font-medium text-slate-700 mb-2">
+                                <span className="flex items-center gap-2">
+                                  <FileText className="w-5 h-5 text-slate-500" />
+                                  Additional Notes
+                                </span>
+                              </Label>
+                              <Textarea
+                                value={formData.notes}
+                                onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                                placeholder="Enter any special instructions or notes..."
+                                className="min-h-[120px] rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
+                              />
                             </div>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Quantity (Litres)</Label>
-                            <Input
-                              type="number"
-                              required
-                              value={formData.quantity}
-                              onChange={(e) => setFormData({...formData, quantity: e.target.value})}
-                            />
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Label>Payment Status</Label>
-                            <Select
-                              value={formData.paymentStatus}
-                              onValueChange={(v) => setFormData({...formData, paymentStatus: v as 'Pending' | 'Paid'})}
+                        {/* Footer Actions */}
+                        <div className="border-t border-slate-100 px-6 py-4 mt-auto">
+                          <div className="flex justify-end gap-3">
+                            <Button 
+                              variant="outline" 
+                              type="button"
+                              onClick={resetForm}
+                              className="px-6 h-11 rounded-lg border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-slate-800"
                             >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="Pending">Pending</SelectItem>
-                                <SelectItem value="Paid">Paid</SelectItem>
-                              </SelectContent>
-                            </Select>
+                              Cancel
+                            </Button>
+                            <Button 
+                              type="submit"
+                              className="px-6 h-11 rounded-lg bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-sm"
+                            >
+                              {currentSale ? 'Save Changes' : 'Create Sale'}
+                            </Button>
                           </div>
-                        </div>
-
-                        {formData.paymentStatus === 'Paid' && (
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label>Payment Amount</Label>
-                              <Input
-                                type="number"
-                                required
-                                value={formData.paymentAmount}
-                                onChange={(e) => setFormData({...formData, paymentAmount: e.target.value})}
-                              />
-                            </div>
-                            
-                            <div className="space-y-2">
-                              <Label>Payment Method</Label>
-                              <Select
-                                value={formData.paymentMethod}
-                                onValueChange={(v) => setFormData({...formData, paymentMethod: v as any})}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select method" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="Cash">Cash</SelectItem>
-                                  <SelectItem value="Transfer">Transfer</SelectItem>
-                                  <SelectItem value="Other">Other</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="space-y-2">
-                          <Label>Truck Information</Label>
-                          {formData.truckNumbers.map((_, index) => (
-                            <div key={index} className="grid grid-cols-2 gap-4">
-                              <Input
-                                placeholder="Truck Number"
-                                value={formData.truckNumbers[index]}
-                                onChange={(e) => {
-                                  const newTrucks = [...formData.truckNumbers];
-                                  newTrucks[index] = e.target.value;
-                                  setFormData({...formData, truckNumbers: newTrucks});
-                                }}
-                              />
-                              <Input
-                                placeholder="Destination"
-                                value={formData.truckDestinations[index]}
-                                onChange={(e) => {
-                                  const newDests = [...formData.truckDestinations];
-                                  newDests[index] = e.target.value;
-                                  setFormData({...formData, truckDestinations: newDests});
-                                }}
-                              />
-                            </div>
-                          ))}
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setFormData({
-                              ...formData,
-                              truckNumbers: [...formData.truckNumbers, ''],
-                              truckDestinations: [...formData.truckDestinations, '']
-                            })}
-                          >
-                            Add Another Truck
-                          </Button>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Order Reference</Label>
-                            <Input
-                              value={formData.orderReference}
-                              onChange={(e) => setFormData({...formData, orderReference: e.target.value})}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Notes</Label>
-                          <Textarea
-                            value={formData.notes}
-                            onChange={(e) => setFormData({...formData, notes: e.target.value})}
-                          />
-                        </div>
-
-                        <div className="flex justify-end gap-2 mt-6">
-                          <Button 
-                            variant="outline" 
-                            type="button"
-                            onClick={resetForm}
-                          >
-                            Cancel
-                          </Button>
-                          <Button type="submit">
-                            {currentSale ? 'Save Changes' : 'Create Sale'}
-                          </Button>
                         </div>
                       </form>
                     </DialogContent>
@@ -414,42 +527,43 @@ export default function OfflineSales() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
-                    <TableHead>Staff</TableHead>
-                    <TableHead>Depot</TableHead>
-                    <TableHead>Fuel Types</TableHead>
-                    <TableHead className="text-right">Quantity</TableHead>
-                    <TableHead>Payment</TableHead>
+                    <TableHead>State</TableHead>
                     <TableHead>Trucks</TableHead>
-                    <TableHead>Reference</TableHead>
+                    <TableHead>Products</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Notes</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 
                 <TableBody>
-                  {sales.map((sale) => (
+                  {(sales || []).map((sale) => (
                     <TableRow key={sale.id}>
-                      <TableCell>{format(sale.date, 'dd/MM/yyyy')}</TableCell>
-                      <TableCell>{sale.staff}</TableCell>
-                      <TableCell>{sale.depot}</TableCell>
-                      <TableCell>{sale.fuelTypes.join(', ')}</TableCell>
-                      <TableCell className="text-right">{sale.quantity.toLocaleString()} L</TableCell>
+                      <TableCell>{new Date(sale.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs ${
-                          sale.paymentStatus === 'Paid' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {sale.paymentStatus}
-                        </div>
+                        {states.find(s => s.id === sale.state)?.name || 'Unknown State'}
                       </TableCell>
                       <TableCell>
-                        {sale.truckNumbers.map((num, i) => (
-                          <div key={i} className="text-sm">
-                            {num} → {sale.truckDestinations[i]}
+                        {sale.trucks ? sale.trucks.join(', ') : 'No trucks'}
+                      </TableCell>
+                      <TableCell>
+                        {(sale.items || []).map((item, i) => (
+                          <div key={i}>
+                            {products.find(p => p.id === item.product)?.name || 'Unknown Product'} - 
+                            {item.quantity}L
                           </div>
                         ))}
                       </TableCell>
-                      <TableCell>{sale.orderReference}</TableCell>
+                      <TableCell>
+                        <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs ${
+                          sale.status === 'paid' 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {sale.status}
+                        </div>
+                      </TableCell>
+                      <TableCell>{sale.notes || '-'}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
                           <Button
@@ -475,9 +589,11 @@ export default function OfflineSales() {
                 </TableBody>
               </Table>
 
-              {sales.length === 0 && (
+              {filteredSales.length === 0 && (
                 <div className="p-8 text-center text-slate-500">
-                  No sales records found. Start by creating a new sale.
+                  {sales.length === 0 ? 
+                    'No sales records found. Start by creating a new sale.' : 
+                    'No results found for your search query.'}
                 </div>
               )}
             </div>

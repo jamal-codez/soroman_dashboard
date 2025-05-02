@@ -501,5 +501,42 @@ export const apiClient = {
       }
       return response.ok;
     },
+
+    createOfflineSale: async (data: {
+      state: number;
+      trucks: string[];
+      status: 'pending' | 'paid';
+      items: Array<{ product: number; quantity: number }>;
+      notes?: string;
+    }) => {
+      const response = await fetch(`${ADMIN_BASE}/offline-sales/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+  
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create offline sale');
+      }
+  
+      return response.json();
+    },
+  
+    getOfflineSales: async () => {
+      const response = await fetch(`${ADMIN_BASE}/offline-sales/`, {
+        headers: getHeaders(),
+      });
+      return response.json();
+    },
+    
+    deleteOfflineSale: async (id: string) => {
+      const response = await fetch(`${ADMIN_BASE}/offline-sales/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      return response.ok ? true : response.json();
+    },
+    
   },
 };
