@@ -202,10 +202,34 @@ const Settings = () => {
 
       handleCloseDialog();
       fetchUsers();
-    } catch (error) {
+    } catch (error: any) {
+      let errorMessage = 'Failed to save user';
+      const fieldErrors: Partial<typeof errors> = {};
+
+      if (error.response?.data) {
+        const apiErrors = error.response.data;
+        
+        // Handle field-specific errors
+        if (apiErrors.email) {
+          fieldErrors.email = apiErrors.email[0];
+          errorMessage = apiErrors.email[0];
+        }
+
+        if (apiErrors.phone_number) {
+          fieldErrors.phone_number = apiErrors.phone_number[0];
+          errorMessage = apiErrors.phone_number[0];
+        }
+
+        // Handle general errors
+        if (apiErrors.detail) {
+          errorMessage = apiErrors.detail;
+        }
+      }
+
+      setErrors(prev => ({ ...prev, ...fieldErrors }));
       toast({
         title: 'Error',
-        description: 'Failed to save user',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
@@ -272,8 +296,13 @@ const Settings = () => {
               <Button
                 onClick={() => handleOpenDialog()}
                 className="bg-soroman-orange hover:bg-soroman-orange/90"
+                disabled={isLoading}
               >
-                {isLoading ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <UserPlus className="mr-2" size={16} />}
+                {isLoading ? (
+                  <Loader2 className="animate-spin mr-2 h-4 w-4" />
+                ) : (
+                  <UserPlus className="mr-2" size={16} />
+                )}
                 Add User
               </Button>
             </div>
@@ -321,7 +350,6 @@ const Settings = () => {
                       <TableCell>
                         <div className="flex items-center">
                           <Shield className={`mr-2 ${user.role === 1 ? 'text-soroman-orange' : 'text-slate-400'}`} size={16} />
-                          {/* {roleMap[user.role] || 'User'} */}
                           {user.label}
                         </div>
                       </TableCell>
@@ -385,25 +413,51 @@ const Settings = () => {
             <div className="grid gap-4">
               <div className="space-y-2">
                 <Label htmlFor="full_name">Full Name</Label>
-                <Input id="full_name" value={formData.full_name} onChange={(e) => setFormData({ ...formData, full_name: e.target.value })} required />
+                <Input 
+                  id="full_name" 
+                  value={formData.full_name} 
+                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                  className={errors.full_name ? 'border-red-500' : ''}
+                  required 
+                />
                 {errors.full_name && <p className="text-red-500 text-xs">{errors.full_name}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required />
+                <Input 
+                  id="email" 
+                  type="email" 
+                  value={formData.email} 
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className={errors.email ? 'border-red-500' : ''}
+                  required 
+                />
                 {errors.email && <p className="text-red-500 text-xs">{errors.email}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <div className="flex items-center">
-                  <Input id="password" type="text" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
+                  <Input 
+                    id="password" 
+                    type="text" 
+                    value={formData.password} 
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className={errors.password ? 'border-red-500' : ''}
+                  />
                   <Button type="button" onClick={generatePassword} className="ml-2">Generate</Button>
                 </div>
                 {errors.password && <p className="text-red-500 text-xs">{errors.password}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="phone_number">Phone Number</Label>
-                <Input id="phone_number" type="tel" value={formData.phone_number} onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })} required />
+                <Input 
+                  id="phone_number" 
+                  type="tel" 
+                  value={formData.phone_number} 
+                  onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
+                  className={errors.phone_number ? 'border-red-500' : ''}
+                  required 
+                />
                 {errors.phone_number && <p className="text-red-500 text-xs">{errors.phone_number}</p>}
               </div>
               <div className="space-y-2">
@@ -425,7 +479,15 @@ const Settings = () => {
 
             <DialogFooter>
               <Button variant="outline" type="button" onClick={handleCloseDialog}>Cancel</Button>
-              <Button type="submit">{editingUser ? 'Update User' : 'Create User'}</Button>
+              <Button type="submit" disabled={isLoading}>
+                {isLoading ? (
+                  <Loader2 className="animate-spin mr-2 h-4 w-4" />
+                ) : editingUser ? (
+                  'Update User'
+                ) : (
+                  'Create User'
+                )}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

@@ -56,8 +56,6 @@ const statusDisplayMap = {
   canceled: 'canceled',
 };
 
-// const queryClient = useQueryClient();
-
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
     case 'paid': return <CheckCircle className="text-green-500" size={16} />;
@@ -82,6 +80,8 @@ const pageSize = 10;
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [showCancelModal, setShowCancelModal] = useState(false); // Modal visibility state
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null); // Selected order ID
 
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
     queryKey: ['all-orders', currentPage],
@@ -121,17 +121,31 @@ const Orders = () => {
   const cancelOrderMutation = useMutation({
     mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
     onSuccess: () => {
-      // queryClient.invalidateQueries({ queryKey: ['all-orders'] });
       refetch();
     },
     onError: (error) => {
       console.error('Cancel failed:', error);
-    }
+    },
+    onSettled: () => {
+      setShowCancelModal(false);
+      setSelectedOrderId(null);
+    },
   });
 
-  const cancelOrder = async (orderId: number) => {
-    // console.log(orderId);
-    await cancelOrderMutation.mutateAsync(orderId);
+  const handleCancelOrderClick = (orderId: number) => {
+    setSelectedOrderId(orderId);
+    setShowCancelModal(true);
+  };
+
+  const confirmCancelOrder = () => {
+    if (selectedOrderId) {
+      cancelOrderMutation.mutate(selectedOrderId);
+    }
+  };
+
+  const closeModal = () => {
+    setShowCancelModal(false);
+    setSelectedOrderId(null);
   };
 
   if (isLoading) {
@@ -248,22 +262,18 @@ const Orders = () => {
                       <TableCell>{order.reference}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          {/* <Button variant="outline" className="bg-red-500 text-white" onClick={() => cancelOrder(order.id)}>
-                            Cancel Order
-                          </Button> */}
                           <Button
-  variant="outline"
-  onClick={() => cancelOrder(order.id)}
-  disabled={order.status !== 'pending'}
-  className={`${
-    order.status !== 'pending'
-      ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-      : 'bg-red-500 text-white'
-  }`}
->
-  Cancel Order
-</Button>
-
+                            variant="outline"
+                            onClick={() => handleCancelOrderClick(order.id)}
+                            disabled={order.status !== 'pending'}
+                            className={`${
+                              order.status !== 'pending'
+                                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                                : 'bg-red-500 text-white'
+                            }`}
+                          >
+                            Cancel Order
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -306,6 +316,37 @@ const Orders = () => {
           </div>
         </div>
       </div>
+
+      {/* Cancel Confirmation Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg max-w-sm w-full">
+            <h3 className="text-lg font-semibold mb-4">Confirm Cancellation</h3>
+            <p className="text-slate-600 mb-4">
+              Are you sure you want to cancel order #{selectedOrderId}? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={closeModal}
+                disabled={cancelOrderMutation.isLoading}
+              >
+                No, Keep It
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmCancelOrder}
+                disabled={cancelOrderMutation.isLoading}
+              >
+                {cancelOrderMutation.isLoading && (
+                  <Loader2 className="animate-spin mr-2 h-4 w-4" />
+                )}
+                Yes, Cancel Order
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
