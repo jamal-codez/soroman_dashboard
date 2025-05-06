@@ -25,7 +25,8 @@ const Login = () => {
       toast({
         title: "Error",
         description: "Please enter both email and password",
-        variant: "destructive",
+        variant: "default",
+        duration: 1000,
       });
       return;
     }

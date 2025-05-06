@@ -483,7 +483,7 @@ export const apiClient = {
 
     adminUpdateProduct: async (productId: number, data: any) => {
       const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
-        method: 'PUT',
+        method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
       });

@@ -27,7 +27,7 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
         description: formData.description
       };
       
-      await apiClient.admin.adminCreateProduct(newProduct);
+      await apiClient.admin.createProduct(newProduct);
       toast({
         title: "Success!",
         description: "Product created successfully",
@@ -74,13 +74,13 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
           value={formData.name}
           onChange={handleChange}
         />
-        <Input
+        {/* <Input
           name="unit_price"
           placeholder="Unit Price"
           type="number"
           value={formData.unit_price}
           onChange={handleChange}
-        />
+        /> */}
         <Input
           name="stock_quantity"
           placeholder="Stock Quantity"

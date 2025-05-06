@@ -189,7 +189,11 @@ const Settings = () => {
         await apiClient.admin.updateUser(editingUser.id, updatedUser);
 
         setUsers(users.map(user => user.id === editingUser.id ? { ...user, ...updatedUser } : user));
-        toast({ title: 'Success', description: 'User updated successfully' });
+        toast({
+          title: 'Success',
+          description: 'User updated successfully',
+          duration: 1000, // Set toast duration to 1 second
+        });
       } else {
         await apiClient.admin.registerUser({
           email: formData.email,
@@ -197,7 +201,11 @@ const Settings = () => {
           full_name: formData.full_name,
           phone_number: formData.phone_number,
         });
-        toast({ title: 'Success', description: 'User created successfully' });
+        toast({
+          title: 'Success',
+          description: 'User created successfully',
+          duration: 1000, // Set toast duration to 1 second
+        });
       }
 
       handleCloseDialog();
@@ -208,7 +216,7 @@ const Settings = () => {
 
       if (error.response?.data) {
         const apiErrors = error.response.data;
-        
+
         // Handle field-specific errors
         if (apiErrors.email) {
           fieldErrors.email = apiErrors.email[0];
@@ -231,6 +239,7 @@ const Settings = () => {
         title: 'Error',
         description: errorMessage,
         variant: 'destructive',
+        duration: 1000, // Set toast duration to 1 second
       });
     } finally {
       setIsLoading(false);
@@ -250,6 +259,7 @@ const Settings = () => {
       toast({
         title: 'Success',
         description: `User ${updatedUser.suspended ? 'suspended' : 'unsuspended'} successfully`,
+        duration: 1000, // Set toast duration to 1 second
       });
       handleCloseDialog();
     } catch (error) {
@@ -257,6 +267,7 @@ const Settings = () => {
         title: 'Error',
         description: 'Failed to update user status',
         variant: 'destructive',
+        duration: 1000, // Set toast duration to 1 second
       });
     } finally {
       setIsLoading(false);
@@ -273,6 +284,7 @@ const Settings = () => {
         title: 'Error',
         description: 'Failed to fetch users',
         variant: 'destructive',
+        duration: 1000, // Set toast duration to 1 second
       });
     }
   };
@@ -437,14 +449,19 @@ const Settings = () => {
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <div className="flex items-center">
-                  <Input 
-                    id="password" 
-                    type="text" 
-                    value={formData.password} 
+                  <Input
+                    id="password"
+                    type="text"
+                    value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className={errors.password ? 'border-red-500' : ''}
+                    disabled={!!editingUser} // Disable the field when editing a user
                   />
-                  <Button type="button" onClick={generatePassword} className="ml-2">Generate</Button>
+                  {!editingUser && (
+                    <Button type="button" onClick={generatePassword} className="ml-2">
+                      Generate
+                    </Button>
+                  )}
                 </div>
                 {errors.password && <p className="text-red-500 text-xs">{errors.password}</p>}
               </div>
@@ -497,3 +514,6 @@ const Settings = () => {
 };
 
 export default Settings;
+
+
+// 0Bm6ISp25IAR

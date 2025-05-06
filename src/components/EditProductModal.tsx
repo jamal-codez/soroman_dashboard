@@ -8,9 +8,15 @@ import { RefreshCw } from 'lucide-react';
 const EditProductModal = ({ isOpen, onClose, formData, onChange, onSubmit, isLoading }) => {
   const { enqueueSnackbar } = useSnackbar();
 
-  const handleSubmit = () => {
-    onSubmit();
-    enqueueSnackbar('Product updated successfully!', { variant: 'success', autoHideDuration: 1000 });
+  const handleSubmit = async () => {
+    try {
+      await onSubmit(); // Call the provided onSubmit function
+      enqueueSnackbar('Product updated successfully!', { variant: 'success', autoHideDuration: 1000 });
+    } catch (error) {
+      // Check if the error has a response with a message
+      const errorMessage = error.response?.data?.message || error.message || 'An error occurred';
+      enqueueSnackbar(errorMessage, { variant: 'error', autoHideDuration: 1000 });
+    }
   };
 
   return (
