@@ -90,6 +90,7 @@ const Settings = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const { toast } = useToast();
 
@@ -182,7 +183,8 @@ const Settings = () => {
           suspended: formData.suspended,
         };
 
-        if (formData.password && formData.password !== '********') {
+        // Include the password if it has been modified
+        if (formData.password && formData.password !== "********") {
           updatedUser.password = formData.password;
         }
 
@@ -190,8 +192,8 @@ const Settings = () => {
 
         setUsers(users.map(user => user.id === editingUser.id ? { ...user, ...updatedUser } : user));
         toast({
-          title: 'Success',
-          description: 'User updated successfully',
+          title: "Success",
+          description: "User updated successfully",
           duration: 1000, // Set toast duration to 1 second
         });
       } else {
@@ -202,8 +204,8 @@ const Settings = () => {
           phone_number: formData.phone_number,
         });
         toast({
-          title: 'Success',
-          description: 'User created successfully',
+          title: "Success",
+          description: "User created successfully",
           duration: 1000, // Set toast duration to 1 second
         });
       }
@@ -211,7 +213,7 @@ const Settings = () => {
       handleCloseDialog();
       fetchUsers();
     } catch (error: any) {
-      let errorMessage = 'Failed to save user';
+      let errorMessage = "password most be at least 8 characters long, alphabetical and characters.";
       const fieldErrors: Partial<typeof errors> = {};
 
       if (error.response?.data) {
@@ -236,9 +238,9 @@ const Settings = () => {
 
       setErrors(prev => ({ ...prev, ...fieldErrors }));
       toast({
-        title: 'Error',
+        title: "Error",
         description: errorMessage,
-        variant: 'destructive',
+        variant: "destructive",
         duration: 1000, // Set toast duration to 1 second
       });
     } finally {
@@ -451,17 +453,18 @@ const Settings = () => {
                 <div className="flex items-center">
                   <Input
                     id="password"
-                    type="text"
+                    type={showPassword ? "text" : "password"} // Toggle between text and password
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className={errors.password ? 'border-red-500' : ''}
-                    disabled={!!editingUser} // Disable the field when editing a user
+                    className={errors.password ? "border-red-500" : ""}
                   />
-                  {!editingUser && (
-                    <Button type="button" onClick={generatePassword} className="ml-2">
-                      Generate
-                    </Button>
-                  )}
+                  <Button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)} // Toggle visibility
+                    className="ml-2"
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </Button>
                 </div>
                 {errors.password && <p className="text-red-500 text-xs">{errors.password}</p>}
               </div>
@@ -514,6 +517,3 @@ const Settings = () => {
 };
 
 export default Settings;
-
-
-// 0Bm6ISp25IAR
