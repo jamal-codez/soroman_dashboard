@@ -55,7 +55,7 @@ const Login = () => {
         toast({
           title: "Authentication failed",
           description: response.error || "Invalid email or password",
-          variant: "destructive",
+          variant: "default",
         });
       }
     } catch (error) {
