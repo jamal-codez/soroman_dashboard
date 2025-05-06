@@ -183,65 +183,74 @@ const Settings = () => {
           suspended: formData.suspended,
         };
 
-        // Include the password if it has been modified
         if (formData.password && formData.password !== "********") {
           updatedUser.password = formData.password;
         }
 
-        await apiClient.admin.updateUser(editingUser.id, updatedUser);
+        const response = await apiClient.admin.updateUser(editingUser.id, updatedUser);
 
         setUsers(users.map(user => user.id === editingUser.id ? { ...user, ...updatedUser } : user));
+
         toast({
-          title: "Success",
-          description: "User updated successfully",
-          duration: 1000, // Set toast duration to 1 second
+          title: "User Updated",
+          description: response?.message || "User updated successfully.",
+          duration: 2000,
         });
       } else {
-        await apiClient.admin.registerUser({
+        const response = await apiClient.admin.registerUser({
           email: formData.email,
           password: formData.password,
           full_name: formData.full_name,
           phone_number: formData.phone_number,
+          role: parseInt(formData.role),
         });
+
         toast({
-          title: "Success",
-          description: "User created successfully",
-          duration: 1000, // Set toast duration to 1 second
+          title: "User Created",
+          description: response?.message || "User created successfully.",
+          duration: 2000,
         });
       }
 
       handleCloseDialog();
       fetchUsers();
     } catch (error: any) {
-      let errorMessage = "password most be at least 8 characters long, alphabetical and characters.";
+      let errorMessage = "An error occurred. Please try again.";
       const fieldErrors: Partial<typeof errors> = {};
 
-      if (error.response?.data) {
+      if (error?.response?.data) {
         const apiErrors = error.response.data;
 
-        // Handle field-specific errors
+        // General API message
+        if (apiErrors.message || apiErrors.detail) {
+          errorMessage = apiErrors.message || apiErrors.detail;
+        }
+
+        // Field-specific messages
         if (apiErrors.email) {
-          fieldErrors.email = apiErrors.email[0];
-          errorMessage = apiErrors.email[0];
+          fieldErrors.email = apiErrors.email[0] || "Invalid email";
         }
 
         if (apiErrors.phone_number) {
-          fieldErrors.phone_number = apiErrors.phone_number[0];
-          errorMessage = apiErrors.phone_number[0];
+          fieldErrors.phone_number = apiErrors.phone_number[0] || "Invalid phone number";
         }
 
-        // Handle general errors
-        if (apiErrors.detail) {
-          errorMessage = apiErrors.detail;
+        if (apiErrors.password) {
+          fieldErrors.password = apiErrors.password[0] || "Password too weak";
+        }
+
+        if (apiErrors.full_name) {
+          fieldErrors.full_name = apiErrors.full_name[0] || "Name error";
         }
       }
 
       setErrors(prev => ({ ...prev, ...fieldErrors }));
+
       toast({
-        title: "Error",
+        title: "User Creation Failed check for duplicate credentials or invalid password",
         description: errorMessage,
         variant: "destructive",
-        duration: 1000, // Set toast duration to 1 second
+        duration: 4000,
       });
     } finally {
       setIsLoading(false);
@@ -448,26 +457,27 @@ const Settings = () => {
                 />
                 {errors.email && <p className="text-red-500 text-xs">{errors.email}</p>}
               </div>
-              <div className="space-y-2">
+                <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <div className="flex items-center">
                   <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"} // Toggle between text and password
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className={errors.password ? "border-red-500" : ""}
+                  id="password"
+                  type={showPassword ? "text" : "password"} // Toggle between text and password
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className={errors.password ? "border-red-500" : ""}
                   />
                   <Button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)} // Toggle visibility
-                    className="ml-2"
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)} // Toggle visibility
+                  className="ml-2"
                   >
-                    {showPassword ? "Hide" : "Show"}
+                  {showPassword ? "Hide" : "Show"}
                   </Button>
                 </div>
+                <p className="text-sm text-gray-500">Password must be alphanumeric and at least 8 characters long</p>
                 {errors.password && <p className="text-red-500 text-xs">{errors.password}</p>}
-              </div>
+                </div>
               <div className="space-y-2">
                 <Label htmlFor="phone_number">Phone Number</Label>
                 <Input 
