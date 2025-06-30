@@ -171,7 +171,8 @@ const Pricing = () => {
                     </div>
 
                     <div className="p-4 space-y-4">
-                      {state.products.map(product => (
+                      {Array.isArray(state.products) && state.products.map(product => (
+                      // {state.products.map(product => (
                         <div key={product.id} className="border-b pb-4 last:border-b-0">
                           <div className="flex justify-between items-start">
                             <div>
