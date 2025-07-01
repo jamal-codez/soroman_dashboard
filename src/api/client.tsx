@@ -275,6 +275,25 @@ export const apiClient = {
       return response.json();
     },
 
+    getProductsInventory: async (params?: { page?: number; page_size?: number; state_id?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/inventory_products/`);
+      
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            url.searchParams.append(key, value.toString());
+          }
+        });
+      }
+
+      const response = await fetch(url.toString(), {
+        headers: getHeaders(),
+      });
+      
+      return response.json();
+    },
+
+
     createProduct: async (data: {
       name: string;
       abbreviation: string;
@@ -339,21 +358,45 @@ export const apiClient = {
       return response.json();
     },
 
-    updateProduct: async (productId: number, data: {
-      name: string;
-      abbreviation: string;
-      description: string;
-      unit_price: number;
-      stock_quantity: number;
-      initial_stock_quantity: number;
-    }) => {
-      const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+    // updateProduct: async (productId: number, data: {
+    //   name: string;
+    //   abbreviation: string;
+    //   description: string;
+    //   unit_price: number;
+    //   stock_quantity: number;
+    //   initial_stock_quantity: number;
+    // }) => {
+    //   const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+    //     method: 'PUT',
+    //     headers: getHeaders(),
+    //     body: JSON.stringify(data),
+    //   });
+    //   return response.json();
+    // },
+
+    updateProduct: async (
+      productId: number,
+      data: {
+        name: string;
+        abbreviation: string;
+        description: string;
+        unit_price: number;
+        stock_quantity: number;
+        initial_stock_quantity: number;
+      },
+      state_id: number // pass state_id separately
+    ) => {
+      const url = new URL(`${ADMIN_BASE}/products/${productId}/`);
+      url.searchParams.append('state_id', state_id.toString());
+
+      const response = await fetch(url.toString(), {
         method: 'PUT',
         headers: getHeaders(),
         body: JSON.stringify(data),
       });
       return response.json();
     },
+
 
     deleteProduct: async (productId: number) => {
       const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
