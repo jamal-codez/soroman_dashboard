@@ -154,7 +154,7 @@ const Reports = () => {
               </div>
             </div>
 
-            {/* Inventory Report Section */}
+            {/* Inventory Report Section 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200">
               <div className="p-4 border-b">
                 <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -194,7 +194,7 @@ const Reports = () => {
               </div>
             </div>
 
-            {/* CSV Export Section */}
+            
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <FileText size={20} />
@@ -214,7 +214,7 @@ const Reports = () => {
                   Customer List
                 </Button>
               </div>
-            </div>
+            </div>*/}
           </div>
         </div>
       </div>
