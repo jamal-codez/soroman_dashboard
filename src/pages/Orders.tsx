@@ -1,17 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { SidebarNav } from '@/components/SidebarNav';
-import { TopBar } from '@/components/TopBar';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { 
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow 
-} from '@/components/ui/table';
+import { format } from 'date-fns';
 import {
   Download,
   Filter,
@@ -19,10 +8,22 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
-  Loader2
+  Loader2,
 } from 'lucide-react';
+
 import { apiClient } from '@/api/client';
-import { format } from 'date-fns';
+import { SidebarNav } from '@/components/SidebarNav';
+import { TopBar } from '@/components/TopBar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 interface Order {
   id: number;
@@ -46,32 +47,27 @@ interface OrderResponse {
   results: Order[];
 }
 
-const statusDisplayMap = {
+const PAGE_SIZE = 10;
+
+const STATUS_LABELS = {
   pending: 'Pending',
   paid: 'Paid',
   canceled: 'Canceled',
 };
 
-const getStatusIcon = (status: Order['status']) => {
-  switch (status) {
-    case 'paid': return <CheckCircle className="text-green-500" size={16} />;
-    case 'pending': return <Clock className="text-orange-500" size={16} />;
-    case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
-    default: return <Clock className="text-orange-500" size={16} />;
-  }
+const STATUS_ICONS = {
+  paid: <CheckCircle className="text-green-500" size={16} />,
+  pending: <Clock className="text-orange-500" size={16} />,
+  canceled: <AlertCircle className="text-red-500" size={16} />,
 };
 
-const getStatusClass = (status: string) => {
-  switch (status) {
-    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
-    case 'delivery': return 'bg-purple-50 text-purple-700 border-purple-200';
-    default: return 'bg-blue-50 text-blue-700 border-blue-200';
-  }
+const STATUS_CLASSES = {
+  paid: 'bg-green-50 text-green-700 border-green-200',
+  pending: 'bg-orange-50 text-orange-700 border-orange-200',
+  canceled: 'bg-red-50 text-red-700 border-red-200',
+  delivery: 'bg-purple-50 text-purple-700 border-purple-200',
+  default: 'bg-blue-50 text-blue-700 border-blue-200',
 };
-
-const pageSize = 10;
 
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -79,39 +75,21 @@ const Orders = () => {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
 
-  const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
-    queryKey: ['all-orders', currentPage],
+  const { data, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
+    queryKey: ['orders', currentPage],
     queryFn: async () => {
-      const response = await apiClient.admin.getAllAdminOrders({
+      const res = await apiClient.admin.getAllAdminOrders({
         page: currentPage,
-        page_size: pageSize
+        page_size: PAGE_SIZE,
       });
-      if (!response.results) throw new Error('Invalid response format');
       return {
-        count: response.count || 0,
-        results: response.results || []
+        count: res.count || 0,
+        results: res.results || [],
       };
     },
     retry: 2,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
   });
-
-  const totalPages = Math.ceil((apiResponse?.count || 0) / pageSize);
-  const handlePreviousPage = () => currentPage > 1 && setCurrentPage(prev => prev - 1);
-  const handleNextPage = () => currentPage < totalPages && setCurrentPage(prev => prev + 1);
-
-  const filteredOrders = (apiResponse?.results || []).filter(order => {
-    const searchLower = searchQuery.toLowerCase();
-    return (
-      order.id.toString().includes(searchLower) ||
-      `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(searchLower) ||
-      order.products.some(product => product.name.toLowerCase().includes(searchLower))
-    );
-  });
-
-  const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(event.target.value.toLowerCase());
-  };
 
   const cancelOrderMutation = useMutation({
     mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
@@ -122,21 +100,16 @@ const Orders = () => {
     },
   });
 
-  const handleCancelOrderClick = (orderId: number) => {
-    setSelectedOrderId(orderId);
-    setShowCancelModal(true);
-  };
+  const filteredOrders = (data?.results || []).filter((order) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      order.id.toString().includes(q) ||
+      `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q) ||
+      order.products.some((p) => p.name.toLowerCase().includes(q))
+    );
+  });
 
-  const confirmCancelOrder = () => {
-    if (selectedOrderId) {
-      cancelOrderMutation.mutate(selectedOrderId);
-    }
-  };
-
-  const closeModal = () => {
-    setShowCancelModal(false);
-    setSelectedOrderId(null);
-  };
+  const totalPages = Math.ceil((data?.count || 0) / PAGE_SIZE);
 
   const exportToCSV = () => {
     const headers = [
@@ -153,109 +126,170 @@ const Orders = () => {
       'Reference',
     ];
 
-    const rows = filteredOrders.map(order => [
+    const rows = filteredOrders.map((order) => [
       order.id,
       `${order.user.first_name} ${order.user.last_name}`,
       order.user.email,
       order.user.phone_number,
-      order.products.map(p => p.name).join(', '),
+      order.products.map((p) => p.name).join(', '),
       order.quantity,
       format(new Date(order.created_at), 'yyyy-MM-dd HH:mm'),
       parseFloat(order.total_price).toFixed(2),
-      statusDisplayMap[order.status],
+      STATUS_LABELS[order.status],
       order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
       order.reference,
     ]);
 
-    const csvContent = [headers, ...rows]
-      .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
+    const csv = [headers, ...rows]
+      .map((row) => row.map((val) => `"${String(val).replace(/"/g, '""')}"`).join(','))
       .join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
 
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', 'orders_export.csv');
+    link.setAttribute('download', 'orders.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) =>
+    setSearchQuery(e.target.value);
+
+  const handleCancelOrderClick = (orderId: number) => {
+    setSelectedOrderId(orderId);
+    setShowCancelModal(true);
+  };
+
+  const confirmCancelOrder = () => {
+    if (selectedOrderId) {
+      cancelOrderMutation.mutate(selectedOrderId);
+    }
+  };
+
   if (isLoading) {
     return (
-      <div className="flex h-screen bg-slate-100">
-        <SidebarNav />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <TopBar />
-          <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
-            <Loader2 className="animate-spin" color="green" size={54} />
-          </div>
+      <PageLayout>
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="animate-spin" size={54} color="green" />
         </div>
-      </div>
+      </PageLayout>
     );
   }
 
   if (isError) {
     return (
-      <div className="flex h-screen bg-slate-100">
-        <SidebarNav />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <TopBar />
-          <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
-            <div className="text-center text-red-500">
-              <p>Error: {(error as Error)?.message || 'Failed to load orders'}</p>
-              <Button onClick={() => refetch()} className="mt-4">Retry</Button>
-            </div>
+      <PageLayout>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-center text-red-500">
+            <p>Error: {(error as Error)?.message || 'Something went wrong'}</p>
+            <Button onClick={refetch} className="mt-4">
+              Retry
+            </Button>
           </div>
         </div>
-      </div>
+      </PageLayout>
     );
   }
 
   return (
-    <div className="flex h-screen bg-slate-100">
-      <SidebarNav />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar />
-        <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Orders Dashboard</h1>
+    <PageLayout>
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-slate-800">Orders Dashboard</h1>
+        </div>
+
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <Input
+                type="text"
+                placeholder="Search orders..."
+                className="pl-10"
+                value={searchQuery}
+                onChange={handleSearch}
+              />
             </div>
-
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                  <Input
-                    type="text"
-                    placeholder="Search orders..."
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={handleSearch}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex items-center">
-                    <Filter className="mr-1" size={16} /> Filter
-                  </Button>
-                  <Button variant="outline" className="flex items-center" onClick={exportToCSV}>
-                    <Download className="mr-1" size={16} /> Export
-                  </Button>
-                </div>
-              </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex items-center">
+                <Filter className="mr-1" size={16} /> Filter
+              </Button>
+              <Button variant="outline" className="flex items-center" onClick={exportToCSV}>
+                <Download className="mr-1" size={16} /> Export
+              </Button>
             </div>
-
-            {/* TABLE STARTS HERE - same as your current implementation */}
-            {/* Keep your existing Table here */}
-            {/* ... */}
-
           </div>
         </div>
+
+        {/* TABLE START */}
+        <div className="overflow-x-auto bg-white rounded-md border border-slate-200">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Products</TableHead>
+                <TableHead>Quantity (L)</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Delivery</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredOrders.map((order) => (
+                <TableRow key={order.id}>
+                  <TableCell>{order.id}</TableCell>
+                  <TableCell>{`${order.user.first_name} ${order.user.last_name}`}</TableCell>
+                  <TableCell>{order.products.map((p) => p.name).join(', ')}</TableCell>
+                  <TableCell>{order.quantity}</TableCell>
+                  <TableCell>{format(new Date(order.created_at), 'yyyy-MM-dd HH:mm')}</TableCell>
+                  <TableCell>
+                    <span className={`text-sm font-medium px-2 py-1 rounded border ${STATUS_CLASSES[order.status] || STATUS_CLASSES.default}`}>
+                      {STATUS_ICONS[order.status]} {STATUS_LABELS[order.status]}
+                    </span>
+                  </TableCell>
+                  <TableCell>{order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}</TableCell>
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleCancelOrderClick(order.id)}
+                    >
+                      Cancel
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        {/* Pagination (optional) */}
+        <div className="mt-6 flex justify-between">
+          <Button disabled={currentPage === 1} onClick={() => setCurrentPage((p) => p - 1)}>
+            Previous
+          </Button>
+          <Button disabled={currentPage === totalPages} onClick={() => setCurrentPage((p) => p + 1)}>
+            Next
+          </Button>
+        </div>
       </div>
-    </div>
+    </PageLayout>
   );
 };
+
+// Reusable Layout Component
+const PageLayout = ({ children }: { children: React.ReactNode }) => (
+  <div className="flex h-screen bg-slate-100">
+    <SidebarNav />
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <TopBar />
+      <div className="flex-1 overflow-auto">{children}</div>
+    </div>
+  </div>
+);
 
 export default Orders;
