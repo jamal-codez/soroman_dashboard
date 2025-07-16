@@ -3,16 +3,16 @@ import toast from "react-hot-toast";
 import { format, isThisMonth, isThisWeek, isThisYear } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Separator } from "@/components/ui/separator"; // This is imported but not used, can be removed if not needed.
+import { Separator } from "@/components/ui/separator";
 
-// --- MISSING IMPORTS ADDED ---
+// --- Corrected Imports ---
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { CheckCircle, Clock, AlertCircle, Loader2, Search, Download } from 'lucide-react'; // Icons
-import { Input } from "@/components/ui/input"; // UI Input component
-import { SidebarNav } from "@/components/sidebar-nav"; // Sidebar navigation component
-import { TopBar } from "@/components/top-bar"; // Top bar component
-import apiClient from '@/lib/api'; // Your custom API client instance
-// --- END OF MISSING IMPORTS ---
+import { CheckCircle, Clock, AlertCircle, Loader2, Search, Download } from 'lucide-react';
+import { Input } from "@/components/ui/input";
+import { SidebarNav } from "@/components/SidebarNav"; // Corrected path assumption
+import { TopBar } from "@/components/TopBar";       // Corrected path assumption
+import apiClient from '@/lib/api'; // Your custom API client instance (adjust path if different)
+// --- End of Corrected Imports ---
 
 interface Product {
   name: string;
