@@ -79,15 +79,16 @@ const OrdersTable = () => {
     try {
       const response = await axios.get<{ results: Order[] }>(`/api/orders`);
       setOrders(response.data.results);
-    } catch (err: any) {
+    } catch (err: any) { // Consider more specific error types if possible (e.g., AxiosError)
       console.error("Error fetching orders:", err);
       // More descriptive error based on API response if available
-      setError(err.response?.data?.message || "Failed to load orders. Please try again later.");
-      toast.error(error || "Failed to load orders."); // Display general error if specific one not available
+      const errorMessage = err.response?.data?.message || "Failed to load orders. Please try again later.";
+      setError(errorMessage);
+      toast.error(errorMessage); // Display the specific error message
     } finally {
       setIsLoading(false);
     }
-  }, [error]); // Depend on error for toast message, though usually you wouldn't here
+  }, []); // Empty dependency array because `error` state is updated within the `catch` block
 
   useEffect(() => {
     fetchOrders();
@@ -122,7 +123,7 @@ const OrdersTable = () => {
       await axios.post(`/api/orders/${orderId}/cancel/`);
       toast.success("Order cancelled successfully! ✨"); // Add a touch of sweetness
       fetchOrders(); // Re-fetch orders to update the table
-    } catch (err: any) {
+    } catch (err: any) { // Consider more specific error types if possible
       console.error("Error cancelling order:", err);
       const errorMessage = err.response?.data?.message || "Failed to cancel order. Please try again.";
       toast.error(errorMessage);
@@ -178,7 +179,7 @@ const OrdersTable = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <input
           type="text"
-          placeholder="Search by name, product, or order ID..." {/* Ellipsis for a softer look */}
+          placeholder="Search by name, product, or order ID..." // Corrected: Removed JSX comment inside string literal
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="border rounded-md px-4 py-2 w-full md:w-1/3 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200" // Added focus styles
