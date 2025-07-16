@@ -1,12 +1,18 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
-import axios from "axios";
 import toast from "react-hot-toast";
 import { format, isThisMonth, isThisWeek, isThisYear } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Separator } from "@/components/ui/separator";
-// Assuming a Skeleton component exists for loading states
-// import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator"; // This is imported but not used, can be removed if not needed.
+
+// --- MISSING IMPORTS ADDED ---
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { CheckCircle, Clock, AlertCircle, Loader2, Search, Download } from 'lucide-react'; // Icons
+import { Input } from "@/components/ui/input"; // UI Input component
+import { SidebarNav } from "@/components/sidebar-nav"; // Sidebar navigation component
+import { TopBar } from "@/components/top-bar"; // Top bar component
+import apiClient from '@/lib/api'; // Your custom API client instance
+// --- END OF MISSING IMPORTS ---
 
 interface Product {
   name: string;
@@ -22,13 +28,19 @@ interface User {
 interface Order {
   id: number;
   created_at: string;
-  status: 'pending' | 'paid' | 'canceled'; // Make status a union type for better type safety
+  status: 'pending' | 'paid' | 'canceled';
   reference: string;
   user: User;
   quantity: number;
   total_price: string;
-  release_type: 'pickup' | 'delivery'; // Make release_type a union type
+  release_type: 'pickup' | 'delivery';
   products: Product[];
+}
+
+// Define OrderResponse interface for useQuery
+interface OrderResponse {
+  count: number;
+  results: Order[];
 }
 
 // Define Timeframe type explicitly
@@ -37,7 +49,7 @@ type Timeframe = 'all' | 'week' | 'month' | 'year';
 const statusDisplayMap: Record<Order['status'], string> = {
   pending: "Pending",
   paid: "Paid",
-  canceled: "Canceled", // Corrected typo here (was 'canceled', now 'Canceled' for display)
+  canceled: "Canceled",
 };
 
 const getStatusClass = (status: string) => {
@@ -64,14 +76,13 @@ const pageSize = 10;
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [showCancelModal, setShowCancelModal] = useState(false); // Modal visibility state
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null); // Selected order ID
-  const [filterTimeframe, setFilterTimeframe] = useState<Timeframe>('all'); // Added filterTimeframe state
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [filterTimeframe, setFilterTimeframe] = useState<Timeframe>('all');
 
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
-    queryKey: ['all-orders', currentPage, filterTimeframe], // Added filterTimeframe to queryKey for re-fetch
+    queryKey: ['all-orders', currentPage, filterTimeframe],
     queryFn: async () => {
-      // You might need to adjust your API call to send filterTimeframe if the backend supports it
       const response = await apiClient.admin.getAllAdminOrders({
         page: currentPage,
         page_size: pageSize
@@ -104,11 +115,11 @@ const Orders = () => {
 
   const filteredOrders = useMemo(() => {
     const searchLower = searchQuery.toLowerCase();
-    const ordersToFilter = apiResponse?.results || []; // Use apiResponse?.results directly
+    const ordersToFilter = apiResponse?.results || [];
 
     return ordersToFilter.filter(order => {
       return (
-        isInTimeframe(order.created_at) && // Apply timeframe filter first
+        isInTimeframe(order.created_at) &&
         (
           order.id.toString().includes(searchLower) ||
           `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(searchLower) ||
@@ -116,7 +127,7 @@ const Orders = () => {
         )
       );
     });
-  }, [apiResponse, searchQuery, isInTimeframe]); // Added apiResponse to dependencies
+  }, [apiResponse, searchQuery, isInTimeframe]);
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value.toLowerCase());
@@ -125,13 +136,13 @@ const Orders = () => {
   const cancelOrderMutation = useMutation({
     mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
     onSuccess: () => {
-      toast.success("Order cancelled successfully! ✨"); // Added toast for success
+      toast.success("Order cancelled successfully! ✨");
       refetch();
     },
-    onError: (error: any) => { // Type error for consistency
+    onError: (error: any) => {
       console.error('Cancel failed:', error);
       const errorMessage = error.response?.data?.message || "Failed to cancel order. Please try again.";
-      toast.error(errorMessage); // Added toast for error
+      toast.error(errorMessage);
     },
     onSettled: () => {
       setShowCancelModal(false);
@@ -163,7 +174,7 @@ const Orders = () => {
           <TopBar />
           <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
             <Loader2 className="animate-spin" color="green" size={54} />
-            <p className="text-lg text-gray-500 ml-4">Loading orders... 🔄</p> {/* Added loading text */}
+            <p className="text-lg text-gray-500 ml-4">Loading orders... 🔄</p>
           </div>
         </div>
       </div>
@@ -179,7 +190,7 @@ const Orders = () => {
           <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
             <div className="text-center text-red-500">
               <p>Error: {(error as Error)?.message || 'Failed to load orders'}</p>
-              <Button onClick={() => refetch()} className="mt-4 bg-red-500 hover:bg-red-600 text-white">Retry</Button> {/* Styled retry button */}
+              <Button onClick={() => refetch()} className="mt-4 bg-red-500 hover:bg-red-600 text-white">Retry</Button>
             </div>
           </div>
         </div>
@@ -211,7 +222,6 @@ const Orders = () => {
                   />
                 </div>
                 <div className="flex gap-2">
-                  {/* Filter dropdown for timeframes */}
                   <select
                     value={filterTimeframe}
                     onChange={(e) => setFilterTimeframe(e.target.value as Timeframe)}
@@ -283,11 +293,11 @@ const Orders = () => {
                             <Button
                               variant="outline"
                               onClick={() => handleCancelOrderClick(order.id)}
-                              disabled={order.status !== 'pending' || cancelOrderMutation.isLoading} // Disable if mutation is in progress
+                              disabled={order.status !== 'pending' || cancelOrderMutation.isLoading}
                               className={`${
                                 order.status !== 'pending'
                                   ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                  : 'bg-red-500 text-white hover:bg-red-600' // Added hover state
+                                  : 'bg-red-500 text-white hover:bg-red-600'
                               }`}
                             >
                               {cancelOrderMutation.isLoading && selectedOrderId === order.id ? (
@@ -319,7 +329,7 @@ const Orders = () => {
                 </div>
               )}
 
-              {filteredOrders.length > 0 && ( // Only show pagination if there are filtered orders
+              {filteredOrders.length > 0 && (
                 <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
                   <div className="text-sm text-slate-600">
                     Showing {(currentPage - 1) * pageSize + 1} -{' '}
