@@ -1,317 +1,233 @@
-import React, { useState, useMemo } from 'react';
-import { useQuery, useMutation, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
-import { Download, Filter, Search, CheckCircle, Clock, AlertCircle, Loader2, X, ChevronDown } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+import toast from "react-hot-toast";
+import { format, isThisMonth, isThisWeek, isThisYear } from "date-fns";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Separator } from "@/components/ui/separator";
 
-// --- Mock API Client & Data ---
-// In a real application, this would be your actual API client.
-const mockApiClient = {
-    admin: {
-        getAllAdminOrders: async () => {
-            console.log("Fetching mock orders...");
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            return {
-                count: 25,
-                results: Array.from({ length: 25 }, (_, i) => {
-                    const statusOptions = ['paid', 'pending', 'canceled'];
-                    const date = new Date(2024, Math.floor(i / 3), (i % 28) + 1);
-                    return {
-                        id: 1001 + i,
-                        user: {
-                            first_name: `Customer`,
-                            last_name: `${i + 1}`,
-                            email: `customer${i + 1}@example.com`,
-                            phone_number: `555-010${i % 10}`,
-                        },
-                        quantity: 1500 * (i + 1),
-                        status: statusOptions[i % 3],
-                        created_at: date.toISOString(),
-                    };
-                }),
-            };
-        },
-        cancelOrder: async (orderId) => {
-            console.log(`Canceling order ${orderId}...`);
-            await new Promise(resolve => setTimeout(resolve, 500));
-            return { success: true, orderId };
-        },
-    },
+interface Product {
+  name: string;
+}
+
+interface User {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+}
+
+interface Order {
+  id: number;
+  created_at: string;
+  status: string;
+  reference: string;
+  user: User;
+  quantity: number;
+  total_price: string;
+  release_type: string;
+  products: Product[];
+}
+
+const statusDisplayMap: Record<string, string> = {
+  pending: "Pending",
+  completed: "Completed",
+  cancelled: "Cancelled",
 };
 
-// --- UI Components (Self-Contained for Portability) ---
-const Button = ({ children, onClick, variant = 'default', disabled = false, className = '' }) => {
-    const baseClasses = 'px-4 py-2 rounded-md font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors duration-200 ease-in-out inline-flex items-center justify-center';
-    const variants = {
-        default: 'bg-slate-800 text-white hover:bg-slate-700 focus:ring-slate-500',
-        outline: 'bg-transparent border border-slate-300 text-slate-700 hover:bg-slate-100 focus:ring-slate-400',
-        destructive: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
-    };
-    const disabledClasses = 'disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed';
-    return <button onClick={onClick} disabled={disabled} className={`${baseClasses} ${variants[variant]} ${disabledClasses} ${className}`}>{children}</button>;
+const getStatusClass = (status: string) => {
+  switch (status) {
+    case "pending":
+      return "bg-yellow-100 text-yellow-800 border-yellow-300";
+    case "completed":
+      return "bg-green-100 text-green-800 border-green-300";
+    case "cancelled":
+      return "bg-red-100 text-red-800 border-red-300";
+    default:
+      return "bg-gray-100 text-gray-800 border-gray-300";
+  }
 };
 
-const Input = ({ ...props }) => <input {...props} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500" />;
-
-const Table = ({ children }) => <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200">{children}</table></div>;
-const TableHeader = ({ children }) => <thead className="bg-slate-50">{children}</thead>;
-const TableRow = ({ children, className = '' }) => <tr className={className}>{children}</tr>;
-const TableHead = ({ children }) => <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">{children}</th>;
-const TableBody = ({ children }) => <tbody className="bg-white divide-y divide-slate-200">{children}</tbody>;
-const TableCell = ({ children, className = '' }) => <td className={`px-6 py-4 whitespace-nowrap text-sm ${className}`}>{children}</td>;
-
-// --- Status Components ---
-const statusDisplayMap = {
-    pending: 'Pending',
-    paid: 'Paid',
-    canceled: 'Canceled',
+const getStatusIcon = (status: string) => {
+  switch (status) {
+    case "pending":
+      return "⏳";
+    case "completed":
+      return "✅";
+    case "cancelled":
+      return "❌";
+    default:
+      return "";
+  }
 };
 
-const getStatusConfig = (status) => {
-    switch (status) {
-        case 'paid': return { icon: CheckCircle, className: 'bg-green-100 text-green-800', iconClass: 'text-green-500' };
-        case 'pending': return { icon: Clock, className: 'bg-orange-100 text-orange-800', iconClass: 'text-orange-500' };
-        case 'canceled': return { icon: AlertCircle, className: 'bg-red-100 text-red-800', iconClass: 'text-red-500' };
-        default: return { icon: Clock, className: 'bg-gray-100 text-gray-800', iconClass: 'text-gray-500' };
+const OrdersTable = () => {
+  const [apiResponse, setApiResponse] = useState<{ results: Order[] }>({ results: [] });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterTimeframe, setFilterTimeframe] = useState<'all' | 'week' | 'month' | 'year'>('all');
+
+  const fetchOrders = async () => {
+    try {
+      const response = await axios.get(`/api/orders`);
+      setApiResponse(response.data);
+    } catch (error) {
+      console.error("Error fetching orders:", error);
     }
-};
+  };
 
-const StatusBadge = ({ status }) => {
-    const { icon: Icon, className, iconClass } = getStatusConfig(status);
-    return (
-        <div className={`inline-flex items-center px-3 py-1 text-xs font-semibold rounded-full ${className}`}>
-            <Icon className={`mr-1.5 ${iconClass}`} size={14} />
-            {statusDisplayMap[status] || 'Unknown'}
-        </div>
-    );
-};
-
-// --- Main Orders Component ---
-const OrdersDashboard = () => {
-    const queryClient = useQueryClient();
-    const [searchQuery, setSearchQuery] = useState('');
-    const [filter, setFilter] = useState('all');
-    const [showCancelModal, setShowCancelModal] = useState(false);
-    const [selectedOrderId, setSelectedOrderId] = useState(null);
-
-    const { data: orders = [], isLoading, isError, error, refetch } = useQuery({
-        queryKey: ['all-orders'],
-        queryFn: async () => (await mockApiClient.admin.getAllAdminOrders()).results || [],
-        refetchOnWindowFocus: false,
-    });
-
-    const cancelOrderMutation = useMutation({
-        mutationFn: mockApiClient.admin.cancelOrder,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['all-orders'] });
-        },
-        onError: (err) => console.error('Cancel failed:', err),
-        onSettled: () => {
-            setShowCancelModal(false);
-            setSelectedOrderId(null);
-        },
-    });
-
-    const filteredOrders = useMemo(() => {
-        const now = new Date();
-        return orders
-            .filter(order => {
-                const orderDate = new Date(order.created_at);
-                if (filter === 'week') return orderDate >= startOfWeek(now) && orderDate <= endOfWeek(now);
-                if (filter === 'month') return orderDate >= startOfMonth(now) && orderDate <= endOfMonth(now);
-                if (filter === 'year') return orderDate >= startOfYear(now) && orderDate <= endOfYear(now);
-                return true;
-            })
-            .filter(order => {
-                const searchLower = searchQuery.toLowerCase();
-                const customerName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase();
-                return (
-                    order.id.toString().includes(searchLower) ||
-                    customerName.includes(searchLower) ||
-                    order.user.email.toLowerCase().includes(searchLower) ||
-                    order.user.phone_number.toLowerCase().includes(searchLower)
-                );
-            });
-    }, [orders, searchQuery, filter]);
-
-    const handleCancelClick = (orderId) => {
-        setSelectedOrderId(orderId);
-        setShowCancelModal(true);
-    };
-
-    const confirmCancelOrder = () => {
-        if (selectedOrderId) {
-            cancelOrderMutation.mutate(selectedOrderId);
-        }
-    };
-
-    const handleExportCSV = () => {
-        const headers = ["Date", "Order ID", "Customer's Name", "Contact Phone", "Contact Email", "Quantity (Litres)", "Status"];
-        const csvRows = [
-            "SALES RECORD EXPORT",
-            `Export Date: ${format(new Date(), 'yyyy-MM-dd HH:mm:ss')}`,
-            `Filters Applied: Search='${searchQuery}', Period='${filter}'`,
-            "",
-            headers.join(','),
-        ];
-
-        filteredOrders.forEach(order => {
-            const row = [
-                format(new Date(order.created_at), 'yyyy-MM-dd HH:mm'),
-                `#${order.id}`,
-                `"${order.user.first_name} ${order.user.last_name}"`,
-                order.user.phone_number,
-                order.user.email,
-                order.quantity.toLocaleString('en-US'),
-                statusDisplayMap[order.status],
-            ];
-            csvRows.push(row.join(','));
-        });
-
-        const csvString = csvRows.join('\n');
-        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        link.setAttribute('download', `sales_export_${format(new Date(), 'yyyyMMdd')}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    if (isLoading) {
-        return <div className="flex-1 p-6 flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-slate-500" size={48} /></div>;
+  const isInTimeframe = (date: string) => {
+    const d = new Date(date);
+    switch (filterTimeframe) {
+      case 'week': return isThisWeek(d);
+      case 'month': return isThisMonth(d);
+      case 'year': return isThisYear(d);
+      default: return true;
     }
+  };
 
-    if (isError) {
-        return (
-            <div className="flex-1 p-6 flex flex-col items-center justify-center bg-red-50 text-red-700">
-                <AlertCircle size={48} className="mb-4" />
-                <h2 className="text-xl font-semibold">Error Loading Orders</h2>
-                <p className="mb-4">{error?.message || 'An unknown error occurred.'}</p>
-                <Button onClick={() => refetch()} variant="destructive">Retry</Button>
-            </div>
-        );
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  const filteredOrders = (apiResponse?.results || []).filter(order => {
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      isInTimeframe(order.created_at) &&
+      (
+        order.id.toString().includes(searchLower) ||
+        `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(searchLower) ||
+        order.products.some(product => product.name.toLowerCase().includes(searchLower))
+      )
+    );
+  });
+
+  const handleCancelOrderClick = async (orderId: number) => {
+    try {
+      await axios.post(`/api/orders/${orderId}/cancel/`);
+      toast.success("Order cancelled successfully.");
+      fetchOrders();
+    } catch (error) {
+      console.error("Error cancelling order:", error);
+      toast.error("Failed to cancel order.");
     }
+  };
 
-    return (
-        <div className="flex-1 flex flex-col overflow-hidden bg-slate-100">
-            <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-                <div className="max-w-7xl mx-auto">
-                    <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                        <h1 className="text-2xl font-bold text-slate-800">Sales Records</h1>
-                        <Button onClick={handleExportCSV} disabled={filteredOrders.length === 0}><Download className="mr-2" size={16} />Export as CSV</Button>
-                    </header>
+  const exportToCSV = () => {
+    const headers = [
+      'Date', 'Order ID', 'Customer Name', 'Contact (Phone & Email)', 'Quantity (Litres)',
+      'Amount (₦)', 'Status', 'Delivery Method', 'Products', 'Reference'
+    ];
 
-                    <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="relative md:col-span-2">
-                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                                <Input type="text" placeholder="Search by Order ID, Name, Email, or Phone..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-                            </div>
-                            <div className="relative">
-                                <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                                <select value={filter} onChange={(e) => setFilter(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500 appearance-none bg-white">
-                                    <option value="all">All Time</option>
-                                    <option value="week">This Week</option>
-                                    <option value="month">This Month</option>
-                                    <option value="year">This Year</option>
-                                </select>
-                                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                            </div>
-                        </div>
-                    </div>
+    const rows = filteredOrders.map(order => [
+      format(new Date(order.created_at), 'dd MMM yyyy HH:mm'),
+      order.id,
+      `${order.user.first_name} ${order.user.last_name}`,
+      `${order.user.phone_number} (${order.user.email})`,
+      Number(order.quantity).toLocaleString(),
+      `₦${parseFloat(order.total_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+      statusDisplayMap[order.status],
+      order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
+      order.products.map(p => p.name).join(', '),
+      order.reference,
+    ]);
 
-                    <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Date</TableHead>
-                                    <TableHead>Order ID</TableHead>
-                                    <TableHead>Customer's Name</TableHead>
-                                    <TableHead>Contact</TableHead>
-                                    <TableHead>Quantity (Litres)</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead>Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {filteredOrders.length > 0 ? (
-                                    filteredOrders.map((order) => (
-                                        <TableRow key={order.id} className="hover:bg-slate-50">
-                                            <TableCell className="text-slate-600">{format(new Date(order.created_at), 'MMM dd, yyyy')}</TableCell>
-                                            <TableCell className="font-medium text-slate-800">#{order.id}</TableCell>
-                                            <TableCell className="font-medium text-slate-900">{order.user.first_name} {order.user.last_name}</TableCell>
-                                            <TableCell>
-                                                <div className="flex flex-col">
-                                                    <span className="text-slate-800">{order.user.phone_number}</span>
-                                                    <span className="text-xs text-slate-500">{order.user.email}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="font-mono text-right text-slate-700">{order.quantity.toLocaleString('en-US')} L</TableCell>
-                                            <TableCell><StatusBadge status={order.status} /></TableCell>
-                                            <TableCell>
-                                                <Button variant="outline" onClick={() => handleCancelClick(order.id)} disabled={order.status !== 'pending'} className="text-xs py-1 px-2 border-red-300 text-red-600 hover:bg-red-50 disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-transparent">Cancel</Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : (
-                                    <TableRow><TableCell colSpan={7} className="text-center py-12"><p className="text-slate-500">No orders match your criteria.</p></TableCell></TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </div>
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join('\t'))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'orders_export.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <input
+          type="text"
+          placeholder="Search by name, product, or order ID"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="border rounded px-4 py-2 w-full md:w-1/3"
+        />
+        <select
+          value={filterTimeframe}
+          onChange={(e) => setFilterTimeframe(e.target.value as any)}
+          className="border border-slate-300 rounded-md p-2 text-sm"
+        >
+          <option value="all">All Time</option>
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+          <option value="year">This Year</option>
+        </select>
+        <Button onClick={exportToCSV}>Export CSV</Button>
+      </div>
+      <Separator />
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Date</TableHead>
+            <TableHead>Order ID</TableHead>
+            <TableHead>Customer's Name</TableHead>
+            <TableHead>Contact</TableHead>
+            <TableHead>Quantity (Litres)</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Delivery</TableHead>
+            <TableHead>Amount</TableHead>
+            <TableHead>Products</TableHead>
+            <TableHead>Reference</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {filteredOrders.map(order => (
+            <TableRow key={order.id}>
+              <TableCell>{format(new Date(order.created_at), 'dd MMM yyyy HH:mm')}</TableCell>
+              <TableCell>{order.id}</TableCell>
+              <TableCell>{`${order.user.first_name} ${order.user.last_name}`}</TableCell>
+              <TableCell>
+                <div className="flex flex-col">
+                  <span>{order.user.phone_number}</span>
+                  <span className="text-sm text-muted-foreground">{order.user.email}</span>
                 </div>
-            </main>
-
-            {showCancelModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-                    <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full m-4">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-semibold text-slate-800">Confirm Cancellation</h3>
-                            <button onClick={() => setShowCancelModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
-                        </div>
-                        <p className="text-slate-600 mb-6">Are you sure you want to cancel order <span className="font-bold">#{selectedOrderId}</span>? This action cannot be undone.</p>
-                        <div className="flex justify-end gap-3">
-                            <Button variant="outline" onClick={() => setShowCancelModal(false)} disabled={cancelOrderMutation.isPending}>No, Keep It</Button>
-                            <Button variant="destructive" onClick={confirmCancelOrder} disabled={cancelOrderMutation.isPending}>
-                                {cancelOrderMutation.isPending && <Loader2 className="animate-spin mr-2 h-4 w-4" />}
-                                Yes, Cancel Order
-                            </Button>
-                        </div>
-                    </div>
+              </TableCell>
+              <TableCell>{Number(order.quantity).toLocaleString()} L</TableCell>
+              <TableCell>
+                <div className={`inline-flex items-center gap-2 text-sm font-medium rounded-full px-4 py-1 border ${getStatusClass(order.status)}`}>
+                  {getStatusIcon(order.status)}
+                  <span className="whitespace-nowrap">{statusDisplayMap[order.status]}</span>
                 </div>
-            )}
-        </div>
-    );
+              </TableCell>
+              <TableCell>{order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}</TableCell>
+              <TableCell>{`₦${parseFloat(order.total_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</TableCell>
+              <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
+              <TableCell>{order.reference}</TableCell>
+              <TableCell>
+                {order.status === 'pending' && (
+                  <Button size="sm" variant="destructive" onClick={() => handleCancelOrderClick(order.id)}>
+                    Cancel
+                  </Button>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+          {filteredOrders.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={11} className="text-center py-8 text-slate-500">
+                No orders found.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
 };
 
-// --- App Entry Point ---
-// Create a single, stable QueryClient instance outside the component.
-const queryClient = new QueryClient();
-
-const App = () => {
-    return (
-        // Provide the client to your App.
-        <QueryClientProvider client={queryClient}>
-            <div className="flex h-screen bg-slate-100 font-sans">
-                <div className="w-64 bg-white border-r border-slate-200 p-4 hidden md:block">
-                    <h2 className="font-bold text-xl text-slate-800">Dashboard</h2>
-                    <nav className="mt-8">
-                        <a href="#" className="block py-2 px-3 bg-slate-200 text-slate-900 rounded-md font-semibold">Orders</a>
-                        <a href="#" className="block py-2 px-3 text-slate-600 hover:bg-slate-100 rounded-md">Customers</a>
-                        <a href="#" className="block py-2 px-3 text-slate-600 hover:bg-slate-100 rounded-md">Reports</a>
-                    </nav>
-                </div>
-                <div className="flex-1 flex flex-col">
-                    <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6">
-                        <div className="font-semibold">Sales Overview</div>
-                        <div className="text-sm">Welcome, Admin!</div>
-                    </div>
-                    <OrdersDashboard />
-                </div>
-            </div>
-        </QueryClientProvider>
-    );
-};
-
-export default App;
+export default OrdersTable;
