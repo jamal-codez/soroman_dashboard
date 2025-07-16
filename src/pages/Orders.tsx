@@ -178,6 +178,10 @@ const OrdersTable = () => {
             <TableHead>Contact</TableHead>
             <TableHead>Quantity (Litres)</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead>Delivery</TableHead>
+            <TableHead>Amount</TableHead>
+            <TableHead>Products</TableHead>
+            <TableHead>Reference</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -200,6 +204,10 @@ const OrdersTable = () => {
                   <span className="whitespace-nowrap">{statusDisplayMap[order.status]}</span>
                 </div>
               </TableCell>
+              <TableCell>{order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}</TableCell>
+              <TableCell>{`₦${parseFloat(order.total_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</TableCell>
+              <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
+              <TableCell>{order.reference}</TableCell>
               <TableCell>
                 {order.status === 'pending' && (
                   <Button size="sm" variant="destructive" onClick={() => handleCancelOrderClick(order.id)}>
@@ -211,7 +219,7 @@ const OrdersTable = () => {
           ))}
           {filteredOrders.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} className="text-center py-8 text-slate-500">
+              <TableCell colSpan={11} className="text-center py-8 text-slate-500">
                 No orders found.
               </TableCell>
             </TableRow>
