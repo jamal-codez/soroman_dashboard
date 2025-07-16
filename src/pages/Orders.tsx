@@ -1,42 +1,156 @@
-// ... previous imports
-import { saveAs } from 'file-saver';
-import Papa from 'papaparse'; // Add this to handle CSV parsing
+import { useState } from 'react';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { SidebarNav } from '@/components/SidebarNav';
+import { TopBar } from '@/components/TopBar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+import {
+  Download,
+  Filter,
+  Search,
+  CheckCircle,
+  Clock,
+  AlertCircle
+} from 'lucide-react';
+import { apiClient } from '@/api/client';
+import { format, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
 
-// Add this utility function to format quantity
-const formatQuantity = (quantity: number): string => {
-  return quantity.toLocaleString();
+interface Order {
+  id: number;
+  user: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone_number: string;
+  };
+  total_price: string;
+  status: 'pending' | 'paid' | 'canceled';
+  created_at: string;
+  products: Array<{
+    name: string;
+  }>;
+  quantity: number;
+  release_type: 'pickup' | 'delivery';
+  reference: string;
+}
+
+interface OrderResponse {
+  count: number;
+  results: Order[];
+}
+
+const statusDisplayMap = {
+  pending: 'Pending',
+  paid: 'Paid',
+  canceled: 'Canceled',
 };
 
-// Add this function to export CSV
-const exportToCSV = (orders: Order[]) => {
-  const csvData = orders.map(order => ({
-    Date: format(new Date(order.created_at), 'yyyy-MM-dd'),
-    'Order ID': order.id,
-    "Customer's Name": `${order.user.first_name} ${order.user.last_name}`,
-    Contact: `${order.user.phone_number} | ${order.user.email}`,
-    'Quantity (Litres)': formatQuantity(order.quantity),
-    Status: statusDisplayMap[order.status],
-  }));
+const getStatusIcon = (status: Order['status']) => {
+  switch (status) {
+    case 'paid': return <CheckCircle className="text-green-500" size={16} />;
+    case 'pending': return <Clock className="text-orange-500" size={16} />;
+    case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
+    default: return <Clock className="text-orange-500" size={16} />;
+  }
+};
 
-  const csv = Papa.unparse(csvData, {
-    quotes: true,
-    delimiter: ',',
-    newline: '\r\n',
+const getStatusClass = (status: string) => {
+  switch (status) {
+    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
+    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
+    default: return 'bg-blue-50 text-blue-700 border-blue-200';
+  }
+};
+
+const Orders = () => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<'week' | 'month' | 'year' | null>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+
+  const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
+    queryKey: ['all-orders'],
+    queryFn: async () => {
+      const response = await apiClient.admin.getAllAdminOrders();
+      if (!response.results) throw new Error('Invalid response format');
+      return {
+        count: response.count || 0,
+        results: response.results || []
+      };
+    },
+    retry: 2,
+    refetchOnWindowFocus: false
   });
 
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  saveAs(blob, `Sales_Report_${new Date().toISOString().slice(0, 10)}.csv`);
-};
+  const cancelOrderMutation = useMutation({
+    mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
+    onSuccess: () => refetch(),
+    onSettled: () => {
+      setShowCancelModal(false);
+      setSelectedOrderId(null);
+    }
+  });
 
-// Inside Orders Component
-const Orders = () => {
-  // ... other useStates
-
-  // Add this function to handle export button click
-  const handleExport = () => {
-    if (filteredOrders.length === 0) return;
-    exportToCSV(filteredOrders);
+  const handleCancelOrderClick = (orderId: number) => {
+    setSelectedOrderId(orderId);
+    setShowCancelModal(true);
   };
+
+  const confirmCancelOrder = () => {
+    if (selectedOrderId) cancelOrderMutation.mutate(selectedOrderId);
+  };
+
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value.toLowerCase());
+  };
+
+  const exportToCSV = () => {
+    if (!apiResponse?.results) return;
+    const headers = ['Date', 'Order ID', 'Customer', 'Contact', 'Quantity (Litres)', 'Status'];
+    const rows = filteredOrders.map((order) => [
+      format(new Date(order.created_at), 'yyyy-MM-dd'),
+      `#${order.id}`,
+      `${order.user.first_name} ${order.user.last_name}`,
+      `${order.user.phone_number} / ${order.user.email}`,
+      order.quantity.toLocaleString(),
+      statusDisplayMap[order.status]
+    ]);
+    const csvContent = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const filteredOrders = (apiResponse?.results || [])
+    .filter(order => {
+      const query = searchQuery.toLowerCase();
+      return (
+        order.id.toString().includes(query) ||
+        `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(query) ||
+        order.products.some(product => product.name.toLowerCase().includes(query))
+      );
+    })
+    .filter(order => {
+      if (!filterType) return true;
+      const date = new Date(order.created_at);
+      if (filterType === 'week') return isThisWeek(date);
+      if (filterType === 'month') return isThisMonth(date);
+      if (filterType === 'year') return isThisYear(date);
+      return true;
+    });
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -47,6 +161,11 @@ const Orders = () => {
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl font-bold text-slate-800">Orders Dashboard</h1>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={exportToCSV}>
+                  <Download className="mr-1" size={16} /> Export
+                </Button>
+              </div>
             </div>
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
@@ -61,14 +180,15 @@ const Orders = () => {
                     onChange={handleSearch}
                   />
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex items-center">
-                    <Filter className="mr-1" size={16} /> Filter
-                  </Button>
-                  <Button variant="outline" className="flex items-center" onClick={handleExport}>
-                    <Download className="mr-1" size={16} /> Export
-                  </Button>
-                </div>
+                <select
+                  className="border border-gray-300 rounded px-3 py-2"
+                  onChange={(e) => setFilterType(e.target.value as 'week' | 'month' | 'year' | null)}
+                >
+                  <option value="">All Time</option>
+                  <option value="week">This Week</option>
+                  <option value="month">This Month</option>
+                  <option value="year">This Year</option>
+                </select>
               </div>
             </div>
 
@@ -76,13 +196,13 @@ const Orders = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>DATE</TableHead>
-                    <TableHead>ORDER ID</TableHead>
-                    <TableHead>CUSTOMER'S NAME</TableHead>
-                    <TableHead>CONTACT</TableHead>
-                    <TableHead>QUANTITY (LITRES)</TableHead>
-                    <TableHead>STATUS</TableHead>
-                    <TableHead>ACTIONS</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Order ID</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Quantity (L)</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -91,15 +211,12 @@ const Orders = () => {
                       <TableCell>{format(new Date(order.created_at), 'yyyy-MM-dd')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
                       <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
+                      <TableCell>{order.user.phone_number} / {order.user.email}</TableCell>
+                      <TableCell>{order.quantity.toLocaleString()}</TableCell>
                       <TableCell>
-                        <div className="text-sm text-slate-700">{order.user.phone_number}</div>
-                        <div className="text-xs text-slate-500">{order.user.email}</div>
-                      </TableCell>
-                      <TableCell>{formatQuantity(order.quantity)}</TableCell>
-                      <TableCell>
-                        <div className={`px-2 py-1 text-xs font-semibold border rounded ${getStatusClass(order.status)}`}> 
-                          {getStatusIcon(order.status)} {statusDisplayMap[order.status]}
-                        </div>
+                        <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded ${getStatusClass(order.status)}`}>
+                          {getStatusIcon(order.status)} <span className="ml-1">{statusDisplayMap[order.status]}</span>
+                        </span>
                       </TableCell>
                       <TableCell>
                         <Button
