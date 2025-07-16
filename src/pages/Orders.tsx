@@ -1,10 +1,3 @@
-Okay, I understand. No problem\! The issue is indeed that you're still using a **JSX comment** `{/* ... */}` directly adjacent to a JavaScript expression within an attribute. This is not valid in JSX.
-
-I've made the necessary correction by **removing the JSX comment** `{/* Type-safe casting */}` from line 189 in your `Orders.tsx` file. If you wish to keep that note, it needs to be a standard JavaScript comment `//` or `/* */` on its own line, or a proper JSX comment within a JSX block, but not right after an expression in an attribute.
-
-Here's your corrected code:
-
-```typescript
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
@@ -391,4 +384,3 @@ const Orders = () => {
 };
 
 export default Orders;
-```
