@@ -312,7 +312,7 @@ const Orders = () => {
                 </TableBody>
               </Table>
 
-              {filteredOrders.length === 0 && !searchQuery.trim() && filterTimeframe === 'all' && ( // Only show if no orders at all
+              {filteredOrders.length === 0 && !searchQuery.trim() && filterTimeframe === 'all' && (
                 <div className="p-8 text-center text-slate-500">
                   <p className="text-lg font-medium mb-2">No orders available. 😔</p>
                   <p>Check your backend connection or add new orders.</p>
