@@ -1,233 +1,126 @@
-import React, { useEffect, useState } from "react";
-import axios from "axios";
-import toast from "react-hot-toast";
-import { format, isThisMonth, isThisWeek, isThisYear } from "date-fns";
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Separator } from "@/components/ui/separator";
+// ... previous imports
+import { saveAs } from 'file-saver';
+import Papa from 'papaparse'; // Add this to handle CSV parsing
 
-interface Product {
-  name: string;
-}
-
-interface User {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone_number: string;
-}
-
-interface Order {
-  id: number;
-  created_at: string;
-  status: string;
-  reference: string;
-  user: User;
-  quantity: number;
-  total_price: string;
-  release_type: string;
-  products: Product[];
-}
-
-const statusDisplayMap: Record<string, string> = {
-  pending: "Pending",
-  completed: "Completed",
-  cancelled: "Cancelled",
+// Add this utility function to format quantity
+const formatQuantity = (quantity: number): string => {
+  return quantity.toLocaleString();
 };
 
-const getStatusClass = (status: string) => {
-  switch (status) {
-    case "pending":
-      return "bg-yellow-100 text-yellow-800 border-yellow-300";
-    case "completed":
-      return "bg-green-100 text-green-800 border-green-300";
-    case "cancelled":
-      return "bg-red-100 text-red-800 border-red-300";
-    default:
-      return "bg-gray-100 text-gray-800 border-gray-300";
-  }
-};
+// Add this function to export CSV
+const exportToCSV = (orders: Order[]) => {
+  const csvData = orders.map(order => ({
+    Date: format(new Date(order.created_at), 'yyyy-MM-dd'),
+    'Order ID': order.id,
+    "Customer's Name": `${order.user.first_name} ${order.user.last_name}`,
+    Contact: `${order.user.phone_number} | ${order.user.email}`,
+    'Quantity (Litres)': formatQuantity(order.quantity),
+    Status: statusDisplayMap[order.status],
+  }));
 
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case "pending":
-      return "⏳";
-    case "completed":
-      return "✅";
-    case "cancelled":
-      return "❌";
-    default:
-      return "";
-  }
-};
-
-const OrdersTable = () => {
-  const [apiResponse, setApiResponse] = useState<{ results: Order[] }>({ results: [] });
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterTimeframe, setFilterTimeframe] = useState<'all' | 'week' | 'month' | 'year'>('all');
-
-  const fetchOrders = async () => {
-    try {
-      const response = await axios.get(`/api/orders`);
-      setApiResponse(response.data);
-    } catch (error) {
-      console.error("Error fetching orders:", error);
-    }
-  };
-
-  const isInTimeframe = (date: string) => {
-    const d = new Date(date);
-    switch (filterTimeframe) {
-      case 'week': return isThisWeek(d);
-      case 'month': return isThisMonth(d);
-      case 'year': return isThisYear(d);
-      default: return true;
-    }
-  };
-
-  useEffect(() => {
-    fetchOrders();
-  }, []);
-
-  const filteredOrders = (apiResponse?.results || []).filter(order => {
-    const searchLower = searchQuery.toLowerCase();
-    return (
-      isInTimeframe(order.created_at) &&
-      (
-        order.id.toString().includes(searchLower) ||
-        `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(searchLower) ||
-        order.products.some(product => product.name.toLowerCase().includes(searchLower))
-      )
-    );
+  const csv = Papa.unparse(csvData, {
+    quotes: true,
+    delimiter: ',',
+    newline: '\r\n',
   });
 
-  const handleCancelOrderClick = async (orderId: number) => {
-    try {
-      await axios.post(`/api/orders/${orderId}/cancel/`);
-      toast.success("Order cancelled successfully.");
-      fetchOrders();
-    } catch (error) {
-      console.error("Error cancelling order:", error);
-      toast.error("Failed to cancel order.");
-    }
-  };
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  saveAs(blob, `Sales_Report_${new Date().toISOString().slice(0, 10)}.csv`);
+};
 
-  const exportToCSV = () => {
-    const headers = [
-      'Date', 'Order ID', 'Customer Name', 'Contact (Phone & Email)', 'Quantity (Litres)',
-      'Amount (₦)', 'Status', 'Delivery Method', 'Products', 'Reference'
-    ];
+// Inside Orders Component
+const Orders = () => {
+  // ... other useStates
 
-    const rows = filteredOrders.map(order => [
-      format(new Date(order.created_at), 'dd MMM yyyy HH:mm'),
-      order.id,
-      `${order.user.first_name} ${order.user.last_name}`,
-      `${order.user.phone_number} (${order.user.email})`,
-      Number(order.quantity).toLocaleString(),
-      `₦${parseFloat(order.total_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-      statusDisplayMap[order.status],
-      order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
-      order.products.map(p => p.name).join(', '),
-      order.reference,
-    ]);
-
-    const csvContent = [headers, ...rows]
-      .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join('\t'))
-      .join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'orders_export.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // Add this function to handle export button click
+  const handleExport = () => {
+    if (filteredOrders.length === 0) return;
+    exportToCSV(filteredOrders);
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <input
-          type="text"
-          placeholder="Search by name, product, or order ID"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="border rounded px-4 py-2 w-full md:w-1/3"
-        />
-        <select
-          value={filterTimeframe}
-          onChange={(e) => setFilterTimeframe(e.target.value as any)}
-          className="border border-slate-300 rounded-md p-2 text-sm"
-        >
-          <option value="all">All Time</option>
-          <option value="week">This Week</option>
-          <option value="month">This Month</option>
-          <option value="year">This Year</option>
-        </select>
-        <Button onClick={exportToCSV}>Export CSV</Button>
-      </div>
-      <Separator />
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Date</TableHead>
-            <TableHead>Order ID</TableHead>
-            <TableHead>Customer's Name</TableHead>
-            <TableHead>Contact</TableHead>
-            <TableHead>Quantity (Litres)</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Delivery</TableHead>
-            <TableHead>Amount</TableHead>
-            <TableHead>Products</TableHead>
-            <TableHead>Reference</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {filteredOrders.map(order => (
-            <TableRow key={order.id}>
-              <TableCell>{format(new Date(order.created_at), 'dd MMM yyyy HH:mm')}</TableCell>
-              <TableCell>{order.id}</TableCell>
-              <TableCell>{`${order.user.first_name} ${order.user.last_name}`}</TableCell>
-              <TableCell>
-                <div className="flex flex-col">
-                  <span>{order.user.phone_number}</span>
-                  <span className="text-sm text-muted-foreground">{order.user.email}</span>
+    <div className="flex h-screen bg-slate-100">
+      <SidebarNav />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <TopBar />
+        <div className="flex-1 overflow-auto p-6">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h1 className="text-2xl font-bold text-slate-800">Orders Dashboard</h1>
+            </div>
+
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+                  <Input
+                    type="text"
+                    placeholder="Search orders..."
+                    className="pl-10"
+                    value={searchQuery}
+                    onChange={handleSearch}
+                  />
                 </div>
-              </TableCell>
-              <TableCell>{Number(order.quantity).toLocaleString()} L</TableCell>
-              <TableCell>
-                <div className={`inline-flex items-center gap-2 text-sm font-medium rounded-full px-4 py-1 border ${getStatusClass(order.status)}`}>
-                  {getStatusIcon(order.status)}
-                  <span className="whitespace-nowrap">{statusDisplayMap[order.status]}</span>
-                </div>
-              </TableCell>
-              <TableCell>{order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}</TableCell>
-              <TableCell>{`₦${parseFloat(order.total_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</TableCell>
-              <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
-              <TableCell>{order.reference}</TableCell>
-              <TableCell>
-                {order.status === 'pending' && (
-                  <Button size="sm" variant="destructive" onClick={() => handleCancelOrderClick(order.id)}>
-                    Cancel
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex items-center">
+                    <Filter className="mr-1" size={16} /> Filter
                   </Button>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-          {filteredOrders.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={11} className="text-center py-8 text-slate-500">
-                No orders found.
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
+                  <Button variant="outline" className="flex items-center" onClick={handleExport}>
+                    <Download className="mr-1" size={16} /> Export
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>DATE</TableHead>
+                    <TableHead>ORDER ID</TableHead>
+                    <TableHead>CUSTOMER'S NAME</TableHead>
+                    <TableHead>CONTACT</TableHead>
+                    <TableHead>QUANTITY (LITRES)</TableHead>
+                    <TableHead>STATUS</TableHead>
+                    <TableHead>ACTIONS</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredOrders.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell>{format(new Date(order.created_at), 'yyyy-MM-dd')}</TableCell>
+                      <TableCell>#{order.id}</TableCell>
+                      <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
+                      <TableCell>
+                        <div className="text-sm text-slate-700">{order.user.phone_number}</div>
+                        <div className="text-xs text-slate-500">{order.user.email}</div>
+                      </TableCell>
+                      <TableCell>{formatQuantity(order.quantity)}</TableCell>
+                      <TableCell>
+                        <div className={`px-2 py-1 text-xs font-semibold border rounded ${getStatusClass(order.status)}`}> 
+                          {getStatusIcon(order.status)} {statusDisplayMap[order.status]}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={order.status === 'canceled'}
+                          onClick={() => handleCancelOrderClick(order.id)}
+                        >
+                          Cancel
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
 
-export default OrdersTable;
+export default Orders;
