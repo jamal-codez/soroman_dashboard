@@ -78,6 +78,8 @@ const Orders = () => {
   const [filterType, setFilterType] = useState<'week' | 'month' | 'year' | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 100;
 
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
@@ -113,6 +115,7 @@ const Orders = () => {
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value.toLowerCase());
+    setCurrentPage(1);
   };
 
   const filteredOrders = (apiResponse?.results || [])
@@ -133,8 +136,11 @@ const Orders = () => {
       return true;
     });
 
+  const paginatedOrders = filteredOrders.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
+
   const exportToCSV = () => {
-    if (!apiResponse?.results) return;
+    if (!filteredOrders.length) return;
     const headers = [
       'Date',
       'Order ID',
@@ -226,7 +232,7 @@ const Orders = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredOrders.map((order) => (
+                  {paginatedOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell>{format(new Date(order.created_at), 'dd-MM-yyyy')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
@@ -255,6 +261,19 @@ const Orders = () => {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+
+            <div className="mt-4 flex justify-center space-x-2">
+              {[...Array(totalPages)].map((_, i) => (
+                <Button
+                  key={i + 1}
+                  onClick={() => setCurrentPage(i + 1)}
+                  variant={currentPage === i + 1 ? 'default' : 'outline'}
+                  size="sm"
+                >
+                  {i + 1}
+                </Button>
+              ))}
             </div>
           </div>
         </div>
