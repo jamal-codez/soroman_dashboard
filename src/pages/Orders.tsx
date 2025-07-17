@@ -22,16 +22,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { format, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogClose
-} from '@/components/ui/dialog';
-import { toast } from '@/components/ui/sonner';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface Order {
   id: number;
@@ -103,14 +94,7 @@ const Orders = () => {
 
   const cancelOrderMutation = useMutation({
     mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
-    onSuccess: () => {
-      refetch();
-      toast.success("Order cancelled successfully!");
-    },
-    onError: (err) => {
-      console.error("Failed to cancel order:", err);
-      toast.error("Failed to cancel order. Please try again.");
-    },
+    onSuccess: () => refetch(),
     onSettled: () => {
       setShowCancelModal(false);
       setSelectedOrderId(null);
@@ -123,9 +107,7 @@ const Orders = () => {
   };
 
   const confirmCancelOrder = () => {
-    if (selectedOrderId) {
-      cancelOrderMutation.mutate(selectedOrderId);
-    }
+    if (selectedOrderId) cancelOrderMutation.mutate(selectedOrderId);
   };
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -226,21 +208,6 @@ const Orders = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {isLoading && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8">Loading orders...</TableCell>
-                    </TableRow>
-                  )}
-                  {isError && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-red-500">Error loading orders: {error?.message || 'Unknown error'}</TableCell>
-                    </TableRow>
-                  )}
-                  {!isLoading && !isError && filteredOrders.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-neutral-500">No orders found.</TableCell>
-                    </TableRow>
-                  )}
                   {filteredOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell>{format(new Date(order.created_at), 'yyyy-MM-dd')}</TableCell>
@@ -258,7 +225,7 @@ const Orders = () => {
                         <Button
                           size="sm"
                           variant="destructive"
-                          disabled={order.status === 'canceled' || cancelOrderMutation.isLoading}
+                          disabled={order.status === 'canceled'}
                           onClick={() => handleCancelOrderClick(order.id)}
                         >
                           Cancel
@@ -273,16 +240,19 @@ const Orders = () => {
         </div>
       </div>
 
+      {/* Cancel Confirmation Modal */}
       <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Cancel Order</DialogTitle>
-            <DialogDescription>Are you sure you want to cancel this order?</DialogDescription>
           </DialogHeader>
+          <p>Are you sure you want to cancel this order?</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCancelModal(false)}>No, go back</Button>
+            <Button variant="outline" onClick={() => setShowCancelModal(false)}>
+              No, go back
+            </Button>
             <Button variant="destructive" onClick={confirmCancelOrder} disabled={cancelOrderMutation.isLoading}>
-              {cancelOrderMutation.isLoading ? 'Cancelling...' : 'Yes, cancel order'}
+              Yes, cancel it
             </Button>
           </DialogFooter>
         </DialogContent>
