@@ -34,10 +34,10 @@ const navItems = [
   { title: "Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 2,3] },
   { title: "Finance", icon: Banknote, path: "/finance", allowedRoles: [0, 1, 2] },
   { title: "Location Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 2, 3] },
-  { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
+  // { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
   { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 4] },
   { title: "Release Orders", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1,4] },
-  { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1,2,4] },
+  // { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1,2,4] },
   // { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
   { title: "Payment Verification", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
   { title: "Staff Management", icon: User, path: "/users-management", allowedRoles: [0, 1] }
