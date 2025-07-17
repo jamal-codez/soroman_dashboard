@@ -118,7 +118,7 @@ const Orders = () => {
     if (!apiResponse?.results) return;
     const headers = ['Date', 'Order ID', 'Customer', 'Contact', 'Quantity (Litres)', 'Amount Paid (₦)', 'Status'];
     
-    const rows = filteredOrders.map((order) => [
+    const rows = [...filteredOrders].reverse().map((order) => [
       format(new Date(order.created_at), 'dd-MM-yyyy'),
       `#${order.id}`,
       `${order.user.first_name} ${order.user.last_name}`,
