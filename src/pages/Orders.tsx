@@ -18,8 +18,8 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
-  ChevronLeft, 
-  ChevronRight  
+  ChevronLeft, // Added for pagination
+  ChevronRight  // Added for pagination
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { format, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
