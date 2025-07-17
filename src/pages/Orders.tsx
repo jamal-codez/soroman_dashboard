@@ -41,6 +41,10 @@ interface Order {
   quantity: number;
   release_type: 'pickup' | 'delivery';
   reference: string;
+  location: string;
+  address: string;
+  payment_method: string;
+  note: string;
 }
 
 interface OrderResponse {
@@ -116,8 +120,8 @@ const Orders = () => {
 
   const exportToCSV = () => {
     if (!apiResponse?.results) return;
-    const headers = ['Date', 'Order ID', 'Customer', 'Contact', 'Quantity (Litres)', 'Amount Paid (₦)', 'Status'];
-    
+    const headers = ['Date', 'Order ID', 'Customer', 'Contact', 'Quantity (Litres)', 'Amount Paid (₦)', 'Status', 'Location', 'Address', 'Payment Method', 'Note'];
+
     const rows = [...filteredOrders].reverse().map((order) => [
       format(new Date(order.created_at), 'dd-MM-yyyy'),
       `#${order.id}`,
@@ -125,7 +129,11 @@ const Orders = () => {
       `${order.user.phone_number} / ${order.user.email}`,
       order.quantity.toLocaleString(),
       parseFloat(order.total_price).toLocaleString(),
-      statusDisplayMap[order.status]
+      statusDisplayMap[order.status],
+      order.location,
+      order.address,
+      order.payment_method,
+      order.note
     ]);
 
     const csvContent = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
@@ -207,6 +215,7 @@ const Orders = () => {
                     <TableHead>Quantity (L)</TableHead>
                     <TableHead>Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Location</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -224,6 +233,7 @@ const Orders = () => {
                           {getStatusIcon(order.status)} <span className="ml-1">{statusDisplayMap[order.status]}</span>
                         </span>
                       </TableCell>
+                      <TableCell>{order.location}</TableCell>
                       <TableCell>
                         <Button
                           size="sm"
