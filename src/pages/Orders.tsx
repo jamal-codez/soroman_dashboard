@@ -1,132 +1,173 @@
 import { useState } from 'react';
-import { 
+import { useQuery } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
-  TableRow 
+  TableRow
 } from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-  Search,
-  ClipboardList,
-  Truck,
-  CheckCircle2
-} from 'lucide-react';
-import { SidebarNav } from '@/components/SidebarNav';
-import { TopBar } from '@/components/TopBar';
+import { Download, Filter, Search } from 'lucide-react';
+import { apiClient } from '@/api/client';
+import { format } from 'date-fns';
 
-const orderData = [
-  // Sample order data; you can populate this fully
-  {
-    id: 1,
-    product: 'Automotive Gas Oil (AGO)',
-    quantity: 10000,
-    destination: 'Kano',
-    status: 'Pending',
-    scheduledDate: 'Jul 20, 2025'
-  },
-  {
-    id: 2,
-    product: 'Premium Motor Spirit (PMS)',
-    quantity: 15000,
-    destination: 'Abuja',
-    status: 'In Transit',
-    scheduledDate: 'Jul 22, 2025'
-  },
-  // ... Add as many orders as you want
-];
+const statusDisplayMap = {
+  completed: 'Completed',
+  pending: 'Pending',
+  failed: 'Failed',
+};
 
-export default function Orders() {
-  const [orders, setOrders] = useState(orderData);
+export const OrdersPage = () => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
 
-  const totalPages = Math.ceil(orders.length / itemsPerPage);
+  const { data: apiResponse, isLoading, isError } = useQuery({
+    queryKey: ['all-orders', searchQuery, filterType, currentPage],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        ...(searchQuery && { search: searchQuery }),
+        ...(filterType && { period: filterType }),
+      });
+      const response = await apiClient.admin.getAllAdminOrders(params.toString());
+      return {
+        count: response.count || 0,
+        results: response.results || [],
+        next: response.next,
+        previous: response.previous,
+      };
+    },
+    keepPreviousData: true,
+  });
 
-  const paginatedOrders = orders.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  const exportToCSV = async () => {
+    const params = new URLSearchParams({
+      ...(searchQuery && { search: searchQuery }),
+      ...(filterType && { period: filterType }),
+      all: 'true',
+    });
+
+    const response = await apiClient.admin.getAllAdminOrders(params.toString());
+    const orders = response.results || [];
+
+    const headers = [
+      'Date',
+      'Order ID',
+      'Customer',
+      'Product(s)',
+      'Contact',
+      'Quantity (Litres)',
+      'Amount Paid (₦)',
+      'Status',
+      'State'
+    ];
+
+    const rows = orders.map((order: any) => [
+      format(new Date(order.created_at), 'dd-MM-yyyy'),
+      `#${order.id}`,
+      `${order.user.first_name} ${order.user.last_name}`,
+      order.products.map((p: any) => p.name).join(', '),
+      `${order.user.phone_number} / ${order.user.email}`,
+      order.quantity.toLocaleString(),
+      parseFloat(order.total_price).toLocaleString(),
+      statusDisplayMap[order.status],
+      order.state,
+    ]);
+
+    const csvContent = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
-    <div className="flex h-screen bg-slate-100">
-      <SidebarNav />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar />
-        <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold">Orders Dashboard</h1>
-              <Button>
-                <ClipboardList className="mr-1" size={16} />
-                New Order
-              </Button>
-            </div>
+    <div className="p-6 space-y-6">
+      <div className="flex flex-col md:flex-row items-center gap-4">
+        <Input
+          placeholder="Search orders..."
+          value={searchQuery}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setCurrentPage(1);
+          }}
+          className="w-full md:w-1/3"
+        />
+        <select
+          value={filterType}
+          onChange={(e) => {
+            setFilterType(e.target.value);
+            setCurrentPage(1);
+          }}
+          className="border px-4 py-2 rounded"
+        >
+          <option value="">All Time</option>
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+          <option value="year">This Year</option>
+        </select>
+        <Button onClick={exportToCSV} className="ml-auto">
+          <Download className="mr-2 h-4 w-4" /> Export
+        </Button>
+      </div>
 
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Quantity (Liters)</TableHead>
-                    <TableHead>Destination</TableHead>
-                    <TableHead>Scheduled Date</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedOrders.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{item.product}</TableCell>
-                      <TableCell>{item.quantity.toLocaleString()}</TableCell>
-                      <TableCell>{item.destination}</TableCell>
-                      <TableCell>{item.scheduledDate}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            item.status === 'Released'
-                              ? 'success'
-                              : item.status === 'In Transit'
-                              ? 'warning'
-                              : 'default'
-                          }
-                        >
-                          {item.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+      <div className="border rounded-lg overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Order ID</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Products</TableHead>
+              <TableHead>Contact</TableHead>
+              <TableHead>Quantity</TableHead>
+              <TableHead>Amount Paid</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>State</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {apiResponse?.results.map((order: any) => (
+              <TableRow key={order.id}>
+                <TableCell>{format(new Date(order.created_at), 'dd-MM-yyyy')}</TableCell>
+                <TableCell>#{order.id}</TableCell>
+                <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
+                <TableCell>{order.products.map((p: any) => p.name).join(', ')}</TableCell>
+                <TableCell>{order.user.phone_number} / {order.user.email}</TableCell>
+                <TableCell>{order.quantity.toLocaleString()}</TableCell>
+                <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
+                <TableCell>{statusDisplayMap[order.status]}</TableCell>
+                <TableCell>{order.state}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
 
-              {/* Pagination Controls */}
-              <div className="flex items-center justify-between p-4 border-t">
-                <Button
-                  variant="outline"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage((prev) => prev - 1)}
-                >
-                  Previous
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Page {currentPage} of {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage((prev) => prev + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="flex justify-between items-center pt-4">
+        <Button
+          variant="outline"
+          onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+          disabled={!apiResponse?.previous}
+        >
+          Previous
+        </Button>
+        <span>Page {currentPage}</span>
+        <Button
+          variant="outline"
+          onClick={() => setCurrentPage((prev) => prev + 1)}
+          disabled={!apiResponse?.next}
+        >
+          Next
+        </Button>
       </div>
     </div>
   );
-}
+};
