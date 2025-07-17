@@ -17,13 +17,15 @@ import {
   Search,
   CheckCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft, 
+  ChevronRight  
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { format } from 'date-fns'; // date-fns filtering will now be handled by backend
+import { format, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-// Define the Order interface, now including next and previous for pagination links
+// Define the Order interface
 interface Order {
   id: number;
   user: {
@@ -44,22 +46,103 @@ interface Order {
   state: string;
 }
 
-// Update OrderResponse to match Django REST Framework's default pagination structure
+// Define the OrderResponse interface for paginated results
 interface OrderResponse {
-  count: number;
-  next: string | null; // URL to the next page, or null if last page
-  previous: string | null; // URL to the previous page, or null if first page
-  results: Order[];
+  count: number; // Total count of orders (for pagination)
+  results: Order[]; // Orders for the current page
+  next: string | null; // URL for the next page
+  previous: string | null; // URL for the previous page
 }
 
-// Mapping for order status display
+// Define parameters for the API call to get all orders
+interface GetAllOrdersParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  filter?: 'week' | 'month' | 'year' | null;
+}
+
+// Mock apiClient. This should be replaced with your actual apiClient implementation
+// Ensure your actual apiClient.admin.getAllAdminOrders can accept the parameters
+// { page, pageSize, search, filter } and return data in the OrderResponse format.
+// Also, ensure apiClient.admin.cancleOrder accepts an orderId.
+const mockApiClient = {
+  admin: {
+    getAllAdminOrders: async (params: GetAllOrdersParams): Promise<OrderResponse> => {
+      console.log('Fetching orders with params:', params);
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Mock data (replace with actual API call)
+      const allMockOrders: Order[] = Array.from({ length: 100 }, (_, i) => ({
+        id: i + 1,
+        user: {
+          first_name: `John${i % 10}`,
+          last_name: `Doe${i % 5}`,
+          email: `john.doe${i}@example.com`,
+          phone_number: `123-456-789${i % 10}`,
+        },
+        total_price: (1000 + i * 10).toFixed(2),
+        status: ['paid', 'pending', 'canceled'][i % 3] as 'pending' | 'paid' | 'canceled',
+        created_at: new Date(Date.now() - i * 86400000).toISOString(), // Orders from recent to older
+        products: [{ name: `Product A${i % 2}` }, { name: `Product B${i % 3}` }],
+        quantity: 10 + i % 5,
+        release_type: ['pickup', 'delivery'][i % 2] as 'pickup' | 'delivery',
+        reference: `REF-${1000 + i}`,
+        state: `State ${i % 5}`,
+      }));
+
+      // Apply client-side filtering for mock data (your backend should do this)
+      let filteredMockOrders = allMockOrders.filter(order => {
+        const query = (params.search || '').toLowerCase();
+        const matchesSearch = (
+          order.id.toString().includes(query) ||
+          `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(query) ||
+          order.products.some(product => product.name.toLowerCase().includes(query))
+        );
+
+        if (!params.filter) return matchesSearch;
+        const date = new Date(order.created_at);
+        if (params.filter === 'week') return matchesSearch && isThisWeek(date);
+        if (params.filter === 'month') return matchesSearch && isThisMonth(date);
+        if (params.filter === 'year') return matchesSearch && isThisYear(date);
+        return matchesSearch;
+      });
+
+      // Apply client-side pagination for mock data (your backend should do this)
+      const page = params.page || 1;
+      const pageSize = params.pageSize || 10;
+      const startIndex = (page - 1) * pageSize;
+      const endIndex = startIndex + pageSize;
+      const paginatedResults = filteredMockOrders.slice(startIndex, endIndex);
+
+      return {
+        count: filteredMockOrders.length,
+        results: paginatedResults,
+        next: endIndex < filteredMockOrders.length ? `/api/orders?page=${page + 1}` : null,
+        previous: startIndex > 0 ? `/api/orders?page=${page - 1}` : null,
+      };
+    },
+    cancleOrder: async (orderId: number) => {
+      console.log(`Cancelling order: ${orderId}`);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      // In a real app, you'd send a request to your backend to update the order status
+      return { success: true };
+    }
+  }
+};
+
+// Use the mockApiClient for demonstration purposes.
+// In your actual application, replace `mockApiClient` with `apiClient`.
+const actualApiClient = typeof apiClient !== 'undefined' ? apiClient : mockApiClient;
+
+
 const statusDisplayMap = {
   pending: 'Pending',
   paid: 'Paid',
   canceled: 'Canceled',
 };
 
-// Function to get status icon based on order status
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
     case 'paid': return <CheckCircle className="text-green-500" size={16} />;
@@ -69,7 +152,6 @@ const getStatusIcon = (status: Order['status']) => {
   }
 };
 
-// Function to get CSS class for status badge
 const getStatusClass = (status: string) => {
   switch (status) {
     case 'paid': return 'bg-green-50 text-green-700 border-green-200';
@@ -80,47 +162,27 @@ const getStatusClass = (status: string) => {
 };
 
 const Orders = () => {
-  // State for search query
   const [searchQuery, setSearchQuery] = useState('');
-  // State for filter type (week, month, year, or null for all time)
   const [filterType, setFilterType] = useState<'week' | 'month' | 'year' | null>(null);
-  // State for cancel order modal visibility
   const [showCancelModal, setShowCancelModal] = useState(false);
-  // State to store the ID of the order selected for cancellation
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  // State for current page number, initialized to 1
+
+  // Pagination states
   const [page, setPage] = useState(1);
-  // Desired page size for the API requests
-  const pageSize = 100; // As requested, 100 orders per page
+  const pageSize = 10; // Number of orders per page
 
-  // useQuery hook to fetch orders with pagination, search, and filter parameters
+  // Fetch orders with pagination, search, and filter parameters
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
-    // queryKey includes all dependencies that should trigger a re-fetch
-    queryKey: ['all-orders', page, filterType, searchQuery],
+    queryKey: ['all-orders', page, searchQuery, filterType], // Key includes pagination and filter states
     queryFn: async () => {
-      // Construct URLSearchParams to send pagination, filter, and search parameters to the backend
-      const params = new URLSearchParams();
-      params.append('page', String(page));
-      params.append('page_size', String(pageSize)); // Request 100 items per page
-
-      // Append filter type if selected
-      if (filterType) {
-        params.append('filter', filterType);
-      }
-      // Append search query if present (assuming backend handles search)
-      if (searchQuery) {
-        params.append('search', searchQuery);
-      }
-
-      // Make the API call using apiClient.admin.getAllAdminOrders
-      // This assumes apiClient.admin.getAllAdminOrders can accept a query string
-      // Example: apiClient.admin.getAllAdminOrders(`/api/orders/?page=1&page_size=100&filter=week`)
-      const response = await apiClient.admin.getAllAdminOrders(`?${params.toString()}`);
-      
-      // Basic validation for the response structure
+      // Pass pagination, search, and filter parameters to the API client
+      const response = await actualApiClient.admin.getAllAdminOrders({
+        page,
+        pageSize,
+        search: searchQuery,
+        filter: filterType,
+      });
       if (!response.results) throw new Error('Invalid response format');
-      
-      // Return the full response including count, next, previous, and results
       return {
         count: response.count || 0,
         results: response.results || [],
@@ -128,110 +190,119 @@ const Orders = () => {
         previous: response.previous || null,
       };
     },
-    retry: 2, // Retry failed queries twice
-    refetchOnWindowFocus: false, // Do not refetch automatically on window focus
-    keepPreviousData: true, // Keep the old data visible while new data is loading
+    retry: 2,
+    refetchOnWindowFocus: false,
+    keepPreviousData: true, // Keep previous data while fetching new page
   });
 
-  // Mutation hook for canceling an order
+  // Mutation for cancelling an order
   const cancelOrderMutation = useMutation({
-    mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
+    mutationFn: (orderId: number) => actualApiClient.admin.cancleOrder(orderId),
     onSuccess: () => refetch(), // Refetch orders after successful cancellation
     onSettled: () => {
-      // Close modal and clear selected order ID after mutation settles (success or error)
       setShowCancelModal(false);
       setSelectedOrderId(null);
     }
   });
 
-  // Handler for clicking the cancel order button
+  // Mutation for exporting all filtered orders
+  const exportOrdersMutation = useMutation({
+    mutationFn: async ({ search, filter }: { search: string; filter: 'week' | 'month' | 'year' | null }) => {
+      // This call should fetch ALL orders matching the filter, without pagination.
+      // We use a very large pageSize to simulate fetching all records.
+      const response = await actualApiClient.admin.getAllAdminOrders({
+        search,
+        filter,
+        pageSize: 999999, // Request a very large page size to get all records
+        page: 1, // Ensure we start from page 1 for export
+      });
+      if (!response.results) throw new Error('Invalid response format for export');
+      return response.results;
+    },
+    onSuccess: (allFilteredOrders) => {
+      // Generate CSV from all fetched filtered orders
+      const headers = [
+        'Date',
+        'Order ID',
+        'Customer',
+        'Product(s)',
+        'Contact',
+        'Quantity (Litres)',
+        'Amount Paid (₦)',
+        'Status',
+        'State'
+      ];
+
+      // Reverse the orders to show the latest first in the CSV, consistent with display
+      const rows = [...allFilteredOrders].reverse().map((order) => [
+        format(new Date(order.created_at), 'dd-MM-yyyy'),
+        `#${order.id}`,
+        `${order.user.first_name} ${order.user.last_name}`,
+        order.products.map(p => p.name).join(', '),
+        `${order.user.phone_number} / ${order.user.email}`,
+        order.quantity.toLocaleString(),
+        parseFloat(order.total_price).toLocaleString(),
+        statusDisplayMap[order.status],
+        order.state
+      ]);
+
+      const csvContent = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    },
+    onError: (exportError) => {
+      console.error('Error exporting orders:', exportError);
+      // You might want to show a toast or alert to the user here
+    }
+  });
+
   const handleCancelOrderClick = (orderId: number) => {
     setSelectedOrderId(orderId);
     setShowCancelModal(true);
   };
 
-  // Handler for confirming order cancellation in the modal
   const confirmCancelOrder = () => {
     if (selectedOrderId) cancelOrderMutation.mutate(selectedOrderId);
   };
 
-  // Handler for search input changes
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value); // Set search query
-    setPage(1); // Reset to the first page when search query changes
+    setSearchQuery(e.target.value); // Update search query
+    setPage(1); // Reset to first page on search
   };
 
-  // Function to handle filter type changes
   const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setFilterType(e.target.value as 'week' | 'month' | 'year' | null); // Set filter type
-    setPage(1); // Reset to the first page when filter changes
+    setFilterType(e.target.value as 'week' | 'month' | 'year' | null); // Update filter type
+    setPage(1); // Reset to first page on filter change
   };
 
-  // Function to export all filtered orders to CSV
-  const exportToCSV = async () => {
-    // Construct URLSearchParams to send filter and search parameters to the backend
-    // This call should go to an *unpaginated* endpoint on your Django backend
-    const params = new URLSearchParams();
-    if (filterType) {
-      params.append('filter', filterType);
-    }
-    if (searchQuery) {
-      params.append('search', searchQuery);
+  const ordersToDisplay = apiResponse?.results || [];
+  const totalOrdersCount = apiResponse?.count || 0;
+  const totalPages = Math.ceil(totalOrdersCount / pageSize);
+
+  // Function to generate page numbers for pagination control
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxPagesToShow = 5; // Max number of page buttons to display
+    let startPage = Math.max(1, page - Math.floor(maxPagesToShow / 2));
+    let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+
+    if (endPage - startPage + 1 < maxPagesToShow) {
+      startPage = Math.max(1, endPage - maxPagesToShow + 1);
     }
 
-    try {
-      // Make a fetch request to the dedicated CSV export endpoint
-      // Ensure your backend has an endpoint like /api/admin/orders/export-csv/
-      // that handles these filters and returns all matching data without pagination.
-      const response = await fetch(`/api/admin/orders/export-csv/?${params.toString()}`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      // Get the response as a Blob (binary large object)
-      const blob = await response.blob();
-      
-      // Create a temporary URL for the blob
-      const url = window.URL.createObjectURL(blob);
-      
-      // Create a link element to trigger the download
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`); // Set download filename
-      
-      // Append link to body, click it, and then remove it
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Revoke the object URL to free up memory
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Error exporting orders:', error);
-      // You might want to display a user-friendly error message here
-      // e.g., using a toast notification or an in-app message.
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
     }
-  };
-
-  // Handler for navigating to the next page
-  const handleNextPage = () => {
-    // Only navigate if there's a 'next' URL from the API response
-    if (apiResponse?.next) {
-      setPage(prevPage => prevPage + 1);
-    }
-  };
-
-  // Handler for navigating to the previous page
-  const handlePreviousPage = () => {
-    // Only navigate if there's a 'previous' URL from the API response and current page is not 1
-    if (apiResponse?.previous && page > 1) {
-      setPage(prevPage => prevPage - 1);
-    }
+    return pages;
   };
 
   return (
-    <div className="flex h-screen bg-slate-100">
+    <div className="flex h-screen bg-slate-100 font-inter"> {/* Added font-inter */}
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
@@ -240,8 +311,25 @@ const Orders = () => {
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl font-bold text-slate-800">All Orders</h1>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={exportToCSV}>
-                  <Download className="mr-1" size={16} /> Export CSV
+                <Button
+                  variant="outline"
+                  onClick={() => exportOrdersMutation.mutate({ search: searchQuery, filter: filterType })}
+                  disabled={exportOrdersMutation.isLoading}
+                  className="rounded-md shadow-sm" // Added rounded corners and shadow
+                >
+                  {exportOrdersMutation.isLoading ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Exporting...
+                    </span>
+                  ) : (
+                    <>
+                      <Download className="mr-1" size={16} /> Export
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
@@ -253,15 +341,15 @@ const Orders = () => {
                   <Input
                     type="text"
                     placeholder="Search orders..."
-                    className="pl-10"
+                    className="pl-10 rounded-md" // Added rounded corners
                     value={searchQuery}
                     onChange={handleSearch}
                   />
                 </div>
                 <select
-                  className="border border-gray-300 rounded px-3 py-2"
+                  className="border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500" // Added rounded corners and focus styles
                   onChange={handleFilterChange}
-                  value={filterType || ""} // Controlled component for the select input
+                  value={filterType || ''}
                 >
                   <option value="">All Time</option>
                   <option value="week">This Week</option>
@@ -290,18 +378,30 @@ const Orders = () => {
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-4">Loading orders...</TableCell>
+                      <TableCell colSpan={10} className="text-center py-8">
+                        <div className="flex items-center justify-center">
+                          <svg className="animate-spin h-5 w-5 mr-3 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Loading orders...
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ) : isError ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-4 text-red-500">Error loading orders: {error?.message}</TableCell>
+                      <TableCell colSpan={10} className="text-center py-8 text-red-500">
+                        Error: {error?.message || 'Failed to fetch orders.'}
+                      </TableCell>
                     </TableRow>
-                  ) : apiResponse?.results.length === 0 ? (
+                  ) : ordersToDisplay.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-4">No orders found.</TableCell>
+                      <TableCell colSpan={10} className="text-center py-8 text-slate-500">
+                        No orders found.
+                      </TableCell>
                     </TableRow>
                   ) : (
-                    apiResponse?.results.map((order) => (
+                    ordersToDisplay.map((order) => (
                       <TableRow key={order.id}>
                         <TableCell>{format(new Date(order.created_at), 'dd-MM-yyyy')}</TableCell>
                         <TableCell>#{order.id}</TableCell>
@@ -311,7 +411,7 @@ const Orders = () => {
                         <TableCell>{order.quantity.toLocaleString()}</TableCell>
                         <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
                         <TableCell>
-                          <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded ${getStatusClass(order.status)}`}>
+                          <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded-full ${getStatusClass(order.status)}`}> {/* Added rounded-full */}
                             {getStatusIcon(order.status)} <span className="ml-1">{statusDisplayMap[order.status]}</span>
                           </span>
                         </TableCell>
@@ -320,8 +420,9 @@ const Orders = () => {
                           <Button
                             size="sm"
                             variant="destructive"
-                            disabled={order.status === 'canceled'}
+                            disabled={order.status === 'canceled' || cancelOrderMutation.isLoading}
                             onClick={() => handleCancelOrderClick(order.id)}
+                            className="rounded-md" // Added rounded corners
                           >
                             Cancel
                           </Button>
@@ -331,17 +432,44 @@ const Orders = () => {
                   )}
                 </TableBody>
               </Table>
-            </div>
 
-            {/* Pagination Controls */}
-            <div className="flex justify-between items-center mt-4">
-              <Button onClick={handlePreviousPage} disabled={!apiResponse?.previous || isLoading}>
-                Previous
-              </Button>
-              <span>Page {page} of {Math.ceil((apiResponse?.count || 0) / pageSize)}</span>
-              <Button onClick={handleNextPage} disabled={!apiResponse?.next || isLoading}>
-                Next
-              </Button>
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex justify-between items-center p-4 border-t border-slate-200">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                    disabled={page === 1 || isLoading}
+                    className="rounded-md" // Added rounded corners
+                  >
+                    <ChevronLeft className="mr-1" size={16} /> Previous
+                  </Button>
+                  <div className="flex gap-1">
+                    {getPageNumbers().map((pageNumber) => (
+                      <Button
+                        key={pageNumber}
+                        variant={pageNumber === page ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setPage(pageNumber)}
+                        disabled={isLoading}
+                        className="rounded-md" // Added rounded corners
+                      >
+                        {pageNumber}
+                      </Button>
+                    ))}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={page === totalPages || isLoading}
+                    className="rounded-md" // Added rounded corners
+                  >
+                    Next <ChevronRight className="ml-1" size={16} />
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -349,17 +477,36 @@ const Orders = () => {
 
       {/* Cancel Order Confirmation Dialog */}
       <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[425px] rounded-lg"> {/* Added rounded corners */}
           <DialogHeader>
-            <DialogTitle>Cancel Order</DialogTitle>
+            <DialogTitle className="text-xl font-semibold text-slate-800">Cancel Order</DialogTitle>
           </DialogHeader>
-          <p>Are you sure you want to cancel this order?</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCancelModal(false)}>
+          <p className="text-slate-700">Are you sure you want to cancel this order?</p>
+          <DialogFooter className="flex justify-end gap-2 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowCancelModal(false)}
+              className="rounded-md" // Added rounded corners
+            >
               No, go back
             </Button>
-            <Button variant="destructive" onClick={confirmCancelOrder} disabled={cancelOrderMutation.isLoading}>
-              Yes, cancel it
+            <Button
+              variant="destructive"
+              onClick={confirmCancelOrder}
+              disabled={cancelOrderMutation.isLoading}
+              className="rounded-md" // Added rounded corners
+            >
+              {cancelOrderMutation.isLoading ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Cancelling...
+                </span>
+              ) : (
+                'Yes, cancel it'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
