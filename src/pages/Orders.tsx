@@ -41,10 +41,7 @@ interface Order {
   quantity: number;
   release_type: 'pickup' | 'delivery';
   reference: string;
-  location: string;
-  address: string;
-  payment_method: string;
-  note: string;
+  states: string;
 }
 
 interface OrderResponse {
@@ -130,10 +127,7 @@ const Orders = () => {
       order.quantity.toLocaleString(),
       parseFloat(order.total_price).toLocaleString(),
       statusDisplayMap[order.status],
-      order.location,
-      order.address,
-      order.payment_method,
-      order.note
+      order.states,
     ]);
 
     const csvContent = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
@@ -172,7 +166,7 @@ const Orders = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Orders Dashboard</h1>
+              <h1 className="text-2xl font-bold text-slate-800">All Orders</h1>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={exportToCSV}>
                   <Download className="mr-1" size={16} /> Export
@@ -233,7 +227,7 @@ const Orders = () => {
                           {getStatusIcon(order.status)} <span className="ml-1">{statusDisplayMap[order.status]}</span>
                         </span>
                       </TableCell>
-                      <TableCell>{order.location}</TableCell>
+                      <TableCell>{order.states}</TableCell>
                       <TableCell>
                         <Button
                           size="sm"
