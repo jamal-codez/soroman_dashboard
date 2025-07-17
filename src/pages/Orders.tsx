@@ -28,10 +28,10 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter, // Added DialogFooter import
+  DialogFooter,
   DialogClose
 } from '@/components/ui/dialog';
-import { toast } from '@/components/ui/sonner'; // Assuming toast is used for notifications
+import { toast } from '@/components/ui/sonner';
 
 interface Order {
   id: number;
@@ -105,11 +105,11 @@ const Orders = () => {
     mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
     onSuccess: () => {
       refetch();
-      toast.success("Order cancelled successfully!"); // Success notification
+      toast.success("Order cancelled successfully!");
     },
     onError: (err) => {
       console.error("Failed to cancel order:", err);
-      toast.error("Failed to cancel order. Please try again."); // Error notification
+      toast.error("Failed to cancel order. Please try again.");
     },
     onSettled: () => {
       setShowCancelModal(false);
@@ -220,6 +220,7 @@ const Orders = () => {
                     <TableHead>Customer</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>Quantity (L)</TableHead>
+                    <TableHead>Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -227,17 +228,17 @@ const Orders = () => {
                 <TableBody>
                   {isLoading && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8">Loading orders...</TableCell>
+                      <TableCell colSpan={8} className="text-center py-8">Loading orders...</TableCell>
                     </TableRow>
                   )}
                   {isError && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-red-500">Error loading orders: {error?.message || 'Unknown error'}</TableCell>
+                      <TableCell colSpan={8} className="text-center py-8 text-red-500">Error loading orders: {error?.message || 'Unknown error'}</TableCell>
                     </TableRow>
                   )}
                   {!isLoading && !isError && filteredOrders.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-neutral-500">No orders found.</TableCell>
+                      <TableCell colSpan={8} className="text-center py-8 text-neutral-500">No orders found.</TableCell>
                     </TableRow>
                   )}
                   {filteredOrders.map((order) => (
@@ -247,6 +248,7 @@ const Orders = () => {
                       <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
                       <TableCell>{order.user.phone_number} / {order.user.email}</TableCell>
                       <TableCell>{order.quantity.toLocaleString()}</TableCell>
+                      <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded ${getStatusClass(order.status)}`}>
                           {getStatusIcon(order.status)} <span className="ml-1">{statusDisplayMap[order.status]}</span>
@@ -271,28 +273,16 @@ const Orders = () => {
         </div>
       </div>
 
-      {/* Confirmation Modal for Order Cancellation */}
       <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm Cancellation</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to cancel Order ID #{selectedOrderId}? This action cannot be undone.
-            </DialogDescription>
+            <DialogTitle>Cancel Order</DialogTitle>
+            <DialogDescription>Are you sure you want to cancel this order?</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                No, Keep Order
-              </Button>
-            </DialogClose>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={confirmCancelOrder}
-              disabled={cancelOrderMutation.isLoading}
-            >
-              {cancelOrderMutation.isLoading ? 'Cancelling...' : 'Yes, Cancel Order'}
+            <Button variant="outline" onClick={() => setShowCancelModal(false)}>No, go back</Button>
+            <Button variant="destructive" onClick={confirmCancelOrder} disabled={cancelOrderMutation.isLoading}>
+              {cancelOrderMutation.isLoading ? 'Cancelling...' : 'Yes, cancel order'}
             </Button>
           </DialogFooter>
         </DialogContent>
