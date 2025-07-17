@@ -116,15 +116,18 @@ const Orders = () => {
 
   const exportToCSV = () => {
     if (!apiResponse?.results) return;
-    const headers = ['Date', 'Order ID', 'Customer', 'Contact', 'Quantity (Litres)', 'Status'];
+    const headers = ['Date', 'Order ID', 'Customer', 'Contact', 'Quantity (Litres)', 'Amount Paid (₦)', 'Status'];
+    
     const rows = filteredOrders.map((order) => [
-      format(new Date(order.created_at), 'yyyy-MM-dd'),
+      format(new Date(order.created_at), 'dd-MM-yyyy'),
       `#${order.id}`,
       `${order.user.first_name} ${order.user.last_name}`,
       `${order.user.phone_number} / ${order.user.email}`,
       order.quantity.toLocaleString(),
+      parseFloat(order.total_price).toLocaleString(),
       statusDisplayMap[order.status]
     ]);
+
     const csvContent = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -210,7 +213,7 @@ const Orders = () => {
                 <TableBody>
                   {filteredOrders.map((order) => (
                     <TableRow key={order.id}>
-                      <TableCell>{format(new Date(order.created_at), 'yyyy-MM-dd')}</TableCell>
+                      <TableCell>{format(new Date(order.created_at), 'dd-MM-yyyy')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
                       <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
                       <TableCell>{order.user.phone_number} / {order.user.email}</TableCell>
@@ -240,7 +243,6 @@ const Orders = () => {
         </div>
       </div>
 
-      {/* Cancel Confirmation Modal */}
       <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
         <DialogContent>
           <DialogHeader>
