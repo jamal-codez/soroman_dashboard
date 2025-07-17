@@ -94,7 +94,7 @@ const Orders = () => {
   });
 
   const cancelOrderMutation = useMutation({
-    mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
+    mutationFn: (orderId: number) => apiClient.admin.cancelOrder(orderId), // fixed typo here
     onSuccess: () => refetch(),
     onSettled: () => {
       setShowCancelModal(false);
@@ -149,21 +149,24 @@ const Orders = () => {
 
     const rows = [...filteredOrders].reverse().map((order) => [
       format(new Date(order.created_at), 'dd-MM-yyyy'),
-      #${order.id},
-      ${order.user.first_name} ${order.user.last_name},
+      `#${order.id}`,
+      `${order.user.first_name} ${order.user.last_name}`,
       order.products.map(p => p.name).join(', '),
-      ${order.user.phone_number} / ${order.user.email},
+      `${order.user.phone_number} / ${order.user.email}`,
       order.quantity.toLocaleString(),
       parseFloat(order.total_price).toLocaleString(),
       statusDisplayMap[order.status],
       order.state
     ]);
 
-    const csvContent = [headers, ...rows].map(row => row.map(field => "${field}").join(',')).join('\n');
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(field => `"${field}"`).join(','))
+      .join('\n');
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.setAttribute('download', orders_export_${new Date().toISOString()}.csv);
+    link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -236,7 +239,7 @@ const Orders = () => {
                       <TableCell>{order.quantity.toLocaleString()}</TableCell>
                       <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
                       <TableCell>
-                        <span className={inline-flex items-center px-2 py-1 text-sm font-medium border rounded ${getStatusClass(order.status)}}>
+                        <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded ${getStatusClass(order.status)}`}>
                           {getStatusIcon(order.status)} <span className="ml-1">{statusDisplayMap[order.status]}</span>
                         </span>
                       </TableCell>
