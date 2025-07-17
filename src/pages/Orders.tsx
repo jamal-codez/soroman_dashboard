@@ -14,16 +14,16 @@ import {
 } from '@/components/ui/table';
 import {
   Download,
-  Filter,
   Search,
   CheckCircle,
   Clock,
   AlertCircle
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { format, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
+import { format } from 'date-fns'; // date-fns filtering will now be handled by backend
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
+// Define the Order interface, now including next and previous for pagination links
 interface Order {
   id: number;
   user: {
@@ -44,19 +44,22 @@ interface Order {
   state: string;
 }
 
+// Update OrderResponse to match Django REST Framework's default pagination structure
 interface OrderResponse {
   count: number;
+  next: string | null; // URL to the next page, or null if last page
+  previous: string | null; // URL to the previous page, or null if first page
   results: Order[];
-  next: string | null; // Add next for pagination
-  previous: string | null; // Add previous for pagination
 }
 
+// Mapping for order status display
 const statusDisplayMap = {
   pending: 'Pending',
   paid: 'Paid',
   canceled: 'Canceled',
 };
 
+// Function to get status icon based on order status
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
     case 'paid': return <CheckCircle className="text-green-500" size={16} />;
@@ -66,6 +69,7 @@ const getStatusIcon = (status: Order['status']) => {
   }
 };
 
+// Function to get CSS class for status badge
 const getStatusClass = (status: string) => {
   switch (status) {
     case 'paid': return 'bg-green-50 text-green-700 border-green-200';
@@ -76,35 +80,47 @@ const getStatusClass = (status: string) => {
 };
 
 const Orders = () => {
+  // State for search query
   const [searchQuery, setSearchQuery] = useState('');
+  // State for filter type (week, month, year, or null for all time)
   const [filterType, setFilterType] = useState<'week' | 'month' | 'year' | null>(null);
+  // State for cancel order modal visibility
   const [showCancelModal, setShowCancelModal] = useState(false);
+  // State to store the ID of the order selected for cancellation
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  const [page, setPage] = useState(1); // State for current page
-  const pageSize = 100; // Define desired page size
+  // State for current page number, initialized to 1
+  const [page, setPage] = useState(1);
+  // Desired page size for the API requests
+  const pageSize = 100; // As requested, 100 orders per page
 
-  // Modify useQuery to include pagination parameters
+  // useQuery hook to fetch orders with pagination, search, and filter parameters
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
-    queryKey: ['all-orders', page, filterType, searchQuery], // Add page, filterType, searchQuery to queryKey for re-fetching
+    // queryKey includes all dependencies that should trigger a re-fetch
+    queryKey: ['all-orders', page, filterType, searchQuery],
     queryFn: async () => {
-      // Build query parameters for pagination and filtering
+      // Construct URLSearchParams to send pagination, filter, and search parameters to the backend
       const params = new URLSearchParams();
       params.append('page', String(page));
-      params.append('page_size', String(pageSize)); // Request desired page size
+      params.append('page_size', String(pageSize)); // Request 100 items per page
 
-      // Add filter type to parameters for backend
+      // Append filter type if selected
       if (filterType) {
         params.append('filter', filterType);
       }
-      // Consider adding search query as a parameter if your backend handles it
-      // if (searchQuery) {
-      //   params.append('search', searchQuery);
-      // }
+      // Append search query if present (assuming backend handles search)
+      if (searchQuery) {
+        params.append('search', searchQuery);
+      }
 
-      // Assuming your apiClient can handle query parameters
-      // You might need to adjust apiClient.admin.getAllAdminOrders to accept params
+      // Make the API call using apiClient.admin.getAllAdminOrders
+      // This assumes apiClient.admin.getAllAdminOrders can accept a query string
+      // Example: apiClient.admin.getAllAdminOrders(`/api/orders/?page=1&page_size=100&filter=week`)
       const response = await apiClient.admin.getAllAdminOrders(`?${params.toString()}`);
+      
+      // Basic validation for the response structure
       if (!response.results) throw new Error('Invalid response format');
+      
+      // Return the full response including count, next, previous, and results
       return {
         count: response.count || 0,
         results: response.results || [],
@@ -112,90 +128,103 @@ const Orders = () => {
         previous: response.previous || null,
       };
     },
-    retry: 2,
-    refetchOnWindowFocus: false,
-    // Keep data fresh for a longer period if data doesn't change often
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    keepPreviousData: true, // Keep old data while new data is fetching
+    retry: 2, // Retry failed queries twice
+    refetchOnWindowFocus: false, // Do not refetch automatically on window focus
+    keepPreviousData: true, // Keep the old data visible while new data is loading
   });
 
+  // Mutation hook for canceling an order
   const cancelOrderMutation = useMutation({
     mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
-    onSuccess: () => refetch(),
+    onSuccess: () => refetch(), // Refetch orders after successful cancellation
     onSettled: () => {
+      // Close modal and clear selected order ID after mutation settles (success or error)
       setShowCancelModal(false);
       setSelectedOrderId(null);
     }
   });
 
+  // Handler for clicking the cancel order button
   const handleCancelOrderClick = (orderId: number) => {
     setSelectedOrderId(orderId);
     setShowCancelModal(true);
   };
 
+  // Handler for confirming order cancellation in the modal
   const confirmCancelOrder = () => {
     if (selectedOrderId) cancelOrderMutation.mutate(selectedOrderId);
   };
 
+  // Handler for search input changes
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value.toLowerCase());
-    setPage(1); // Reset to first page on new search
+    setSearchQuery(e.target.value); // Set search query
+    setPage(1); // Reset to the first page when search query changes
   };
 
-  // Frontend filtering for search (if backend doesn't handle it)
-  // Or, if backend handles search, remove this filter and rely on API data
-  const displayedOrders = (apiResponse?.results || [])
-    .filter(order => {
-      const query = searchQuery.toLowerCase();
-      return (
-        order.id.toString().includes(query) ||
-        `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(query) ||
-        order.products.some(product => product.name.toLowerCase().includes(query))
-      );
-    });
+  // Function to handle filter type changes
+  const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setFilterType(e.target.value as 'week' | 'month' | 'year' | null); // Set filter type
+    setPage(1); // Reset to the first page when filter changes
+  };
 
-  // Export to CSV function now fetches ALL data based on current filters
+  // Function to export all filtered orders to CSV
   const exportToCSV = async () => {
-    // This will hit the new Django export endpoint
+    // Construct URLSearchParams to send filter and search parameters to the backend
+    // This call should go to an *unpaginated* endpoint on your Django backend
     const params = new URLSearchParams();
     if (filterType) {
       params.append('filter', filterType);
     }
-    // If your backend export endpoint also supports search
-    // if (searchQuery) {
-    //   params.append('search', searchQuery);
-    // }
+    if (searchQuery) {
+      params.append('search', searchQuery);
+    }
 
-    // Assuming apiClient.admin.exportAllAdminOrders exists and hits the new Django export endpoint
-    // It should be a direct download, so fetch as blob or raw response
     try {
-      // You might need a new API client method for this if the export endpoint
-      // returns a raw CSV file directly
+      // Make a fetch request to the dedicated CSV export endpoint
+      // Ensure your backend has an endpoint like /api/admin/orders/export-csv/
+      // that handles these filters and returns all matching data without pagination.
       const response = await fetch(`/api/admin/orders/export-csv/?${params.toString()}`);
+      
       if (!response.ok) {
-        throw new Error('Failed to export orders');
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+
+      // Get the response as a Blob (binary large object)
       const blob = await response.blob();
+      
+      // Create a temporary URL for the blob
+      const url = window.URL.createObjectURL(blob);
+      
+      // Create a link element to trigger the download
       const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`);
+      link.href = url;
+      link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`); // Set download filename
+      
+      // Append link to body, click it, and then remove it
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      
+      // Revoke the object URL to free up memory
+      window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error exporting orders:', error);
-      // Handle error, e.g., show a toast notification
+      // You might want to display a user-friendly error message here
+      // e.g., using a toast notification or an in-app message.
     }
   };
 
-  // Pagination controls
+  // Handler for navigating to the next page
   const handleNextPage = () => {
+    // Only navigate if there's a 'next' URL from the API response
     if (apiResponse?.next) {
       setPage(prevPage => prevPage + 1);
     }
   };
 
+  // Handler for navigating to the previous page
   const handlePreviousPage = () => {
+    // Only navigate if there's a 'previous' URL from the API response and current page is not 1
     if (apiResponse?.previous && page > 1) {
       setPage(prevPage => prevPage - 1);
     }
@@ -231,11 +260,8 @@ const Orders = () => {
                 </div>
                 <select
                   className="border border-gray-300 rounded px-3 py-2"
-                  onChange={(e) => {
-                    setFilterType(e.target.value as 'week' | 'month' | 'year' | null);
-                    setPage(1); // Reset to first page on filter change
-                  }}
-                  value={filterType || ""} // Controlled component
+                  onChange={handleFilterChange}
+                  value={filterType || ""} // Controlled component for the select input
                 >
                   <option value="">All Time</option>
                   <option value="week">This Week</option>
@@ -270,12 +296,12 @@ const Orders = () => {
                     <TableRow>
                       <TableCell colSpan={10} className="text-center py-4 text-red-500">Error loading orders: {error?.message}</TableCell>
                     </TableRow>
-                  ) : displayedOrders.length === 0 ? (
+                  ) : apiResponse?.results.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={10} className="text-center py-4">No orders found.</TableCell>
                     </TableRow>
                   ) : (
-                    displayedOrders.map((order) => (
+                    apiResponse?.results.map((order) => (
                       <TableRow key={order.id}>
                         <TableCell>{format(new Date(order.created_at), 'dd-MM-yyyy')}</TableCell>
                         <TableCell>#{order.id}</TableCell>
@@ -312,7 +338,7 @@ const Orders = () => {
               <Button onClick={handlePreviousPage} disabled={!apiResponse?.previous || isLoading}>
                 Previous
               </Button>
-              <span>Page {page}</span>
+              <span>Page {page} of {Math.ceil((apiResponse?.count || 0) / pageSize)}</span>
               <Button onClick={handleNextPage} disabled={!apiResponse?.next || isLoading}>
                 Next
               </Button>
@@ -321,6 +347,7 @@ const Orders = () => {
         </div>
       </div>
 
+      {/* Cancel Order Confirmation Dialog */}
       <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
         <DialogContent>
           <DialogHeader>
