@@ -165,54 +165,39 @@ import { useState } from 'react';
    //   }
    // });
 
-  const handleExportCSV = () => {
-  if (!filteredOrders.length) {
-    toast({
-      title: "No data to export",
-      description: "There are no orders matching the current search.",
-    });
-    return;
-  }
-
+  const exportToCSV = (orders: Order[]) => {
   const headers = [
-    "Order ID",
-    "Reference",
-    "Customer",
-    "Depot (State)",
-    "Fuel Type (Products)",
-    "Quantity",
-    "Pickup Date",
-    "Pickup Time",
-    "Truck Numbers",
-    "Status",
-    "Created At",
+    "Order ID", "Reference", "Customer Name", "Email", "Pickup Date", "Pickup Time", 
+    "State", "Trucks", "Total Price", "Status", "Created At", "Products", "Quantity", "Release Type"
   ];
 
-  const rows = filteredOrders.map(order => [
+  const rows = orders.map(order => [
     order.id,
     order.reference,
     `${order.user.first_name} ${order.user.last_name}`,
+    order.user.email,
+    order.pickup.pickup_date,
+    order.pickup.pickup_time,
     order.pickup.state,
+    order.trucks.join(", "),
+    order.total_price,
+    order.status,
+    order.created_at,
     order.products.map(p => p.name).join(", "),
     order.quantity,
-    format(new Date(order.pickup.pickup_date), 'yyyy-MM-dd'),
-    order.pickup.pickup_time,
-    order.trucks.join(", "),
-    statusDisplayMap[order.status],
-    format(new Date(order.created_at), 'yyyy-MM-dd HH:mm:ss'),
+    order.release_type
   ]);
 
-  const csvContent = [headers, ...rows]
-    .map(row => row.map(String).map(val => `"${val.replace(/"/g, '""')}"`).join(","))
-    .join("\n");
+  const csvContent =
+    [headers, ...rows]
+      .map(row => row.map(item => `"${String(item).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
 
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
-  link.setAttribute("href", url);
-  link.setAttribute("download", "release_orders.csv");
-  link.style.visibility = "hidden";
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', 'release_orders.csv');
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -314,10 +299,37 @@ import { useState } from 'react';
                      <Filter className="mr-1" size={16} />
                      Filter
                    </Button>
-                   <Button variant="outline" className="flex items-center" onClick={handleExportCSV}>
-                    <Download className="mr-1" size={16} />
-                    Export
-                   </Button>
+                   <Button
+  variant="outline"
+  className="flex items-center"
+  onClick={async () => {
+    try {
+      // Fetch all data — you might need to allow this API to return all records
+      const response = await apiClient.admin.getPickupOrders({
+        page: 1,
+        page_size: 10000 // or however many max entries you expect
+      });
+
+      if (response.results && response.results.length > 0) {
+        exportToCSV(response.results);
+      } else {
+        toast({
+          title: "No data to export",
+          description: "There are no orders available for export.",
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Export Failed",
+        description: "Unable to export data. Please try again.",
+      });
+    }
+  }}
+>
+  <Download className="mr-1" size={16} />
+  Export
+</Button>
+
 
                  </div>
                </div>
