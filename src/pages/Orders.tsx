@@ -115,31 +115,6 @@ const Orders = () => {
     setSearchQuery(e.target.value.toLowerCase());
   };
 
-  const exportToCSV = () => {
-    if (!apiResponse?.results) return;
-    const headers = ['Date', 'Order ID', 'Customer', 'Contact', 'Quantity (Litres)', 'Amount Paid (₦)', 'Status', 'Location', 'Address', 'Payment Method', 'Note'];
-
-    const rows = [...filteredOrders].reverse().map((order) => [
-      format(new Date(order.created_at), 'dd-MM-yyyy'),
-      `#${order.id}`,
-      `${order.user.first_name} ${order.user.last_name}`,
-      `${order.user.phone_number} / ${order.user.email}`,
-      order.quantity.toLocaleString(),
-      parseFloat(order.total_price).toLocaleString(),
-      statusDisplayMap[order.status],
-      order.states,
-    ]);
-
-    const csvContent = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const filteredOrders = (apiResponse?.results || [])
     .filter(order => {
       const query = searchQuery.toLowerCase();
@@ -157,6 +132,42 @@ const Orders = () => {
       if (filterType === 'year') return isThisYear(date);
       return true;
     });
+
+  const exportToCSV = () => {
+    if (!apiResponse?.results) return;
+    const headers = [
+      'Date',
+      'Order ID',
+      'Customer',
+      'Product(s)',
+      'Contact',
+      'Quantity (Litres)',
+      'Amount Paid (₦)',
+      'Status',
+      'State'
+    ];
+
+    const rows = [...filteredOrders].reverse().map((order) => [
+      format(new Date(order.created_at), 'dd-MM-yyyy'),
+      `#${order.id}`,
+      `${order.user.first_name} ${order.user.last_name}`,
+      order.products.map(p => p.name).join(', '),
+      `${order.user.phone_number} / ${order.user.email}`,
+      order.quantity.toLocaleString(),
+      parseFloat(order.total_price).toLocaleString(),
+      statusDisplayMap[order.status],
+      order.states
+    ]);
+
+    const csvContent = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -205,11 +216,12 @@ const Orders = () => {
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
                     <TableHead>Customer</TableHead>
+                    <TableHead>Product(s)</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>Quantity (L)</TableHead>
                     <TableHead>Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Location</TableHead>
+                    <TableHead>State</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -219,6 +231,7 @@ const Orders = () => {
                       <TableCell>{format(new Date(order.created_at), 'dd-MM-yyyy')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
                       <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
+                      <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.user.phone_number} / {order.user.email}</TableCell>
                       <TableCell>{order.quantity.toLocaleString()}</TableCell>
                       <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
