@@ -120,7 +120,7 @@ const Orders = () => {
       const query = searchQuery.toLowerCase();
       return (
         order.id.toString().includes(query) ||
-        ${order.user.first_name} ${order.user.last_name}.toLowerCase().includes(query) ||
+        `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(query) ||
         order.products.some(product => product.name.toLowerCase().includes(query))
       );
     })
