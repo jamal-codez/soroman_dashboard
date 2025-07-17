@@ -22,6 +22,16 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { format, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter, // Added DialogFooter import
+  DialogClose
+} from '@/components/ui/dialog';
+import { toast } from '@/components/ui/sonner'; // Assuming toast is used for notifications
 
 interface Order {
   id: number;
@@ -93,7 +103,14 @@ const Orders = () => {
 
   const cancelOrderMutation = useMutation({
     mutationFn: (orderId: number) => apiClient.admin.cancleOrder(orderId),
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      refetch();
+      toast.success("Order cancelled successfully!"); // Success notification
+    },
+    onError: (err) => {
+      console.error("Failed to cancel order:", err);
+      toast.error("Failed to cancel order. Please try again."); // Error notification
+    },
     onSettled: () => {
       setShowCancelModal(false);
       setSelectedOrderId(null);
@@ -106,7 +123,9 @@ const Orders = () => {
   };
 
   const confirmCancelOrder = () => {
-    if (selectedOrderId) cancelOrderMutation.mutate(selectedOrderId);
+    if (selectedOrderId) {
+      cancelOrderMutation.mutate(selectedOrderId);
+    }
   };
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,6 +225,21 @@ const Orders = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {isLoading && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8">Loading orders...</TableCell>
+                    </TableRow>
+                  )}
+                  {isError && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-red-500">Error loading orders: {error?.message || 'Unknown error'}</TableCell>
+                    </TableRow>
+                  )}
+                  {!isLoading && !isError && filteredOrders.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-neutral-500">No orders found.</TableCell>
+                    </TableRow>
+                  )}
                   {filteredOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell>{format(new Date(order.created_at), 'yyyy-MM-dd')}</TableCell>
@@ -222,7 +256,7 @@ const Orders = () => {
                         <Button
                           size="sm"
                           variant="destructive"
-                          disabled={order.status === 'canceled'}
+                          disabled={order.status === 'canceled' || cancelOrderMutation.isLoading}
                           onClick={() => handleCancelOrderClick(order.id)}
                         >
                           Cancel
@@ -236,6 +270,33 @@ const Orders = () => {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal for Order Cancellation */}
+      <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Cancellation</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to cancel Order ID #{selectedOrderId}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                No, Keep Order
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={confirmCancelOrder}
+              disabled={cancelOrderMutation.isLoading}
+            >
+              {cancelOrderMutation.isLoading ? 'Cancelling...' : 'Yes, Cancel Order'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
