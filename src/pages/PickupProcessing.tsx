@@ -165,6 +165,59 @@ import { useState } from 'react';
    //   }
    // });
 
+  const handleExportCSV = () => {
+  if (!filteredOrders.length) {
+    toast({
+      title: "No data to export",
+      description: "There are no orders matching the current search.",
+    });
+    return;
+  }
+
+  const headers = [
+    "Order ID",
+    "Reference",
+    "Customer",
+    "Depot (State)",
+    "Fuel Type (Products)",
+    "Quantity",
+    "Pickup Date",
+    "Pickup Time",
+    "Truck Numbers",
+    "Status",
+    "Created At",
+  ];
+
+  const rows = filteredOrders.map(order => [
+    order.id,
+    order.reference,
+    `${order.user.first_name} ${order.user.last_name}`,
+    order.pickup.state,
+    order.products.map(p => p.name).join(", "),
+    order.quantity,
+    format(new Date(order.pickup.pickup_date), 'yyyy-MM-dd'),
+    order.pickup.pickup_time,
+    order.trucks.join(", "),
+    statusDisplayMap[order.status],
+    format(new Date(order.created_at), 'yyyy-MM-dd HH:mm:ss'),
+  ]);
+
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(String).map(val => `"${val.replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", "release_orders.csv");
+  link.style.visibility = "hidden";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
    const totalPages = Math.ceil((apiResponse?.count || 0) / pageSize);
 
    const handlePreviousPage = () => currentPage > 1 && setCurrentPage(prev => prev - 1);
@@ -261,10 +314,11 @@ import { useState } from 'react';
                      <Filter className="mr-1" size={16} />
                      Filter
                    </Button>
-                   <Button variant="outline" className="flex items-center">
-                     <Download className="mr-1" size={16} />
-                     Export
+                   <Button variant="outline" className="flex items-center" onClick={handleExportCSV}>
+                    <Download className="mr-1" size={16} />
+                    Export
                    </Button>
+
                  </div>
                </div>
              </div>
