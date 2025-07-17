@@ -41,7 +41,7 @@ interface Order {
   quantity: number;
   release_type: 'pickup' | 'delivery';
   reference: string;
-  states: string;
+  state: string;
 }
 
 interface OrderResponse {
@@ -156,7 +156,7 @@ const Orders = () => {
       order.quantity.toLocaleString(),
       parseFloat(order.total_price).toLocaleString(),
       statusDisplayMap[order.status],
-      order.states
+      order.state
     ]);
 
     const csvContent = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
@@ -240,7 +240,7 @@ const Orders = () => {
                           {getStatusIcon(order.status)} <span className="ml-1">{statusDisplayMap[order.status]}</span>
                         </span>
                       </TableCell>
-                      <TableCell>{order.states}</TableCell>
+                      <TableCell>{order.state}</TableCell>
                       <TableCell>
                         <Button
                           size="sm"
