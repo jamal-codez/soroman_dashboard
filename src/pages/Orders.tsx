@@ -58,22 +58,34 @@ const statusDisplayMap = {
 
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
-    case 'paid': return <CheckCircle className="text-green-500" size={16} />;
-    case 'pending': return <Clock className="text-orange-500" size={16} />;
-    case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
-    case 'completed': return <CheckCircle className="text-green-500" size={16} />;
-    default: return <Clock className="text-orange-500" size={16} />;
+    case 'paid':
+      return <CheckCircle className="text-green-500" size={16} />;
+    case 'pending':
+      return <Clock className="text-orange-500" size={16} />;
+    case 'canceled':
+      return <AlertCircle className="text-red-500" size={16} />;
+    case 'completed':
+      return <CheckCircle className="text-blue-500" size={16} />;
+    default:
+      return <Clock className="text-orange-500" size={16} />;
   }
 };
 
 const getStatusClass = (status: string) => {
   switch (status) {
-    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
-    default: return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'paid':
+      return 'bg-green-50 text-green-700 border-green-200';
+    case 'pending':
+      return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'canceled':
+      return 'bg-red-50 text-red-700 border-red-200';
+    case 'completed':
+      return 'bg-blue-50 text-blue-700 border-blue-200';
+    default:
+      return 'bg-gray-50 text-gray-700 border-gray-200';
   }
 };
+
 
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
