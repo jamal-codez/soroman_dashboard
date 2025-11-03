@@ -33,7 +33,7 @@ interface Order {
     phone_number: string;
   };
   total_price: string;
-  status: 'pending' | 'paid' | 'canceled';
+  status: 'pending' | 'paid' | 'canceled' | 'completed';
   created_at: string;
   products: Array<{
     name: string;
@@ -53,6 +53,7 @@ const statusDisplayMap = {
   pending: 'Pending',
   paid: 'Paid',
   canceled: 'Canceled',
+  completed: 'Completed',
 };
 
 const getStatusIcon = (status: Order['status']) => {
@@ -60,6 +61,7 @@ const getStatusIcon = (status: Order['status']) => {
     case 'paid': return <CheckCircle className="text-green-500" size={16} />;
     case 'pending': return <Clock className="text-orange-500" size={16} />;
     case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
+    case 'completed': return <CheckCircle className="text-green-500" size={16} />;
     default: return <Clock className="text-orange-500" size={16} />;
   }
 };
