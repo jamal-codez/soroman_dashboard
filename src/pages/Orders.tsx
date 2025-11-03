@@ -49,15 +49,19 @@ interface OrderResponse {
   results: Order[];
 }
 
-const statusDisplayMap = {
+// Map statuses (case-insensitive now)
+const statusDisplayMap: Record<string, string> = {
   pending: 'Pending',
   paid: 'Paid',
   canceled: 'Canceled',
   completed: 'Completed',
 };
 
-const getStatusIcon = (status: Order['status']) => {
-  switch (status) {
+// Get status text safely
+const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()] || status;
+
+const getStatusIcon = (status: string) => {
+  switch (status.toLowerCase()) {
     case 'paid':
       return <CheckCircle className="text-green-500" size={16} />;
     case 'pending':
@@ -67,12 +71,12 @@ const getStatusIcon = (status: Order['status']) => {
     case 'completed':
       return <CheckCircle className="text-blue-500" size={16} />;
     default:
-      return <Clock className="text-orange-500" size={16} />;
+      return <Clock className="text-gray-500" size={16} />;
   }
 };
 
 const getStatusClass = (status: string) => {
-  switch (status) {
+  switch (status.toLowerCase()) {
     case 'paid':
       return 'bg-green-50 text-green-700 border-green-200';
     case 'pending':
@@ -109,7 +113,7 @@ const Orders = () => {
   });
 
   const cancelOrderMutation = useMutation({
-    mutationFn: (orderId: number) => apiClient.admin.cancelOrder(orderId), // fixed typo here
+    mutationFn: (orderId: number) => apiClient.admin.cancelOrder(orderId),
     onSuccess: () => refetch(),
     onSettled: () => {
       setShowCancelModal(false);
@@ -170,7 +174,7 @@ const Orders = () => {
       `${order.user.phone_number} / ${order.user.email}`,
       order.quantity.toLocaleString(),
       parseFloat(order.total_price).toLocaleString(),
-      statusDisplayMap[order.status],
+      getStatusText(order.status),
       order.state
     ]);
 
@@ -255,7 +259,7 @@ const Orders = () => {
                       <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded ${getStatusClass(order.status)}`}>
-                          {getStatusIcon(order.status)} <span className="ml-1">{statusDisplayMap[order.status]}</span>
+                          {getStatusIcon(order.status)} <span className="ml-1">{getStatusText(order.status)}</span>
                         </span>
                       </TableCell>
                       <TableCell>{order.state}</TableCell>
