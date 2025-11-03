@@ -97,6 +97,7 @@ const Orders = () => {
     queryKey: ['all-orders'],
     queryFn: async () => {
       const response = await apiClient.admin.getAllAdminOrders();
+      console.log('API response:', response.results);
       if (!response.results) throw new Error('Invalid response format');
       return {
         count: response.count || 0,
