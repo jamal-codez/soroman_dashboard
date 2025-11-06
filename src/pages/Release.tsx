@@ -11,7 +11,6 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  Search,
   Truck,
   ClipboardList,
   CheckCircle2,
@@ -23,13 +22,13 @@ import { TopBar } from '@/components/TopBar';
 
 const releaseData = [
   {
-    id: 1,
-    product: 'Premium Motor Spirit (PMS)',
-    quantity: 15000,
-    destination: 'Lagos Depot',
+    id: 1001,                 // Order ID
+    date: 'Apr 05, 2025',     // Order/Release Date
+    customerName: 'Acme Energy Ltd.',
+    fuelType: 'Premium Motor Spirit (PMS)',
+    qty: 15000,
     status: 'Pending',
     truckNumber: '',
-    scheduledDate: 'Apr 05, 2025'
   },
   // ... other release items
 ];
@@ -51,15 +50,14 @@ export default function Release (){
   };
 
   const exportToCSV = () => {
-    const headers = ['ID', 'Product', 'Quantity', 'Destination', 'Scheduled Date', 'Status', 'Truck Number'];
+    const headers = ['Date', 'Order ID', 'Customer Name', 'Fuel Type', 'Quantity (Liters)', 'Status'];
     const rows = releases.map(item => [
+      item.date,
       item.id,
-      item.product,
-      item.quantity,
-      item.destination,
-      item.scheduledDate,
-      item.status,
-      item.truckNumber || 'N/A'
+      item.customerName,
+      item.fuelType,
+      item.qty,
+      item.status
     ]);
 
     const csvContent = [
@@ -106,22 +104,23 @@ export default function Release (){
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Quantity (Liters)</TableHead>
-                    <TableHead>Destination</TableHead>
-                    <TableHead>Scheduled Date</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Order ID</TableHead>
+                    <TableHead>Customer Name</TableHead>
+                    <TableHead>Fuel Type</TableHead>
+                    <TableHead>Qty (Liters)</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Truck Number</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {releases.map(item => (
                     <TableRow key={item.id}>
-                      <TableCell>{item.product}</TableCell>
-                      <TableCell>{item.quantity.toLocaleString()}</TableCell>
-                      <TableCell>{item.destination}</TableCell>
-                      <TableCell>{item.scheduledDate}</TableCell>
+                      <TableCell>{item.date}</TableCell>
+                      <TableCell>#{item.id}</TableCell>
+                      <TableCell>{item.customerName}</TableCell>
+                      <TableCell>{item.fuelType}</TableCell>
+                      <TableCell>{Number(item.qty).toLocaleString()}</TableCell>
                       <TableCell>
                         <Badge variant={
                           item.status === 'Released' ? 'success' : 
@@ -130,7 +129,6 @@ export default function Release (){
                           {item.status}
                         </Badge>
                       </TableCell>
-                      <TableCell>{item.truckNumber || 'N/A'}</TableCell>
                       <TableCell>
                         {item.status === 'Pending' && (
                           <Button 
