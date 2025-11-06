@@ -20,18 +20,56 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 
+// Your existing sample shape (kept intact so mapping works)
 const releaseData = [
   {
-    id: 1001,                 // Order ID
-    date: 'Apr 05, 2025',     // Order/Release Date
-    customerName: 'Acme Energy Ltd.',
-    fuelType: 'Premium Motor Spirit (PMS)',
-    qty: 15000,
+    id: 1,
+    product: 'Premium Motor Spirit (PMS)',
+    quantity: 15000,
+    destination: 'Lagos Depot',
     status: 'Pending',
     truckNumber: '',
+    scheduledDate: 'Apr 05, 2025',
+    // Optional fields if available in your real data:
+    // date: 'Apr 05, 2025',
+    // created_at: '2025-04-05T09:00:00Z',
+    // customerName: 'Acme Energy Ltd.',
+    // customer: { name: 'Acme Energy Ltd.' },
+    // user: { first_name: 'John', last_name: 'Doe' },
+    // fuelType: 'PMS',
+    // qty: 15000,
   },
-  // ... other release items
 ];
+
+// Helpers to safely derive columns from different possible shapes
+function getDate(item: any): string {
+  const raw = item?.date || item?.created_at || item?.scheduledDate || '';
+  if (!raw) return '—';
+  // If it looks like an ISO date, format it, else pass through string (e.g., "Apr 05, 2025")
+  const d = new Date(raw);
+  return isNaN(d.getTime())
+    ? String(raw)
+    : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function getCustomerName(item: any): string {
+  if (item?.customerName) return item.customerName;
+  if (item?.customer?.name) return item.customer.name;
+  const fn = item?.user?.first_name;
+  const ln = item?.user?.last_name;
+  const full = [fn, ln].filter(Boolean).join(' ').trim();
+  return full || '—';
+}
+
+function getFuelType(item: any): string {
+  return item?.fuelType || item?.product || '—';
+}
+
+function getQty(item: any): number {
+  return typeof item?.qty !== 'undefined' ? Number(item.qty)
+       : typeof item?.quantity !== 'undefined' ? Number(item.quantity)
+       : 0;
+}
 
 export default function Release (){
   const [releases, setReleases] = useState(releaseData);
@@ -52,17 +90,17 @@ export default function Release (){
   const exportToCSV = () => {
     const headers = ['Date', 'Order ID', 'Customer Name', 'Fuel Type', 'Quantity (Liters)', 'Status'];
     const rows = releases.map(item => [
-      item.date,
-      item.id,
-      item.customerName,
-      item.fuelType,
-      item.qty,
+      getDate(item),
+      `#${item.id}`,
+      getCustomerName(item),
+      getFuelType(item),
+      getQty(item),
       item.status
     ]);
 
     const csvContent = [
       headers.join(','),
-      ...rows.map(r => r.join(','))
+      ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -116,11 +154,11 @@ export default function Release (){
                 <TableBody>
                   {releases.map(item => (
                     <TableRow key={item.id}>
-                      <TableCell>{item.date}</TableCell>
+                      <TableCell>{getDate(item)}</TableCell>
                       <TableCell>#{item.id}</TableCell>
-                      <TableCell>{item.customerName}</TableCell>
-                      <TableCell>{item.fuelType}</TableCell>
-                      <TableCell>{Number(item.qty).toLocaleString()}</TableCell>
+                      <TableCell>{getCustomerName(item)}</TableCell>
+                      <TableCell>{getFuelType(item)}</TableCell>
+                      <TableCell>{getQty(item).toLocaleString()}</TableCell>
                       <TableCell>
                         <Badge variant={
                           item.status === 'Released' ? 'success' : 
