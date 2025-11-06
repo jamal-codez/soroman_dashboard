@@ -67,7 +67,7 @@ const getStatusIcon = (status: string) => {
     case 'completed':
       return <CheckCircle className="text-blue-500" size={16} />;
     default:
-      return <CheckCircle className="text-gray-500" size={16} />;
+      return <CheckCircle className="text-blue-500" size={16} />;
   }
 };
 
@@ -82,7 +82,7 @@ const getStatusClass = (status: string) => {
     case 'completed':
       return 'bg-blue-50 text-blue-700 border-blue-200';
     default:
-      return 'bg-gray-50 text-gray-700 border-gray-200';
+      return 'bg-gray-50 text-blue-700 border-blue-200';
   }
 };
 
@@ -283,7 +283,7 @@ const Orders = () => {
                     <TableHead>Customer</TableHead>
                     <TableHead>Product(s)</TableHead>
                     <TableHead>Contact</TableHead>
-                    <TableHead>Quantity (L/Kg)</TableHead>
+                    <TableHead>Quantity</TableHead>
                     <TableHead>Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Pickup/Delivery</TableHead>
