@@ -40,8 +40,6 @@ interface Order {
   release_type: 'pickup' | 'delivery';
   reference: string;
   state: string;
-  // If your API returns a delivery address under another key, map it here or adjust getDeliveryAddress
-  address?: string;
 }
 
 interface OrderResponse {
@@ -69,7 +67,7 @@ const getStatusIcon = (status: string) => {
     case 'completed':
       return <CheckCircle className="text-blue-500" size={16} />;
     default:
-      return <Clock className="text-gray-500" size={16} />;
+      return <CheckCircle className="text-gray-500" size={16} />;
   }
 };
 
@@ -88,19 +86,13 @@ const getStatusClass = (status: string) => {
   }
 };
 
-const getDeliveryAddress = (order: Order) => {
-  if (order.release_type !== 'delivery') return '';
-  return order.address || order.state || '';
-};
-
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today' | 'week' | 'month' | 'year' | null>(null);
   const [productFilter, setProductFilter] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'pending' | 'paid' | 'canceled' | 'completed' | null>(null);
 
-  const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
+  const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
     queryFn: async () => {
       const response = await apiClient.admin.getAllAdminOrders();
@@ -139,9 +131,8 @@ const Orders = () => {
         const inName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q);
         const inProducts = order.products.some(p => p.name.toLowerCase().includes(q));
         const inReleaseType = order.release_type.toLowerCase().includes(q);
-        const inAddress = order.address ? order.address.toLowerCase().includes(q) : false;
         const inState = order.state ? order.state.toLowerCase().includes(q) : false;
-        return inId || inName || inProducts || inReleaseType || inAddress || inState;
+        return inId || inName || inProducts || inReleaseType || inState;
       })
       .filter(order => {
         if (!filterType) return true;
@@ -159,12 +150,8 @@ const Orders = () => {
       .filter(order => {
         if (!locationFilter) return true;
         return order.state === locationFilter;
-      })
-      .filter(order => {
-        if (!statusFilter) return true;
-        return order.status.toLowerCase() === statusFilter;
       });
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter]);
+  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter]);
 
   const getFilterLabelForFile = () => {
     switch (filterType) {
@@ -188,7 +175,6 @@ const Orders = () => {
       'Amount Paid (₦)',
       'Status',
       'Delivery Option',
-      'Address',
       'State'
     ];
 
@@ -202,7 +188,6 @@ const Orders = () => {
       parseFloat(order.total_price).toLocaleString(),
       getStatusText(order.status),
       order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
-      order.release_type === 'delivery' ? (getDeliveryAddress(order) || '') : '',
       order.state
     ]);
 
@@ -218,8 +203,6 @@ const Orders = () => {
     link.click();
     document.body.removeChild(link);
   };
-
-  const statusOptions: Array<'pending' | 'paid' | 'canceled' | 'completed'> = ['pending', 'paid', 'canceled', 'completed'];
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -287,20 +270,6 @@ const Orders = () => {
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
-
-                  <select
-                    className="border border-gray-300 rounded px-3 py-2"
-                    value={statusFilter ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value as '' | 'pending' | 'paid' | 'canceled' | 'completed';
-                      setStatusFilter(v === '' ? null : v);
-                    }}
-                  >
-                    <option value="">All Statuses</option>
-                    {statusOptions.map((s) => (
-                      <option key={s} value={s}>{getStatusText(s)}</option>
-                    ))}
-                  </select>
                 </div>
               </div>
             </div>
@@ -314,12 +283,11 @@ const Orders = () => {
                     <TableHead>Customer</TableHead>
                     <TableHead>Product(s)</TableHead>
                     <TableHead>Contact</TableHead>
-                    <TableHead>Quantity (L)</TableHead>
+                    <TableHead>Quantity (L/Kg)</TableHead>
                     <TableHead>Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Delivery Option</TableHead>
-                    <TableHead>Address</TableHead>
-                    <TableHead>State</TableHead>
+                    <TableHead>Pickup/Delivery</TableHead>
+                    <TableHead>Depot/State</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -333,26 +301,19 @@ const Orders = () => {
                       <TableCell>{order.quantity.toLocaleString()}</TableCell>
                       <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
                       <TableCell>
-                        <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded ${getStatusClass(order.status)}`}>
+                        <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded capitalize ${getStatusClass(order.status)}`}>
                           {getStatusIcon(order.status)} <span className="ml-1">{getStatusText(order.status)}</span>
                         </span>
                       </TableCell>
                       <TableCell>
-                        {order.release_type === 'delivery' ? (
-                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium border rounded bg-emerald-50 text-emerald-700 border-emerald-200">Delivery</span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium border rounded bg-slate-50 text-slate-700 border-slate-200">Pickup</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {order.release_type === 'delivery' ? (getDeliveryAddress(order) || '—') : '—'}
+                        {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                       </TableCell>
                       <TableCell>{order.state}</TableCell>
                     </TableRow>
                   ))}
                   {filteredOrders.length === 0 && !isLoading && (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center text-slate-500 py-8">
+                      <TableCell colSpan={10} className="text-center text-slate-500 py-8">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
