@@ -215,7 +215,7 @@ const Orders = () => {
               <h1 className="text-2xl font-bold text-slate-800">All Orders</h1>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={exportToCSV}>
-                  <Download className="mr-1" size={16} /> Export
+                  <Download className="mr-1" size={16} /> Download Report
                 </Button>
               </div>
             </div>
