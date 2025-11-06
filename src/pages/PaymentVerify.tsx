@@ -25,7 +25,7 @@ interface PaymentOrder {
   amount: string;
   status: 'paid' | 'pending' | 'failed';
   payment_channel: string;
-  created_at: string; // Use the actual created_at from API
+  created_at: string;
   reference: string;
   updated_at: string;
   acct?: {
@@ -69,7 +69,7 @@ interface PaymentDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAllowPayment: () => void;
-  created_at: string; // Use the actual created_at from API
+  created_at: string;
 }
 
 function PaymentDetailsModal({
@@ -144,7 +144,7 @@ export default function PaymentVerification() {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const { toast } = useToast();
 
-  const { data: apiResponse, isLoading } = useQuery({
+  const { data: apiResponse, isLoading } = useQuery<OrderResponse>({
     queryKey: ['verify-orders', searchQuery, currentPage],
     queryFn: async () => {
       const response = await apiClient.admin.getVerifyOrders({
@@ -166,7 +166,7 @@ export default function PaymentVerification() {
       try {
         await apiClient.admin.updateOrderStatus({
           id: orderId,
-          status: 'paid', // Update to match your API's expected status
+          status: 'paid',
         });
       } finally {
         setUpdatingPaymentId(null);
@@ -232,25 +232,25 @@ export default function PaymentVerification() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Order ID</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Method</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead>Reference</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead>Order ID</TableHead>
+                    <TableHead>Customer Name</TableHead>
+                    <TableHead>Amount Paid</TableHead>
+                    <TableHead>Payment Method</TableHead>
+                    <TableHead>Order Status</TableHead>
+                    <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     [...Array(5)].map((_, index) => (
                       <TableRow key={index}>
-                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-8 w-32" /></TableCell>
                       </TableRow>
                     ))
@@ -263,14 +263,6 @@ export default function PaymentVerification() {
                   ) : (
                     payments.map((payment) => (
                       <TableRow key={payment.id}>
-                        <TableCell>{payment.order_id}</TableCell>
-                        <TableCell>₦{parseFloat(payment.amount).toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Badge className={getStatusClass(payment.status.toLowerCase())}>
-                            {payment.status.toLowerCase()}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{payment.payment_channel}</TableCell>
                         <TableCell>
                           {new Date(payment.created_at).toLocaleDateString('en-GB', {
                             day: '2-digit',
@@ -278,7 +270,15 @@ export default function PaymentVerification() {
                             year: 'numeric',
                           })}
                         </TableCell>
-                        <TableCell>{payment.reference}</TableCell>
+                        <TableCell>{payment.order_id}</TableCell>
+                        <TableCell>{payment.acct?.name || '—'}</TableCell>
+                        <TableCell>₦{parseFloat(payment.amount).toLocaleString()}</TableCell>
+                        <TableCell>{payment.payment_channel}</TableCell>
+                        <TableCell>
+                          <Badge className={getStatusClass(payment.status.toLowerCase())}>
+                            {payment.status.toLowerCase()}
+                          </Badge>
+                        </TableCell>
                         <TableCell>
                           <Button
                             variant="outline"
@@ -303,12 +303,13 @@ export default function PaymentVerification() {
           </div>
         </div>
       </div>
+
       {selectedPayment && (
         <PaymentDetailsModal
           isOpen={isFormModalOpen}
           onClose={() => setIsFormModalOpen(false)}
           onAllowPayment={handleAllowPayment}
-          created_at={selectedPayment.created_at} // Use actual created_at field
+          created_at={selectedPayment.created_at}
         />
       )}
       <ConfirmationModal
