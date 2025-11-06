@@ -29,30 +29,36 @@ interface PaymentOrder {
   reference: string;
   updated_at: string;
 
-  // Match how Orders.tsx gets the name
-  user?: {
-    first_name: string;
-    last_name: string;
-    email?: string;
-    phone_number?: string;
-  };
-
-  // Many APIs return the nested order with user inside
-  order?: {
-    id: number;
-    user?: {
-      first_name: string;
-      last_name: string;
-    };
-  };
-
-  // Fallback from payment provider/account name, if available
+  // Account object (as commonly returned by the API)
   acct?: {
     id: number;
     acct_no: string;
     bank_name: string;
     name: string;
   };
+
+  // Some APIs might use different keys
+  bank_account?: {
+    acct_no?: string;
+    account_number?: string;
+    bank_name?: string;
+    bank?: string;
+    name?: string;
+    account_name?: string;
+  };
+  account?: {
+    acct_no?: string;
+    account_number?: string;
+    bank_name?: string;
+    bank?: string;
+    name?: string;
+    account_name?: string;
+  };
+
+  // Possible top-level fallbacks
+  acct_no?: string;
+  bank_name?: string;
+  account_name?: string;
 }
 
 interface OrderResponse {
@@ -152,21 +158,25 @@ function getStatusClass(status: string): string {
   }
 }
 
-// Derive customer name like Orders.tsx: `${first_name} ${last_name}`
-function getCustomerName(p: PaymentOrder): string {
-  const fromOrderUser = p.order?.user
-    ? `${p.order.user.first_name ?? ''} ${p.order.user.last_name ?? ''}`.trim()
-    : '';
-  if (fromOrderUser) return fromOrderUser;
-
-  const fromTopLevelUser = p.user
-    ? `${p.user.first_name ?? ''} ${p.user.last_name ?? ''}`.trim()
-    : '';
-  if (fromTopLevelUser) return fromTopLevelUser;
-
-  if (p.acct?.name) return p.acct.name;
-
-  return '—';
+// Extract account details robustly from possible shapes
+function extractAccountDetails(p: PaymentOrder) {
+  const acctLike = p.acct || p.bank_account || p.account || {};
+  const acct_no =
+    (acctLike as any).acct_no ||
+    (acctLike as any).account_number ||
+    p.acct_no ||
+    '';
+  const name =
+    (acctLike as any).name ||
+    (acctLike as any).account_name ||
+    p.account_name ||
+    '';
+  const bank_name =
+    (acctLike as any).bank_name ||
+    (acctLike as any).bank ||
+    p.bank_name ||
+    '';
+  return { acct_no, name, bank_name };
 }
 
 export default function PaymentVerification() {
@@ -188,10 +198,6 @@ export default function PaymentVerification() {
         page: currentPage,
         page_size: pageSize,
       });
-
-      // Helpful while validating field paths in dev:
-      // console.debug('verify-orders sample result', response?.results?.[0]);
-
       return response;
     },
     keepPreviousData: true,
@@ -274,7 +280,7 @@ export default function PaymentVerification() {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
-                    <TableHead>Name</TableHead>
+                    <TableHead>Account Details</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Method</TableHead>
                     <TableHead>Status</TableHead>
@@ -287,7 +293,13 @@ export default function PaymentVerification() {
                       <TableRow key={index}>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                        <TableCell>
+                          <div className="space-y-2">
+                            <Skeleton className="h-4 w-48" />
+                            <Skeleton className="h-4 w-40" />
+                            <Skeleton className="h-4 w-44" />
+                          </div>
+                        </TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
@@ -302,7 +314,7 @@ export default function PaymentVerification() {
                     </TableRow>
                   ) : (
                     payments.map((payment) => {
-                      const customerName = getCustomerName(payment);
+                      const { acct_no, name, bank_name } = extractAccountDetails(payment);
                       return (
                         <TableRow key={payment.id}>
                           <TableCell>
@@ -313,7 +325,19 @@ export default function PaymentVerification() {
                             })}
                           </TableCell>
                           <TableCell>{payment.order_id}</TableCell>
-                          <TableCell>{customerName}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <span className="font-medium">
+                                Acct No: {acct_no || '—'}
+                              </span>
+                              <span className="text-slate-600">
+                                Name: {name || '—'}
+                              </span>
+                              <span className="text-slate-600">
+                                Bank: {bank_name || '—'}
+                              </span>
+                            </div>
+                          </TableCell>
                           <TableCell>₦{parseFloat(payment.amount).toLocaleString()}</TableCell>
                           <TableCell>{payment.payment_channel}</TableCell>
                           <TableCell>
