@@ -28,19 +28,19 @@ import { Button } from './ui/button';
 // RELEASE=4,"Release Officer"
 
 const navItems = [
-  { title: "Dashboard", icon: Home, path: "/dashboard", allowedRoles: [0, 1] },
-  { title: "Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [0, 1, 2, 3, 4] },
-  { title: "Inventory", icon: Fuel, path: "/inventory", allowedRoles: [0, 1] },
-  { title: "Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
+  { title: "Overview", icon: Home, path: "/dashboard", allowedRoles: [0, 1] },
+  { title: "All Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [0, 1, 2, 3, 4] },
+  { title: "All Inventory", icon: Fuel, path: "/inventory", allowedRoles: [0, 1] },
+  { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
   { title: "Finance", icon: Banknote, path: "/finance", allowedRoles: [0, 1, 2] },
-  { title: "Location Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 3] },
+  { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 3] },
   // { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
   // { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 4] },
   { title: "Release Orders", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1, 4] },
   // { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1,2,4] },
   // { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
-  { title: "Payment Verification", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
-  { title: "Staff Management", icon: User, path: "/users-management", allowedRoles: [0, 1] }
+  { title: "Verify Payment", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
+  { title: "Manage Staff", icon: User, path: "/users-management", allowedRoles: [0, 1] }
 ];
 
 export const SidebarNav = () => {
