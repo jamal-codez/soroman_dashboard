@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
@@ -14,15 +14,13 @@ import {
 } from '@/components/ui/table';
 import {
   Download,
-  Filter,
   Search,
   CheckCircle,
   Clock,
   AlertCircle
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { format, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { format, isThisWeek, isThisMonth, isThisYear, isToday } from 'date-fns';
 
 interface Order {
   id: number;
@@ -42,6 +40,8 @@ interface Order {
   release_type: 'pickup' | 'delivery';
   reference: string;
   state: string;
+  // If your API returns a delivery address under another key, map it here or adjust getDeliveryAddress
+  address?: string;
 }
 
 interface OrderResponse {
@@ -49,7 +49,6 @@ interface OrderResponse {
   results: Order[];
 }
 
-// Map statuses (case-insensitive now)
 const statusDisplayMap: Record<string, string> = {
   pending: 'Pending',
   paid: 'Paid',
@@ -57,7 +56,6 @@ const statusDisplayMap: Record<string, string> = {
   completed: 'Completed',
 };
 
-// Get status text safely
 const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()] || status;
 
 const getStatusIcon = (status: string) => {
@@ -90,18 +88,22 @@ const getStatusClass = (status: string) => {
   }
 };
 
+const getDeliveryAddress = (order: Order) => {
+  if (order.release_type !== 'delivery') return '';
+  return order.address || order.state || '';
+};
 
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'week' | 'month' | 'year' | null>(null);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [filterType, setFilterType] = useState<'today' | 'week' | 'month' | 'year' | null>(null);
+  const [productFilter, setProductFilter] = useState<string | null>(null);
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'paid' | 'canceled' | 'completed' | null>(null);
 
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
     queryFn: async () => {
       const response = await apiClient.admin.getAllAdminOrders();
-      console.log('API response:', response.results);
       if (!response.results) throw new Error('Invalid response format');
       return {
         count: response.count || 0,
@@ -112,45 +114,67 @@ const Orders = () => {
     refetchOnWindowFocus: false
   });
 
-  const cancelOrderMutation = useMutation({
-    mutationFn: (orderId: number) => apiClient.admin.cancelOrder(orderId),
-    onSuccess: () => refetch(),
-    onSettled: () => {
-      setShowCancelModal(false);
-      setSelectedOrderId(null);
-    }
-  });
-
-  const handleCancelOrderClick = (orderId: number) => {
-    setSelectedOrderId(orderId);
-    setShowCancelModal(true);
-  };
-
-  const confirmCancelOrder = () => {
-    if (selectedOrderId) cancelOrderMutation.mutate(selectedOrderId);
-  };
-
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value.toLowerCase());
   };
 
-  const filteredOrders = (apiResponse?.results || [])
-    .filter(order => {
-      const query = searchQuery.toLowerCase();
-      return (
-        order.id.toString().includes(query) ||
-        `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(query) ||
-        order.products.some(product => product.name.toLowerCase().includes(query))
-      );
-    })
-    .filter(order => {
-      if (!filterType) return true;
-      const date = new Date(order.created_at);
-      if (filterType === 'week') return isThisWeek(date);
-      if (filterType === 'month') return isThisMonth(date);
-      if (filterType === 'year') return isThisYear(date);
-      return true;
-    });
+  const uniqueProducts = useMemo(() => {
+    const names = (apiResponse?.results ?? []).flatMap(o => o.products.map(p => p.name)).filter(Boolean);
+    return Array.from(new Set(names)).sort();
+  }, [apiResponse?.results]);
+
+  const uniqueLocations = useMemo(() => {
+    const states = (apiResponse?.results ?? []).map(o => o.state).filter(Boolean);
+    return Array.from(new Set(states)).sort();
+  }, [apiResponse?.results]);
+
+  const filteredOrders = useMemo(() => {
+    const base = apiResponse?.results || [];
+    return base
+      .filter(order => {
+        const query = searchQuery.trim();
+        if (!query) return true;
+        const q = query.toLowerCase();
+        const inId = order.id.toString().includes(q);
+        const inName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q);
+        const inProducts = order.products.some(p => p.name.toLowerCase().includes(q));
+        const inReleaseType = order.release_type.toLowerCase().includes(q);
+        const inAddress = order.address ? order.address.toLowerCase().includes(q) : false;
+        const inState = order.state ? order.state.toLowerCase().includes(q) : false;
+        return inId || inName || inProducts || inReleaseType || inAddress || inState;
+      })
+      .filter(order => {
+        if (!filterType) return true;
+        const date = new Date(order.created_at);
+        if (filterType === 'today') return isToday(date);
+        if (filterType === 'week') return isThisWeek(date);
+        if (filterType === 'month') return isThisMonth(date);
+        if (filterType === 'year') return isThisYear(date);
+        return true;
+      })
+      .filter(order => {
+        if (!productFilter) return true;
+        return order.products.some(p => p.name === productFilter);
+      })
+      .filter(order => {
+        if (!locationFilter) return true;
+        return order.state === locationFilter;
+      })
+      .filter(order => {
+        if (!statusFilter) return true;
+        return order.status.toLowerCase() === statusFilter;
+      });
+  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter]);
+
+  const getFilterLabelForFile = () => {
+    switch (filterType) {
+      case 'today': return 'today';
+      case 'week': return 'this-week';
+      case 'month': return 'this-month';
+      case 'year': return 'this-year';
+      default: return 'all';
+    }
+  };
 
   const exportToCSV = () => {
     if (!apiResponse?.results) return;
@@ -163,6 +187,8 @@ const Orders = () => {
       'Quantity (Litres)',
       'Amount Paid (₦)',
       'Status',
+      'Delivery Option',
+      'Address',
       'State'
     ];
 
@@ -175,21 +201,25 @@ const Orders = () => {
       order.quantity.toLocaleString(),
       parseFloat(order.total_price).toLocaleString(),
       getStatusText(order.status),
+      order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
+      order.release_type === 'delivery' ? (getDeliveryAddress(order) || '') : '',
       order.state
     ]);
 
     const csvContent = [headers, ...rows]
-      .map(row => row.map(field => `"${field}"`).join(','))
+      .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
       .join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.setAttribute('download', `orders_export_${new Date().toISOString()}.csv`);
+    link.setAttribute('download', `orders_export_${getFilterLabelForFile()}_${new Date().toISOString()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
+
+  const statusOptions: Array<'pending' | 'paid' | 'canceled' | 'completed'> = ['pending', 'paid', 'canceled', 'completed'];
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -208,7 +238,7 @@ const Orders = () => {
             </div>
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-col lg:flex-row gap-4">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
                   <Input
@@ -219,15 +249,59 @@ const Orders = () => {
                     onChange={handleSearch}
                   />
                 </div>
-                <select
-                  className="border border-gray-300 rounded px-3 py-2"
-                  onChange={(e) => setFilterType(e.target.value as 'week' | 'month' | 'year' | null)}
-                >
-                  <option value="">All Time</option>
-                  <option value="week">This Week</option>
-                  <option value="month">This Month</option>
-                  <option value="year">This Year</option>
-                </select>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <select
+                    className="border border-gray-300 rounded px-3 py-2"
+                    value={filterType ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value as '' | 'today' | 'week' | 'month' | 'year';
+                      setFilterType(v === '' ? null : v);
+                    }}
+                  >
+                    <option value="">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="year">This Year</option>
+                  </select>
+
+                  <select
+                    className="border border-gray-300 rounded px-3 py-2"
+                    value={productFilter ?? ''}
+                    onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">All Products</option>
+                    {uniqueProducts.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    className="border border-gray-300 rounded px-3 py-2"
+                    value={locationFilter ?? ''}
+                    onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">All Locations</option>
+                    {uniqueLocations.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    className="border border-gray-300 rounded px-3 py-2"
+                    value={statusFilter ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value as '' | 'pending' | 'paid' | 'canceled' | 'completed';
+                      setStatusFilter(v === '' ? null : v);
+                    }}
+                  >
+                    <option value="">All Statuses</option>
+                    {statusOptions.map((s) => (
+                      <option key={s} value={s}>{getStatusText(s)}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -243,8 +317,9 @@ const Orders = () => {
                     <TableHead>Quantity (L)</TableHead>
                     <TableHead>Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Delivery Option</TableHead>
+                    <TableHead>Address</TableHead>
                     <TableHead>State</TableHead>
-                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -262,42 +337,38 @@ const Orders = () => {
                           {getStatusIcon(order.status)} <span className="ml-1">{getStatusText(order.status)}</span>
                         </span>
                       </TableCell>
-                      <TableCell>{order.state}</TableCell>
                       <TableCell>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={order.status === 'canceled'}
-                          onClick={() => handleCancelOrderClick(order.id)}
-                        >
-                          Cancel
-                        </Button>
+                        {order.release_type === 'delivery' ? (
+                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium border rounded bg-emerald-50 text-emerald-700 border-emerald-200">Delivery</span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium border rounded bg-slate-50 text-slate-700 border-slate-200">Pickup</span>
+                        )}
                       </TableCell>
+                      <TableCell>
+                        {order.release_type === 'delivery' ? (getDeliveryAddress(order) || '—') : '—'}
+                      </TableCell>
+                      <TableCell>{order.state}</TableCell>
                     </TableRow>
                   ))}
+                  {filteredOrders.length === 0 && !isLoading && (
+                    <TableRow>
+                      <TableCell colSpan={11} className="text-center text-slate-500 py-8">
+                        No orders found for the selected filters.
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </div>
+
+            {isError && (
+              <div className="mt-4 text-red-600">
+                {(error as Error)?.message || 'Failed to load orders.'}
+              </div>
+            )}
           </div>
         </div>
       </div>
-
-      <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancel Order</DialogTitle>
-          </DialogHeader>
-          <p>Are you sure you want to cancel this order?</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCancelModal(false)}>
-              No, go back
-            </Button>
-            <Button variant="destructive" onClick={confirmCancelOrder} disabled={cancelOrderMutation.isLoading}>
-              Yes, cancel it
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
