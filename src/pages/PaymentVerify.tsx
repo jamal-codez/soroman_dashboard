@@ -28,6 +28,24 @@ interface PaymentOrder {
   created_at: string;
   reference: string;
   updated_at: string;
+
+  // Add user shape similar to Orders.tsx
+  user?: {
+    first_name: string;
+    last_name: string;
+    email?: string;
+    phone_number?: string;
+  };
+
+  // In case API nests user under order
+  order?: {
+    user?: {
+      first_name: string;
+      last_name: string;
+    };
+  };
+
+  // Fallback account info if available
   acct?: {
     id: number;
     acct_no: string;
@@ -133,6 +151,21 @@ function getStatusClass(status: string): string {
   }
 }
 
+// Prefer customer name the same way as Orders.tsx: `${first_name} ${last_name}`
+// Try several shapes in case the API varies
+function getCustomerName(p: PaymentOrder): string {
+  const fromUser = p.user ? `${p.user.first_name ?? ''} ${p.user.last_name ?? ''}`.trim() : '';
+  if (fromUser) return fromUser;
+
+  const fromOrderUser = p.order?.user ? `${p.order.user.first_name ?? ''} ${p.order.user.last_name ?? ''}`.trim() : '';
+  if (fromOrderUser) return fromOrderUser;
+
+  // Last resort: account holder name if provided by payment channel
+  if (p.acct?.name) return p.acct.name;
+
+  return '—';
+}
+
 export default function PaymentVerification() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
@@ -234,10 +267,10 @@ export default function PaymentVerification() {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
-                    <TableHead>Customer Name</TableHead>
-                    <TableHead>Amount Paid</TableHead>
-                    <TableHead>Payment Method</TableHead>
-                    <TableHead>Order Status</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Method</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -271,7 +304,7 @@ export default function PaymentVerification() {
                           })}
                         </TableCell>
                         <TableCell>{payment.order_id}</TableCell>
-                        <TableCell>{payment.acct?.name || '—'}</TableCell>
+                        <TableCell>{getCustomerName(payment)}</TableCell>
                         <TableCell>₦{parseFloat(payment.amount).toLocaleString()}</TableCell>
                         <TableCell>{payment.payment_channel}</TableCell>
                         <TableCell>
