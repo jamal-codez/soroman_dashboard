@@ -11,73 +11,47 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  Truck,
   ClipboardList,
   CheckCircle2,
-  Download
+  Download,
+  Truck
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 
-// Your existing sample shape (kept intact so mapping works)
-const releaseData = [
+type ReleaseItem = {
+  id: number;
+  date: string;        // e.g., 'Apr 05, 2025'
+  customer: string;
+  product: string;
+  quantity: number;
+  status: 'Pending' | 'Released' | 'In Transit' | 'Delivered' | string;
+  // Keeping truckNumber for release workflow, but it's no longer shown in the table
+  truckNumber?: string;
+};
+
+const releaseData: ReleaseItem[] = [
   {
     id: 1,
+    date: 'Apr 05, 2025',
+    customer: 'Acme Logistics Ltd.',
     product: 'Premium Motor Spirit (PMS)',
     quantity: 15000,
-    destination: 'Lagos Depot',
     status: 'Pending',
-    truckNumber: '',
-    scheduledDate: 'Apr 05, 2025',
-    // Optional fields if available in your real data:
-    // date: 'Apr 05, 2025',
-    // created_at: '2025-04-05T09:00:00Z',
-    // customerName: 'Acme Energy Ltd.',
-    // customer: { name: 'Acme Energy Ltd.' },
-    // user: { first_name: 'John', last_name: 'Doe' },
-    // fuelType: 'PMS',
-    // qty: 15000,
+    truckNumber: ''
   },
+  // ... other release items
 ];
 
-// Helpers to safely derive columns from different possible shapes
-function getDate(item: any): string {
-  const raw = item?.date || item?.created_at || item?.scheduledDate || '';
-  if (!raw) return '—';
-  // If it looks like an ISO date, format it, else pass through string (e.g., "Apr 05, 2025")
-  const d = new Date(raw);
-  return isNaN(d.getTime())
-    ? String(raw)
-    : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function getCustomerName(item: any): string {
-  if (item?.customerName) return item.customerName;
-  if (item?.customer?.name) return item.customer.name;
-  const fn = item?.user?.first_name;
-  const ln = item?.user?.last_name;
-  const full = [fn, ln].filter(Boolean).join(' ').trim();
-  return full || '—';
-}
-
-function getFuelType(item: any): string {
-  return item?.fuelType || item?.product || '—';
-}
-
-function getQty(item: any): number {
-  return typeof item?.qty !== 'undefined' ? Number(item.qty)
-       : typeof item?.quantity !== 'undefined' ? Number(item.quantity)
-       : 0;
-}
-
 export default function Release (){
-  const [releases, setReleases] = useState(releaseData);
-  const [selectedRelease, setSelectedRelease] = useState<any>(null);
+  const [releases, setReleases] = useState<ReleaseItem[]>(releaseData);
+  const [selectedRelease, setSelectedRelease] = useState<ReleaseItem | null>(null);
   const [truckNumber, setTruckNumber] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const handleRelease = () => {
+    if (!selectedRelease) return;
     setReleases(releases.map(item => 
       item.id === selectedRelease.id 
         ? {...item, status: 'Released', truckNumber}
@@ -88,19 +62,19 @@ export default function Release (){
   };
 
   const exportToCSV = () => {
-    const headers = ['Date', 'Order ID', 'Customer Name', 'Fuel Type', 'Quantity (Liters)', 'Status'];
+    const headers = ['Date', 'Order ID', 'Customer', 'Product', 'Quantity', 'Status'];
     const rows = releases.map(item => [
-      getDate(item),
-      `#${item.id}`,
-      getCustomerName(item),
-      getFuelType(item),
-      getQty(item),
+      item.date,
+      item.id,
+      item.customer,
+      item.product,
+      item.quantity,
       item.status
     ]);
 
     const csvContent = [
       headers.join(','),
-      ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+      ...rows.map(r => r.join(','))
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -144,21 +118,21 @@ export default function Release (){
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
-                    <TableHead>Customer Name</TableHead>
-                    <TableHead>Fuel Type</TableHead>
-                    <TableHead>Qty (Liters)</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Quantity</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {releases.map(item => (
                     <TableRow key={item.id}>
-                      <TableCell>{getDate(item)}</TableCell>
-                      <TableCell>#{item.id}</TableCell>
-                      <TableCell>{getCustomerName(item)}</TableCell>
-                      <TableCell>{getFuelType(item)}</TableCell>
-                      <TableCell>{getQty(item).toLocaleString()}</TableCell>
+                      <TableCell>{item.date}</TableCell>
+                      <TableCell>{item.id}</TableCell>
+                      <TableCell>{item.customer}</TableCell>
+                      <TableCell>{item.product}</TableCell>
+                      <TableCell>{item.quantity.toLocaleString()}</TableCell>
                       <TableCell>
                         <Badge variant={
                           item.status === 'Released' ? 'success' : 
