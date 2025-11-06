@@ -281,13 +281,13 @@ const Orders = () => {
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
                     <TableHead>Customer</TableHead>
-                    <TableHead>Product(s)</TableHead>
                     <TableHead>Contact</TableHead>
+                    <TableHead>Product(s)</TableHead>
+                    <TableHead>Depot/State</TableHead>
+                    <TableHead>Pickup/Delivery</TableHead>
                     <TableHead>Quantity</TableHead>
                     <TableHead>Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Pickup/Delivery</TableHead>
-                    <TableHead>Depot/State</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
