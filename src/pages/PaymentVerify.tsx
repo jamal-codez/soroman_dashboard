@@ -138,7 +138,7 @@ function PaymentDetailsModal({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={onAllowPayment}>Allow Payment</Button>
+          <Button onClick={onAllowPayment}>Confirm Payment</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
