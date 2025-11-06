@@ -293,11 +293,15 @@ const Orders = () => {
                 <TableBody>
                   {filteredOrders.map((order) => (
                     <TableRow key={order.id}>
-                      <TableCell>{format(new Date(order.created_at), 'dd-MM-yyyy')}</TableCell>
+                      <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
                       <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
-                      <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.user.phone_number} / {order.user.email}</TableCell>
+                      <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
+                      <TableCell>{order.state}</TableCell>
+                      <TableCell>
+                        {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
+                      </TableCell>
                       <TableCell>{order.quantity.toLocaleString()}</TableCell>
                       <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
                       <TableCell>
@@ -305,10 +309,6 @@ const Orders = () => {
                           {getStatusIcon(order.status)} <span className="ml-1">{getStatusText(order.status)}</span>
                         </span>
                       </TableCell>
-                      <TableCell>
-                        {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
-                      </TableCell>
-                      <TableCell>{order.state}</TableCell>
                     </TableRow>
                   ))}
                   {filteredOrders.length === 0 && !isLoading && (
