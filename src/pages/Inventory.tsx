@@ -265,14 +265,14 @@ const Inventory = () => {
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl font-bold text-slate-800">Inventory Dashboard</h1>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+                {/* <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
                   <RefreshCw className={`mr-1 ${isLoading ? 'animate-spin' : ''}`} size={16} />
                   {isLoading ? 'Refreshing...' : 'Refresh'}
                 </Button>
                 <Button className="bg-[#169061] hover:bg-[#169061]/90" onClick={() => setIsModalOpen(true)}>
                   <Plus className="mr-1" size={16} />
                   Add Product
-                </Button>
+                </Button> */} 
               </div>
             </div>
 
