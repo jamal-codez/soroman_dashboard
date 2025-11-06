@@ -21,7 +21,7 @@ import { useToast } from '@/hooks/use-toast';
 
 interface PaymentOrder {
   id: number;
-  order_id: string;
+  order_id: string | number;
   amount: string;
   status: 'paid' | 'pending' | 'failed';
   payment_channel: string;
@@ -29,7 +29,7 @@ interface PaymentOrder {
   reference: string;
   updated_at: string;
 
-  // Add user shape similar to Orders.tsx
+  // Match how Orders.tsx gets the name
   user?: {
     first_name: string;
     last_name: string;
@@ -37,15 +37,16 @@ interface PaymentOrder {
     phone_number?: string;
   };
 
-  // In case API nests user under order
+  // Many APIs return the nested order with user inside
   order?: {
+    id: number;
     user?: {
       first_name: string;
       last_name: string;
     };
   };
 
-  // Fallback account info if available
+  // Fallback from payment provider/account name, if available
   acct?: {
     id: number;
     acct_no: string;
@@ -151,16 +152,18 @@ function getStatusClass(status: string): string {
   }
 }
 
-// Prefer customer name the same way as Orders.tsx: `${first_name} ${last_name}`
-// Try several shapes in case the API varies
+// Derive customer name like Orders.tsx: `${first_name} ${last_name}`
 function getCustomerName(p: PaymentOrder): string {
-  const fromUser = p.user ? `${p.user.first_name ?? ''} ${p.user.last_name ?? ''}`.trim() : '';
-  if (fromUser) return fromUser;
-
-  const fromOrderUser = p.order?.user ? `${p.order.user.first_name ?? ''} ${p.order.user.last_name ?? ''}`.trim() : '';
+  const fromOrderUser = p.order?.user
+    ? `${p.order.user.first_name ?? ''} ${p.order.user.last_name ?? ''}`.trim()
+    : '';
   if (fromOrderUser) return fromOrderUser;
 
-  // Last resort: account holder name if provided by payment channel
+  const fromTopLevelUser = p.user
+    ? `${p.user.first_name ?? ''} ${p.user.last_name ?? ''}`.trim()
+    : '';
+  if (fromTopLevelUser) return fromTopLevelUser;
+
   if (p.acct?.name) return p.acct.name;
 
   return '—';
@@ -185,6 +188,10 @@ export default function PaymentVerification() {
         page: currentPage,
         page_size: pageSize,
       });
+
+      // Helpful while validating field paths in dev:
+      // console.debug('verify-orders sample result', response?.results?.[0]);
+
       return response;
     },
     keepPreviousData: true,
@@ -294,41 +301,44 @@ export default function PaymentVerification() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    payments.map((payment) => (
-                      <TableRow key={payment.id}>
-                        <TableCell>
-                          {new Date(payment.created_at).toLocaleDateString('en-GB', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                          })}
-                        </TableCell>
-                        <TableCell>{payment.order_id}</TableCell>
-                        <TableCell>{getCustomerName(payment)}</TableCell>
-                        <TableCell>₦{parseFloat(payment.amount).toLocaleString()}</TableCell>
-                        <TableCell>{payment.payment_channel}</TableCell>
-                        <TableCell>
-                          <Badge className={getStatusClass(payment.status.toLowerCase())}>
-                            {payment.status.toLowerCase()}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={payment.status.toLowerCase() !== 'pending' || updatingPaymentId === payment.id}
-                            onClick={() => handleVerifyClick(payment)}
-                          >
-                            {updatingPaymentId === payment.id ? (
-                              <Loader2 className="animate-spin mr-2" size={16} />
-                            ) : (
-                              <ShieldCheck className="mr-2" size={16} />
-                            )}
-                            {payment.status.toLowerCase() === 'pending' ? 'Verify Payment' : 'Verified'}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    payments.map((payment) => {
+                      const customerName = getCustomerName(payment);
+                      return (
+                        <TableRow key={payment.id}>
+                          <TableCell>
+                            {new Date(payment.created_at).toLocaleDateString('en-GB', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                            })}
+                          </TableCell>
+                          <TableCell>{payment.order_id}</TableCell>
+                          <TableCell>{customerName}</TableCell>
+                          <TableCell>₦{parseFloat(payment.amount).toLocaleString()}</TableCell>
+                          <TableCell>{payment.payment_channel}</TableCell>
+                          <TableCell>
+                            <Badge className={getStatusClass(payment.status.toLowerCase())}>
+                              {payment.status.toLowerCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={payment.status.toLowerCase() !== 'pending' || updatingPaymentId === payment.id}
+                              onClick={() => handleVerifyClick(payment)}
+                            >
+                              {updatingPaymentId === payment.id ? (
+                                <Loader2 className="animate-spin mr-2" size={16} />
+                              ) : (
+                                <ShieldCheck className="mr-2" size={16} />
+                              )}
+                              {payment.status.toLowerCase() === 'pending' ? 'Verify Payment' : 'Verified'}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
