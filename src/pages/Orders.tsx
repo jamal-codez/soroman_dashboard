@@ -299,7 +299,12 @@ const Orders = () => {
                     <TableRow key={order.id}>
                       <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
-                      <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
+                     <TableCell>
+                       <span className="capitalize">
+                         {order.user.first_name} {order.user.last_name}
+                       </span>
+                     </TableCell>
+                     </TableCell>
                       <TableCell>{order.user.phone_number}</TableCell>
                       <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.state}</TableCell>
