@@ -29,6 +29,7 @@ interface Order {
     last_name: string;
     email: string;
     phone_number: string;
+    companyName?: string; // <-- updated to companyName
   };
   total_price: string;
   status: 'pending' | 'paid' | 'canceled' | 'completed';
@@ -129,10 +130,11 @@ const Orders = () => {
         const q = query.toLowerCase();
         const inId = order.id.toString().includes(q);
         const inName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q);
+        const inCompany = (order.user.companyName || '').toLowerCase().includes(q); // <-- search updated
         const inProducts = order.products.some(p => p.name.toLowerCase().includes(q));
         const inReleaseType = order.release_type.toLowerCase().includes(q);
         const inState = order.state ? order.state.toLowerCase().includes(q) : false;
-        return inId || inName || inProducts || inReleaseType || inState;
+        return inId || inName || inCompany || inProducts || inReleaseType || inState;
       })
       .filter(order => {
         if (!filterType) return true;
@@ -169,6 +171,7 @@ const Orders = () => {
       'Date',
       'Order ID',
       'Customer',
+      'Company', // <-- add column in CSV
       'Product(s)',
       'Contact',
       'Quantity (Litres)',
@@ -182,6 +185,7 @@ const Orders = () => {
       format(new Date(order.created_at), 'dd-MM-yyyy'),
       `#${order.id}`,
       `${order.user.first_name} ${order.user.last_name}`,
+      order.user.companyName || '', // <-- use companyName in CSV
       order.products.map(p => p.name).join(', '),
       `${order.user.phone_number} / ${order.user.email}`,
       order.quantity.toLocaleString(),
@@ -281,6 +285,7 @@ const Orders = () => {
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
                     <TableHead>Customer</TableHead>
+                    <TableHead>Company</TableHead> {/* <-- column added here */}
                     <TableHead>Contact</TableHead>
                     <TableHead>Product(s)</TableHead>
                     <TableHead>Depot/State</TableHead>
@@ -296,6 +301,7 @@ const Orders = () => {
                       <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
                       <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
+                      <TableCell>{order.user.companyName || '-'}</TableCell>
                       <TableCell>{order.user.phone_number} / {order.user.email}</TableCell>
                       <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.state}</TableCell>
@@ -313,7 +319,7 @@ const Orders = () => {
                   ))}
                   {filteredOrders.length === 0 && !isLoading && (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center text-slate-500 py-8">
+                      <TableCell colSpan={11} className="text-center text-slate-500 py-8">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
