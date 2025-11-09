@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,9 +13,7 @@ import {
   Clock,
   Truck,
   AlertCircle,
-  MoreHorizontal,
   Loader2,
-  Edit, Check,
 } from 'lucide-react';
 import {
   Dialog,
@@ -39,9 +37,9 @@ interface Order {
     companyName?: string; // <-- Use this field for company initials
   };
   pickup: {
-    pickup_date: string;  // Date in string format (e.g., "2025-04-30")
-    pickup_time: string;  // Time in string format (e.g., "14:00:00")
-    state: string;        // State name (e.g., "Kaduna")
+    pickup_date: string;
+    pickup_time: string;
+    state: string;
   };
   trucks: string[];
   total_price: string;
@@ -60,17 +58,14 @@ interface OrderResponse {
   results: Order[];
 }
 
-// The exact helper from the receipt for 2-letter company initials
+// Helper for company 2-letter initials (matches receipt)
 const getCompanyInitials = (name: string, max: number = 2): string => {
   const cleaned = String(name ?? "")
     .replace(/[^A-Za-z0-9\s]/g, " ")
     .trim();
   const words = cleaned.split(/\s+/).filter(Boolean);
   if (words.length >= max) {
-    return words
-      .slice(0, max)
-      .map((w) => w[0].toUpperCase())
-      .join("");
+    return words.slice(0, max).map(w => w[0].toUpperCase()).join("");
   }
   if (words.length === 1) {
     return words[0].slice(0, max).toUpperCase();
@@ -78,20 +73,16 @@ const getCompanyInitials = (name: string, max: number = 2): string => {
   return "SO".slice(0, max).toUpperCase();
 };
 
-// Compose reference just like the receipt:
-// {companyInitials}/{yyyyMMdd}/{orderId}
+// Receipt-matching reference: initials/yyyyMMdd/order id
 const formatReference = (
   companyName: string,
-  pickupDate: string,
+  createdAt: string,
   orderId: number
 ): string => {
-  // get company initials
   const initials = getCompanyInitials(companyName || "SOROMAN");
-  // date as yyyyMMdd (the receipt format)
-  const refDate =
-    pickupDate && !isNaN(Date.parse(pickupDate))
-      ? format(new Date(pickupDate), "yyyyMMdd")
-      : "--";
+  const refDate = createdAt && !isNaN(Date.parse(createdAt))
+    ? format(new Date(createdAt), "yyyyMMdd")
+    : "--";
   return `${initials}/${refDate}/${orderId}`;
 };
 
@@ -161,7 +152,7 @@ export const PickupProcessing = () => {
 
     const rows = orders.map(order => [
       order.id,
-      formatReference(order.user.companyName || "SOROMAN", order.pickup.pickup_date, order.id), // matches receipt
+      formatReference(order.user.companyName || "SOROMAN", order.created_at, order.id),
       `${order.user.first_name} ${order.user.last_name}`,
       order.user.email,
       order.pickup.pickup_date,
@@ -330,9 +321,9 @@ export const PickupProcessing = () => {
                   {filteredOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">{order.id}</TableCell>
-                      {/* Reference generated from the exact company name (not customer/user name), ISO date format, order id */}
+                      {/* Reference generated using companyName && created_at, matches the receipt! */}
                       <TableCell>
-                        {formatReference(order.user.companyName || "SOROMAN", order.pickup.pickup_date, order.id)}
+                        {formatReference(order.user.companyName || "SOROMAN", order.created_at, order.id)}
                       </TableCell>
                       <TableCell>
                         <div>
