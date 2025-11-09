@@ -20,26 +20,51 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 
+// Helper: get 2-letter initials from company name (matches your receipt reference)
+const getCompanyInitials = (name: string): string => {
+  const cleaned = String(name ?? '')
+    .replace(/[^A-Za-z0-9\s]/g, ' ')
+    .trim();
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return words.slice(0, 2).map(w => w[0].toUpperCase()).join('');
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return 'SO'; // fallback
+};
+
+// Reference format for receipt and table/csv
+const formatReference = (customer: string, date: string, id: number) => {
+  // Example: AL/Apr 05, 2025/1001
+  return `${getCompanyInitials(customer)}/${date}/${id}`;
+};
+
 type ReleaseItem = {
   id: number;
   date: string;        // e.g., 'Apr 05, 2025'
-  customer: string;
+  customer: string;    // Full company name
   product: string;
   quantity: number;
   status: 'Pending' | 'Released' | 'In Transit' | 'Delivered' | string;
-  // Keeping truckNumber for release workflow, but it's no longer shown in the table
   truckNumber?: string;
 };
 
 const releaseData: ReleaseItem[] = [
   {
-    id: 1,
+    id: 1001,
     date: 'Apr 05, 2025',
     customer: 'Acme Logistics Ltd.',
     product: 'Premium Motor Spirit (PMS)',
     quantity: 15000,
     status: 'Pending',
     truckNumber: ''
+  },
+  {
+    id: 1002,
+    date: 'Apr 06, 2025',
+    customer: 'Bravo Oil Co.',
+    product: 'Automotive Gas Oil (AGO)',
+    quantity: 12000,
+    status: 'Released',
+    truckNumber: 'TRK-8892'
   },
   // ... other release items
 ];
@@ -62,10 +87,11 @@ export default function Release (){
   };
 
   const exportToCSV = () => {
-    const headers = ['Date', 'Order ID', 'Customer', 'Product', 'Quantity', 'Status'];
+    const headers = ['Date', 'Order ID', 'Reference', 'Customer', 'Product', 'Quantity', 'Status'];
     const rows = releases.map(item => [
       item.date,
       item.id,
+      formatReference(item.customer, item.date, item.id),
       item.customer,
       item.product,
       item.quantity,
@@ -92,10 +118,8 @@ export default function Release (){
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
-      
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
-      
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
@@ -118,6 +142,7 @@ export default function Release (){
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
+                    <TableHead>Reference</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Quantity</TableHead>
@@ -130,6 +155,9 @@ export default function Release (){
                     <TableRow key={item.id}>
                       <TableCell>{item.date}</TableCell>
                       <TableCell>{item.id}</TableCell>
+                      <TableCell>
+                        {formatReference(item.customer, item.date, item.id)}
+                      </TableCell>
                       <TableCell>{item.customer}</TableCell>
                       <TableCell>{item.product}</TableCell>
                       <TableCell>{item.quantity.toLocaleString()}</TableCell>
