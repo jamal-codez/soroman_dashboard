@@ -285,7 +285,7 @@ const Orders = () => {
                     <TableHead>Order ID</TableHead>
                     <TableHead>Customer</TableHead>
                     {/* <TableHead>Company</TableHead> <-- Removed */}
-                    <TableHead>Company</TableHead>
+                    <TableHead>Phone Number</TableHead>
                     <TableHead>Product(s)</TableHead>
                     <TableHead>Depot/State</TableHead>
                     <TableHead>Pickup/Delivery</TableHead>
@@ -299,8 +299,8 @@ const Orders = () => {
                     <TableRow key={order.id}>
                       <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
-                      <TableCell>{order.user.first_name} {order.user.last_name} / {order.user.phone_number}</TableCell>
-                      <TableCell>{order.user.companyName || "-"}</TableCell>
+                      <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
+                      <TableCell>{order.user.phone_number}</TableCell>
                       <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.state}</TableCell>
                       <TableCell>
