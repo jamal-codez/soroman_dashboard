@@ -263,7 +263,7 @@ const Inventory = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Inventory Dashboard</h1>
+              <h1 className="text-2xl font-bold text-slate-800">All Inventory</h1>
               <div className="flex gap-2">
                 {/* <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
                   <RefreshCw className={`mr-1 ${isLoading ? 'animate-spin' : ''}`} size={16} />
@@ -280,7 +280,7 @@ const Inventory = () => {
               <Label className="block text-lg font-medium text-slate-700 mb-4">
                     <span className="flex items-center gap-2">
                       <MapPin className="w-5 h-5 text-slate-500" />
-                      State<span className="text-red-900 ml-1">*</span>
+                      Depot/State<span className="text-red-900 ml-1">*</span>
                     </span>
                   </Label>
               <div className="flex flex-col sm:flex-row gap-4">
