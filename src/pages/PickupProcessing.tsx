@@ -4,7 +4,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useToast } from '@/hooks/use-toast';
 import {
   Download,
@@ -19,16 +18,8 @@ import {
   Edit, Check,
 } from 'lucide-react';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -45,6 +36,7 @@ interface Order {
     first_name: string;
     last_name: string;
     email: string;
+    companyName?: string; // <-- Use this field for company initials
   };
   pickup: {
     pickup_date: string;  // Date in string format (e.g., "2025-04-30")
@@ -68,24 +60,39 @@ interface OrderResponse {
   results: Order[];
 }
 
-// Helper function: get 2-letter company initials
-const getCompanyInitials = (name: string): string => {
-  const cleaned = String(name ?? '')
-    .replace(/[^A-Za-z0-9\s]/g, ' ')
+// The exact helper from the receipt for 2-letter company initials
+const getCompanyInitials = (name: string, max: number = 2): string => {
+  const cleaned = String(name ?? "")
+    .replace(/[^A-Za-z0-9\s]/g, " ")
     .trim();
   const words = cleaned.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) return words.slice(0, 2).map(w => w[0].toUpperCase()).join('');
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return 'SO'; // fallback
+  if (words.length >= max) {
+    return words
+      .slice(0, max)
+      .map((w) => w[0].toUpperCase())
+      .join("");
+  }
+  if (words.length === 1) {
+    return words[0].slice(0, max).toUpperCase();
+  }
+  return "SO".slice(0, max).toUpperCase();
 };
 
-// Helper to construct reference that matches the receipt:
-const formatReference = (firstName: string, lastName: string, pickupDate: string, orderId: number): string => {
-  // Example: "AL/Apr 05, 2025/1001"
-  const initials = getCompanyInitials(`${firstName} ${lastName}`);
-  // Format date as "MMM dd, yyyy" for the receipt
-  const prettyDate = pickupDate ? format(new Date(pickupDate), "MMM dd, yyyy") : "--";
-  return `${initials}/${prettyDate}/${orderId}`;
+// Compose reference just like the receipt:
+// {companyInitials}/{yyyyMMdd}/{orderId}
+const formatReference = (
+  companyName: string,
+  pickupDate: string,
+  orderId: number
+): string => {
+  // get company initials
+  const initials = getCompanyInitials(companyName || "SOROMAN");
+  // date as yyyyMMdd (the receipt format)
+  const refDate =
+    pickupDate && !isNaN(Date.parse(pickupDate))
+      ? format(new Date(pickupDate), "yyyyMMdd")
+      : "--";
+  return `${initials}/${refDate}/${orderId}`;
 };
 
 const pageSize = 10;
@@ -154,7 +161,7 @@ export const PickupProcessing = () => {
 
     const rows = orders.map(order => [
       order.id,
-      formatReference(order.user.first_name, order.user.last_name, order.pickup.pickup_date, order.id), // <-- Receipt-matching reference
+      formatReference(order.user.companyName || "SOROMAN", order.pickup.pickup_date, order.id), // matches receipt
       `${order.user.first_name} ${order.user.last_name}`,
       order.user.email,
       order.pickup.pickup_date,
@@ -280,12 +287,10 @@ export const PickupProcessing = () => {
                     className="flex items-center"
                     onClick={async () => {
                       try {
-                        // Fetch all data — you might need to allow this API to return all records
                         const response = await apiClient.admin.getPickupOrders({
                           page: 1,
                           page_size: 10000
                         });
-
                         if (response.results && response.results.length > 0) {
                           exportToCSV(response.results);
                         } else {
@@ -325,9 +330,9 @@ export const PickupProcessing = () => {
                   {filteredOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">{order.id}</TableCell>
-                      {/* Reference generated from EXACT receipt logic */}
+                      {/* Reference generated from the exact company name (not customer/user name), ISO date format, order id */}
                       <TableCell>
-                        {formatReference(order.user.first_name, order.user.last_name, order.pickup.pickup_date, order.id)}
+                        {formatReference(order.user.companyName || "SOROMAN", order.pickup.pickup_date, order.id)}
                       </TableCell>
                       <TableCell>
                         <div>
