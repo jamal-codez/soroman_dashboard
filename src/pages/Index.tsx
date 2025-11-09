@@ -33,7 +33,7 @@ interface Order {
     last_name: string;
     email: string;
     phone_number: string;
-    companyName?: string;
+    companyName?: string; // not displayed anymore, kept for potential reuse
   };
   total_price: string;
   status: 'pending' | 'paid' | 'canceled' | 'completed';
@@ -41,7 +41,6 @@ interface Order {
   products: Array<{ name: string }>;
   quantity: number;
   release_type: 'pickup' | 'delivery';
-  reference: string;
   state: string;
 }
 
@@ -57,16 +56,22 @@ interface AnalyticsData {
   sales_revenue_change?: number;
   active_customers_change?: number;
   unpaid_orders?: number;
-  customers?: number;
 }
 
 interface CustomerResponse {
   count: number;
-  customers: Array<any>;
+  customers: Array<{
+    id: number | string;
+    first_name?: string;
+    last_name?: string;
+    name?: string;
+    email?: string;
+    orders_count?: number;
+  }>;
 }
 
 // ---------- Helpers ----------
-const formatMillion = (num: number | string | undefined): string => {
+const formatMillion = (num: number | undefined): string => {
   const value = Number(num || 0);
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`;
   return value.toLocaleString();
@@ -98,16 +103,11 @@ const getStatusIcon = (status: string) => {
 
 const getStatusClass = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid':
-      return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending':
-      return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'canceled':
-      return 'bg-red-50 text-red-700 border-red-200';
-    case 'completed':
-      return 'bg-blue-50 text-blue-700 border-blue-200';
-    default:
-      return 'bg-gray-50 text-blue-700 border-blue-200';
+    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
+    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
+    case 'completed': return 'bg-blue-50 text-blue-700 border-blue-200';
+    default: return 'bg-gray-50 text-blue-700 border-blue-200';
   }
 };
 
@@ -131,16 +131,16 @@ const SimpleStatCard: React.FC<SimpleStatProps> = ({
 }) => {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 flex flex-col items-center text-center shadow-sm">
-      <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 bg-slate-100`}>
+      <div className="w-10 h-10 rounded-full flex items-center justify-center mb-2 bg-slate-100">
         <Icon size={20} className={iconColor} />
       </div>
       <p className="text-xs uppercase tracking-wide text-slate-500 font-medium">{title}</p>
       <h3 className="mt-1 text-xl font-semibold text-slate-800 leading-tight">
         {isLoading ? '...' : value}
       </h3>
-      {change && (
+      {change && !isLoading && (
         <p className="mt-1 text-xs font-medium text-green-600">
-          {isLoading ? '' : change}
+          {change}
         </p>
       )}
     </div>
@@ -161,21 +161,25 @@ const Dashboard: React.FC = () => {
     queryFn: () => apiClient.admin.getAnalytics()
   });
 
-  // Orders (full list)
-  const { data: ordersResponse, isLoading: isOrdersLoading, isError: isOrdersError, error: ordersError } =
-    useQuery<OrderResponse>({
-      queryKey: ['all-orders-dashboard'],
-      queryFn: async () => {
-        const response = await apiClient.admin.getAllAdminOrders();
-        if (!response.results) throw new Error('Invalid response format');
-        return {
-          count: response.count || 0,
-          results: response.results || []
-        };
-      },
-      retry: 2,
-      refetchOnWindowFocus: false
-    });
+  // Orders
+  const {
+    data: ordersResponse,
+    isLoading: isOrdersLoading,
+    isError: isOrdersError,
+    error: ordersError
+  } = useQuery<OrderResponse>({
+    queryKey: ['all-orders-dashboard'],
+    queryFn: async () => {
+      const response = await apiClient.admin.getAllAdminOrders();
+      if (!response.results) throw new Error('Invalid response format');
+      return {
+        count: response.count || 0,
+        results: response.results || []
+      };
+    },
+    retry: 2,
+    refetchOnWindowFocus: false
+  });
 
   // Customers
   const { data: customerData } = useQuery<CustomerResponse>({
@@ -206,11 +210,10 @@ const Dashboard: React.FC = () => {
         const q = query.toLowerCase();
         const inId = order.id.toString().includes(q);
         const inName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q);
-        const inCompany = (order.user.companyName || '').toLowerCase().includes(q);
         const inProducts = order.products.some(p => p.name.toLowerCase().includes(q));
         const inReleaseType = order.release_type.toLowerCase().includes(q);
         const inState = order.state ? order.state.toLowerCase().includes(q) : false;
-        return inId || inName || inCompany || inProducts || inReleaseType || inState;
+        return inId || inName || inProducts || inReleaseType || inState;
       })
       .filter(order => {
         if (!filterType) return true;
@@ -228,10 +231,10 @@ const Dashboard: React.FC = () => {
       .filter(order => {
         if (!locationFilter) return true;
         return order.state === locationFilter;
-      });
+      })
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [ordersResponse?.results, searchQuery, filterType, productFilter, locationFilter]);
 
-  // Limit for "Recent Orders"
   const limitRecentOrders = 15;
   const recentOrders = filteredOrders.slice(0, limitRecentOrders);
 
@@ -241,28 +244,26 @@ const Dashboard: React.FC = () => {
       'Date',
       'Order ID',
       'Customer',
-      'Company',
-      'Product(s)',
       'Phone Number',
+      'Product(s)',
+      'Depot/State',
+      'Pickup/Delivery',
       'Quantity (Litres)',
       'Amount Paid (₦)',
-      'Status',
-      'Pickup/Delivery',
-      'State'
+      'Status'
     ];
 
-    const rows = [...recentOrders].map(order => [
+    const rows = recentOrders.map(order => [
       format(new Date(order.created_at), 'dd-MM-yyyy'),
       `#${order.id}`,
       `${order.user.first_name} ${order.user.last_name}`,
-      order.user.companyName || '',
-      order.products.map(p => p.name).join(', '),
       order.user.phone_number,
+      order.products.map(p => p.name).join(', '),
+      order.state,
+      order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
       order.quantity.toLocaleString(),
       parseFloat(order.total_price).toLocaleString(),
-      getStatusText(order.status),
-      order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
-      order.state
+      getStatusText(order.status)
     ]);
 
     const csvContent = [headers, ...rows]
@@ -294,19 +295,19 @@ const Dashboard: React.FC = () => {
             </div>
 
             {/* Stat Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
+            <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
               <SimpleStatCard
                 title="Total Orders"
                 value={(analytics?.orders ?? 0).toLocaleString()}
-                change={analytics?.orders_change ? `+${analytics.orders_change}%` : undefined}
+                change={Number.isFinite(analytics?.orders_change) ? `+${analytics!.orders_change}%` : undefined}
                 icon={ShoppingCart}
                 iconColor="text-blue-600"
                 isLoading={analyticsLoading}
               />
               <SimpleStatCard
                 title="Sales Revenue"
-                value={`₦${formatMillion(analytics?.sales_revenue ?? 0)}`}
-                change={analytics?.sales_revenue_change ? `+${analytics.sales_revenue_change}%` : undefined}
+                value={`₦${formatMillion(analytics?.sales_revenue)}`}
+                change={Number.isFinite(analytics?.sales_revenue_change) ? `+${analytics!.sales_revenue_change}%` : undefined}
                 icon={TrendingUp}
                 iconColor="text-green-600"
                 isLoading={analyticsLoading}
@@ -314,7 +315,7 @@ const Dashboard: React.FC = () => {
               <SimpleStatCard
                 title="Total Customers"
                 value={(customerData?.count ?? 0).toLocaleString()}
-                change={analytics?.active_customers_change ? `+${analytics.active_customers_change}%` : undefined}
+                change={Number.isFinite(analytics?.active_customers_change) ? `+${analytics!.active_customers_change}%` : undefined}
                 icon={Users}
                 iconColor="text-purple-600"
                 isLoading={analyticsLoading}
@@ -357,27 +358,27 @@ const Dashboard: React.FC = () => {
                     <option value="year">This Year</option>
                   </select>
 
-                  <select
-                    className="border border-gray-300 rounded px-3 py-2 text-sm"
-                    value={productFilter ?? ''}
-                    onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">All Products</option>
-                    {uniqueProducts.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
+                    <select
+                      className="border border-gray-300 rounded px-3 py-2 text-sm"
+                      value={productFilter ?? ''}
+                      onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
+                    >
+                      <option value="">All Products</option>
+                      {uniqueProducts.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
 
-                  <select
-                    className="border border-gray-300 rounded px-3 py-2 text-sm"
-                    value={locationFilter ?? ''}
-                    onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">All Locations</option>
-                    {uniqueLocations.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
+                    <select
+                      className="border border-gray-300 rounded px-3 py-2 text-sm"
+                      value={locationFilter ?? ''}
+                      onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
+                    >
+                      <option value="">All Locations</option>
+                      {uniqueLocations.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
 
                   <Button
                     variant="outline"
@@ -407,7 +408,6 @@ const Dashboard: React.FC = () => {
                       <TableHead className="whitespace-nowrap">Date</TableHead>
                       <TableHead className="whitespace-nowrap">Order ID</TableHead>
                       <TableHead className="whitespace-nowrap">Customer</TableHead>
-                      <TableHead className="whitespace-nowrap">Company</TableHead>
                       <TableHead className="whitespace-nowrap">Phone Number</TableHead>
                       <TableHead className="whitespace-nowrap">Product(s)</TableHead>
                       <TableHead className="whitespace-nowrap">Depot/State</TableHead>
@@ -420,17 +420,16 @@ const Dashboard: React.FC = () => {
                   <TableBody>
                     {isOrdersLoading && (
                       <TableRow>
-                        <TableCell colSpan={11} className="py-8 text-center text-slate-500 text-sm">
+                        <TableCell colSpan={10} className="py-8 text-center text-slate-500 text-sm">
                           Loading orders...
                         </TableCell>
                       </TableRow>
                     )}
-                    {!isOrdersLoading && recentOrders.map((order) => (
+                    {!isOrdersLoading && recentOrders.map(order => (
                       <TableRow key={order.id}>
                         <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
                         <TableCell>#{order.id}</TableCell>
                         <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
-                        <TableCell>{order.user.companyName || '-'}</TableCell>
                         <TableCell>{order.user.phone_number}</TableCell>
                         <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                         <TableCell>{order.state}</TableCell>
@@ -446,7 +445,7 @@ const Dashboard: React.FC = () => {
                     ))}
                     {!isOrdersLoading && recentOrders.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={11} className="text-center text-slate-500 py-8 text-sm">
+                        <TableCell colSpan={10} className="text-center text-slate-500 py-8 text-sm">
                           No recent orders match your filters.
                         </TableCell>
                       </TableRow>
@@ -461,28 +460,29 @@ const Dashboard: React.FC = () => {
               )}
             </div>
 
-            {/* Customers (Optional Section) */}
+            {/* Customers (Optional) */}
             <div className="mt-8">
-              <h2 className="text-sm sm:text-base font-semibold text-slate-800 mb-3">
-                Customers
-              </h2>
+              <h2 className="text-sm sm:text-base font-semibold text-slate-800 mb-3">Customers</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {(customerData?.customers || []).slice(0, 6).map((c: any) => (
-                  <div
-                    key={c.id}
-                    className="rounded-lg border border-slate-200 bg-white p-3 flex flex-col justify-between"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800 truncate">
-                        {c.name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unnamed'}
+                {(customerData?.customers || []).slice(0, 6).map(c => {
+                  const displayName = c.name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unnamed';
+                  return (
+                    <div
+                      key={c.id}
+                      className="rounded-lg border border-slate-200 bg-white p-3 flex flex-col justify-between"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {displayName}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate mt-1">{c.email || 'No email'}</p>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-600">
+                        Orders: <span className="font-medium">{c.orders_count ?? 0}</span>
                       </p>
-                      <p className="text-xs text-slate-500 truncate mt-1">{c.email || 'No email'}</p>
                     </div>
-                    <p className="mt-2 text-xs text-slate-600">
-                      Orders: <span className="font-medium">{c.orders_count ?? 0}</span>
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
                 {(!customerData?.customers || customerData.customers.length === 0) && (
                   <div className="text-sm text-slate-500">
                     No customers available.
