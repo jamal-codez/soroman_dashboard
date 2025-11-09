@@ -1,234 +1,501 @@
+import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
-import { StatCard } from '@/components/StatCard';
-import { ProductsOverview } from '@/components/ProductsOverview';
-import { SalesChart } from '@/components/SalesChart';
-import { CustomerList } from '@/components/CustomerList';
-import { NotificationList } from '@/components/NotificationList';
-import { QuickActions } from '@/components/QuickActions';
-import { 
-  ShoppingCart, 
-  Fuel, 
-  TrendingUp, 
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+import {
+  Download,
+  Search,
+  ShoppingCart,
+  TrendingUp,
   Users,
-  CreditCard
+  AlertCircle,
+  CheckCircle,
+  Clock
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { OrdersTable } from '@/components/OrdersTable';
-import { AnalyticsData, Product, Order, Customer } from '@/type';
-import React from 'react';
+import { format, isThisWeek, isThisMonth, isThisYear, isToday } from 'date-fns';
 
-// Helper function to format millions
-const formatMillion = (num) => {
-  if (num >= 1_000_000) {
-    return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`;
-  }
-  return num.toLocaleString();
-};
-
-interface ModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  title: string;
-  children: React.ReactNode;
+// ---------- Types ----------
+interface Order {
+  id: number;
+  user: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone_number: string;
+    companyName?: string;
+  };
+  total_price: string;
+  status: 'pending' | 'paid' | 'canceled' | 'completed';
+  created_at: string;
+  products: Array<{ name: string }>;
+  quantity: number;
+  release_type: 'pickup' | 'delivery';
+  reference: string;
+  state: string;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
-  if (!isOpen) return null;
+interface OrderResponse {
+  count: number;
+  results: Order[];
+}
 
+interface AnalyticsData {
+  orders?: number;
+  orders_change?: number;
+  sales_revenue?: number;
+  sales_revenue_change?: number;
+  active_customers_change?: number;
+  unpaid_orders?: number;
+  customers?: number;
+}
+
+interface CustomerResponse {
+  count: number;
+  customers: Array<any>;
+}
+
+// ---------- Helpers ----------
+const formatMillion = (num: number | string | undefined): string => {
+  const value = Number(num || 0);
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`;
+  return value.toLocaleString();
+};
+
+const statusDisplayMap: Record<string, string> = {
+  pending: 'Pending',
+  paid: 'Paid',
+  canceled: 'Canceled',
+  completed: 'Completed'
+};
+
+const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()] || status;
+
+const getStatusIcon = (status: string) => {
+  switch (status.toLowerCase()) {
+    case 'paid':
+      return <CheckCircle className="text-green-500" size={14} />;
+    case 'pending':
+      return <Clock className="text-orange-500" size={14} />;
+    case 'canceled':
+      return <AlertCircle className="text-red-500" size={14} />;
+    case 'completed':
+      return <CheckCircle className="text-blue-500" size={14} />;
+    default:
+      return <CheckCircle className="text-blue-500" size={14} />;
+  }
+};
+
+const getStatusClass = (status: string) => {
+  switch (status.toLowerCase()) {
+    case 'paid':
+      return 'bg-green-50 text-green-700 border-green-200';
+    case 'pending':
+      return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'canceled':
+      return 'bg-red-50 text-red-700 border-red-200';
+    case 'completed':
+      return 'bg-blue-50 text-blue-700 border-blue-200';
+    default:
+      return 'bg-gray-50 text-blue-700 border-blue-200';
+  }
+};
+
+// ---------- Simple Stat Card (icon on top) ----------
+interface SimpleStatProps {
+  title: string;
+  value: string;
+  change?: string;
+  icon: React.ElementType;
+  iconColor?: string;
+  isLoading?: boolean;
+}
+
+const SimpleStatCard: React.FC<SimpleStatProps> = ({
+  title,
+  value,
+  change,
+  icon: Icon,
+  iconColor = 'text-slate-600',
+  isLoading
+}) => {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-lg w-1/3">
-        <div className="flex justify-between items-center p-4 border-b">
-          <h3 className="text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">&times;</button>
-        </div>
-        <div className="p-4">
-          {children}
-        </div>
+    <div className="rounded-lg border border-slate-200 bg-white p-4 flex flex-col items-center text-center shadow-sm">
+      <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 bg-slate-100`}>
+        <Icon size={20} className={iconColor} />
       </div>
+      <p className="text-xs uppercase tracking-wide text-slate-500 font-medium">{title}</p>
+      <h3 className="mt-1 text-xl font-semibold text-slate-800 leading-tight">
+        {isLoading ? '...' : value}
+      </h3>
+      {change && (
+        <p className="mt-1 text-xs font-medium text-green-600">
+          {isLoading ? '' : change}
+        </p>
+      )}
     </div>
   );
 };
 
-const Dashboard = () => {
+// ---------- Dashboard Component ----------
+const Dashboard: React.FC = () => {
   const queryClient = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<'today' | 'week' | 'month' | 'year' | null>(null);
+  const [productFilter, setProductFilter] = useState<string | null>(null);
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
 
-  // Dummy data for new analytics
-  const pendingOrderValue = 500000; // Example value in your currency
-  const totalUnpaidOrders = 25; // Example count
-
+  // Analytics
   const { data: analytics, isLoading: analyticsLoading } = useQuery<AnalyticsData>({
     queryKey: ['analytics'],
-    queryFn: () => apiClient.admin.getAnalytics(),
+    queryFn: () => apiClient.admin.getAnalytics()
   });
 
-  const { data: salesOverview } = useQuery({
-    queryKey: ['sales-overview'],
-    queryFn: () => apiClient.admin.getSalesOverview(),
-    select: (data) => {
-      const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
-      return months.map(month => ({
-        month: `Month ${month}`,
-        ...Object.entries(data).reduce((acc, [product, sales]) => ({
-          ...acc,
-          [product]: sales[month] || 0
-        }), {})
-      }));
-    }
-  });
+  // Orders (full list)
+  const { data: ordersResponse, isLoading: isOrdersLoading, isError: isOrdersError, error: ordersError } =
+    useQuery<OrderResponse>({
+      queryKey: ['all-orders-dashboard'],
+      queryFn: async () => {
+        const response = await apiClient.admin.getAllAdminOrders();
+        if (!response.results) throw new Error('Invalid response format');
+        return {
+          count: response.count || 0,
+          results: response.results || []
+        };
+      },
+      retry: 2,
+      refetchOnWindowFocus: false
+    });
 
-  console.log(salesOverview);
-
-  const { data: products } = useQuery<Product[]>({
-    queryKey: ['products'],
-    queryFn: () => apiClient.admin.getProductInventory(),
-  });
-
-  const { data: orders } = useQuery<Order[]>({
-    queryKey: ['orders'],
-    queryFn: () => apiClient.admin.getAllAdminOrders(),
-  });
-
-  const { data: customerData } = useQuery({
+  // Customers
+  const { data: customerData } = useQuery<CustomerResponse>({
     queryKey: ['customers'],
-    queryFn: () => apiClient.admin.adminGetAllCustomers(),
+    queryFn: () => apiClient.admin.adminGetAllCustomers()
   });
 
-  const fuelMetrics = analytics?.quantity_sold?.reduce((acc, product) => ({
-    volume: acc.volume + product.current_quantity,
-    change: acc.change + product.change
-  }), { volume: 0, change: 0 }) || { volume: 0, change: 0 };
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value.toLowerCase());
+  };
+
+  const uniqueProducts = useMemo(() => {
+    const names = (ordersResponse?.results ?? []).flatMap(o => o.products.map(p => p.name)).filter(Boolean);
+    return Array.from(new Set(names)).sort();
+  }, [ordersResponse?.results]);
+
+  const uniqueLocations = useMemo(() => {
+    const states = (ordersResponse?.results ?? []).map(o => o.state).filter(Boolean);
+    return Array.from(new Set(states)).sort();
+  }, [ordersResponse?.results]);
+
+  const filteredOrders = useMemo(() => {
+    const base = ordersResponse?.results || [];
+    return base
+      .filter(order => {
+        const query = searchQuery.trim();
+        if (!query) return true;
+        const q = query.toLowerCase();
+        const inId = order.id.toString().includes(q);
+        const inName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q);
+        const inCompany = (order.user.companyName || '').toLowerCase().includes(q);
+        const inProducts = order.products.some(p => p.name.toLowerCase().includes(q));
+        const inReleaseType = order.release_type.toLowerCase().includes(q);
+        const inState = order.state ? order.state.toLowerCase().includes(q) : false;
+        return inId || inName || inCompany || inProducts || inReleaseType || inState;
+      })
+      .filter(order => {
+        if (!filterType) return true;
+        const date = new Date(order.created_at);
+        if (filterType === 'today') return isToday(date);
+        if (filterType === 'week') return isThisWeek(date);
+        if (filterType === 'month') return isThisMonth(date);
+        if (filterType === 'year') return isThisYear(date);
+        return true;
+      })
+      .filter(order => {
+        if (!productFilter) return true;
+        return order.products.some(p => p.name === productFilter);
+      })
+      .filter(order => {
+        if (!locationFilter) return true;
+        return order.state === locationFilter;
+      });
+  }, [ordersResponse?.results, searchQuery, filterType, productFilter, locationFilter]);
+
+  // Limit for "Recent Orders"
+  const limitRecentOrders = 15;
+  const recentOrders = filteredOrders.slice(0, limitRecentOrders);
+
+  const exportToCSV = () => {
+    if (!recentOrders.length) return;
+    const headers = [
+      'Date',
+      'Order ID',
+      'Customer',
+      'Company',
+      'Product(s)',
+      'Phone Number',
+      'Quantity (Litres)',
+      'Amount Paid (₦)',
+      'Status',
+      'Pickup/Delivery',
+      'State'
+    ];
+
+    const rows = [...recentOrders].map(order => [
+      format(new Date(order.created_at), 'dd-MM-yyyy'),
+      `#${order.id}`,
+      `${order.user.first_name} ${order.user.last_name}`,
+      order.user.companyName || '',
+      order.products.map(p => p.name).join(', '),
+      order.user.phone_number,
+      order.quantity.toLocaleString(),
+      parseFloat(order.total_price).toLocaleString(),
+      getStatusText(order.status),
+      order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
+      order.state
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `recent_orders_${new Date().toISOString()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
-
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
-
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-4 sm:p-6">
           <div className="max-w-7xl mx-auto">
-            <div className="mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Dashboard</h1>
-              <p className="text-slate-500">Welcome back, monitor your business at a glance.</p>
+            {/* Header */}
+            <div className="mb-4 sm:mb-6">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Dashboard</h1>
+              <p className="text-slate-500 text-sm sm:text-base">
+                Welcome back, monitor your business at a glance.
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <StatCard
+            {/* Stat Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
+              <SimpleStatCard
                 title="Total Orders"
-                value={analytics?.orders?.toString() || '0'}
-                change={`+${analytics?.orders_change}%`}
-                changeDirection="up"
+                value={(analytics?.orders ?? 0).toLocaleString()}
+                change={analytics?.orders_change ? `+${analytics.orders_change}%` : undefined}
                 icon={ShoppingCart}
-                iconColor="text-blue-500"
-                iconBgColor="bg-blue-100"
+                iconColor="text-blue-600"
                 isLoading={analyticsLoading}
               />
-              <StatCard
+              <SimpleStatCard
                 title="Sales Revenue"
-                value={`₦${formatMillion(analytics?.sales_revenue?.toLocaleString() || 0)}`}
-                change={`+${analytics?.sales_revenue_change}%`}
-                changeDirection="up"
+                value={`₦${formatMillion(analytics?.sales_revenue ?? 0)}`}
+                change={analytics?.sales_revenue_change ? `+${analytics.sales_revenue_change}%` : undefined}
                 icon={TrendingUp}
-                iconColor="text-green-500"
-                iconBgColor="bg-green-100"
+                iconColor="text-green-600"
                 isLoading={analyticsLoading}
               />
-              <StatCard
-                title="Fuel Sold Today"
-                value={`${fuelMetrics.volume.toLocaleString()}L`}
-                change={`+${(fuelMetrics.change / (analytics?.quantity_sold?.length || 1)).toFixed(1)}%`}
-                changeDirection="up"
-                icon={Fuel}
-                iconColor="text-orange-500"
-                iconBgColor="bg-orange-100"
-                isLoading={analyticsLoading}
-              />
-              <StatCard
+              <SimpleStatCard
                 title="Total Customers"
-                value={customerData?.count.toString() || '0'}
-                change={`+${analytics?.active_customers_change}%`}
-                changeDirection="up"
+                value={(customerData?.count ?? 0).toLocaleString()}
+                change={analytics?.active_customers_change ? `+${analytics.active_customers_change}%` : undefined}
                 icon={Users}
-                iconColor="text-purple-500"
-                iconBgColor="bg-purple-100"
+                iconColor="text-purple-600"
                 isLoading={analyticsLoading}
               />
-              {/* New StatCard for Pending Order Value */}
-              <StatCard
-                title="Pending Order Value"
-                value={`₦${formatMillion(analytics?.pending_order_value?.toLocaleString() || 0)}`}
-                change={`+5%`} // Example change percentage
-                changeDirection="up"
-                icon={CreditCard}
-                iconColor="text-red-500"
-                iconBgColor="bg-red-100"
-                isLoading={false} // Assuming no loading state for dummy data
-              />
-              {/* New StatCard for Total Unpaid Orders */}
-              <StatCard
-                title="Total Unpaid Orders"
-                value={formatMillion(analytics?.unpaid_orders?.toLocaleString() || 0)}
-                change={`+10%`} // Example change percentage
-                changeDirection="up"
+              <SimpleStatCard
+                title="Unpaid Orders"
+                value={(analytics?.unpaid_orders ?? 0).toLocaleString()}
                 icon={ShoppingCart}
-                iconColor="text-yellow-500"
-                iconBgColor="bg-yellow-100"
-                isLoading={false} // Assuming no loading state for dummy data
+                iconColor="text-amber-600"
+                isLoading={analyticsLoading}
               />
             </div>
-            
-            {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-              <div className="lg:col-span-2">
-                <SalesChart 
-                  data={salesOverview || []} 
-                  products={products?.map(p => p.name) || []}
-                />
-                
-                
+
+            {/* Filters + Export */}
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
+              <div className="flex flex-col lg:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input
+                    type="text"
+                    placeholder="Search orders..."
+                    className="pl-10"
+                    value={searchQuery}
+                    onChange={handleSearch}
+                  />
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <select
+                    className="border border-gray-300 rounded px-3 py-2 text-sm"
+                    value={filterType ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value as '' | 'today' | 'week' | 'month' | 'year';
+                      setFilterType(v === '' ? null : v);
+                    }}
+                  >
+                    <option value="">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="year">This Year</option>
+                  </select>
+
+                  <select
+                    className="border border-gray-300 rounded px-3 py-2 text-sm"
+                    value={productFilter ?? ''}
+                    onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">All Products</option>
+                    {uniqueProducts.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    className="border border-gray-300 rounded px-3 py-2 text-sm"
+                    value={locationFilter ?? ''}
+                    onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">All Locations</option>
+                    {uniqueLocations.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+
+                  <Button
+                    variant="outline"
+                    onClick={exportToCSV}
+                    className="text-sm"
+                    disabled={!recentOrders.length}
+                  >
+                    <Download size={16} className="mr-1" />
+                    Export Recent
+                  </Button>
+                </div>
               </div>
-              <div>
-                <ProductsOverview 
-                  products={products || []} 
-                  stockChanges={analytics?.quantity_sold || []}
-                />
+            </div>
+
+            {/* Recent Orders Table */}
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                <h2 className="text-sm sm:text-base font-semibold text-slate-800">Recent Orders</h2>
+                <span className="text-xs text-slate-500">
+                  Showing {recentOrders.length} of {filteredOrders.length} filtered
+                </span>
+              </div>
+              <div className="overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="whitespace-nowrap">Date</TableHead>
+                      <TableHead className="whitespace-nowrap">Order ID</TableHead>
+                      <TableHead className="whitespace-nowrap">Customer</TableHead>
+                      <TableHead className="whitespace-nowrap">Company</TableHead>
+                      <TableHead className="whitespace-nowrap">Phone Number</TableHead>
+                      <TableHead className="whitespace-nowrap">Product(s)</TableHead>
+                      <TableHead className="whitespace-nowrap">Depot/State</TableHead>
+                      <TableHead className="whitespace-nowrap">Pickup/Delivery</TableHead>
+                      <TableHead className="whitespace-nowrap">Quantity</TableHead>
+                      <TableHead className="whitespace-nowrap">Amount Paid</TableHead>
+                      <TableHead className="whitespace-nowrap">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isOrdersLoading && (
+                      <TableRow>
+                        <TableCell colSpan={11} className="py-8 text-center text-slate-500 text-sm">
+                          Loading orders...
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {!isOrdersLoading && recentOrders.map((order) => (
+                      <TableRow key={order.id}>
+                        <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
+                        <TableCell>#{order.id}</TableCell>
+                        <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
+                        <TableCell>{order.user.companyName || '-'}</TableCell>
+                        <TableCell>{order.user.phone_number}</TableCell>
+                        <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
+                        <TableCell>{order.state}</TableCell>
+                        <TableCell>{order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}</TableCell>
+                        <TableCell>{order.quantity.toLocaleString()}</TableCell>
+                        <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center px-2 py-1 text-xs font-medium border rounded capitalize ${getStatusClass(order.status)}`}>
+                            {getStatusIcon(order.status)} <span className="ml-1">{getStatusText(order.status)}</span>
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {!isOrdersLoading && recentOrders.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={11} className="text-center text-slate-500 py-8 text-sm">
+                          No recent orders match your filters.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              {isOrdersError && (
+                <div className="px-4 py-3 text-sm text-red-600 border-t border-slate-100">
+                  {(ordersError as Error)?.message || 'Failed to load orders.'}
+                </div>
+              )}
+            </div>
+
+            {/* Customers (Optional Section) */}
+            <div className="mt-8">
+              <h2 className="text-sm sm:text-base font-semibold text-slate-800 mb-3">
+                Customers
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {(customerData?.customers || []).slice(0, 6).map((c: any) => (
+                  <div
+                    key={c.id}
+                    className="rounded-lg border border-slate-200 bg-white p-3 flex flex-col justify-between"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800 truncate">
+                        {c.name || `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unnamed'}
+                      </p>
+                      <p className="text-xs text-slate-500 truncate mt-1">{c.email || 'No email'}</p>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600">
+                      Orders: <span className="font-medium">{c.orders_count ?? 0}</span>
+                    </p>
+                  </div>
+                ))}
+                {(!customerData?.customers || customerData.customers.length === 0) && (
+                  <div className="text-sm text-slate-500">
+                    No customers available.
+                  </div>
+                )}
               </div>
             </div>
-            
-            {/* Orders Table */}
-            <div className="mb-6">
-              <OrdersTable 
-                orders={orders || []} 
-                onRefresh={() => queryClient.invalidateQueries(['orders'])}
-              />
-            </div>
-            
-            {/* Quick Actions */}
-            {/* <div className="mb-6">
-              <QuickActions 
-                onNotify={(data) => apiClient.admin.sendNotification(data)}
-                onStockUpdate={(productId, data) => apiClient.admin.adminUpdateProduct(productId, data)}
-              />
-            </div>
-             */}
-            {/* Bottom Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
-              <CustomerList 
-                customers={customerData?.customers || []} 
-                onCustomerSelect={(id) => {/* Implement customer detail view */}}
-              />
-              {/* <NotificationList 
-                onSendNotification={(data) => apiClient.admin.sendNotification(data)}
-              /> */}
-            </div>
+
+            <div className="h-12" />
           </div>
         </div>
       </div>
     </div>
-    
   );
 };
 
