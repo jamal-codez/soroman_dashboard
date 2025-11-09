@@ -331,7 +331,7 @@ export const PickupProcessing = () => {
                             {order.user.first_name} {order.user.last_name}
                           </div>
                           <div className="text-xs text-slate-500">
-                            {order.user.companyName}
+                            {order.user.companyName || order.companyName || "-"}
                           </div>
                         </div>
                       </TableCell>
