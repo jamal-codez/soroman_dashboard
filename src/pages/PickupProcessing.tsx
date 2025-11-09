@@ -254,7 +254,7 @@ export const PickupProcessing = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Release Orders Dashboard</h1>
+              <h1 className="text-2xl font-bold text-slate-800">Release Orders</h1>
             </div>
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col sm:flex-row gap-4">
@@ -308,13 +308,13 @@ export const PickupProcessing = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ORDER ID</TableHead>
-                    <TableHead>REFERENCE</TableHead>
-                    <TableHead>CUSTOMER</TableHead>
-                    <TableHead>FUEL TYPE</TableHead>
-                    <TableHead>QUANTITY</TableHead>
-                    <TableHead>STATUS</TableHead>
-                    <TableHead className="text-right">ACTIONS</TableHead>
+                    <TableHead>Order ID</TableHead>
+                    <TableHead>Order Reference</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Product(s)</TableHead>
+                    <TableHead>Quantity</TableHead>
+                    <TableHead>Order Status</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -331,7 +331,7 @@ export const PickupProcessing = () => {
                             {order.user.first_name} {order.user.last_name}
                           </div>
                           <div className="text-xs text-slate-500">
-                            {order.user.email}
+                            {order.user.companyName}
                           </div>
                         </div>
                       </TableCell>
