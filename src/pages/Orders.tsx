@@ -29,7 +29,7 @@ interface Order {
     last_name: string;
     email: string;
     phone_number: string;
-    // companyName?: string; // <-- removed, no longer needed
+    companyName?: string;
   };
   total_price: string;
   status: 'pending' | 'paid' | 'canceled' | 'completed';
@@ -299,8 +299,7 @@ const Orders = () => {
                     <TableRow key={order.id}>
                       <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
-                      <TableCell>{order.user.first_name} {order.user.last_name}</TableCell>
-                      {/* <TableCell>{order.user.companyName || '-'}</TableCell> <-- Removed */}
+                      <TableCell>{order.user.first_name} {order.user.last_name} / {order.user.companyName}</TableCell>
                       <TableCell>{order.user.phone_number} / {order.user.email}</TableCell>
                       <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.state}</TableCell>
