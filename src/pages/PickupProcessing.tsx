@@ -34,8 +34,19 @@ interface Order {
     first_name: string;
     last_name: string;
     email: string;
-    companyName?: string; // <-- Use this field for company initials
+    companyName?: string; // might be missing in your API
+    company_name?: string; // common alt
+    company?: string;      // common alt
   };
+  // Some backends also put company here:
+  companyName?: string;
+  company_name?: string;
+  customer?: {
+    companyName?: string;
+    company_name?: string;
+    company?: string;
+  };
+
   pickup: {
     pickup_date: string;
     pickup_time: string;
@@ -45,12 +56,10 @@ interface Order {
   total_price: string;
   status: 'pending' | 'paid' | 'canceled' | 'released';
   created_at: string;
-  products: Array<{
-    name: string;
-  }>;
+  products: Array<{ name: string }>;
   quantity: number;
   release_type: 'pickup' | 'delivery';
-  reference: string;
+  reference: string; // use this when present
 }
 
 interface OrderResponse {
@@ -58,7 +67,7 @@ interface OrderResponse {
   results: Order[];
 }
 
-// Helper for company 2-letter initials (matches receipt)
+// Helper for company 2-letter initials
 const getCompanyInitials = (name: string, max: number = 2): string => {
   const cleaned = String(name ?? "")
     .replace(/[^A-Za-z0-9\s]/g, " ")
@@ -73,17 +82,34 @@ const getCompanyInitials = (name: string, max: number = 2): string => {
   return "SO".slice(0, max).toUpperCase();
 };
 
-// Receipt-matching reference: initials/yyyyMMdd/order id
-const formatReference = (
-  companyName: string,
-  createdAt: string,
-  orderId: number
-): string => {
-  const initials = getCompanyInitials(companyName || "SOROMAN");
-  const refDate = createdAt && !isNaN(Date.parse(createdAt))
-    ? format(new Date(createdAt), "yyyyMMdd")
+// Try to find company name across likely fields
+const extractCompanyName = (order: Order): string => {
+  return (
+    order.user?.companyName ||
+    order.user?.company_name ||
+    order.user?.company ||
+    order.customer?.companyName ||
+    order.customer?.company_name ||
+    order.customer?.company ||
+    order.companyName ||
+    order.company_name ||
+    ""
+  );
+};
+
+// Safe, receipt-matching reference:
+// - Prefer backend-provided order.reference (authoritative).
+// - Otherwise compute initials/yyyyMMdd/id using discovered company name.
+const getReferenceForOrder = (order: Order): string => {
+  if (order.reference && typeof order.reference === 'string' && order.reference.includes('/')) {
+    return order.reference;
+  }
+  const company = extractCompanyName(order);
+  const initials = company ? getCompanyInitials(company) : 'SO';
+  const refDate = order.created_at && !isNaN(Date.parse(order.created_at))
+    ? format(new Date(order.created_at), "yyyyMMdd")
     : "--";
-  return `${initials}/${refDate}/${orderId}`;
+  return `${initials}/${refDate}/${order.id}`;
 };
 
 const pageSize = 10;
@@ -152,7 +178,7 @@ export const PickupProcessing = () => {
 
     const rows = orders.map(order => [
       order.id,
-      formatReference(order.user.companyName || "SOROMAN", order.created_at, order.id),
+      getReferenceForOrder(order), // use server reference or compute
       `${order.user.first_name} ${order.user.last_name}`,
       order.user.email,
       order.pickup.pickup_date,
@@ -190,7 +216,7 @@ export const PickupProcessing = () => {
   const filteredOrders = (apiResponse?.results || []).filter(order =>
     order.id.toString().toLowerCase().includes(searchQuery.toLowerCase()) ||
     `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    order.reference.toLowerCase().includes(searchQuery.toLowerCase())
+    (order.reference || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -199,7 +225,7 @@ export const PickupProcessing = () => {
 
   const handleReleaseOrder = async (orderId: number) => {
     try {
-      setIsDialogOpen(false); // Close the dialog immediately
+      setIsDialogOpen(false);
       await apiClient.admin.releaseOrder(orderId);
       queryClient.invalidateQueries(['all-orders']);
       toast({
@@ -321,20 +347,19 @@ export const PickupProcessing = () => {
                   {filteredOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">{order.id}</TableCell>
-                      {/* Reference generated using companyName && created_at, matches the receipt! */}
-                      <TableCell>
-                        {formatReference(order.user.companyName || "SOROMAN", order.created_at, order.id)}
-                      </TableCell>
+                      <TableCell>{getReferenceForOrder(order)}</TableCell>
                       <TableCell>
                         <div>
                           <div className="font-medium">
                             {order.user.first_name} {order.user.last_name}
                           </div>
                           <div className="text-xs text-slate-500">
+                            {/* Optional: show company under name */}
+                            {/* {extractCompanyName(order) || "-"} */}
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell> {order.products.map(p => p.name).join(', ')}</TableCell>
+                      <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.quantity.toLocaleString()}</TableCell>
                       <TableCell>
                         <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
