@@ -130,7 +130,7 @@ const Orders = () => {
         const q = query.toLowerCase();
         const inId = order.id.toString().includes(q);
         const inName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q);
-        // const inCompany = (order.user.companyName || '').toLowerCase().includes(q); // <-- Removed
+        // const inCompany = (order.user.companyName || '').toLowerCase().includes(q);
         const inProducts = order.products.some(p => p.name.toLowerCase().includes(q));
         const inReleaseType = order.release_type.toLowerCase().includes(q);
         const inState = order.state ? order.state.toLowerCase().includes(q) : false;
@@ -171,7 +171,7 @@ const Orders = () => {
       'Date',
       'Order ID',
       'Customer',
-      // 'Company', // <-- Removed column
+      // 'Company',
       'Product(s)',
       'Contact',
       'Quantity (Litres)',
@@ -185,7 +185,7 @@ const Orders = () => {
       format(new Date(order.created_at), 'dd-MM-yyyy'),
       `#${order.id}`,
       `${order.user.first_name} ${order.user.last_name}`,
-      // order.user.companyName || '', // <-- Removed
+      // order.user.companyName || '',
       order.products.map(p => p.name).join(', '),
       `${order.user.phone_number} / ${order.user.email}`,
       order.quantity.toLocaleString(),
@@ -284,7 +284,7 @@ const Orders = () => {
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
                     <TableHead>Customer</TableHead>
-                    {/* <TableHead>Company</TableHead> <-- Removed */}
+                    {/* <TableHead>Company</TableHead> */}
                     <TableHead>Phone Number</TableHead>
                     <TableHead>Product(s)</TableHead>
                     <TableHead>Depot/State</TableHead>
@@ -299,12 +299,11 @@ const Orders = () => {
                     <TableRow key={order.id}>
                       <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
                       <TableCell>#{order.id}</TableCell>
-                     <TableCell>
-                       <span className="capitalize">
-                         {order.user.first_name} {order.user.last_name}
-                       </span>
-                     </TableCell>
-                     </TableCell>
+                      <TableCell>
+                        <span className="capitalize">
+                          {order.user.first_name} {order.user.last_name}
+                        </span>
+                      </TableCell>
                       <TableCell>{order.user.phone_number}</TableCell>
                       <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                       <TableCell>{order.state}</TableCell>
