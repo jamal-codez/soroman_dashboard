@@ -8,7 +8,7 @@ import {
   TrendingUp,
   Users,
   CreditCard,
-  BarChart3,
+  BarChart2,   // changed from BarChart3
   Activity
 } from 'lucide-react';
 
@@ -198,7 +198,7 @@ const Dashboard: React.FC = () => {
               <InfoTile
                 title="Average Order Value"
                 value={currency(avgOrderValue)}
-                icon={BarChart3}
+                icon={BarChart2}   // changed here too
                 iconColor="text-blue-600"
               />
               <InfoTile
