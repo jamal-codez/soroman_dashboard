@@ -24,7 +24,7 @@ export const TopBar = () => {
         </button> */}
         
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-slate-700">Welcome, {localStorage.getItem('fullname')?.split(' ')[0] || 'Guest'}</span>
+          <span className="text-sm font-medium text-slate-700">Hi, {localStorage.getItem('fullname')?.split(' ')[0] || 'Guest'}</span>
           <div className="w-9 h-9 rounded-full bg-slate-600 flex items-center justify-center text-white">
             {localStorage.getItem('fullname')
             ?.split(' ')
