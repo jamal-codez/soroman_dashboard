@@ -15,12 +15,14 @@ export const TopBar = () => {
         </div> */}
       </div>
       <div className="flex items-center gap-4">
-        <button className="relative p-2 rounded-full hover:bg-slate-100">
+       
+        {/* <button className="relative p-2 rounded-full hover:bg-slate-100">
           <Bell size={20} className="text-slate-600" />
           <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] text-white flex items-center justify-center">
             3
           </span>
-        </button>
+        </button> */}
+        
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-slate-700">Welcome, {localStorage.getItem('fullname')?.split(' ')[0] || 'Guest'}</span>
           <div className="w-9 h-9 rounded-full bg-slate-600 flex items-center justify-center text-white">
