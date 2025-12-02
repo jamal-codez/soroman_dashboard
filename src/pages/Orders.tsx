@@ -168,6 +168,7 @@ const Orders = () => {
   const exportToCSV = () => {
     if (!apiResponse?.results) return;
     const headers = [
+      'S/N',
       'Date',
       'Order ID',
       'Customer',
@@ -181,7 +182,11 @@ const Orders = () => {
       'State'
     ];
 
-    const rows = [...filteredOrders].reverse().map((order) => [
+    // For export we want 1 to be first. Use reversed order of filteredOrders then index+1 for S/N.
+    const exportList = [...filteredOrders].reverse();
+
+    const rows = exportList.map((order, idx) => [
+      idx + 1,
       format(new Date(order.created_at), 'dd-MM-yyyy'),
       `#${order.id}`,
       `${order.user.first_name} ${order.user.last_name}`,
@@ -281,6 +286,7 @@ const Orders = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>S/N</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
                     <TableHead>Customer</TableHead>
@@ -295,33 +301,37 @@ const Orders = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredOrders.map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
-                      <TableCell>#{order.id}</TableCell>
-                      <TableCell>
-                        <span className="capitalize">
-                          {order.user.first_name} {order.user.last_name}
-                        </span>
-                      </TableCell>
-                      <TableCell>{order.user.phone_number}</TableCell>
-                      <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
-                      <TableCell>{order.state}</TableCell>
-                      <TableCell>
-                        {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
-                      </TableCell>
-                      <TableCell>{order.quantity.toLocaleString()}</TableCell>
-                      <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
-                      <TableCell>
-                        <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded capitalize ${getStatusClass(order.status)}`}>
-                          {getStatusIcon(order.status)} <span className="ml-1">{getStatusText(order.status)}</span>
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredOrders.map((order, idx) => {
+                    const serial = filteredOrders.length - idx; // descending so 1 is at bottom
+                    return (
+                      <TableRow key={order.id}>
+                        <TableCell>{serial}</TableCell>
+                        <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
+                        <TableCell>#{order.id}</TableCell>
+                        <TableCell>
+                          <span className="capitalize">
+                            {order.user.first_name} {order.user.last_name}
+                          </span>
+                        </TableCell>
+                        <TableCell>{order.user.phone_number}</TableCell>
+                        <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
+                        <TableCell>{order.state}</TableCell>
+                        <TableCell>
+                          {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
+                        </TableCell>
+                        <TableCell>{order.quantity.toLocaleString()}</TableCell>
+                        <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded capitalize ${getStatusClass(order.status)}`}>
+                            {getStatusIcon(order.status)} <span className="ml-1">{getStatusText(order.status)}</span>
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                   {filteredOrders.length === 0 && !isLoading && (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center text-slate-500 py-8">
+                      <TableCell colSpan={11} className="text-center text-slate-500 py-8">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
