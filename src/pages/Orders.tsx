@@ -340,7 +340,7 @@ const Orders = () => {
                     <TableHead>Phone Number</TableHead>
                     <TableHead>Product(s)</TableHead>
                     <TableHead>Depot/State</TableHead>
-                    <TableHead>Pickup/Delivery</TableHead>
+                    {/* <TableHead>Pickup/Delivery</TableHead> */}
                     <TableHead>Quantity</TableHead>
                     <TableHead>Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
@@ -363,9 +363,9 @@ const Orders = () => {
                         <TableCell>{order.user.phone_number}</TableCell>
                         <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                         <TableCell>{order.state}</TableCell>
-                        <TableCell>
+                        {/* <TableCell>
                           {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
-                        </TableCell>
+                        </TableCell> */}
                         <TableCell>{order.quantity.toLocaleString()}</TableCell>
                         <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
                         <TableCell>
