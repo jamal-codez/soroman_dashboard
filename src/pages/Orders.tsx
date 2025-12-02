@@ -314,16 +314,16 @@ const Orders = () => {
                     <div className="text-lg font-semibold text-slate-800">{filteredOrders.length}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-slate-500">Total Quantity (Litres)</div>
+                    <div className="text-sm text-slate-500">Quantity Sold (L)</div>
                     <div className="text-lg font-semibold text-slate-800">{totals.totalQty.toLocaleString()}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-slate-500">Total Amount Paid (₦)</div>
+                    <div className="text-sm text-slate-500">Total Amount (₦)</div>
                     <div className="text-lg font-semibold text-slate-800">₦{totals.totalAmount.toLocaleString()}</div>
                   </div>
                 </div>
                 <div className="text-sm text-slate-500">
-                  These totals reflect the current filters and search.
+                  Total Orders at a glance.
                 </div>
               </div>
             </div>
