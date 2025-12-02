@@ -315,7 +315,7 @@ const Orders = () => {
                   </div>
                   <div>
                     <div className="text-sm text-slate-500">Quantity Sold</div>
-                    <div className="text-lg font-semibold text-slate-800">{totals.totalQty.toLocaleString()}Litres</div>
+                    <div className="text-lg font-semibold text-slate-800">{totals.totalQty.toLocaleString()} Ltrs</div>
                   </div>
                   <div>
                     <div className="text-sm text-slate-500">Total Amount (₦)</div>
