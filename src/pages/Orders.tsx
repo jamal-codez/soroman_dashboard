@@ -314,8 +314,8 @@ const Orders = () => {
                     <div className="text-lg font-semibold text-slate-800">{filteredOrders.length}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-slate-500">Quantity Sold (L)</div>
-                    <div className="text-lg font-semibold text-slate-800">{totals.totalQty.toLocaleString()}</div>
+                    <div className="text-sm text-slate-500">Quantity Sold</div>
+                    <div className="text-lg font-semibold text-slate-800">{totals.totalQty.toLocaleString()}Litres</div>
                   </div>
                   <div>
                     <div className="text-sm text-slate-500">Total Amount (₦)</div>
@@ -323,7 +323,7 @@ const Orders = () => {
                   </div>
                 </div>
                 <div className="text-sm text-slate-500">
-                  Total Orders at a glance.
+                  Orders at a Glance
                 </div>
               </div>
             </div>
@@ -336,7 +336,7 @@ const Orders = () => {
                     <TableHead>Date</TableHead>
                     <TableHead>Order ID</TableHead>
                     <TableHead>Customer</TableHead>
-                    {/* <TableHead>Company</TableHead> */}
+                    <TableHead>Company</TableHead>
                     <TableHead>Phone Number</TableHead>
                     <TableHead>Product(s)</TableHead>
                     <TableHead>Depot/State</TableHead>
@@ -359,6 +359,7 @@ const Orders = () => {
                             {order.user.first_name} {order.user.last_name}
                           </span>
                         </TableCell>
+                        <TableCell>{order.user.company_name}</TableCell>
                         <TableCell>{order.user.phone_number}</TableCell>
                         <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                         <TableCell>{order.state}</TableCell>
