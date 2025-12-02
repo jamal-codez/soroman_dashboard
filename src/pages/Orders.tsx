@@ -155,6 +155,13 @@ const Orders = () => {
       });
   }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter]);
 
+  // Totals derived from the filtered orders (reflects current filters/search)
+  const totals = useMemo(() => {
+    const totalQty = filteredOrders.reduce((acc, o) => acc + (Number(o.quantity) || 0), 0);
+    const totalAmount = filteredOrders.reduce((acc, o) => acc + (Number(parseFloat(o.total_price)) || 0), 0);
+    return { totalQty, totalAmount };
+  }, [filteredOrders]);
+
   const getFilterLabelForFile = () => {
     switch (filterType) {
       case 'today': return 'today';
@@ -167,6 +174,7 @@ const Orders = () => {
 
   const exportToCSV = () => {
     if (!apiResponse?.results) return;
+
     const headers = [
       'S/N',
       'Date',
@@ -194,13 +202,29 @@ const Orders = () => {
       order.products.map(p => p.name).join(', '),
       `${order.user.phone_number} / ${order.user.email}`,
       order.quantity.toLocaleString(),
-      parseFloat(order.total_price).toLocaleString(),
+      Number(parseFloat(order.total_price)).toLocaleString(),
       getStatusText(order.status),
       order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
       order.state
     ]);
 
-    const csvContent = [headers, ...rows]
+    // Prepend a small summary block to CSV so totals are visible without manual Excel work
+    const summaryBlock = [
+      ['Report Summary'],
+      ['Filter', getFilterLabelForFile()],
+      ['Total Orders', exportList.length.toString()],
+      ['Total Quantity (Litres)', totals.totalQty.toLocaleString()],
+      ['Total Amount Paid (₦)', totals.totalAmount.toLocaleString()],
+      [] // blank line before headers
+    ];
+
+    const csvRows = [
+      ...summaryBlock,
+      headers,
+      ...rows
+    ];
+
+    const csvContent = csvRows
       .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
       .join('\n');
 
@@ -229,6 +253,7 @@ const Orders = () => {
               </div>
             </div>
 
+            {/* Summary card: shows totals for current filtered view */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col lg:flex-row gap-4">
                 <div className="relative flex-1">
@@ -278,6 +303,27 @@ const Orders = () => {
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              {/* Totals row beneath filters */}
+              <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-6">
+                  <div>
+                    <div className="text-sm text-slate-500">Total Orders</div>
+                    <div className="text-lg font-semibold text-slate-800">{filteredOrders.length}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-slate-500">Total Quantity (Litres)</div>
+                    <div className="text-lg font-semibold text-slate-800">{totals.totalQty.toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-slate-500">Total Amount Paid (₦)</div>
+                    <div className="text-lg font-semibold text-slate-800">₦{totals.totalAmount.toLocaleString()}</div>
+                  </div>
+                </div>
+                <div className="text-sm text-slate-500">
+                  These totals reflect the current filters and search.
                 </div>
               </div>
             </div>
