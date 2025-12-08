@@ -178,16 +178,16 @@ const Orders = () => {
     const headers = [
       'S/N',
       'Date',
-      'Order ID',
-      'Customer',
+      'ID',
+      'Name',
       // 'Company',
-      'Product(s)',
-      'Contact',
-      'Quantity (Litres)',
-      'Amount Paid (₦)',
+      'Product',
+      'Phone Number',
+      'Quantity (L)',
+      'Amount (₦)',
       'Status',
-      'Delivery Option',
-      'State'
+      // 'Delivery Option',
+      'Depot/State'
     ];
 
     // For export we want 1 to be first. Use reversed order of filteredOrders then index+1 for S/N.
@@ -200,7 +200,7 @@ const Orders = () => {
       `${order.user.first_name} ${order.user.last_name}`,
       // order.user.companyName || '',
       order.products.map(p => p.name).join(', '),
-      `${order.user.phone_number} / ${order.user.email}`,
+      `${order.user.phone_number}`,
       order.quantity.toLocaleString(),
       Number(parseFloat(order.total_price)).toLocaleString(),
       getStatusText(order.status),
@@ -334,15 +334,15 @@ const Orders = () => {
                   <TableRow>
                     <TableHead>S/N</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead>Order ID</TableHead>
-                    <TableHead>Customer</TableHead>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead>Company</TableHead>
                     <TableHead>Phone Number</TableHead>
-                    <TableHead>Product(s)</TableHead>
+                    <TableHead>Product</TableHead>
                     <TableHead>Depot/State</TableHead>
                     {/* <TableHead>Pickup/Delivery</TableHead> */}
                     <TableHead>Quantity</TableHead>
-                    <TableHead>Amount Paid</TableHead>
+                    <TableHead>Amount</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
