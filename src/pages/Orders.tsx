@@ -32,7 +32,7 @@ interface Order {
     companyName?: string;
   };
   total_price: string;
-  status: 'pending' | 'paid' | 'canceled' | 'completed';
+  status: 'pending' | 'paid' | 'canceled' | 'completed' | string;
   created_at: string;
   products: Array<{
     name: string;
@@ -53,6 +53,7 @@ const statusDisplayMap: Record<string, string> = {
   paid: 'Paid',
   canceled: 'Canceled',
   completed: 'Completed',
+  released: 'Released'
 };
 
 const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()] || status;
@@ -67,6 +68,8 @@ const getStatusIcon = (status: string) => {
       return <AlertCircle className="text-red-500" size={16} />;
     case 'completed':
       return <CheckCircle className="text-blue-500" size={16} />;
+    case 'released':
+      return <CheckCircle className="text-green-600" size={16} />;
     default:
       return <CheckCircle className="text-blue-500" size={16} />;
   }
@@ -82,6 +85,8 @@ const getStatusClass = (status: string) => {
       return 'bg-red-50 text-red-700 border-red-200';
     case 'completed':
       return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'released':
+      return 'bg-green-50 text-green-700 border-green-200';
     default:
       return 'bg-gray-50 text-blue-700 border-blue-200';
   }
@@ -155,17 +160,20 @@ const Orders = () => {
       });
   }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter]);
 
-  // Only consider orders with status 'paid' for the summary figures
-  const paidFilteredOrders = useMemo(() => {
-    return filteredOrders.filter(o => (o.status || '').toLowerCase() === 'paid');
+  // Only consider orders with status 'completed' or 'released' for the summary figures
+  const releasedFilteredOrders = useMemo(() => {
+    return filteredOrders.filter(o => {
+      const s = (o.status || '').toLowerCase();
+      return s === 'completed' || s === 'released';
+    });
   }, [filteredOrders]);
 
-  // Totals derived from paidFilteredOrders (reflects current filters/search but only paid status)
-  const paidTotals = useMemo(() => {
-    const totalQty = paidFilteredOrders.reduce((acc, o) => acc + (Number(o.quantity) || 0), 0);
-    const totalAmount = paidFilteredOrders.reduce((acc, o) => acc + (Number(parseFloat(o.total_price)) || 0), 0);
-    return { totalQty, totalAmount, totalOrders: paidFilteredOrders.length };
-  }, [paidFilteredOrders]);
+  // Totals derived from releasedFilteredOrders (reflects current filters/search but only released/completed statuses)
+  const releasedTotals = useMemo(() => {
+    const totalQty = releasedFilteredOrders.reduce((acc, o) => acc + (Number(o.quantity) || 0), 0);
+    const totalAmount = releasedFilteredOrders.reduce((acc, o) => acc + (Number(parseFloat(o.total_price)) || 0), 0);
+    return { totalQty, totalAmount, totalOrders: releasedFilteredOrders.length };
+  }, [releasedFilteredOrders]);
 
   const getFilterLabelForFile = () => {
     switch (filterType) {
@@ -217,9 +225,9 @@ const Orders = () => {
     const summaryBlock = [
       ['Report Summary'],
       ['Filter', getFilterLabelForFile()],
-      ['Total Paid Orders', paidTotals.totalOrders.toString()],
-      ['Total Quantity Sold (Paid) (Litres)', paidTotals.totalQty.toLocaleString()],
-      ['Total Amount Paid (₦)', paidTotals.totalAmount.toLocaleString()],
+      ['Total Released/Completed Orders', releasedTotals.totalOrders.toString()],
+      ['Total Quantity Released (Litres)', releasedTotals.totalQty.toLocaleString()],
+      ['Total Amount Released (₦)', releasedTotals.totalAmount.toLocaleString()],
       [] // blank line before headers
     ];
 
@@ -258,7 +266,7 @@ const Orders = () => {
               </div>
             </div>
 
-            {/* Summary card: shows totals for current filtered view (paid orders only) */}
+            {/* Summary card: shows totals for current filtered view (released/completed orders only) */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col lg:flex-row gap-4">
                 <div className="relative flex-1">
@@ -311,20 +319,20 @@ const Orders = () => {
                 </div>
               </div>
 
-              {/* Totals row beneath filters - now showing paid-only metrics */}
+              {/* Totals row beneath filters - now showing released/completed-only metrics */}
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-center gap-6">
                   <div>
-                    <div className="text-sm text-slate-500">Paid Orders</div>
-                    <div className="text-lg font-semibold text-slate-800">{paidTotals.totalOrders}</div>
+                    <div className="text-sm text-slate-500">Released/Completed Orders</div>
+                    <div className="text-lg font-semibold text-slate-800">{releasedTotals.totalOrders}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-slate-500">Quantity Sold (Paid)</div>
-                    <div className="text-lg font-semibold text-slate-800">{paidTotals.totalQty.toLocaleString()} Ltrs</div>
+                    <div className="text-sm text-slate-500">Quantity Released</div>
+                    <div className="text-lg font-semibold text-slate-800">{releasedTotals.totalQty.toLocaleString()} Ltrs</div>
                   </div>
                   <div>
-                    <div className="text-sm text-slate-500">Total Amount Paid (₦)</div>
-                    <div className="text-lg font-semibold text-slate-800">₦{paidTotals.totalAmount.toLocaleString()}</div>
+                    <div className="text-sm text-slate-500">Total Amount Released (₦)</div>
+                    <div className="text-lg font-semibold text-slate-800">₦{releasedTotals.totalAmount.toLocaleString()}</div>
                   </div>
                 </div>
                 <div className="text-sm text-slate-500">
