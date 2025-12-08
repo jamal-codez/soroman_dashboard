@@ -69,7 +69,7 @@ const getStatusIcon = (status: string) => {
     case 'completed':
       return <CheckCircle className="text-blue-500" size={16} />;
     case 'released':
-      return <CheckCircle className="text-green-600" size={16} />;
+      return <CheckCircle className="text-blue-600" size={16} />;
     default:
       return <CheckCircle className="text-blue-500" size={16} />;
   }
