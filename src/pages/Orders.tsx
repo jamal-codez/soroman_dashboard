@@ -155,12 +155,17 @@ const Orders = () => {
       });
   }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter]);
 
-  // Totals derived from the filtered orders (reflects current filters/search)
-  const totals = useMemo(() => {
-    const totalQty = filteredOrders.reduce((acc, o) => acc + (Number(o.quantity) || 0), 0);
-    const totalAmount = filteredOrders.reduce((acc, o) => acc + (Number(parseFloat(o.total_price)) || 0), 0);
-    return { totalQty, totalAmount };
+  // Only consider orders with status 'paid' for the summary figures
+  const paidFilteredOrders = useMemo(() => {
+    return filteredOrders.filter(o => (o.status || '').toLowerCase() === 'paid');
   }, [filteredOrders]);
+
+  // Totals derived from paidFilteredOrders (reflects current filters/search but only paid status)
+  const paidTotals = useMemo(() => {
+    const totalQty = paidFilteredOrders.reduce((acc, o) => acc + (Number(o.quantity) || 0), 0);
+    const totalAmount = paidFilteredOrders.reduce((acc, o) => acc + (Number(parseFloat(o.total_price)) || 0), 0);
+    return { totalQty, totalAmount, totalOrders: paidFilteredOrders.length };
+  }, [paidFilteredOrders]);
 
   const getFilterLabelForFile = () => {
     switch (filterType) {
@@ -212,9 +217,9 @@ const Orders = () => {
     const summaryBlock = [
       ['Report Summary'],
       ['Filter', getFilterLabelForFile()],
-      ['Total Orders', exportList.length.toString()],
-      ['Total Quantity (Litres)', totals.totalQty.toLocaleString()],
-      ['Total Amount Paid (₦)', totals.totalAmount.toLocaleString()],
+      ['Total Paid Orders', paidTotals.totalOrders.toString()],
+      ['Total Quantity Sold (Paid) (Litres)', paidTotals.totalQty.toLocaleString()],
+      ['Total Amount Paid (₦)', paidTotals.totalAmount.toLocaleString()],
       [] // blank line before headers
     ];
 
@@ -253,7 +258,7 @@ const Orders = () => {
               </div>
             </div>
 
-            {/* Summary card: shows totals for current filtered view */}
+            {/* Summary card: shows totals for current filtered view (paid orders only) */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col lg:flex-row gap-4">
                 <div className="relative flex-1">
@@ -306,20 +311,20 @@ const Orders = () => {
                 </div>
               </div>
 
-              {/* Totals row beneath filters */}
+              {/* Totals row beneath filters - now showing paid-only metrics */}
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-center gap-6">
                   <div>
-                    <div className="text-sm text-slate-500">Total Orders</div>
-                    <div className="text-lg font-semibold text-slate-800">{filteredOrders.length}</div>
+                    <div className="text-sm text-slate-500">Paid Orders</div>
+                    <div className="text-lg font-semibold text-slate-800">{paidTotals.totalOrders}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-slate-500">Quantity Sold</div>
-                    <div className="text-lg font-semibold text-slate-800">{totals.totalQty.toLocaleString()} Ltrs</div>
+                    <div className="text-sm text-slate-500">Quantity Sold (Paid)</div>
+                    <div className="text-lg font-semibold text-slate-800">{paidTotals.totalQty.toLocaleString()} Ltrs</div>
                   </div>
                   <div>
-                    <div className="text-sm text-slate-500">Total Amount (₦)</div>
-                    <div className="text-lg font-semibold text-slate-800">₦{totals.totalAmount.toLocaleString()}</div>
+                    <div className="text-sm text-slate-500">Total Amount Paid (₦)</div>
+                    <div className="text-lg font-semibold text-slate-800">₦{paidTotals.totalAmount.toLocaleString()}</div>
                   </div>
                 </div>
                 <div className="text-sm text-slate-500">
@@ -359,7 +364,7 @@ const Orders = () => {
                             {order.user.first_name} {order.user.last_name}
                           </span>
                         </TableCell>
-                        <TableCell>{order.user.company_name}</TableCell>
+                        <TableCell>{(order.user as any).company_name}</TableCell>
                         <TableCell>{order.user.phone_number}</TableCell>
                         <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                         <TableCell>{order.state}</TableCell>
