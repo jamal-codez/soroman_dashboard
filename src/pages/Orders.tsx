@@ -198,9 +198,9 @@ const Orders = () => {
       'Phone Number',
       'Quantity (L)',
       'Amount (₦)',
-      'Status',
-      // 'Delivery Option',
       'Depot/State'
+      'Status',
+      // 'Delivery Option',  
     ];
 
     // For export we want 1 to be first. Use reversed order of filteredOrders then index+1 for S/N.
@@ -216,18 +216,18 @@ const Orders = () => {
       `${order.user.phone_number}`,
       order.quantity.toLocaleString(),
       Number(parseFloat(order.total_price)).toLocaleString(),
-      getStatusText(order.status),
-      order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
       order.state
+      getStatusText(order.status),
+      // order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
     ]);
 
     // Prepend a small summary block to CSV so totals are visible without manual Excel work
     const summaryBlock = [
       ['Report Summary'],
       ['Filter', getFilterLabelForFile()],
-      ['Total Released/Completed Orders', releasedTotals.totalOrders.toString()],
-      ['Total Quantity Released (Litres)', releasedTotals.totalQty.toLocaleString()],
-      ['Total Amount Released (₦)', releasedTotals.totalAmount.toLocaleString()],
+      ['Total Released Orders', releasedTotals.totalOrders.toString()],
+      ['Quantity Released (Litres)', releasedTotals.totalQty.toLocaleString()],
+      ['Total Amount Released (N)', releasedTotals.totalAmount.toLocaleString()],
       [] // blank line before headers
     ];
 
