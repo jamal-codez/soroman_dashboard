@@ -198,7 +198,7 @@ const Orders = () => {
       'Phone Number',
       'Quantity (L)',
       'Amount (₦)',
-      'Depot/State'
+      'Depot/State',
       'Status',
       // 'Delivery Option',  
     ];
@@ -216,7 +216,7 @@ const Orders = () => {
       `${order.user.phone_number}`,
       order.quantity.toLocaleString(),
       Number(parseFloat(order.total_price)).toLocaleString(),
-      order.state
+      order.state,
       getStatusText(order.status),
       // order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
     ]);
