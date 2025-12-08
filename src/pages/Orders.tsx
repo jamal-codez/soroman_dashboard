@@ -323,7 +323,7 @@ const Orders = () => {
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-center gap-6">
                   <div>
-                    <div className="text-sm text-slate-500">Released/Completed Orders</div>
+                    <div className="text-sm text-slate-500">Released Orders</div>
                     <div className="text-lg font-semibold text-slate-800">{releasedTotals.totalOrders}</div>
                   </div>
                   <div>
@@ -331,7 +331,7 @@ const Orders = () => {
                     <div className="text-lg font-semibold text-slate-800">{releasedTotals.totalQty.toLocaleString()} Ltrs</div>
                   </div>
                   <div>
-                    <div className="text-sm text-slate-500">Total Amount Released (₦)</div>
+                    <div className="text-sm text-slate-500">Total Amount</div>
                     <div className="text-lg font-semibold text-slate-800">₦{releasedTotals.totalAmount.toLocaleString()}</div>
                   </div>
                 </div>
