@@ -168,10 +168,21 @@ const Orders = () => {
     });
   }, [filteredOrders]);
 
+  // Helper to safely parse numbers (handles strings with commas/currency and numbers)
+  const safeParseNumber = (v: unknown) => {
+    if (v == null) return 0;
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    const str = String(v).trim();
+    // remove common non-numeric characters (commas, currency symbols, spaces)
+    const cleaned = str.replace(/[^0-9\.\-]+/g, '');
+    const n = parseFloat(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  };
+
   // Totals derived from releasedFilteredOrders (reflects current filters/search but only released/completed statuses)
   const releasedTotals = useMemo(() => {
-    const totalQty = releasedFilteredOrders.reduce((acc, o) => acc + (Number(o.quantity) || 0), 0);
-    const totalAmount = releasedFilteredOrders.reduce((acc, o) => acc + (Number(parseFloat(o.total_price)) || 0), 0);
+    const totalQty = releasedFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
+    const totalAmount = releasedFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
     return { totalQty, totalAmount, totalOrders: releasedFilteredOrders.length };
   }, [releasedFilteredOrders]);
 
@@ -200,7 +211,7 @@ const Orders = () => {
       'Amount (₦)',
       'Depot/State',
       'Status',
-      // 'Delivery Option',  
+      // 'Delivery Option',
     ];
 
     // For export we want 1 to be first. Use reversed order of filteredOrders then index+1 for S/N.
@@ -214,8 +225,8 @@ const Orders = () => {
       // order.user.companyName || '',
       order.products.map(p => p.name).join(', '),
       `${order.user.phone_number}`,
-      order.quantity.toLocaleString(),
-      Number(parseFloat(order.total_price)).toLocaleString(),
+      safeParseNumber(order.quantity).toLocaleString(),
+      safeParseNumber(order.total_price).toLocaleString(),
       order.state,
       getStatusText(order.status),
       // order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
@@ -379,8 +390,8 @@ const Orders = () => {
                         {/* <TableCell>
                           {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                         </TableCell> */}
-                        <TableCell>{order.quantity.toLocaleString()}</TableCell>
-                        <TableCell>₦{parseFloat(order.total_price).toLocaleString()}</TableCell>
+                        <TableCell>{safeParseNumber(order.quantity).toLocaleString()}</TableCell>
+                        <TableCell>₦{safeParseNumber(order.total_price).toLocaleString()}</TableCell>
                         <TableCell>
                           <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded capitalize ${getStatusClass(order.status)}`}>
                             {getStatusIcon(order.status)} <span className="ml-1">{getStatusText(order.status)}</span>
