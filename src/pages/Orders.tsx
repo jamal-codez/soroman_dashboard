@@ -97,6 +97,7 @@ const Orders = () => {
   const [filterType, setFilterType] = useState<'today' | 'week' | 'month' | 'year' | null>(null);
   const [productFilter, setProductFilter] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null); // null means all statuses
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
@@ -135,7 +136,6 @@ const Orders = () => {
         const q = query.toLowerCase();
         const inId = order.id.toString().includes(q);
         const inName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q);
-        // const inCompany = (order.user.companyName || '').toLowerCase().includes(q);
         const inProducts = order.products.some(p => p.name.toLowerCase().includes(q));
         const inReleaseType = order.release_type.toLowerCase().includes(q);
         const inState = order.state ? order.state.toLowerCase().includes(q) : false;
@@ -157,14 +157,26 @@ const Orders = () => {
       .filter(order => {
         if (!locationFilter) return true;
         return order.state === locationFilter;
+      })
+      .filter(order => {
+        if (!statusFilter) return true; // null = all
+        return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
       });
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter]);
+  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter]);
 
-  // Only consider orders with status 'completed' or 'released' for the summary figures
+  // Only consider orders with status 'completed' or 'released' for the released summary figures
   const releasedFilteredOrders = useMemo(() => {
     return filteredOrders.filter(o => {
       const s = (o.status || '').toLowerCase();
       return s === 'completed' || s === 'released';
+    });
+  }, [filteredOrders]);
+
+  // Only consider orders with status 'canceled' for canceled summary figures
+  const canceledFilteredOrders = useMemo(() => {
+    return filteredOrders.filter(o => {
+      const s = (o.status || '').toLowerCase();
+      return s === 'canceled';
     });
   }, [filteredOrders]);
 
@@ -186,6 +198,13 @@ const Orders = () => {
     return { totalQty, totalAmount, totalOrders: releasedFilteredOrders.length };
   }, [releasedFilteredOrders]);
 
+  // Totals derived from canceledFilteredOrders (reflects current filters/search but only canceled status)
+  const canceledTotals = useMemo(() => {
+    const totalQty = canceledFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
+    const totalAmount = canceledFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
+    return { totalQty, totalAmount, totalOrders: canceledFilteredOrders.length };
+  }, [canceledFilteredOrders]);
+
   const getFilterLabelForFile = () => {
     switch (filterType) {
       case 'today': return 'today';
@@ -194,6 +213,11 @@ const Orders = () => {
       case 'year': return 'this-year';
       default: return 'all';
     }
+  };
+
+  const getStatusLabelForFile = () => {
+    if (!statusFilter) return 'all-statuses';
+    return String(statusFilter).toLowerCase().replace(/\s+/g, '-');
   };
 
   const exportToCSV = () => {
@@ -236,9 +260,13 @@ const Orders = () => {
     const summaryBlock = [
       ['Report Summary'],
       ['Filter', getFilterLabelForFile()],
+      ['Status', statusFilter ? getStatusText(statusFilter) : 'All'],
       ['Total Released Orders', releasedTotals.totalOrders.toString()],
       ['Quantity Released (Litres)', releasedTotals.totalQty.toLocaleString()],
       ['Total Amount Released (N)', releasedTotals.totalAmount.toLocaleString()],
+      ['Total Canceled Orders', canceledTotals.totalOrders.toString()],
+      ['Quantity Canceled (Litres)', canceledTotals.totalQty.toLocaleString()],
+      ['Total Amount Canceled (N)', canceledTotals.totalAmount.toLocaleString()],
       [] // blank line before headers
     ];
 
@@ -255,7 +283,7 @@ const Orders = () => {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.setAttribute('download', `orders_export_${getFilterLabelForFile()}_${new Date().toISOString()}.csv`);
+    link.setAttribute('download', `orders_export_${getFilterLabelForFile()}_${getStatusLabelForFile()}_${new Date().toISOString()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -308,6 +336,19 @@ const Orders = () => {
 
                   <select
                     className="border border-gray-300 rounded px-3 py-2"
+                    value={statusFilter ?? ''}
+                    onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="paid">Paid</option>
+                    <option value="canceled">Canceled</option>
+                    <option value="completed">Completed</option>
+                    <option value="released">Released</option>
+                  </select>
+
+                  <select
+                    className="border border-gray-300 rounded px-3 py-2"
                     value={productFilter ?? ''}
                     onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
                   >
@@ -330,7 +371,7 @@ const Orders = () => {
                 </div>
               </div>
 
-              {/* Totals row beneath filters - now showing released/completed-only metrics */}
+              {/* Totals row beneath filters - now showing released/completed-only metrics and canceled metrics */}
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-center gap-6">
                   <div>
@@ -344,6 +385,19 @@ const Orders = () => {
                   <div>
                     <div className="text-sm text-slate-500">Total Amount</div>
                     <div className="text-lg font-semibold text-slate-800">₦{releasedTotals.totalAmount.toLocaleString()}</div>
+                  </div>
+
+                  <div>
+                    <div className="text-sm text-slate-500">Canceled Orders</div>
+                    <div className="text-lg font-semibold text-slate-800">{canceledTotals.totalOrders}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-slate-500">Quantity Canceled</div>
+                    <div className="text-lg font-semibold text-slate-800">{canceledTotals.totalQty.toLocaleString()} Ltrs</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-slate-500">Amount Canceled</div>
+                    <div className="text-lg font-semibold text-slate-800">₦{canceledTotals.totalAmount.toLocaleString()}</div>
                   </div>
                 </div>
                 <div className="text-sm text-slate-500">
