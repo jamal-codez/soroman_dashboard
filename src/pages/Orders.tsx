@@ -164,22 +164,6 @@ const Orders = () => {
       });
   }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter]);
 
-  // Only consider orders with status 'completed' or 'released' for the released summary figures
-  const releasedFilteredOrders = useMemo(() => {
-    return filteredOrders.filter(o => {
-      const s = (o.status || '').toLowerCase();
-      return s === 'completed' || s === 'released';
-    });
-  }, [filteredOrders]);
-
-  // Only consider orders with status 'canceled' for canceled summary figures
-  const canceledFilteredOrders = useMemo(() => {
-    return filteredOrders.filter(o => {
-      const s = (o.status || '').toLowerCase();
-      return s === 'canceled';
-    });
-  }, [filteredOrders]);
-
   // Helper to safely parse numbers (handles strings with commas/currency and numbers)
   const safeParseNumber = (v: unknown) => {
     if (v == null) return 0;
@@ -191,14 +175,54 @@ const Orders = () => {
     return Number.isFinite(n) ? n : 0;
   };
 
-  // Totals derived from releasedFilteredOrders (reflects current filters/search but only released/completed statuses)
+  // --- Summary filters helper: apply only date/product/location filters (ignore search/status) ---
+  const matchesSummaryFilters = (order: Order) => {
+    // Date filter
+    if (filterType) {
+      const date = new Date(order.created_at);
+      if (filterType === 'today' && !isToday(date)) return false;
+      if (filterType === 'week' && !isThisWeek(date)) return false;
+      if (filterType === 'month' && !isThisMonth(date)) return false;
+      if (filterType === 'year' && !isThisYear(date)) return false;
+    }
+    // Product filter
+    if (productFilter) {
+      if (!order.products.some(p => p.name === productFilter)) return false;
+    }
+    // Location filter
+    if (locationFilter) {
+      if (order.state !== locationFilter) return false;
+    }
+    return true;
+  };
+
+  // Compute released/canceled sets for the summary from the raw API data (ignoring search/statusFilter)
+  const releasedFilteredOrders = useMemo(() => {
+    const base = apiResponse?.results || [];
+    return base.filter(o => {
+      const s = (o.status || '').toLowerCase();
+      if (!(s === 'completed' || s === 'released')) return false;
+      return matchesSummaryFilters(o);
+    });
+  }, [apiResponse?.results, filterType, productFilter, locationFilter]);
+
+  const canceledFilteredOrders = useMemo(() => {
+    const base = apiResponse?.results || [];
+    return base.filter(o => {
+      const s = (o.status || '').toLowerCase();
+      if (s !== 'canceled') return false;
+      return matchesSummaryFilters(o);
+    });
+  }, [apiResponse?.results, filterType, productFilter, locationFilter]);
+
+  // Totals derived from releasedFilteredOrders (reflects date/product/location filters but ignores search/status filter)
   const releasedTotals = useMemo(() => {
     const totalQty = releasedFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
     const totalAmount = releasedFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
     return { totalQty, totalAmount, totalOrders: releasedFilteredOrders.length };
   }, [releasedFilteredOrders]);
 
-  // Totals derived from canceledFilteredOrders (reflects current filters/search but only canceled status)
+  // Totals derived from canceledFilteredOrders (reflects date/product/location filters but ignores search/status filter)
   const canceledTotals = useMemo(() => {
     const totalQty = canceledFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
     const totalAmount = canceledFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
