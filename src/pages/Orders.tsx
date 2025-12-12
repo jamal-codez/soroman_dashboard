@@ -24,40 +24,24 @@ import { format, isThisWeek, isThisMonth, isThisYear, isToday } from 'date-fns';
 
 interface Order {
   id: number;
-  user: {
-    first_name?: string;
-    last_name?: string;
-    email?: string;
-    phone_number?: string;
-    companyName?: string;
-    company_name?: string;
-  };
+  user: Record<string, any>;
   total_price?: string | number;
-  status: 'pending' | 'paid' | 'canceled' | 'completed' | string;
+  status: string;
   created_at: string;
-  products: Array<{
-    name?: string;
-  }>;
+  products: Array<{ name?: string }>;
   quantity?: number | string;
   release_type?: 'pickup' | 'delivery';
-  reference?: string; // possible sales reference
+  reference?: string;
   state?: string;
-  // possible places where our new fields could be stored
-  customer_details?: {
-    salesRef?: string;
-    truckNumber?: string;
-    dprNumber?: string;
-    driverName?: string;
-    driverPhone?: string;
-    name?: string;
-    companyName?: string;
-    phone?: string;
-  };
+  customer_details?: Record<string, any>;
   // fallback aliases
   sales_ref?: string;
   truck_number?: string;
   driver_name?: string;
   driver_phone?: string;
+  meta?: Record<string, any>;
+  data?: Record<string, any>;
+  payload?: Record<string, any>;
 }
 
 interface OrderResponse {
@@ -77,54 +61,40 @@ const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()]
 
 const getStatusIcon = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid':
-      return <CheckCircle className="text-green-500" size={16} />;
-    case 'pending':
-      return <Clock className="text-orange-500" size={16} />;
-    case 'canceled':
-      return <AlertCircle className="text-red-500" size={16} />;
-    case 'completed':
-      return <CheckCircle className="text-blue-500" size={16} />;
-    case 'released':
-      return <CheckCircle className="text-blue-600" size={16} />;
-    default:
-      return <CheckCircle className="text-blue-500" size={16} />;
+    case 'paid': return <CheckCircle className="text-green-500" size={16} />;
+    case 'pending': return <Clock className="text-orange-500" size={16} />;
+    case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
+    case 'completed': return <CheckCircle className="text-blue-500" size={16} />;
+    case 'released': return <CheckCircle className="text-blue-600" size={16} />;
+    default: return <CheckCircle className="text-blue-500" size={16} />;
   }
 };
 
 const getStatusClass = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid':
-      return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending':
-      return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'canceled':
-      return 'bg-red-50 text-red-700 border-red-200';
-    case 'completed':
-      return 'bg-blue-50 text-blue-700 border-blue-200';
-    case 'released':
-      return 'bg-blue-50 text-blue-700 border-blue-200';
-    default:
-      return 'bg-gray-50 text-blue-700 border-blue-200';
+    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
+    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
+    case 'completed': return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
+    default: return 'bg-gray-50 text-blue-700 border-blue-200';
   }
 };
 
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'today' | 'week' | 'month' | 'year' | null>(null);
-  const [productFilter, setProductFilter] = useState<string | null>(null);
-  const [locationFilter, setLocationFilter] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string | null>(null); // null means all statuses
+  const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
+  const [productFilter, setProductFilter] = useState<string|null>(null);
+  const [locationFilter, setLocationFilter] = useState<string|null>(null);
+  const [statusFilter, setStatusFilter] = useState<string|null>(null);
+  const [showRaw, setShowRaw] = useState(false); // debug toggle
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
     queryFn: async () => {
       const response = await apiClient.admin.getAllAdminOrders();
       if (!response.results) throw new Error('Invalid response format');
-      return {
-        count: response.count || 0,
-        results: response.results || []
-      };
+      return { count: response.count || 0, results: response.results || [] };
     },
     retry: 2,
     refetchOnWindowFocus: false
@@ -151,16 +121,19 @@ const Orders = () => {
         const query = searchQuery.trim();
         if (!query) return true;
         const q = query.toLowerCase();
-
         const name = `${order.user?.first_name ?? ''} ${order.user?.last_name ?? ''}`.toLowerCase();
-        const salesRef = (
+        const salesRef = String(
           order.reference ||
           order.sales_ref ||
           order.customer_details?.salesRef ||
+          order.customer_details?.sales_reference ||
+          order.meta?.salesRef ||
+          order.data?.salesRef ||
+          order.payload?.salesRef ||
           ''
         ).toLowerCase();
-        const truck = (order.truck_number || order.customer_details?.truckNumber || '').toLowerCase();
-        const driverName = (order.driver_name || order.customer_details?.driverName || '').toLowerCase();
+        const truck = String(order.truck_number || order.customer_details?.truckNumber || order.customer_details?.truck_number || '').toLowerCase();
+        const driverName = String(order.driver_name || order.customer_details?.driverName || order.customer_details?.driver_name || '').toLowerCase();
         const inId = String(order.id).includes(q);
         const inName = name.includes(q);
         const inProducts = order.products.some(p => String(p.name ?? '').toLowerCase().includes(q));
@@ -190,25 +163,21 @@ const Orders = () => {
         return order.state === locationFilter;
       })
       .filter(order => {
-        if (!statusFilter) return true; // null = all
+        if (!statusFilter) return true;
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
       });
   }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter]);
 
-  // Helper to safely parse numbers (handles strings with commas/currency and numbers)
   const safeParseNumber = (v: unknown) => {
     if (v == null) return 0;
     if (typeof v === 'number' && Number.isFinite(v)) return v;
     const str = String(v).trim();
-    // remove common non-numeric characters (commas, currency symbols, spaces)
     const cleaned = str.replace(/[^0-9\.\-]+/g, '');
     const n = parseFloat(cleaned);
     return Number.isFinite(n) ? n : 0;
   };
 
-  // --- Summary filters helper: apply only date/product/location filters (ignore search/status) ---
   const matchesSummaryFilters = (order: Order) => {
-    // Date filter
     if (filterType) {
       const date = new Date(order.created_at);
       if (filterType === 'today' && !isToday(date)) return false;
@@ -216,18 +185,15 @@ const Orders = () => {
       if (filterType === 'month' && !isThisMonth(date)) return false;
       if (filterType === 'year' && !isThisYear(date)) return false;
     }
-    // Product filter
     if (productFilter) {
       if (!order.products.some(p => p.name === productFilter)) return false;
     }
-    // Location filter
     if (locationFilter) {
       if (order.state !== locationFilter) return false;
     }
     return true;
   };
 
-  // Compute released/canceled sets for the summary from the raw API data (ignoring search/statusFilter)
   const releasedFilteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base.filter(o => {
@@ -246,48 +212,55 @@ const Orders = () => {
     });
   }, [apiResponse?.results, filterType, productFilter, locationFilter]);
 
-  // Totals derived from releasedFilteredOrders (reflects date/product/location filters but ignores search/status filter)
   const releasedTotals = useMemo(() => {
     const totalQty = releasedFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
     const totalAmount = releasedFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
     return { totalQty, totalAmount, totalOrders: releasedFilteredOrders.length };
   }, [releasedFilteredOrders]);
 
-  // Totals derived from canceledFilteredOrders (reflects date/product/location filters but ignores search/status filter)
   const canceledTotals = useMemo(() => {
     const totalQty = canceledFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
     const totalAmount = canceledFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
     return { totalQty, totalAmount, totalOrders: canceledFilteredOrders.length };
   }, [canceledFilteredOrders]);
 
-  // Helpers to extract customer-form related fields from the order (robust against schema variations)
-  const getSalesRef = (o: Order) =>
-    o.reference || o.sales_ref || o.customer_details?.salesRef || '';
+  // Robust helpers: try many places where customer-entered fields could live
+  const getSalesRef = (o: Order) => {
+    return (
+      o.customer_details?.salesRef ||
+      o.customer_details?.sales_reference ||
+      o.reference ||
+      o.sales_ref ||
+      o.meta?.salesRef ||
+      o.data?.salesRef ||
+      o.payload?.customer?.salesRef ||
+      ''
+    );
+  };
 
   const getCustomerFullName = (o: Order) =>
-    (o.customer_details?.name) ||
-    `${o.user?.first_name ?? ''} ${o.user?.last_name ?? ''}`.trim();
+    o.customer_details?.name ||
+    [o.user?.first_name, o.user?.last_name].filter(Boolean).join(' ').trim();
 
   const getCompanyName = (o: Order) =>
     o.customer_details?.companyName || o.user?.companyName || o.user?.company_name || '';
 
   const getPhoneNumber = (o: Order) =>
-    o.customer_details?.phone || o.user?.phone_number || '';
+    o.customer_details?.phone || o.user?.phone_number || o.user?.phone || '';
 
   const getTruckNumber = (o: Order) =>
-    o.customer_details?.truckNumber || o.truck_number || '';
+    o.customer_details?.truckNumber || o.customer_details?.truck_number || o.truck_number || '';
 
   const getDriverName = (o: Order) =>
-    o.customer_details?.driverName || o.driver_name || '';
+    o.customer_details?.driverName || o.customer_details?.driver_name || o.driver_name || '';
 
   const getDriverPhone = (o: Order) =>
-    o.customer_details?.driverPhone || o.driver_phone || '';
-
-  const getFirstProductName = (o: Order) =>
-    (o.products && o.products.length > 0 && o.products[0].name) || '';
+    o.customer_details?.driverPhone || o.customer_details?.driver_phone || o.driver_phone || '';
 
   const getProductsList = (o: Order) =>
     (o.products || []).map(p => p.name).filter(Boolean).join(', ');
+
+  // CSV export and the rest kept same (omitted here for brevity in this snippet)
 
   const getFilterLabelForFile = () => {
     switch (filterType) {
@@ -323,7 +296,6 @@ const Orders = () => {
       'Status',
     ];
 
-    // Use the currently filtered orders for export (descending order so most recent first)
     const exportList = [...filteredOrders].reverse();
 
     const rows = exportList.map((order, idx) => [
@@ -342,7 +314,6 @@ const Orders = () => {
       getStatusText(order.status),
     ]);
 
-    // Prepend a small summary block to CSV so totals are visible without manual Excel work
     const summaryBlock = [
       ['Report Summary'],
       ['Filter', getFilterLabelForFile()],
@@ -353,7 +324,7 @@ const Orders = () => {
       ['Total Canceled Orders', canceledTotals.totalOrders.toString()],
       ['Quantity Canceled (Litres)', canceledTotals.totalQty.toLocaleString()],
       ['Total Amount Canceled (N)', canceledTotals.totalAmount.toLocaleString()],
-      [] // blank line before headers
+      []
     ];
 
     const csvRows = [
@@ -388,10 +359,17 @@ const Orders = () => {
                 <Button variant="outline" onClick={exportToCSV}>
                   <Download className="mr-1" size={16} /> Download Report
                 </Button>
+                {/* Debug toggle to inspect the raw JSON of the first filtered order */}
+                <Button variant="ghost" onClick={() => {
+                  setShowRaw(s => !s);
+                  if (filteredOrders && filteredOrders[0]) console.log('First filtered order:', filteredOrders[0]);
+                }}>
+                  {showRaw ? 'Hide JSON' : 'Show Order JSON'}
+                </Button>
               </div>
             </div>
 
-            {/* Summary card: shows totals for current filtered view (released/completed orders only) */}
+            {/* Summary and Filters (unchanged) */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col lg:flex-row gap-4">
                 <div className="relative flex-1">
@@ -405,14 +383,10 @@ const Orders = () => {
                   />
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3">
-                  <select
-                    className="border border-gray-300 rounded px-3 py-2"
-                    value={filterType ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value as '' | 'today' | 'week' | 'month' | 'year';
-                      setFilterType(v === '' ? null : v);
-                    }}
-                  >
+                  <select className="border border-gray-300 rounded px-3 py-2" value={filterType ?? ''} onChange={(e) => {
+                    const v = e.target.value as ''|'today'|'week'|'month'|'year';
+                    setFilterType(v === '' ? null : v);
+                  }}>
                     <option value="">All Time</option>
                     <option value="today">Today</option>
                     <option value="week">This Week</option>
@@ -420,11 +394,7 @@ const Orders = () => {
                     <option value="year">This Year</option>
                   </select>
 
-                  <select
-                    className="border border-gray-300 rounded px-3 py-2"
-                    value={statusFilter ?? ''}
-                    onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
-                  >
+                  <select className="border border-gray-300 rounded px-3 py-2" value={statusFilter ?? ''} onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}>
                     <option value="">All Statuses</option>
                     <option value="pending">Pending</option>
                     <option value="paid">Paid</option>
@@ -433,31 +403,19 @@ const Orders = () => {
                     <option value="released">Released</option>
                   </select>
 
-                  <select
-                    className="border border-gray-300 rounded px-3 py-2"
-                    value={productFilter ?? ''}
-                    onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
-                  >
+                  <select className="border border-gray-300 rounded px-3 py-2" value={productFilter ?? ''} onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}>
                     <option value="">All Products</option>
-                    {uniqueProducts.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
+                    {uniqueProducts.map((p) => (<option key={p} value={p}>{p}</option>))}
                   </select>
 
-                  <select
-                    className="border border-gray-300 rounded px-3 py-2"
-                    value={locationFilter ?? ''}
-                    onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
-                  >
+                  <select className="border border-gray-300 rounded px-3 py-2" value={locationFilter ?? ''} onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}>
                     <option value="">All Locations</option>
-                    {uniqueLocations.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
+                    {uniqueLocations.map((s) => (<option key={s} value={s}>{s}</option>))}
                   </select>
                 </div>
               </div>
 
-              {/* Totals row beneath filters - now showing released/completed-only metrics and canceled metrics */}
+              {/* Totals (unchanged) */}
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-center gap-6">
                   <div>
@@ -486,11 +444,17 @@ const Orders = () => {
                     <div className="text-lg font-semibold text-slate-800">₦{canceledTotals.totalAmount.toLocaleString()}</div>
                   </div>
                 </div>
-                <div className="text-sm text-slate-500">
-                  Orders at a Glance
-                </div>
+                <div className="text-sm text-slate-500">Orders at a Glance</div>
               </div>
             </div>
+
+            {/* Raw JSON debug view */}
+            {showRaw && filteredOrders && filteredOrders[0] && (
+              <div className="bg-white p-4 rounded mb-4 border border-slate-200">
+                <div className="text-sm text-slate-600 mb-2">Raw JSON for first filtered order (useful for mapping fields):</div>
+                <pre className="text-xs max-h-64 overflow-auto">{JSON.stringify(filteredOrders[0], null, 2)}</pre>
+              </div>
+            )}
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <Table>
@@ -513,17 +477,13 @@ const Orders = () => {
                 </TableHeader>
                 <TableBody>
                   {filteredOrders.map((order, idx) => {
-                    const serial = filteredOrders.length - idx; // descending so 1 is at bottom
+                    const serial = filteredOrders.length - idx;
                     return (
                       <TableRow key={order.id}>
                         <TableCell>{serial}</TableCell>
                         <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="font-semibold">{getSalesRef(order) || '-'}</TableCell>
-                        <TableCell>
-                          <span className="capitalize">
-                            {getCustomerFullName(order) || '-'}
-                          </span>
-                        </TableCell>
+                        <TableCell><span className="capitalize">{getCustomerFullName(order) || '-'}</span></TableCell>
                         <TableCell>{getCompanyName(order) || '-'}</TableCell>
                         <TableCell>{getPhoneNumber(order) || '-'}</TableCell>
                         <TableCell>{getTruckNumber(order) || '-'}</TableCell>
