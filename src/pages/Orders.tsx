@@ -25,22 +25,39 @@ import { format, isThisWeek, isThisMonth, isThisYear, isToday } from 'date-fns';
 interface Order {
   id: number;
   user: {
-    first_name: string;
-    last_name: string;
-    email: string;
-    phone_number: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    phone_number?: string;
     companyName?: string;
+    company_name?: string;
   };
-  total_price: string;
+  total_price?: string | number;
   status: 'pending' | 'paid' | 'canceled' | 'completed' | string;
   created_at: string;
   products: Array<{
-    name: string;
+    name?: string;
   }>;
-  quantity: number;
-  release_type: 'pickup' | 'delivery';
-  reference: string;
-  state: string;
+  quantity?: number | string;
+  release_type?: 'pickup' | 'delivery';
+  reference?: string; // possible sales reference
+  state?: string;
+  // possible places where our new fields could be stored
+  customer_details?: {
+    salesRef?: string;
+    truckNumber?: string;
+    dprNumber?: string;
+    driverName?: string;
+    driverPhone?: string;
+    name?: string;
+    companyName?: string;
+    phone?: string;
+  };
+  // fallback aliases
+  sales_ref?: string;
+  truck_number?: string;
+  driver_name?: string;
+  driver_phone?: string;
 }
 
 interface OrderResponse {
@@ -134,12 +151,26 @@ const Orders = () => {
         const query = searchQuery.trim();
         if (!query) return true;
         const q = query.toLowerCase();
-        const inId = order.id.toString().includes(q);
-        const inName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q);
-        const inProducts = order.products.some(p => p.name.toLowerCase().includes(q));
-        const inReleaseType = order.release_type.toLowerCase().includes(q);
-        const inState = order.state ? order.state.toLowerCase().includes(q) : false;
-        return inId || inName || inProducts || inReleaseType || inState;
+
+        const name = `${order.user?.first_name ?? ''} ${order.user?.last_name ?? ''}`.toLowerCase();
+        const salesRef = (
+          order.reference ||
+          order.sales_ref ||
+          order.customer_details?.salesRef ||
+          ''
+        ).toLowerCase();
+        const truck = (order.truck_number || order.customer_details?.truckNumber || '').toLowerCase();
+        const driverName = (order.driver_name || order.customer_details?.driverName || '').toLowerCase();
+        const inId = String(order.id).includes(q);
+        const inName = name.includes(q);
+        const inProducts = order.products.some(p => String(p.name ?? '').toLowerCase().includes(q));
+        const inReleaseType = String(order.release_type ?? '').toLowerCase().includes(q);
+        const inState = order.state ? String(order.state).toLowerCase().includes(q) : false;
+        const inSalesRef = salesRef.includes(q);
+        const inTruck = truck.includes(q);
+        const inDriver = driverName.includes(q);
+
+        return inId || inName || inProducts || inReleaseType || inState || inSalesRef || inTruck || inDriver;
       })
       .filter(order => {
         if (!filterType) return true;
@@ -229,6 +260,35 @@ const Orders = () => {
     return { totalQty, totalAmount, totalOrders: canceledFilteredOrders.length };
   }, [canceledFilteredOrders]);
 
+  // Helpers to extract customer-form related fields from the order (robust against schema variations)
+  const getSalesRef = (o: Order) =>
+    o.reference || o.sales_ref || o.customer_details?.salesRef || '';
+
+  const getCustomerFullName = (o: Order) =>
+    (o.customer_details?.name) ||
+    `${o.user?.first_name ?? ''} ${o.user?.last_name ?? ''}`.trim();
+
+  const getCompanyName = (o: Order) =>
+    o.customer_details?.companyName || o.user?.companyName || o.user?.company_name || '';
+
+  const getPhoneNumber = (o: Order) =>
+    o.customer_details?.phone || o.user?.phone_number || '';
+
+  const getTruckNumber = (o: Order) =>
+    o.customer_details?.truckNumber || o.truck_number || '';
+
+  const getDriverName = (o: Order) =>
+    o.customer_details?.driverName || o.driver_name || '';
+
+  const getDriverPhone = (o: Order) =>
+    o.customer_details?.driverPhone || o.driver_phone || '';
+
+  const getFirstProductName = (o: Order) =>
+    (o.products && o.products.length > 0 && o.products[0].name) || '';
+
+  const getProductsList = (o: Order) =>
+    (o.products || []).map(p => p.name).filter(Boolean).join(', ');
+
   const getFilterLabelForFile = () => {
     switch (filterType) {
       case 'today': return 'today';
@@ -250,34 +310,36 @@ const Orders = () => {
     const headers = [
       'S/N',
       'Date',
-      'ID',
-      'Name',
-      // 'Company',
-      'Product',
+      'Sales Reference Number',
+      'Customer Name',
+      'Company Name',
       'Phone Number',
+      'Truck Number',
+      "Driver's Name",
+      "Driver's Phone Number",
+      'Product',
       'Quantity (L)',
-      'Amount (₦)',
-      'Depot/State',
+      'Amount Paid (₦)',
       'Status',
-      // 'Delivery Option',
     ];
 
-    // For export we want 1 to be first. Use reversed order of filteredOrders then index+1 for S/N.
+    // Use the currently filtered orders for export (descending order so most recent first)
     const exportList = [...filteredOrders].reverse();
 
     const rows = exportList.map((order, idx) => [
       idx + 1,
       format(new Date(order.created_at), 'dd-MM-yyyy'),
-      `#${order.id}`,
-      `${order.user.first_name} ${order.user.last_name}`,
-      // order.user.companyName || '',
-      order.products.map(p => p.name).join(', '),
-      `${order.user.phone_number}`,
+      getSalesRef(order),
+      getCustomerFullName(order),
+      getCompanyName(order),
+      getPhoneNumber(order),
+      getTruckNumber(order),
+      getDriverName(order),
+      getDriverPhone(order),
+      getProductsList(order),
       safeParseNumber(order.quantity).toLocaleString(),
       safeParseNumber(order.total_price).toLocaleString(),
-      order.state,
       getStatusText(order.status),
-      // order.release_type === 'delivery' ? 'Delivery' : 'Pickup',
     ]);
 
     // Prepend a small summary block to CSV so totals are visible without manual Excel work
@@ -436,15 +498,16 @@ const Orders = () => {
                   <TableRow>
                     <TableHead>S/N</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Name</TableHead>
+                    <TableHead>Sales Reference</TableHead>
+                    <TableHead>Customer Name</TableHead>
                     <TableHead>Company</TableHead>
                     <TableHead>Phone Number</TableHead>
+                    <TableHead>Truck Number</TableHead>
+                    <TableHead>Driver's Name</TableHead>
+                    <TableHead>Driver's Phone</TableHead>
                     <TableHead>Product</TableHead>
-                    <TableHead>Depot/State</TableHead>
-                    {/* <TableHead>Pickup/Delivery</TableHead> */}
                     <TableHead>Quantity</TableHead>
-                    <TableHead>Amount</TableHead>
+                    <TableHead>Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -455,19 +518,18 @@ const Orders = () => {
                       <TableRow key={order.id}>
                         <TableCell>{serial}</TableCell>
                         <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
-                        <TableCell>#{order.id}</TableCell>
+                        <TableCell className="font-semibold">{getSalesRef(order) || '-'}</TableCell>
                         <TableCell>
                           <span className="capitalize">
-                            {order.user.first_name} {order.user.last_name}
+                            {getCustomerFullName(order) || '-'}
                           </span>
                         </TableCell>
-                        <TableCell>{(order.user as any).company_name}</TableCell>
-                        <TableCell>{order.user.phone_number}</TableCell>
-                        <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
-                        <TableCell>{order.state}</TableCell>
-                        {/* <TableCell>
-                          {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
-                        </TableCell> */}
+                        <TableCell>{getCompanyName(order) || '-'}</TableCell>
+                        <TableCell>{getPhoneNumber(order) || '-'}</TableCell>
+                        <TableCell>{getTruckNumber(order) || '-'}</TableCell>
+                        <TableCell>{getDriverName(order) || '-'}</TableCell>
+                        <TableCell>{getDriverPhone(order) || '-'}</TableCell>
+                        <TableCell>{getProductsList(order) || '-'}</TableCell>
                         <TableCell>{safeParseNumber(order.quantity).toLocaleString()}</TableCell>
                         <TableCell>₦{safeParseNumber(order.total_price).toLocaleString()}</TableCell>
                         <TableCell>
@@ -480,7 +542,7 @@ const Orders = () => {
                   })}
                   {filteredOrders.length === 0 && !isLoading && (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center text-slate-500 py-8">
+                      <TableCell colSpan={13} className="text-center text-slate-500 py-8">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
