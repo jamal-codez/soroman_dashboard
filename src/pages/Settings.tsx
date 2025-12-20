@@ -48,8 +48,13 @@ import {
   User,
   Shield,
   Loader2,
+  Users2,
+  Ban,
+  CheckCircle2,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
+import { PageHeader } from '@/components/PageHeader';
+import { SummaryCards } from '@/components/SummaryCards';
 
 type UserType = {
   id: number;
@@ -175,7 +180,7 @@ const Settings = () => {
     setIsLoading(true);
     try {
       if (editingUser) {
-        const updatedUser: any = {
+        const updatedUser: Record<string, unknown> = {
           email: formData.email,
           full_name: formData.full_name,
           phone_number: formData.phone_number,
@@ -193,7 +198,10 @@ const Settings = () => {
 
         toast({
           title: "User Updated",
-          description: response?.message || "User updated successfully.",
+          description: (() => {
+            const rec = response as unknown as Record<string, unknown>;
+            return (typeof rec.message === 'string' ? rec.message : undefined) || "User updated successfully.";
+          })(),
           duration: 2000,
         });
       } else {
@@ -214,12 +222,15 @@ const Settings = () => {
 
       handleCloseDialog();
       fetchUsers();
-    } catch (error: any) {
+    } catch (error: unknown) {
       let errorMessage = "An error occurred. Please try again.";
       const fieldErrors: Partial<typeof errors> = {};
 
-      if (error?.response?.data) {
-        const apiErrors = error.response.data;
+      const errRec = error as Record<string, unknown>;
+      const response = (errRec.response as Record<string, unknown> | undefined) || undefined;
+      const data = (response?.data as Record<string, unknown> | undefined) || undefined;
+      if (data) {
+        const apiErrors = data;
 
         // General API message
         if (apiErrors.message || apiErrors.detail) {
@@ -304,6 +315,13 @@ const Settings = () => {
     fetchUsers();
   }, []);
 
+  const summary = {
+    total: users.length,
+    active: users.filter(u => !u.suspended).length,
+    suspended: users.filter(u => u.suspended).length,
+    admins: users.filter(u => u.role === 1).length
+  };
+
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
@@ -311,23 +329,28 @@ const Settings = () => {
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Staff Management Dashboard</h1>
-                <p className="text-slate-500">Manage your staffs</p>
-              </div>
-              <Button
-                onClick={() => handleOpenDialog()}
-                className="bg-soroman-orange hover:bg-soroman-orange/90"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <Loader2 className="animate-spin mr-2 h-4 w-4" />
-                ) : (
-                  <UserPlus className="mr-2" size={16} />
-                )}
-                Add User
-              </Button>
+            <div className="mb-5">
+              <PageHeader
+                title="Staff Management"
+                // description="Create, edit and manage staff access across the dashboard."
+                actions={
+                  <Button className="gap-2" onClick={() => handleOpenDialog()}>
+                    <UserPlus className="h-4 w-4" />
+                    Add staff
+                  </Button>
+                }
+              />
+            </div>
+
+            <div className="mb-6">
+              <SummaryCards
+                cards={[
+                  { title: 'Total staff', value: String(summary.total), description: 'All staff accounts', icon: <Users2 className="h-5 w-5" />, tone: 'neutral' },
+                  { title: 'Active', value: String(summary.active), description: 'Can login', icon: <CheckCircle2 className="h-5 w-5" />, tone: 'green' },
+                  // { title: 'Suspended', value: String(summary.suspended), description: 'Blocked access', icon: <Ban className="h-5 w-5" />, tone: 'red' },
+                  { title: 'Admins', value: String(summary.admins), description: 'Admin role', icon: <Shield className="h-5 w-5" />, tone: 'neutral' }
+                ]}
+              />
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
@@ -349,11 +372,11 @@ const Settings = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>USER</TableHead>
-                    <TableHead>ROLE</TableHead>
-                    <TableHead>STATUS</TableHead>
-                    <TableHead>LAST LOGIN</TableHead>
-                    <TableHead className="text-right">ACTIONS</TableHead>
+                    <TableHead>Staff</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last Login</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -372,7 +395,7 @@ const Settings = () => {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center">
-                          <Shield className={`mr-2 ${user.role === 1 ? 'text-soroman-orange' : 'text-slate-400'}`} size={16} />
+                          <Shield className={`mr-2 ${user.role === 1 ? 'text-amber-600' : 'text-slate-400'}`} size={16} />
                           {user.label}
                         </div>
                       </TableCell>

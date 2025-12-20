@@ -1,8 +1,9 @@
+/* Overwrite default Vite template constraints for dashboard app */
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  text-align: inherit;
 }
 
 .logo {

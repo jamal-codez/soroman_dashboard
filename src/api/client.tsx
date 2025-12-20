@@ -21,6 +21,8 @@ export const apiClient = {
       password: string;
       full_name: string;
       phone_number: string;
+      role?: number;
+      suspended?: boolean;
     }) => {
       const response = await fetch(`${ADMIN_BASE}/users/register/`, {
         method: 'POST',
@@ -344,7 +346,7 @@ export const apiClient = {
       return response.json();
     },
     
-    toggleStateStatus: async (StatetId: String) => {
+    toggleStateStatus: async (StatetId: string) => {
       const response = await fetch(`${ADMIN_BASE}/state/${StatetId}/togglestatus/`, {
         headers: getHeaders(),
       });
@@ -514,7 +516,7 @@ export const apiClient = {
       return response.json();
     },
 
-    updateUser: async (userId: number, data: any) => {
+    updateUser: async (userId: number, data: Record<string, unknown>) => {
       const response = await fetch(`${ADMIN_BASE}/users/${userId}/`, {
         method: 'PATCH',
         headers: getHeaders(),
@@ -524,7 +526,7 @@ export const apiClient = {
       return response.json();
     },
 
-    adminUpdateProduct: async (productId: number, data: any) => {
+    adminUpdateProduct: async (productId: number, data: Record<string, unknown>) => {
       const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
         method: 'PATCH',
         headers: getHeaders(),

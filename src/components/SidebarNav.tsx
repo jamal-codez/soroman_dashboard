@@ -29,18 +29,19 @@ import { Button } from './ui/button';
 
 const navItems = [
   { title: "Overview", icon: Home, path: "/dashboard", allowedRoles: [0, 1] },
-  { title: "All Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [0, 1, 2, 3, 4] },
-  { title: "All Inventory", icon: Fuel, path: "/inventory", allowedRoles: [0, 1] },
-  { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
+  { title: "Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [0, 1, 2, 3, 4] },
+  { title: "Stock Management", icon: Fuel, path: "/inventory", allowedRoles: [0, 1] },
+  // { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
   { title: "Finance", icon: Banknote, path: "/finance", allowedRoles: [0, 1, 2] },
   { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 3] },
   // { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
   // { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 4] },
-  { title: "Release Orders", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1, 4] },
+  { title: "Release/Ticketing", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1, 4] },
   // { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1,2,4] },
   // { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
-  { title: "Verify Payment", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
-  { title: "Manage Staff", icon: User, path: "/users-management", allowedRoles: [0, 1] }
+  { title: "Confirm Payment", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
+  { title: "Staff Management", icon: User, path: "/users-management", allowedRoles: [0, 1] },
+  { title: "Agents Management", icon: Users, path: "/agents", allowedRoles: [0, 1] }
 ];
 
 export const SidebarNav = () => {
@@ -62,10 +63,10 @@ export const SidebarNav = () => {
 
   return (
     <div className={cn(
-      "bg-soroman-blue text-white h-screen transition-all duration-300 flex flex-col",
+      "bg-sidebar text-sidebar-foreground h-screen transition-all duration-300 flex flex-col",
       expanded ? "w-64" : "w-20"
     )}>
-      <div className="flex items-center justify-between p-4 border-b border-slate-700">
+      <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
         <div className={cn("flex items-center", expanded ? "" : "justify-center w-full")}>
           {expanded && (
             <div className="flex items-center gap-2">
@@ -85,8 +86,9 @@ export const SidebarNav = () => {
             />
           )}
         </div>
-        <Button 
-          className="text-slate-300 hover:text-white"
+        <Button
+          variant="ghost"
+          className="text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent"
           onClick={() => setExpanded(!expanded)}
         >
           {expanded ? <ArrowLeft size={20} /> : <Menu size={20} />}
@@ -108,20 +110,20 @@ export const SidebarNav = () => {
                 navigate(item.path);
               }}
               className={cn(
-                "flex items-center py-3 px-4 hover:bg-slate-700 transition-colors",
-                isActive && "bg-slate-700/50 border-l-4 border-[#169061]"
+                "flex items-center py-3 px-4 hover:bg-sidebar-accent transition-colors",
+                isActive && "bg-sidebar-accent border-l-4 border-primary"
               )}
             >
-              <item.icon className={cn("text-slate-300", isActive && "text-[#169061]")} size={20} />
+              <item.icon className={cn("text-sidebar-foreground/70", isActive && "text-primary-foreground")} size={20} />
               {expanded && (
-                <span className={cn("ml-3", isActive && "text-[#169061]")}>{item.title}</span>
+                <span className={cn("ml-3 text-[1rem]", isActive && "text-sidebar-foreground")}>{item.title}</span>
               )}
             </a>
           );
         })}
       </div>
       
-      <div className="p-4 border-t border-slate-700">
+      <div className="p-4 border-t border-sidebar-border">
         <div className="flex items-center gap-2">
           {expanded && (
             <>
@@ -140,9 +142,10 @@ export const SidebarNav = () => {
               </div>
             </>
           )}
-          <Button 
+          <Button
+            variant="ghost"
             className={cn(
-              "text-slate-300 hover:text-white", 
+              "text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent",
               expanded ? "ml-auto" : "mx-auto"
             )}
             onClick={handleLogout}

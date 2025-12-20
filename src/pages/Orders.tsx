@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
@@ -21,10 +21,12 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { format, isThisWeek, isThisMonth, isThisYear, isToday } from 'date-fns';
+import { shouldAutoCancel } from '@/lib/orderTimers';
+import { getOrderReference } from '@/lib/orderReference';
 
 interface Order {
   id: number;
-  user: Record<string, any>;
+  user: Record<string, unknown>;
   total_price?: string | number;
   status: string;
   created_at: string;
@@ -33,15 +35,16 @@ interface Order {
   release_type?: 'pickup' | 'delivery';
   reference?: string;
   state?: string;
-  customer_details?: Record<string, any>;
-  // fallback aliases
-  sales_ref?: string;
+  customer_details?: Record<string, unknown>;
   truck_number?: string;
   driver_name?: string;
   driver_phone?: string;
-  meta?: Record<string, any>;
-  data?: Record<string, any>;
-  payload?: Record<string, any>;
+  meta?: Record<string, unknown>;
+  data?: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+  assigned_agent?: unknown;
+  agent?: unknown;
+  assignedAgent?: unknown;
 }
 
 interface OrderResponse {
@@ -87,7 +90,6 @@ const Orders = () => {
   const [productFilter, setProductFilter] = useState<string|null>(null);
   const [locationFilter, setLocationFilter] = useState<string|null>(null);
   const [statusFilter, setStatusFilter] = useState<string|null>(null);
-  const [showRaw, setShowRaw] = useState(false); // debug toggle
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
@@ -99,6 +101,48 @@ const Orders = () => {
     retry: 2,
     refetchOnWindowFocus: false
   });
+
+  const autoCancelInFlight = useRef<Set<number>>(new Set());
+  const queryClient = useQueryClient();
+
+  const runAutoCancel = async (orders: Order[]) => {
+    const eligible = orders.filter((o) => {
+      if (autoCancelInFlight.current.has(o.id)) return false;
+      return shouldAutoCancel({ status: o.status, created_at: o.created_at });
+    });
+
+    if (!eligible.length) return;
+
+    for (const o of eligible) {
+      autoCancelInFlight.current.add(o.id);
+      try {
+        await apiClient.admin.cancleOrder(o.id);
+      } catch {
+        // ignore
+      }
+    }
+
+    // Refresh list so UI shows canceled
+    await queryClient.invalidateQueries({ queryKey: ['all-orders'] });
+  };
+
+  useEffect(() => {
+    const list = apiResponse?.results || [];
+    if (!list.length) return;
+    void runAutoCancel(list);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiResponse?.results]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const list = apiResponse?.results || [];
+      if (!list.length) return;
+      void runAutoCancel(list);
+    }, 5 * 60 * 1000);
+
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiResponse?.results]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value.toLowerCase());
@@ -122,16 +166,7 @@ const Orders = () => {
         if (!query) return true;
         const q = query.toLowerCase();
         const name = `${order.user?.first_name ?? ''} ${order.user?.last_name ?? ''}`.toLowerCase();
-        const salesRef = String(
-          order.reference ||
-          order.sales_ref ||
-          order.customer_details?.salesRef ||
-          order.customer_details?.sales_reference ||
-          order.meta?.salesRef ||
-          order.data?.salesRef ||
-          order.payload?.salesRef ||
-          ''
-        ).toLowerCase();
+        const ref = getOrderReference(order).toLowerCase();
         const truck = String(order.truck_number || order.customer_details?.truckNumber || order.customer_details?.truck_number || '').toLowerCase();
         const driverName = String(order.driver_name || order.customer_details?.driverName || order.customer_details?.driver_name || '').toLowerCase();
         const inId = String(order.id).includes(q);
@@ -139,11 +174,11 @@ const Orders = () => {
         const inProducts = order.products.some(p => String(p.name ?? '').toLowerCase().includes(q));
         const inReleaseType = String(order.release_type ?? '').toLowerCase().includes(q);
         const inState = order.state ? String(order.state).toLowerCase().includes(q) : false;
-        const inSalesRef = salesRef.includes(q);
+        const inRef = ref.includes(q);
         const inTruck = truck.includes(q);
         const inDriver = driverName.includes(q);
 
-        return inId || inName || inProducts || inReleaseType || inState || inSalesRef || inTruck || inDriver;
+        return inId || inName || inProducts || inReleaseType || inState || inRef || inTruck || inDriver;
       })
       .filter(order => {
         if (!filterType) return true;
@@ -172,7 +207,7 @@ const Orders = () => {
     if (v == null) return 0;
     if (typeof v === 'number' && Number.isFinite(v)) return v;
     const str = String(v).trim();
-    const cleaned = str.replace(/[^0-9\.\-]+/g, '');
+    const cleaned = str.replace(/[^0-9.-]+/g, '');
     const n = parseFloat(cleaned);
     return Number.isFinite(n) ? n : 0;
   };
@@ -201,7 +236,7 @@ const Orders = () => {
       if (!(s === 'completed' || s === 'released')) return false;
       return matchesSummaryFilters(o);
     });
-  }, [apiResponse?.results, filterType, productFilter, locationFilter]);
+  }, [apiResponse?.results, filterType, productFilter, locationFilter, matchesSummaryFilters]);
 
   const canceledFilteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
@@ -210,7 +245,7 @@ const Orders = () => {
       if (s !== 'canceled') return false;
       return matchesSummaryFilters(o);
     });
-  }, [apiResponse?.results, filterType, productFilter, locationFilter]);
+  }, [apiResponse?.results, filterType, productFilter, locationFilter, matchesSummaryFilters]);
 
   const releasedTotals = useMemo(() => {
     const totalQty = releasedFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
@@ -224,29 +259,39 @@ const Orders = () => {
     return { totalQty, totalAmount, totalOrders: canceledFilteredOrders.length };
   }, [canceledFilteredOrders]);
 
-  // Robust helpers: try many places where customer-entered fields could live
-  const getSalesRef = (o: Order) => {
+  const getSalesRef = (o: Order) => getOrderReference(o);
+
+  const getCustomerFullName = (o: Order): string => {
+    const cd = o.customer_details as Record<string, unknown> | undefined;
+    const user = o.user as Record<string, unknown> | undefined;
+    const cdName = cd && typeof cd.name === 'string' ? cd.name : '';
+    if (cdName) return cdName;
+    const first = user && typeof user.first_name === 'string' ? user.first_name : '';
+    const last = user && typeof user.last_name === 'string' ? user.last_name : '';
+    return [first, last].filter(Boolean).join(' ').trim();
+  };
+
+  const getCompanyName = (o: Order): string => {
+    const cd = o.customer_details as Record<string, unknown> | undefined;
+    const user = o.user as Record<string, unknown> | undefined;
     return (
-      o.customer_details?.salesRef ||
-      o.customer_details?.sales_reference ||
-      o.reference ||
-      o.sales_ref ||
-      o.meta?.salesRef ||
-      o.data?.salesRef ||
-      o.payload?.customer?.salesRef ||
+      (cd && typeof cd.companyName === 'string' ? cd.companyName : '') ||
+      (user && typeof user.companyName === 'string' ? user.companyName : '') ||
+      (user && typeof user.company_name === 'string' ? user.company_name : '') ||
       ''
     );
   };
 
-  const getCustomerFullName = (o: Order) =>
-    o.customer_details?.name ||
-    [o.user?.first_name, o.user?.last_name].filter(Boolean).join(' ').trim();
-
-  const getCompanyName = (o: Order) =>
-    o.customer_details?.companyName || o.user?.companyName || o.user?.company_name || '';
-
-  const getPhoneNumber = (o: Order) =>
-    o.customer_details?.phone || o.user?.phone_number || o.user?.phone || '';
+  const getPhoneNumber = (o: Order): string => {
+    const cd = o.customer_details as Record<string, unknown> | undefined;
+    const user = o.user as Record<string, unknown> | undefined;
+    return (
+      (cd && typeof cd.phone === 'string' ? cd.phone : '') ||
+      (user && typeof user.phone_number === 'string' ? user.phone_number : '') ||
+      (user && typeof user.phone === 'string' ? user.phone : '') ||
+      ''
+    );
+  };
 
   const getTruckNumber = (o: Order) =>
     o.customer_details?.truckNumber || o.customer_details?.truck_number || o.truck_number || '';
@@ -260,7 +305,24 @@ const Orders = () => {
   const getProductsList = (o: Order) =>
     (o.products || []).map(p => p.name).filter(Boolean).join(', ');
 
-  // CSV export and the rest kept same (omitted here for brevity in this snippet)
+  const getAssignedAgentName = (o: Order): string => {
+    const rec = o as unknown as Record<string, unknown>;
+    const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
+    if (!a) return '';
+    if (typeof a === 'string') return a;
+    const aRec = a as Record<string, unknown>;
+    const fullName = [aRec.first_name, aRec.last_name]
+      .filter((v): v is string => typeof v === 'string' && v.length > 0)
+      .join(' ')
+      .trim();
+    return (
+      fullName ||
+      (typeof aRec.name === 'string' ? aRec.name : '') ||
+      (typeof aRec.full_name === 'string' ? aRec.full_name : '') ||
+      (typeof aRec.username === 'string' ? aRec.username : '') ||
+      ''
+    );
+  };
 
   const getFilterLabelForFile = () => {
     switch (filterType) {
@@ -283,7 +345,9 @@ const Orders = () => {
     const headers = [
       'S/N',
       'Date',
-      'Sales Reference Number',
+      'Order Reference',
+      'Location',
+      'Assigned Agent',
       'Customer Name',
       'Company Name',
       'Phone Number',
@@ -302,6 +366,8 @@ const Orders = () => {
       idx + 1,
       format(new Date(order.created_at), 'dd-MM-yyyy'),
       getSalesRef(order),
+      order.state || '-',
+      getAssignedAgentName(order) || '-',
       getCustomerFullName(order),
       getCompanyName(order),
       getPhoneNumber(order),
@@ -356,37 +422,39 @@ const Orders = () => {
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl font-bold text-slate-800">All Orders</h1>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={exportToCSV}>
+                <Button onClick={exportToCSV}>
                   <Download className="mr-1" size={16} /> Download Report
-                </Button>
-                {/* Debug toggle to inspect the raw JSON of the first filtered order */}
-                <Button variant="ghost" onClick={() => {
-                  setShowRaw(s => !s);
-                  if (filteredOrders && filteredOrders[0]) console.log('First filtered order:', filteredOrders[0]);
-                }}>
-                  {showRaw ? 'Hide JSON' : 'Show Order JSON'}
                 </Button>
               </div>
             </div>
 
-            {/* Summary and Filters (unchanged) */}
+            {/* Summary and Filters */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <div className="flex flex-col lg:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                  <Input
-                    type="text"
-                    placeholder="Search orders..."
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={handleSearch}
-                  />
+              <div className="flex flex-col gap-3">
+
+                <div className="flex flex-col lg:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+                    <Input
+                      type="text"
+                      placeholder="Search orders..."
+                      className="pl-10"
+                      value={searchQuery}
+                      onChange={handleSearch}
+                    />
+                  </div>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <select className="border border-gray-300 rounded px-3 py-2" value={filterType ?? ''} onChange={(e) => {
-                    const v = e.target.value as ''|'today'|'week'|'month'|'year';
-                    setFilterType(v === '' ? null : v);
-                  }}>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <select
+                    aria-label="Date filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={filterType ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value as ''|'today'|'week'|'month'|'year';
+                      setFilterType(v === '' ? null : v);
+                    }}
+                  >
                     <option value="">All Time</option>
                     <option value="today">Today</option>
                     <option value="week">This Week</option>
@@ -394,7 +462,12 @@ const Orders = () => {
                     <option value="year">This Year</option>
                   </select>
 
-                  <select className="border border-gray-300 rounded px-3 py-2" value={statusFilter ?? ''} onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}>
+                  <select
+                    aria-label="Status filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={statusFilter ?? ''}
+                    onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
+                  >
                     <option value="">All Statuses</option>
                     <option value="pending">Pending</option>
                     <option value="paid">Paid</option>
@@ -403,14 +476,28 @@ const Orders = () => {
                     <option value="released">Released</option>
                   </select>
 
-                  <select className="border border-gray-300 rounded px-3 py-2" value={productFilter ?? ''} onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}>
+                  <select
+                    aria-label="Product filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={productFilter ?? ''}
+                    onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
+                  >
                     <option value="">All Products</option>
-                    {uniqueProducts.map((p) => (<option key={p} value={p}>{p}</option>))}
+                    {uniqueProducts.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
                   </select>
 
-                  <select className="border border-gray-300 rounded px-3 py-2" value={locationFilter ?? ''} onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}>
+                  <select
+                    aria-label="Location filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={locationFilter ?? ''}
+                    onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
+                  >
                     <option value="">All Locations</option>
-                    {uniqueLocations.map((s) => (<option key={s} value={s}>{s}</option>))}
+                    {uniqueLocations.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -435,43 +522,34 @@ const Orders = () => {
                     <div className="text-sm text-slate-500">Canceled Orders</div>
                     <div className="text-lg font-semibold text-slate-800">{canceledTotals.totalOrders}</div>
                   </div>
-                  <div>
+                  {/* <div>
                     <div className="text-sm text-slate-500">Quantity Canceled</div>
                     <div className="text-lg font-semibold text-slate-800">{canceledTotals.totalQty.toLocaleString()} Ltrs</div>
                   </div>
                   <div>
                     <div className="text-sm text-slate-500">Amount Canceled</div>
                     <div className="text-lg font-semibold text-slate-800">₦{canceledTotals.totalAmount.toLocaleString()}</div>
-                  </div>
+                  </div> */}
                 </div>
-                <div className="text-sm text-slate-500">Orders at a Glance</div>
               </div>
             </div>
-
-            {/* Raw JSON debug view */}
-            {showRaw && filteredOrders && filteredOrders[0] && (
-              <div className="bg-white p-4 rounded mb-4 border border-slate-200">
-                <div className="text-sm text-slate-600 mb-2">Raw JSON for first filtered order (useful for mapping fields):</div>
-                <pre className="text-xs max-h-64 overflow-auto">{JSON.stringify(filteredOrders[0], null, 2)}</pre>
-              </div>
-            )}
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>S/N</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Sales Reference</TableHead>
-                    <TableHead>Customer Name</TableHead>
+                    <TableHead className="w-[70px]">S/N</TableHead>
+                    <TableHead className="w-[110px]">Date</TableHead>
+                    <TableHead className="w-[90px]">Time</TableHead>
+                    <TableHead>Reference</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Assigned Agent</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead>Company</TableHead>
-                    <TableHead>Phone Number</TableHead>
-                    <TableHead>Truck Number</TableHead>
-                    <TableHead>Driver's Name</TableHead>
-                    <TableHead>Driver's Phone</TableHead>
+                    <TableHead>Phone</TableHead>
                     <TableHead>Product</TableHead>
-                    <TableHead>Quantity</TableHead>
-                    <TableHead>Amount Paid</TableHead>
+                    <TableHead className="text-right">Quantity</TableHead>
+                    <TableHead className="text-right">Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -480,21 +558,26 @@ const Orders = () => {
                     const serial = filteredOrders.length - idx;
                     return (
                       <TableRow key={order.id}>
-                        <TableCell>{serial}</TableCell>
-                        <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
-                        <TableCell className="font-semibold">{getSalesRef(order) || '-'}</TableCell>
-                        <TableCell><span className="capitalize">{getCustomerFullName(order) || '-'}</span></TableCell>
-                        <TableCell>{getCompanyName(order) || '-'}</TableCell>
-                        <TableCell>{getPhoneNumber(order) || '-'}</TableCell>
-                        <TableCell>{getTruckNumber(order) || '-'}</TableCell>
-                        <TableCell>{getDriverName(order) || '-'}</TableCell>
-                        <TableCell>{getDriverPhone(order) || '-'}</TableCell>
-                        <TableCell>{getProductsList(order) || '-'}</TableCell>
-                        <TableCell>{safeParseNumber(order.quantity).toLocaleString()}</TableCell>
-                        <TableCell>₦{safeParseNumber(order.total_price).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-600">{serial}</TableCell>
+                        <TableCell className="text-slate-700">{format(new Date(order.created_at), 'dd/MM/yyyy')}</TableCell>
+                        <TableCell className="text-slate-700">{format(new Date(order.created_at), 'HH:mm')}</TableCell>
+                        <TableCell className="font-semibold text-slate-950">{getSalesRef(order) || '-'}</TableCell>
+                        <TableCell className="text-slate-800">{order.state || '-'}</TableCell>
+                        <TableCell className="text-slate-800">{getAssignedAgentName(order) || '-'}</TableCell>
                         <TableCell>
-                          <span className={`inline-flex items-center px-2 py-1 text-sm font-medium border rounded capitalize ${getStatusClass(order.status)}`}>
-                            {getStatusIcon(order.status)} <span className="ml-1">{getStatusText(order.status)}</span>
+                          <div className="font-medium text-slate-950 capitalize leading-tight">
+                            {getCustomerFullName(order) || '-'}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-slate-800">{getCompanyName(order) || '-'}</TableCell>
+                        <TableCell className="text-slate-700">{getPhoneNumber(order) || '-'}</TableCell>
+                        <TableCell className="text-slate-800">{getProductsList(order) || '-'}</TableCell>
+                        <TableCell className="text-right font-medium text-slate-950">{safeParseNumber(order.quantity).toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-semibold text-slate-950">₦{safeParseNumber(order.total_price).toLocaleString()}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold border rounded-full capitalize ${getStatusClass(order.status)}`}>
+                            {getStatusIcon(order.status)}
+                            <span>{getStatusText(order.status)}</span>
                           </span>
                         </TableCell>
                       </TableRow>
@@ -502,7 +585,7 @@ const Orders = () => {
                   })}
                   {filteredOrders.length === 0 && !isLoading && (
                     <TableRow>
-                      <TableCell colSpan={13} className="text-center text-slate-500 py-8">
+                      <TableCell colSpan={13} className="text-center text-slate-500 py-10">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>

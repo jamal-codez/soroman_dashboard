@@ -132,26 +132,34 @@ export const DeliveryProcessing = () => {
             </div>
             
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                  <Input
-                    type="text"
-                    placeholder="Search deliveries..."
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={handleSearch}
-                  />
+              <div className="flex flex-col gap-3">
+                {/* Row 1: Search */}
+                <div className="flex flex-col lg:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+                    <Input
+                      type="text"
+                      placeholder="Search deliveries..."
+                      className="pl-10 h-11"
+                      value={searchQuery}
+                      onChange={handleSearch}
+                    />
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex items-center">
-                    <Filter className="mr-1" size={16} />
-                    Filter
-                  </Button>
-                  <Button variant="outline" className="flex items-center">
-                    <Download className="mr-1" size={16} />
-                    Export
-                  </Button>
+
+                {/* Row 2: Filters + actions */}
+                <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+                  <div className="text-sm text-slate-500">Filter deliveries by any field</div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex items-center">
+                      <Filter className="mr-1" size={16} />
+                      Filter
+                    </Button>
+                    <Button variant="outline" className="flex items-center">
+                      <Download className="mr-1" size={16} />
+                      Export
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

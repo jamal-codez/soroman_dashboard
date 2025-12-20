@@ -108,19 +108,24 @@ const OrderVerification = () => {
             </div>
             
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                  <Input
-                    type="text"
-                    placeholder="Search orders..."
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+              <div className="flex flex-col gap-3">
+                {/* Row 1: Search */}
+                <div className="flex flex-col lg:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+                    <Input
+                      type="text"
+                      placeholder="Search orders..."
+                      className="pl-10 h-11"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex items-center">
+
+                {/* Row 2: Actions */}
+                <div className="flex items-center justify-end gap-2">
+                  <Button variant="outline" className="flex items-center" onClick={handleExport}>
                     <FileText className="mr-1" size={16} />
                     Export
                   </Button>

@@ -2,6 +2,8 @@ import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { PageHeader } from '@/components/PageHeader';
+import { SummaryCards } from '@/components/SummaryCards';
 import { apiClient } from '@/api/client';
 import {
   ShoppingCart,
@@ -9,7 +11,9 @@ import {
   Users,
   CreditCard,
   BarChart3,
-  Activity
+  Activity,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
 
 // ---------- Types ----------
@@ -49,61 +53,16 @@ const safePercent = (n?: number) =>
 const currency = (n?: number) =>
   `₦${Number(n || 0).toLocaleString()}`;
 
-const getProdName = (p: any) =>
-  p?.name || p?.product_name || p?.product || p?.type || 'Unknown';
-
-// ---------- Simple Stat Card (icon on top, responsive) ----------
-interface SimpleStatProps {
-  title: string;
-  value: string;
-  change?: string;
-  icon: React.ElementType;
-  iconColor?: string;
-  isLoading?: boolean;
-}
-const SimpleStatCard: React.FC<SimpleStatProps> = ({
-  title,
-  value,
-  change,
-  icon: Icon,
-  iconColor = 'text-slate-600',
-  isLoading
-}) => {
+const getProdName = (p: unknown) => {
+  const rec = (p ?? null) as Record<string, unknown> | null;
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 flex flex-col items-center text-center shadow-sm">
-      <div className="w-10 h-10 rounded-full flex items-center justify-center mb-2 bg-slate-100">
-        <Icon size={20} className={iconColor} />
-      </div>
-      <p className="text-xs uppercase tracking-wide text-slate-500 font-medium">{title}</p>
-      <h3 className="mt-1 text-xl font-semibold text-slate-800 leading-tight">
-        {isLoading ? '...' : value}
-      </h3>
-      {change && !isLoading && (
-        <p className="mt-1 text-xs font-medium text-green-600">{change}</p>
-      )}
-    </div>
+    (typeof rec?.name === 'string' && rec.name) ||
+    (typeof rec?.product_name === 'string' && rec.product_name) ||
+    (typeof rec?.product === 'string' && rec.product) ||
+    (typeof rec?.type === 'string' && rec.type) ||
+    'Unknown'
   );
 };
-
-// ---------- Small Info Tile ----------
-const InfoTile: React.FC<{ title: string; value: string; icon?: React.ElementType; iconColor?: string }> = ({
-  title,
-  value,
-  icon: Icon,
-  iconColor = 'text-slate-600'
-}) => (
-  <div className="rounded-md border border-slate-200 bg-white p-3 flex items-center gap-3">
-    {Icon && (
-      <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center">
-        <Icon size={18} className={iconColor} />
-      </div>
-    )}
-    <div className="min-w-0">
-      <p className="text-xs text-slate-500 uppercase tracking-wide">{title}</p>
-      <p className="text-sm font-semibold text-slate-800 truncate">{value}</p>
-    </div>
-  </div>
-);
 
 // ---------- Dashboard ----------
 const Dashboard: React.FC = () => {
@@ -125,16 +84,6 @@ const Dashboard: React.FC = () => {
   const customersCount = Number(customerData?.count || 0);
   const unpaidOrders = Number(analytics?.unpaid_orders || 0);
 
-  const avgOrderValue = useMemo(() => {
-    if (!totalOrders) return 0;
-    return salesRevenue / totalOrders;
-  }, [salesRevenue, totalOrders]);
-
-  const revenuePerCustomer = useMemo(() => {
-    if (!customersCount) return 0;
-    return salesRevenue / customersCount;
-  }, [salesRevenue, customersCount]);
-
   const topProducts = useMemo(() => {
     const list = (analytics?.quantity_sold || [])
       .filter((p) => typeof p?.current_quantity === 'number')
@@ -143,77 +92,75 @@ const Dashboard: React.FC = () => {
     return list;
   }, [analytics?.quantity_sold]);
 
+  const completedOrReleased = useMemo(() => {
+    // Not all APIs provide this in analytics; best-effort fallback to 0.
+    // If/when backend adds it, wire it into AnalyticsData.
+    return 0;
+  }, []);
+
+  const canceledOrders = useMemo(() => {
+    // Not all APIs provide this in analytics; best-effort fallback to 0.
+    return 0;
+  }, []);
+
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
         <div className="flex-1 overflow-auto p-4 sm:p-6">
-          <div className="max-w-7xl mx-auto">
-            {/* Header */}
-            <div className="mb-4 sm:mb-6">
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Dashboard Overview</h1>
-              <p className="text-slate-500 text-sm sm:text-base">
-                A quick snapshot of your business performance.
-              </p>
-            </div>
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="Dashboard Overview"
+              // description="A quick snapshot of your business performance."
+            />
 
-            {/* Stat Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-              <SimpleStatCard
-                title="Total Orders"
-                value={totalOrders.toLocaleString()}
-                change={safePercent(analytics?.orders_change)}
-                icon={ShoppingCart}
-                iconColor="text-blue-600"
-                isLoading={analyticsLoading}
-              />
-              <SimpleStatCard
-                title="Sales Revenue"
-                value={currency(salesRevenue)}
-                change={safePercent(analytics?.sales_revenue_change)}
-                icon={TrendingUp}
-                iconColor="text-green-600"
-                isLoading={analyticsLoading}
-              />
-              <SimpleStatCard
-                title="Total Customers"
-                value={customersCount.toLocaleString()}
-                change={safePercent(analytics?.active_customers_change)}
-                icon={Users}
-                iconColor="text-purple-600"
-                isLoading={analyticsLoading}
-              />
-              <SimpleStatCard
-                title="Unpaid Orders"
-                value={unpaidOrders.toLocaleString()}
-                icon={CreditCard}
-                iconColor="text-amber-600"
-                isLoading={analyticsLoading}
-              />
-            </div>
-
-            {/* Quick Insights */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 mb-6">
-              <InfoTile
-                title="Average Order Value"
-                value={currency(avgOrderValue)}
-                icon={BarChart3}
-                iconColor="text-blue-600"
-              />
-              <InfoTile
-                title="Revenue per Customer"
-                value={currency(revenuePerCustomer)}
-                icon={Activity}
-                iconColor="text-green-600"
-              />
-              <InfoTile
-                title="Customers in System"
-                value={customersCount.toLocaleString()}
-                icon={Users}
-                iconColor="text-purple-600"
-              />
-            </div>
+            <SummaryCards
+              cards={[
+                {
+                  title: 'Total Orders',
+                  value: totalOrders.toLocaleString(),
+                  description: analyticsLoading ? 'Loading…' : (safePercent(analytics?.orders_change) ? `Change: ${safePercent(analytics?.orders_change)}` : 'All time'),
+                  icon: <ShoppingCart className="h-5 w-5" />,
+                  tone: 'neutral'
+                },
+                {
+                  title: 'Sales Revenue',
+                  value: currency(salesRevenue),
+                  description: analyticsLoading ? 'Loading…' : (safePercent(analytics?.sales_revenue_change) ? `Change: ${safePercent(analytics?.sales_revenue_change)}` : 'All time'),
+                  icon: <TrendingUp className="h-5 w-5" />,
+                  tone: 'green'
+                },
+                {
+                  title: 'Unpaid Orders',
+                  value: unpaidOrders.toLocaleString(),
+                  description: 'Awaiting payment',
+                  icon: <CreditCard className="h-5 w-5" />,
+                  tone: 'amber'
+                },
+                {
+                  title: 'Released/Completed',
+                  value: completedOrReleased.toLocaleString(),
+                  description: 'Fulfilled orders',
+                  icon: <CheckCircle className="h-5 w-5" />,
+                  tone: 'neutral'
+                },
+                {
+                  title: 'Canceled Orders',
+                  value: canceledOrders.toLocaleString(),
+                  description: 'Auto + manual',
+                  icon: <XCircle className="h-5 w-5" />,
+                  tone: 'red'
+                },
+                {
+                  title: 'Total Customers',
+                  value: customersCount.toLocaleString(),
+                  description: 'In system',
+                  icon: <Users className="h-5 w-5" />,
+                  tone: 'neutral'
+                }
+              ]}
+            />
 
             {/* Top Products (by volume) */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">

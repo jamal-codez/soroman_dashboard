@@ -143,7 +143,7 @@ const Pricing = () => {
             {isLoading ? (
               <div className="text-center text-slate-500">Loading states...</div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {filteredStates.map(state => (
                   <div key={state.id} className="bg-white rounded-lg shadow-sm border border-slate-200">
                     <div className="p-4 border-b flex justify-between items-center">

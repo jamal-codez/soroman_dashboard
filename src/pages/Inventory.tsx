@@ -47,6 +47,15 @@ interface Product {
   description: string;
 }
 
+type UpdateProductPayload = {
+  name: string;
+  abbreviation: string;
+  description: string;
+  unit_price: number;
+  stock_quantity: number;
+  initial_stock_quantity: number;
+};
+
 interface State {
   id: number;
   name: string;
@@ -89,14 +98,6 @@ const Inventory = () => {
     fetchData();
   }, []);
 
-  // const { data: inventory, isLoading, isError, refetch } = useQuery<Product[]>({
-  //   queryKey: ['inventory'],
-  //   queryFn: async () => await apiClient.admin.getProductsInventory({ state_id: 5 }),
-  //   // queryFn: async () => await apiClient.admin.getProducts(),
-  //   staleTime: 0,
-  //   cacheTime: 0
-  // });
-
   const { data: inventory, isLoading, isError, refetch } = useQuery<Product[]>({
     queryKey: ['inventory', formData.state],
     queryFn: async () => {
@@ -104,39 +105,29 @@ const Inventory = () => {
     },
     enabled: !!formData.state,
     staleTime: 0,
-    cacheTime: 0,
+    gcTime: 0,
   });
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  // const adminUpdateProduct = useMutation({
-  //   mutationFn: (updatedProduct: Product) =>
-  //     apiClient.admin.updateProduct(updatedProduct.id, updatedProduct),
-  //   onSuccess: () => {
-  //     queryClient.invalidateQueries(['inventory']);
-  //     setEditingProduct(null);
-  //     toast({ title: 'Success!', description: 'Product updated successfully', duration: 1000 });
-  //   },
-  //   onError: (error: Error) => {
-  //     toast({
-  //       title: 'Error',
-  //       description: error.message || 'Failed to update product',
-  //       variant: 'destructive',
-  //       duration: 1000
-  //     });
-  //   }
-  // });
-
   const adminUpdateProduct = useMutation({
-    mutationFn: (updatedProduct: Product) =>
-      apiClient.admin.updateProduct(
-        updatedProduct.id,
-        updatedProduct ,
-        formData.state // pass current selected state_id here
-      ),
+    mutationFn: (updatedProduct: Product) => {
+      const payload: UpdateProductPayload = {
+        name: updatedProduct.name,
+        abbreviation: updatedProduct.abbreviation,
+        description: updatedProduct.description,
+        // Inventory UI doesn't edit price; keep backend compatible by sending 0 and letting API ignore/validate as needed.
+        unit_price: 0,
+        stock_quantity: updatedProduct.stock_quantity,
+        // Preserve current quantity as initial if the API requires it.
+        initial_stock_quantity: updatedProduct.stock_quantity,
+      };
+
+      return apiClient.admin.updateProduct(updatedProduct.id, payload, formData.state);
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries(['inventory']);
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
       setEditingProduct(null);
       toast({ title: 'Success!', description: 'Product updated successfully', duration: 1000 });
     },
@@ -149,7 +140,6 @@ const Inventory = () => {
       });
     }
   });
-
 
   const handleEditClick = (product: Product) => {
     setEditingProduct(product);
@@ -232,6 +222,13 @@ const Inventory = () => {
     return <Badge className={styles[status]}>{status}</Badge>;
   };
 
+  const widthClass = (qty: number) => {
+    const normalized = Math.max(0, Math.min(100, qty));
+    // Bucket into increments of 10 to avoid inline styles.
+    const bucket = Math.round(normalized / 10) * 10;
+    return `w-[${bucket}%]`;
+  };
+
   if (isError) {
     return (
       <div className="flex h-screen bg-slate-100">
@@ -265,67 +262,58 @@ const Inventory = () => {
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl font-bold text-slate-800">All Inventory</h1>
               <div className="flex gap-2">
-                {/* <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
-                  <RefreshCw className={`mr-1 ${isLoading ? 'animate-spin' : ''}`} size={16} />
-                  {isLoading ? 'Refreshing...' : 'Refresh'}
-                </Button>
-                <Button className="bg-[#169061] hover:bg-[#169061]/90" onClick={() => setIsModalOpen(true)}>
-                  <Plus className="mr-1" size={16} />
-                  Add Product
-                </Button> */} 
               </div>
             </div>
 
+            {/* Row 1: Search */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <Label className="block text-lg font-medium text-slate-700 mb-4">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col lg:flex-row gap-3">
+                  {/* <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <Input
+                      type="text"
+                      placeholder="Search inventory..."
+                      className="pl-10 h-11"
+                      value={searchQuery}
+                      onChange={handleSearch}
+                    />
+                  </div> */}
+                </div>
+
+                {/* Row 2: Filters */}
+                <div>
+                  <Label className="text-sm font-medium text-slate-700">
                     <span className="flex items-center gap-2">
                       <MapPin className="w-5 h-5 text-slate-500" />
                       Depot/State<span className="text-red-900 ml-1">*</span>
                     </span>
                   </Label>
-              <div className="flex flex-col sm:flex-row gap-4">
-                {/* <div className="space-y-2"> */}
-                  
-                  <Select
-                    value={formData.state.toString()}
-                    onValueChange={v => setFormData({ ...formData, state: Number(v) })}
-                  >
-                    <SelectTrigger className="w-full h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
-                      <SelectValue placeholder="Select state" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-lg shadow-lg border border-slate-200 max-h-60">
-                      {states.map(state => (
-                        // <SelectItem
-                        //   key={state.id}
-                        //   value={state.id.toString()}
-                        //   className="px-4 py-2 hover:bg-slate-50"
-                        // >
-                        //   {state.name}
-                        // </SelectItem>
-                        <SelectItem
-                          key={state.id}
-                          value={state.id.toString()}
-                          className={`px-4 py-2 relative ${
-                            formData.state === state.id ? 'bg-green-100 text-green-900' : 'hover:bg-slate-50'
-                          }`}
-                        >
-                          <span className="pointer-events-none select-none">{state.name}</span>
-                          <span className="hidden" data-radix-select-item-indicator />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                {/* </div> */}
-                {/* <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                  <Input
-                    type="text"
-                    placeholder="Search inventory..."
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={handleSearch}
-                  />
-                </div> */}
+                  <div className="mt-2 flex flex-col sm:flex-row gap-4">
+                    <Select
+                      value={formData.state.toString()}
+                      onValueChange={v => setFormData({ ...formData, state: Number(v) })}
+                    >
+                      <SelectTrigger className="w-full h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
+                        <SelectValue placeholder="Select state" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-lg shadow-lg border border-slate-200 max-h-60">
+                        {states.map(state => (
+                          <SelectItem
+                            key={state.id}
+                            value={state.id.toString()}
+                            className={`px-4 py-2 relative ${
+                              formData.state === state.id ? 'bg-green-100 text-green-900' : 'hover:bg-slate-50'
+                            }`}
+                          >
+                            <span className="pointer-events-none select-none">{state.name}</span>
+                            <span className="hidden" data-radix-select-item-indicator />
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -333,13 +321,13 @@ const Inventory = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>SN</TableHead>
-                    <TableHead>PRODUCT NAME</TableHead>
-                    <TableHead>ABBREVIATION</TableHead>
-                    <TableHead>STOCK QUANTITY</TableHead>
-                    <TableHead>STATUS</TableHead>
-                    <TableHead>LAST UPDATED</TableHead>
-                    <TableHead className="text-center">ACTIONS</TableHead>
+                    <TableHead>S/N</TableHead>
+                    <TableHead>Product Name</TableHead>
+                    <TableHead>Abbreviation</TableHead>
+                    <TableHead>Stock Quantity</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last Updated</TableHead>
+                    <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -368,8 +356,7 @@ const Inventory = () => {
                               <div
                                 className={`h-2 rounded-full ${
                                   item.stock_quantity > 70 ? 'bg-green-500' : item.stock_quantity > 40 ? 'bg-orange-500' : 'bg-red-500'
-                                }`}
-                                style={{ width: `${Math.min(item.stock_quantity, 100)}%` }}
+                                } ${widthClass(item.stock_quantity)}`}
                               ></div>
                             </div>
                           </div>
@@ -405,8 +392,8 @@ const Inventory = () => {
                   </div>
                   <div className="flex justify-end gap-2 mt-4">
                     <Button variant="outline" onClick={() => setEditingProduct(null)}>Cancel</Button>
-                    <Button onClick={handleEditSubmit} disabled={adminUpdateProduct.isLoading}>
-                      {adminUpdateProduct.isLoading ? 'Updating...' : 'Update'}
+                    <Button onClick={handleEditSubmit} disabled={adminUpdateProduct.isPending}>
+                      {adminUpdateProduct.isPending ? 'Updating...' : 'Update'}
                     </Button>
                   </div>
                 </div>

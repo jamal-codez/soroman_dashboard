@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,8 @@ import {
   SelectValue
 } from '@/components/ui/select';
 
+type Period = 'day' | 'week' | 'month';
+
 interface SalesReport {
   date: string;
   totalSales: number;
@@ -44,7 +46,7 @@ interface InventoryItem {
 }
 
 const Reports = () => {
-  const [selectedPeriod, setSelectedPeriod] = useState<'day' | 'week' | 'month'>('week');
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>('week');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Mock data
@@ -94,27 +96,34 @@ const Reports = () => {
 
             {/* Filters Section */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                  <Input
-                    placeholder="Search reports..."
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+              <div className="flex flex-col gap-3">
+                {/* Row 1: Search */}
+                <div className="flex flex-col lg:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+                    <Input
+                      placeholder="Search reports..."
+                      className="pl-10 h-11"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <Select value={selectedPeriod} onValueChange={(v) => setSelectedPeriod(v as any)}>
-                  <SelectTrigger className="w-[180px]">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Select period" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="day">Daily</SelectItem>
-                    <SelectItem value="week">Weekly</SelectItem>
-                    <SelectItem value="month">Monthly</SelectItem>
-                  </SelectContent>
-                </Select>
+
+                {/* Row 2: Filters */}
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                  <Select value={selectedPeriod} onValueChange={(v: Period) => setSelectedPeriod(v)}>
+                    <SelectTrigger className="w-full sm:w-[220px] h-11">
+                      <Calendar className="mr-2 h-4 w-4" />
+                      <SelectValue placeholder="Select period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="day">Daily</SelectItem>
+                      <SelectItem value="week">Weekly</SelectItem>
+                      <SelectItem value="month">Monthly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 

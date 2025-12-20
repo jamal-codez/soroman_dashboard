@@ -13,7 +13,7 @@ import { ArrowUp, ArrowDown, Search } from 'lucide-react';
 
 interface DataTableProps<T extends object> {
   data: T[];
-  columns: ColumnDef<T, any>[];
+  columns: ColumnDef<T, unknown>[];
   isLoading?: boolean;
   enableSearch?: boolean;
   searchPlaceholder?: string;
