@@ -75,10 +75,9 @@ const seedAgents: Agent[] = [
   }
 ];
 
-type LocationAgentsMap = Record<number, string[]>; // locationId -> agentIds
+type LocationAgentsMap = Record<number, string[]>; 
 
 const seedAssignments: LocationAgentsMap = {
-  // demo assignments to make UI feel real
   1: ["ag-002"],
   2: ["ag-003"],
   3: ["ag-004"]
@@ -287,7 +286,6 @@ export default function Agents() {
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              {/* Left: Locations */}
               <Card className="lg:col-span-4 overflow-hidden">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Locations</CardTitle>
@@ -339,7 +337,6 @@ export default function Agents() {
                 </CardContent>
               </Card>
 
-              {/* Right: Agents for selected location */}
               <Card className="lg:col-span-8 overflow-hidden">
                 <CardHeader className="pb-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -358,7 +355,6 @@ export default function Agents() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {/* Default agent card */}
                       {defaultAgent && (
                         <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4">
                           <div className="flex items-start justify-between gap-3">
@@ -401,7 +397,6 @@ export default function Agents() {
                         </div>
                       )}
 
-                      {/* Location agents table-ish list */}
                       <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                           <div className="text-sm font-semibold text-slate-900">Location agents</div>
@@ -481,7 +476,6 @@ export default function Agents() {
           </div>
         </div>
 
-        {/* Create agent */}
         <Dialog
           open={openCreate}
           onOpenChange={(o) => {
@@ -537,7 +531,6 @@ export default function Agents() {
           </DialogContent>
         </Dialog>
 
-        {/* Edit agent */}
         <Dialog
           open={openEdit}
           onOpenChange={(o) => {
