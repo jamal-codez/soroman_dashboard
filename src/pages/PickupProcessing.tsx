@@ -483,7 +483,7 @@ export const PickupProcessing = () => {
 
             <SummaryCards
               cards={[
-                { title: 'Total Orders', value: String(summary.total), description: 'All pickup orders', icon: <FileText />, tone: 'neutral' },
+                { title: 'Total Orders', value: String(summary.total), description: 'All orders', icon: <FileText />, tone: 'neutral' },
                 { title: 'Paid', value: String(summary.paid), description: 'Ready to release', icon: <CheckCircle2 />, tone: 'green' },
                 // { title: 'Pending', value: String(summary.pending), description: 'Awaiting payment', icon: <Timer />, tone: 'amber' },
                 { title: 'Released', value: String(summary.released), description: 'Tickets available', icon: <Truck />, tone: 'neutral' },

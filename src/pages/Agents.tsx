@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
 import { Button } from "@/components/ui/button";
@@ -18,10 +19,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import {
-  Building2,
   Phone,
   MapPin,
-  Search,
   Plus,
   ShieldCheck,
   UserRound,
@@ -93,6 +92,8 @@ function normalizePhone(input: string) {
   return input.replace(/\s+/g, " ").trim();
 }
 
+type ResultsResponseLike<T> = { results?: T[] };
+
 export default function Agents() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
@@ -111,53 +112,38 @@ export default function Agents() {
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
 
-  const [locationsLoading, setLocationsLoading] = useState(false);
-  const [locationsError, setLocationsError] = useState<string | null>(null);
+  const {
+    data: rawStates,
+    isLoading: locationsLoading,
+    isError: locationsIsError
+  } = useQuery<unknown>({
+    queryKey: ["state-prices"],
+    queryFn: () => apiClient.admin.getStatesPricing(),
+    retry: 2
+  });
+
+  const states = useMemo(() => {
+    if (Array.isArray(rawStates)) return rawStates as Array<Record<string, unknown>>;
+    if (rawStates && typeof rawStates === "object") {
+      const maybe = rawStates as ResultsResponseLike<Record<string, unknown>>;
+      if (Array.isArray(maybe.results)) return maybe.results as Array<Record<string, unknown>>;
+    }
+    return [] as Array<Record<string, unknown>>;
+  }, [rawStates]);
 
   useEffect(() => {
-    let mounted = true;
-    setLocationsLoading(true);
-    setLocationsError(null);
+    const list: Location[] = states
+      .map((rec) => {
+        const id = rec.id;
+        const name = rec.name;
+        if (id == null || name == null) return null;
+        return { id: Number(id), name: String(name) };
+      })
+      .filter((x): x is Location => Boolean(x) && Number.isFinite(x.id) && x.name.length > 0);
 
-    (async () => {
-      try {
-        const res = await apiClient.admin.getStates();
-        const statesData = (res as { results?: unknown[] })?.results || (res as unknown);
-        const arr = Array.isArray(statesData) ? statesData : [];
-
-        const list: Location[] = arr
-          .map((s) => {
-            const rec = s as Record<string, unknown>;
-            const id = rec.id;
-            const name = rec.name;
-            if (id == null || name == null) return null;
-            return { id: Number(id), name: String(name) };
-          })
-          .filter((x): x is Location => Boolean(x) && Number.isFinite(x.id) && x.name.length > 0);
-
-        if (!mounted) return;
-        setLocations(list);
-        if (list.length && selectedLocationId == null) {
-          setSelectedLocationId(list[0].id);
-        }
-        if (!list.length) {
-          setLocationsError('No locations returned from the server.');
-        }
-      } catch (e) {
-        if (!mounted) return;
-        const msg = e instanceof Error ? e.message : String(e);
-        setLocations([]);
-        setLocationsError(msg || 'Failed to load locations.');
-      } finally {
-        if (!mounted) return;
-        setLocationsLoading(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    setLocations(list);
+    if (selectedLocationId == null && list.length) setSelectedLocationId(list[0].id);
+  }, [selectedLocationId, states]);
 
   const selectedLocation = useMemo(
     () => locations.find((l) => l.id === selectedLocationId) || null,
@@ -284,7 +270,6 @@ export default function Agents() {
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="Agents"
-            //   description="Manage agents by location. The default Soroman Agent appears in every location." 
               actions={
                 <Button onClick={() => setOpenCreate(true)} className="gap-2">
                   <Plus className="h-4 w-4" />
@@ -297,7 +282,6 @@ export default function Agents() {
               cards={[
                 { title: 'Locations', value: String(stats.locations), description: 'Available states', icon: <MapPin className="h-5 w-5" />, tone: 'neutral' },
                 { title: 'Total agents', value: String(stats.totalAgents), description: 'Including default', icon: <UsersRound className="h-5 w-5" />, tone: 'neutral' },
-                // { title: 'Active agents', value: String(stats.activeAgents), description: 'Can take orders', icon: <ShieldCheck className="h-5 w-5" />, tone: 'green' },
                 { title: 'Assignments', value: String(stats.assignments), description: 'Across locations', icon: <UserRound className="h-5 w-5" />, tone: 'amber' },
               ]}
             />
@@ -314,9 +298,9 @@ export default function Agents() {
                     <div className="rounded-lg border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
                       Loading locations...
                     </div>
-                  ) : locationsError ? (
-                    <div className="rounded-lg border border-dashed border-red-200 bg-red-50 p-8 text-center text-sm text-red-600">
-                      {locationsError}
+                  ) : locationsIsError ? (
+                    <div className="rounded-lg border border-dashed border-red-200 bg-red-50 p-8 text-center text-sm text-red-700">
+                      Failed to load locations.
                     </div>
                   ) : locations.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
@@ -342,9 +326,6 @@ export default function Agents() {
                             >
                               <div className="min-w-0">
                                 <div className="font-semibold text-slate-900 truncate">{l.name}</div>
-                                {/* <div className="text-xs text-slate-500 mt-0.5">
-                                  Manage agents & default Soroman Agent
-                                </div> */}
                               </div>
                               <Badge variant="secondary" className="shrink-0">
                                 {count}
@@ -366,28 +347,7 @@ export default function Agents() {
                       <CardTitle className="text-base">
                         Manage Agents for {selectedLocation?.name ?? '—'}
                       </CardTitle>
-                      {/* <CardDescription>
-                        {selectedLocation ? (
-                          <span>
-                            Agents for <span className="font-medium text-slate-700">{selectedLocation.name}</span>
-                          </span>
-                        ) : (
-                          "Select a location to view agents"
-                        )}
-                      </CardDescription> */}
                     </div>
-
-                    {/* <div className="w-full sm:w-[320px]">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                        <Input
-                          value={query}
-                          onChange={(e) => setQuery(e.target.value)}
-                          placeholder="Search agents (name / phone)…"
-                          className="pl-9"
-                        />
-                      </div>
-                    </div> */}
                   </div>
                 </CardHeader>
 
