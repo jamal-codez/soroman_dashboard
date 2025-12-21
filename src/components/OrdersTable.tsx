@@ -26,16 +26,19 @@ interface Order {
   quantity: number;
   created_at: string;
   total_price: string;
-  status: 'pending' | 'completed' | 'shipping' | 'cancelled';
+  status: 'pending' | 'paid' | 'released' | 'canceled';
   release_type: 'delivery' | 'pickup';
+  reference?: string;
+  assigned_agent_id?: number | null;
+  assigned_agent?: unknown;
 }
 
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
     case 'paid': return <CheckCircle className="text-green-500" size={16} />;
+    case 'released': return <Truck className="text-blue-600" size={16} />;
     case 'pending': return <Clock className="text-orange-500" size={16} />;
-    case 'shipping': return <Truck className="text-orange-500" size={16} />;
-    case 'cancelled': return <AlertCircle className="text-red-500" size={16} />;
+    case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
     default: return <Clock className="text-orange-500" size={16} />;
   }
 };
@@ -44,17 +47,27 @@ const getStatusClass = (status: Order['status']) => {
   switch (status) {
     case 'paid': return 'bg-green-50 text-green-700 border-green-200';
     case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'shipping': return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'cancelled': return 'bg-red-50 text-red-700 border-red-200';
+    case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
     default: return 'bg-blue-50 text-blue-700 border-blue-200';
   }
 };
 
-const statusDisplayMap = {
-  pending: 'pending',
-  paid: 'paid',
-  shipping: 'Shipping',
-  cancelled: 'Cancelled',
+const statusDisplayMap: Record<Order['status'], string> = {
+  pending: 'Awaiting Payment',
+  paid: 'Paid',
+  released: 'Released',
+  canceled: 'Unpaid',
+};
+
+const getAssignedAgentSummary = (order: Order): string => {
+  const a = order.assigned_agent as unknown;
+  if (!a || typeof a !== 'object') return '';
+  const rec = a as Record<string, unknown>;
+  const name = (typeof rec.name === 'string' ? rec.name : '') ||
+    [rec.first_name, rec.last_name].filter((v): v is string => typeof v === 'string' && v.length > 0).join(' ').trim();
+  const phone = (typeof rec.phone === 'string' ? rec.phone : '') || (typeof rec.phone_number === 'string' ? rec.phone_number : '');
+  return [name, phone ? `(${phone})` : ''].filter(Boolean).join(' ');
 };
 
 export const OrdersTable = () => {
@@ -109,21 +122,22 @@ export const OrdersTable = () => {
         <table className="w-full">
           <thead>
             <tr className="bg-slate-50">
-              <th className="text-left text-xs font-semibold text-slate-500 p-4">ORDER ID</th>
+              <th className="text-left text-xs font-semibold text-slate-500 p-4">REFERENCE</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">CUSTOMER</th>
+              <th className="text-left text-xs font-semibold text-slate-500 p-4">AGENT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">PRODUCT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">QUANTITY</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">DATE</th>
               <th className="text-right text-xs font-semibold text-slate-500 p-4">AMOUNT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">STATUS</th>
               <th className="text-center text-xs font-semibold text-slate-500 p-4">Delivery Method</th>
-              <th className="text-center text-xs font-semibold text-slate-500 p-4">Truck No</th>
+              <th className="text-center text-xs font-semibold text-slate-500 p-4">Order ID</th>
             </tr>
           </thead>
           <tbody>
             {orders?.map((order) => (
               <tr key={order.id} className="border-t border-slate-200 hover:bg-slate-50">
-                <td className="p-4 text-sm font-medium text-slate-900">#{order.id}</td>
+                <td className="p-4 text-sm font-medium text-slate-900">{order.reference || `SO/.../${order.id}`}</td>
                 <td className="p-4">
                   <div>
                     <div className="text-sm font-medium text-slate-900">
@@ -131,6 +145,9 @@ export const OrdersTable = () => {
                     </div>
                     <div className="text-xs text-slate-500">{order.user.email}</div>
                   </div>
+                </td>
+                <td className="p-4 text-sm text-slate-700">
+                  {getAssignedAgentSummary(order) || '-'}
                 </td>
                 <td className="p-4 text-sm text-slate-700">
                   {order.products.map(p => p.abbreviation).join(', ')}
@@ -144,7 +161,7 @@ export const OrdersTable = () => {
                   })}
                 </td>
                 <td className="p-4 text-sm font-medium text-slate-900 text-right">
-                  ₦{parseFloat(order.total_price).toLocaleString()}
+                  ₦{Number(String(order.total_price).replace(/[^0-9.-]+/g, '') || 0).toLocaleString()}
                 </td>
                 <td className="p-4">
                   <div className={`inline-flex items-center px-2 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
@@ -153,19 +170,12 @@ export const OrdersTable = () => {
                   </div>
                 </td>
                 <td className="p-4">
-                  <div className={`inline-flex items-center px-2 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.release_type)}`}>
+                  <div className="inline-flex items-center px-2 py-1 text-xs font-medium border rounded-full bg-slate-50 text-slate-700 border-slate-200">
                     {order.release_type === 'delivery' ? 'Delivery' : 'Pickup'}
                   </div>
                 </td>
-                <td className="p-4 text-sm font-medium text-slate-900 text-right">
-                  ABC-104, KD-586
-                </td>
                 <td className="p-4">
-                  <div className="flex gap-2">
-                    {/* <Button variant="outline" className="bg-blue-500 text-white" onClick={() => handleEdit(order.id)}>Edit</Button>
-                    <Button variant="outline" className="bg-green-500 text-white" onClick={() => handleAssignTruck(order.id)}>Assign Truck</Button> */}
-                    <Button variant="outline" className="bg-red-500 text-white" onClick={() => handleCancelOrder(order.id)}>Cancel Order</Button>
-                  </div>
+                  <div className="text-sm font-medium text-slate-900 text-center">#{order.id}</div>
                 </td>
               </tr>
             ))}
