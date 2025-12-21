@@ -272,59 +272,10 @@ export default function Agents() {
               ]}
             />
 
-            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="md:col-span-2">
-                  <Label htmlFor="agentSearch" className="text-xs text-slate-600">Search</Label>
-                  <Input
-                    id="agentSearch"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search by name or phone"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="agentActive" className="text-xs text-slate-600">Active</Label>
-                  <select
-                    id="agentActive"
-                    aria-label="Active filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
-                    value={onlyActive}
-                    onChange={(e) => setOnlyActive(e.target.value as any)}
-                  >
-                    <option value="all">All</option>
-                    <option value="true">Active</option>
-                    <option value="false">Inactive</option>
-                  </select>
-                </div>
-
-                <div>
-                  <Label htmlFor="agentType" className="text-xs text-slate-600">Type</Label>
-                  <select
-                    id="agentType"
-                    aria-label="Type filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
-                    value={agentTypeFilter}
-                    onChange={(e) => setAgentTypeFilter(e.target.value as any)}
-                  >
-                    <option value="all">All</option>
-                    <option value="location">Location</option>
-                    <option value="general">General</option>
-                  </select>
-                </div>
-
-                <div className="md:col-span-2 flex items-end">
-                  {agentsLoading ? (
-                    <div className="text-sm text-slate-500">Loading agents…</div>
-                  ) : agentsIsError ? (
-                    <div className="text-sm text-red-600">{(agentsError as Error)?.message || 'Failed to load agents.'}</div>
-                  ) : (
-                    <div className="text-sm text-slate-500">Showing {agentsPaged.count} agent(s)</div>
-                  )}
-                </div>
-              </div>
-            </div>
+            {/* <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              ...existing commented block...
+              </div> */}
+            {/* filter/search panel hidden */}
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <Card className="lg:col-span-4 overflow-hidden">
@@ -366,9 +317,9 @@ export default function Agents() {
                               <div className="min-w-0">
                                 <div className="font-semibold text-slate-900 truncate">{l.name}</div>
                               </div>
-                              <Badge variant="secondary" className="shrink-0">
+                              {/* <Badge variant="secondary" className="shrink-0">
                                 {count}
-                              </Badge>
+                              </Badge> */}
                             </button>
                           );
                         })}

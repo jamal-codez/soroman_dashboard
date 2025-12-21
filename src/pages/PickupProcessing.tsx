@@ -425,7 +425,6 @@ export const PickupProcessing = () => {
 
     try {
       saveReleaseDetails();
-      setReleaseOpen(false);
 
       // Persist release details in backend
       await apiClient.admin.releaseOrder(selectedOrder.id, {
@@ -436,17 +435,23 @@ export const PickupProcessing = () => {
         loading_datetime: releaseForm.loadingDateTime,
       });
 
-      queryClient.invalidateQueries({ queryKey: ['pickup-orders', 'all'] });
-      queryClient.invalidateQueries({ queryKey: ['all-orders'] });
+      setReleaseOpen(false);
+
+      // Refresh the list used by this page
+      await queryClient.invalidateQueries({ queryKey: ['all-orders', 'release-processing'] });
 
       toast({ title: 'Success!', description: 'ORDER RELEASED' });
 
       // Open ticket modal immediately after release
       setTicketOpen(true);
     } catch (error) {
+      // Keep the modal open so the user can retry without re-entering everything.
+      setReleaseOpen(true);
+
+      const message = (error as Error)?.message || 'Failed to release order.';
       toast({
         title: 'Failed to release',
-        description: (error as Error).message,
+        description: message,
         variant: 'destructive'
       });
     }

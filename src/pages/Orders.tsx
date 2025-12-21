@@ -505,7 +505,7 @@ const Orders = () => {
                     onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
                   >
                     <option value="">All Statuses</option>
-                    <option value="pending">Awaiting Payment</option>
+                    <option value="pending">Pending</option>
                     <option value="paid">Paid</option>
                     <option value="canceled">Unpaid</option>
                     <option value="released">Released</option>
@@ -578,7 +578,7 @@ const Orders = () => {
                     <TableHead className="w-[90px]">Time</TableHead>
                     <TableHead>Reference</TableHead>
                     <TableHead>Location</TableHead>
-                    <TableHead>Assigned Agent</TableHead>
+                    <TableHead>Agent</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Company</TableHead>
                     <TableHead>Phone</TableHead>
