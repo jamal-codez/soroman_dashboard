@@ -2,7 +2,7 @@ name: Deploy Frontend to EC2 on Push
 
 on:
   push:
-    branches: [ master ]  # Change to your deployment branch
+    branches: [ master ] 
 
 jobs:
   deploy:
@@ -18,6 +18,9 @@ jobs:
         script: |
           echo "Deploying frontend..."
           cd soroman_dashboard || exit 1
+          # Ensure deploy target has a clean working tree so pull never fails
+          git reset --hard HEAD
+          git clean -fd
           git pull origin master || exit 1
           npm install || exit 1
           npm run build || exit 1
