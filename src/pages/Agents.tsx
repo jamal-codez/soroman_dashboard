@@ -272,6 +272,60 @@ export default function Agents() {
               ]}
             />
 
+            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="md:col-span-2">
+                  <Label htmlFor="agentSearch" className="text-xs text-slate-600">Search</Label>
+                  <Input
+                    id="agentSearch"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search by name or phone"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="agentActive" className="text-xs text-slate-600">Active</Label>
+                  <select
+                    id="agentActive"
+                    aria-label="Active filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
+                    value={onlyActive}
+                    onChange={(e) => setOnlyActive(e.target.value as any)}
+                  >
+                    <option value="all">All</option>
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                  </select>
+                </div>
+
+                <div>
+                  <Label htmlFor="agentType" className="text-xs text-slate-600">Type</Label>
+                  <select
+                    id="agentType"
+                    aria-label="Type filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
+                    value={agentTypeFilter}
+                    onChange={(e) => setAgentTypeFilter(e.target.value as any)}
+                  >
+                    <option value="all">All</option>
+                    <option value="location">Location</option>
+                    <option value="general">General</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2 flex items-end">
+                  {agentsLoading ? (
+                    <div className="text-sm text-slate-500">Loading agents…</div>
+                  ) : agentsIsError ? (
+                    <div className="text-sm text-red-600">{(agentsError as Error)?.message || 'Failed to load agents.'}</div>
+                  ) : (
+                    <div className="text-sm text-slate-500">Showing {agentsPaged.count} agent(s)</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <Card className="lg:col-span-4 overflow-hidden">
                 <CardHeader className="pb-3">
@@ -454,9 +508,29 @@ export default function Agents() {
                 />
               </div>
 
-              <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                Location: <span className="font-medium">{selectedLocation?.name || "-"}</span>
+              <div className="grid gap-2">
+                <Label htmlFor="agentCreateType">Type</Label>
+                <select
+                  id="agentCreateType"
+                  aria-label="Agent type"
+                  className="border border-gray-300 rounded px-3 py-2 h-11"
+                  value={createType}
+                  onChange={(e) => setCreateType(e.target.value as any)}
+                >
+                  <option value="location">Location</option>
+                  <option value="general">General</option>
+                </select>
               </div>
+
+              {createType === 'location' ? (
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  Location: <span className="font-medium">{selectedLocation?.name || '-'}</span>
+                </div>
+              ) : (
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  Location: <span className="font-medium">None (General agent)</span>
+                </div>
+              )}
             </div>
 
             <DialogFooter className="gap-2 sm:gap-0">
@@ -467,7 +541,7 @@ export default function Agents() {
                 disabled={!createName.trim() || !createPhone.trim() || (createType === 'location' && !selectedLocationId) || createMutation.isPending}
                 onClick={() => createMutation.mutate()}
               >
-                {createMutation.isPending ? 'Saving...' : 'Save agent'}
+                Save agent
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -508,6 +582,62 @@ export default function Agents() {
                   placeholder="Agent phone"
                 />
               </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="agentEditType">Type</Label>
+                <select
+                  id="agentEditType"
+                  aria-label="Agent type"
+                  className="border border-gray-300 rounded px-3 py-2 h-11"
+                  value={editType}
+                  onChange={(e) => {
+                    const t = e.target.value as any;
+                    setEditType(t);
+                    if (t === 'general') setEditLocationId(null);
+                    if (t === 'location' && editLocationId == null) setEditLocationId(selectedLocationId);
+                  }}
+                >
+                  <option value="location">Location</option>
+                  <option value="general">General</option>
+                </select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="agentEditActive">Status</Label>
+                <select
+                  id="agentEditActive"
+                  aria-label="Agent active"
+                  className="border border-gray-300 rounded px-3 py-2 h-11"
+                  value={editIsActive ? 'true' : 'false'}
+                  onChange={(e) => setEditIsActive(e.target.value === 'true')}
+                >
+                  <option value="true">Active</option>
+                  <option value="false">Inactive</option>
+                </select>
+              </div>
+
+              {editType === 'location' ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="agentEditLocation">Location</Label>
+                  <select
+                    id="agentEditLocation"
+                    aria-label="Agent location"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={String(editLocationId ?? selectedLocationId ?? '')}
+                    onChange={(e) => setEditLocationId(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">Select location</option>
+                    {locations.map((l) => (
+                      <option key={l.id} value={String(l.id)}>{l.name}</option>
+                    ))}
+                  </select>
+                  <div className="text-xs text-slate-500">Required for location agents.</div>
+                </div>
+              ) : (
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  Location: <span className="font-medium">None (General agent)</span>
+                </div>
+              )}
             </div>
 
             <DialogFooter className="gap-2 sm:gap-0">
@@ -518,7 +648,7 @@ export default function Agents() {
                 disabled={!editName.trim() || !editPhone.trim() || updateMutation.isPending}
                 onClick={() => updateMutation.mutate()}
               >
-                {updateMutation.isPending ? 'Saving...' : 'Save changes'}
+                Save changes
               </Button>
             </DialogFooter>
           </DialogContent>

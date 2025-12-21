@@ -190,6 +190,54 @@ const extractAssignedAgentName = (order: Order): string => {
   );
 };
 
+const extractAssignedAgentPhone = (order: Order): string => {
+  const rec = order as unknown as Record<string, unknown>;
+  const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
+  if (!a || typeof a !== 'object') return '';
+  const aRec = a as Record<string, unknown>;
+  return (
+    (typeof aRec.phone === 'string' ? aRec.phone : '') ||
+    (typeof aRec.phone_number === 'string' ? aRec.phone_number : '') ||
+    ''
+  );
+};
+
+const extractAssignedAgentType = (order: Order): string => {
+  const rec = order as unknown as Record<string, unknown>;
+  const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
+  if (!a || typeof a !== 'object') return '';
+  const aRec = a as Record<string, unknown>;
+  return (typeof aRec.type === 'string' ? aRec.type : '') || '';
+};
+
+const extractAssignedAgentLocation = (order: Order): string => {
+  const rec = order as unknown as Record<string, unknown>;
+  const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
+  if (!a || typeof a !== 'object') return '';
+  const aRec = a as Record<string, unknown>;
+  return (
+    (typeof aRec.location_name === 'string' ? aRec.location_name : '') ||
+    (typeof aRec.locationName === 'string' ? aRec.locationName : '') ||
+    ''
+  );
+};
+
+const formatAssignedAgent = (order: Order): string => {
+  const name = extractAssignedAgentName(order);
+  const phone = extractAssignedAgentPhone(order);
+  const type = extractAssignedAgentType(order);
+  const loc = extractAssignedAgentLocation(order);
+
+  const parts = [
+    name,
+    phone ? `(${phone})` : '',
+    type ? `• ${type}` : '',
+    loc ? `• ${loc}` : '',
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(' ') : '';
+};
+
 export const PickupProcessing = () => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
@@ -654,7 +702,7 @@ export const PickupProcessing = () => {
                       <TableCell className="font-medium">{order.id}</TableCell>
                       <TableCell>{getOrderReference(order) || '-'}</TableCell>
                       <TableCell>{extractLocation(order) || '-'}</TableCell>
-                      <TableCell>{extractAssignedAgentName(order) || '-'}</TableCell>
+                      <TableCell>{formatAssignedAgent(order) || '-'}</TableCell>
                       <TableCell>
                         <div>
                           <div className="font-medium">

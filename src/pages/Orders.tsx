@@ -45,6 +45,9 @@ interface Order {
   assigned_agent?: unknown;
   agent?: unknown;
   assignedAgent?: unknown;
+
+  // New serializer fields
+  assigned_agent_id?: number | null;
 }
 
 interface OrderResponse {
@@ -308,12 +311,16 @@ const Orders = () => {
   const getProductsList = (o: Order) =>
     (o.products || []).map(p => p.name).filter(Boolean).join(', ');
 
-  const getAssignedAgentName = (o: Order): string => {
+  const getAssignedAgent = (o: Order): Record<string, unknown> | null => {
     const rec = o as unknown as Record<string, unknown>;
     const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
-    if (!a) return '';
-    if (typeof a === 'string') return a;
-    const aRec = a as Record<string, unknown>;
+    if (!a || typeof a !== 'object') return null;
+    return a as Record<string, unknown>;
+  };
+
+  const getAssignedAgentName = (o: Order): string => {
+    const aRec = getAssignedAgent(o);
+    if (!aRec) return '';
     const fullName = [aRec.first_name, aRec.last_name]
       .filter((v): v is string => typeof v === 'string' && v.length > 0)
       .join(' ')
@@ -323,6 +330,32 @@ const Orders = () => {
       (typeof aRec.name === 'string' ? aRec.name : '') ||
       (typeof aRec.full_name === 'string' ? aRec.full_name : '') ||
       (typeof aRec.username === 'string' ? aRec.username : '') ||
+      ''
+    );
+  };
+
+  const getAssignedAgentPhone = (o: Order): string => {
+    const aRec = getAssignedAgent(o);
+    if (!aRec) return '';
+    return (
+      (typeof aRec.phone === 'string' ? aRec.phone : '') ||
+      (typeof aRec.phone_number === 'string' ? aRec.phone_number : '') ||
+      ''
+    );
+  };
+
+  const getAssignedAgentType = (o: Order): string => {
+    const aRec = getAssignedAgent(o);
+    if (!aRec) return '';
+    return (typeof aRec.type === 'string' ? aRec.type : '') || '';
+  };
+
+  const getAssignedAgentLocation = (o: Order): string => {
+    const aRec = getAssignedAgent(o);
+    if (!aRec) return '';
+    return (
+      (typeof aRec.location_name === 'string' ? aRec.location_name : '') ||
+      (typeof aRec.locationName === 'string' ? aRec.locationName : '') ||
       ''
     );
   };
@@ -567,7 +600,23 @@ const Orders = () => {
                         <TableCell className="text-slate-700">{format(new Date(order.created_at), 'HH:mm')}</TableCell>
                         <TableCell className="font-semibold text-slate-950">{getSalesRef(order) || '-'}</TableCell>
                         <TableCell className="text-slate-800">{order.state || '-'}</TableCell>
-                        <TableCell className="text-slate-800">{getAssignedAgentName(order) || '-'}</TableCell>
+                        <TableCell className="text-slate-800">
+                          {(() => {
+                            const name = getAssignedAgentName(order);
+                            const phone = getAssignedAgentPhone(order);
+                            const type = getAssignedAgentType(order);
+                            const loc = getAssignedAgentLocation(order);
+
+                            const parts = [
+                              name,
+                              phone ? `(${phone})` : '',
+                              type ? `• ${type}` : '',
+                              loc ? `• ${loc}` : '',
+                            ].filter(Boolean);
+
+                            return parts.length ? parts.join(' ') : '-';
+                          })()}
+                        </TableCell>
                         <TableCell>
                           <div className="font-medium text-slate-950 capitalize leading-tight">
                             {getCustomerFullName(order) || '-'}
