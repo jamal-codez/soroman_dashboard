@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
 import { Button } from "@/components/ui/button";
@@ -35,81 +35,61 @@ type AgentType = "location" | "general";
 type Location = { id: number; name: string };
 
 type Agent = {
-  id: string;
+  id: number;
   name: string;
   phone: string;
   type: AgentType;
-  isActive: boolean;
+  location: number | null;
+  location_name?: string | null;
+  is_active: boolean;
 };
-
-const DEFAULT_AGENT_ID = "soroman-default";
-
-const seedAgents: Agent[] = [
-  {
-    id: DEFAULT_AGENT_ID,
-    name: "Soroman Agent",
-    phone: "+234 800 000 0000",
-    type: "general",
-    isActive: true
-  },
-  {
-    id: "ag-002",
-    name: "Precious Adebayo",
-    phone: "+234 803 123 4567",
-    type: "location",
-    isActive: true
-  },
-  {
-    id: "ag-003",
-    name: "Ibrahim Musa",
-    phone: "+234 806 222 3355",
-    type: "location",
-    isActive: true
-  },
-  {
-    id: "ag-004",
-    name: "Amaka Okolie",
-    phone: "+234 809 920 1099",
-    type: "location",
-    isActive: false
-  }
-];
-
-type LocationAgentsMap = Record<number, string[]>; 
-
-const seedAssignments: LocationAgentsMap = {
-  1: ["ag-002"],
-  2: ["ag-003"],
-  3: ["ag-004"]
-};
-
-function makeId() {
-  return `ag-${Math.random().toString(16).slice(2, 8)}-${Date.now().toString(16).slice(-4)}`;
-}
 
 function normalizePhone(input: string) {
   return input.replace(/\s+/g, " ").trim();
 }
 
 type ResultsResponseLike<T> = { results?: T[] };
+type PagedResponse<T> = { count?: number; next?: string | null; previous?: string | null; results?: T[] };
+
+function asPagedResults<T>(raw: unknown): { count: number; results: T[] } {
+  if (raw && typeof raw === 'object') {
+    const rec = raw as PagedResponse<T>;
+    if (Array.isArray(rec.results)) return { count: Number(rec.count ?? rec.results.length ?? 0), results: rec.results };
+  }
+  // fallback (non-paginated-ish, but should still be {count, results})
+  return { count: 0, results: [] };
+}
+
+const getAgentDisplayName = (a: Agent) => a.name || '';
+const getAgentLocationName = (a: Agent, selectedLocation?: Location | null) =>
+  (a.location_name ?? '') ||
+  (a.location != null && selectedLocation && a.location === selectedLocation.id ? selectedLocation.name : '') ||
+  '';
 
 export default function Agents() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
 
-  const [agents, setAgents] = useState<Agent[]>(seedAgents);
-  const [locationAgents, setLocationAgents] = useState<LocationAgentsMap>(seedAssignments);
+  const [agentTypeFilter, setAgentTypeFilter] = useState<AgentType | 'all'>('location');
+  const [onlyActive, setOnlyActive] = useState<'all' | 'true' | 'false'>('true');
+
+  const queryClient = useQueryClient();
 
   const [query, setQuery] = useState("");
 
   const [openCreate, setOpenCreate] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createPhone, setCreatePhone] = useState("");
+  const [createType, setCreateType] = useState<AgentType>('location');
+  const [createIsActive, setCreateIsActive] = useState(true);
 
   const [openEdit, setOpenEdit] = useState(false);
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editType, setEditType] = useState<AgentType>('location');
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [editLocationId, setEditLocationId] = useState<number | null>(null);
 
   const {
     data: rawStates,
@@ -144,120 +124,127 @@ export default function Agents() {
     if (selectedLocationId == null && list.length) setSelectedLocationId(list[0].id);
   }, [selectedLocationId, states]);
 
+  const {
+    data: agentsResponse,
+    isLoading: agentsLoading,
+    isError: agentsIsError,
+    error: agentsError,
+  } = useQuery<unknown>({
+    queryKey: ["admin-agents", { selectedLocationId, query, agentTypeFilter, onlyActive }],
+    queryFn: async () => {
+      const params: any = {};
+      if (agentTypeFilter !== 'all') params.type = agentTypeFilter;
+      if (selectedLocationId && agentTypeFilter !== 'general') params.location_id = selectedLocationId;
+      if (onlyActive !== 'all') params.is_active = onlyActive === 'true';
+      if (query.trim()) params.search = query.trim();
+      return apiClient.admin.adminListAgents(params);
+    },
+    retry: 2,
+    refetchOnWindowFocus: true,
+  });
+
+  const agentsPaged = useMemo(() => asPagedResults<Agent>(agentsResponse), [agentsResponse]);
+  const agents = agentsPaged.results;
+
   const selectedLocation = useMemo(
     () => locations.find((l) => l.id === selectedLocationId) || null,
     [locations, selectedLocationId]
   );
 
-  const defaultAgent = useMemo(
-    () => agents.find((a) => a.id === DEFAULT_AGENT_ID) || null,
-    [agents]
-  );
-
-  const selectedLocationAgentIds = useMemo(() => {
-    if (!selectedLocationId) return [] as string[];
-    return locationAgents[selectedLocationId] || [];
-  }, [locationAgents, selectedLocationId]);
-
-  const selectedLocationAgents = useMemo(() => {
-    const local = agents.filter((a) => selectedLocationAgentIds.includes(a.id));
-    return local.sort((a, b) => {
-      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+  const filteredAgents = useMemo(() => {
+    const list = [...agents];
+    return list.sort((a, b) => {
+      if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  }, [agents, selectedLocationAgentIds]);
-
-  const combinedAgentsForSelectedLocation = useMemo(() => {
-    const list: Agent[] = [];
-    if (defaultAgent) list.push(defaultAgent);
-    list.push(...selectedLocationAgents);
-
-    const q = query.trim().toLowerCase();
-    if (!q) return list;
-
-    return list.filter((a) => {
-      return a.name.toLowerCase().includes(q) || a.phone.toLowerCase().includes(q);
-    });
-  }, [defaultAgent, selectedLocationAgents, query]);
+  }, [agents]);
 
   const stats = useMemo(() => {
-    const active = agents.filter((a) => a.isActive).length;
-    const assignedCount = Object.values(locationAgents).reduce((acc, ids) => acc + ids.length, 0);
+    const active = agents.filter((a) => a.is_active).length;
     return {
       locations: locations.length,
       totalAgents: agents.length,
       activeAgents: active,
-      assignments: assignedCount
+      assignments: agents.filter((a) => a.type === 'location').length,
     };
-  }, [agents, locations.length, locationAgents]);
+  }, [agents, locations.length]);
 
   function resetCreate() {
     setCreateName("");
     setCreatePhone("");
+    setCreateType('location');
+    setCreateIsActive(true);
   }
 
-  function onCreate() {
-    const name = createName.trim();
-    const phone = normalizePhone(createPhone);
-    if (!name || !phone) return;
-    if (!selectedLocationId) return;
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const name = createName.trim();
+      const phone = normalizePhone(createPhone);
+      if (!name || !phone) throw new Error('Name and phone are required');
 
-    const newAgent: Agent = {
-      id: makeId(),
-      name,
-      phone,
-      type: "location",
-      isActive: true
-    };
+      // backend validation rules
+      const location = createType === 'location' ? selectedLocationId : null;
+      if (createType === 'location' && !location) throw new Error('Location is required for location agents');
 
-    setAgents((prev) => [newAgent, ...prev]);
-    setLocationAgents((prev) => {
-      const ids = prev[selectedLocationId] || [];
-      return {
-        ...prev,
-        [selectedLocationId]: [newAgent.id, ...ids]
-      };
-    });
-
-    setOpenCreate(false);
-    resetCreate();
-  }
+      return apiClient.admin.adminCreateAgent({
+        name,
+        phone,
+        type: createType,
+        location,
+        is_active: createIsActive,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin-agents"] });
+      setOpenCreate(false);
+      resetCreate();
+    }
+  });
 
   function openEditAgent(agent: Agent) {
-    setEditingAgentId(agent.id);
+    setEditingAgentId(String(agent.id));
     setEditName(agent.name);
     setEditPhone(agent.phone);
+    setEditType(agent.type);
+    setEditIsActive(agent.is_active);
+    setEditLocationId(agent.location ?? null);
     setOpenEdit(true);
   }
 
-  function saveEditAgent() {
-    if (!editingAgentId) return;
-    const name = editName.trim();
-    const phone = normalizePhone(editPhone);
-    if (!name || !phone) return;
+  const updateMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingAgentId) throw new Error('No agent selected');
+      const id = Number(editingAgentId);
+      if (!Number.isFinite(id)) throw new Error('Invalid agent id');
 
-    setAgents((prev) =>
-      prev.map((a) => (a.id === editingAgentId ? { ...a, name, phone } : a))
-    );
+      const name = editName.trim();
+      const phone = normalizePhone(editPhone);
+      if (!name || !phone) throw new Error('Name and phone are required');
 
-    setOpenEdit(false);
-    setEditingAgentId(null);
-  }
+      const location = editType === 'location' ? (editLocationId ?? selectedLocationId) : null;
+      if (editType === 'location' && !location) throw new Error('Location is required for location agents');
 
-  function toggleActive(agentId: string) {
-    setAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, isActive: !a.isActive } : a)));
-  }
+      return apiClient.admin.adminUpdateAgent(id, {
+        name,
+        phone,
+        type: editType,
+        location,
+        is_active: editIsActive,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin-agents"] });
+      setOpenEdit(false);
+      setEditingAgentId(null);
+    }
+  });
 
-  function unassignFromLocation(agentId: string) {
-    if (!selectedLocationId) return;
-    setLocationAgents((prev) => {
-      const ids = prev[selectedLocationId] || [];
-      return {
-        ...prev,
-        [selectedLocationId]: ids.filter((id) => id !== agentId)
-      };
-    });
-  }
+  const deactivateMutation = useMutation({
+    mutationFn: async (id: number) => apiClient.admin.adminDeactivateAgent(id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin-agents"] });
+    }
+  });
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -309,7 +296,7 @@ export default function Agents() {
                       <div className="space-y-2">
                         {locations.map((l) => {
                           const isActive = l.id === selectedLocationId;
-                          const count = (locationAgents[l.id] || []).length + (defaultAgent ? 1 : 0);
+                          const count = agents.filter((a) => a.type === 'location' && a.location === l.id).length;
                           return (
                             <button
                               key={l.id}
@@ -355,92 +342,47 @@ export default function Agents() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {defaultAgent && (
-                        <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <div className="h-9 w-9 rounded-lg bg-blue-100 flex items-center justify-center">
-                                  <ShieldCheck className="h-5 w-5 text-blue-700" />
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="font-semibold text-slate-900 truncate">{defaultAgent.name}</div>
-                                  <div className="text-xs text-slate-500 mt-0.5">
-                                    Default agent
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                                <span className="inline-flex items-center gap-1">
-                                  <Phone className="h-3.5 w-3.5" /> {defaultAgent.phone}
-                                </span>
-                                <span className="inline-flex items-center gap-1">
-                                  <MapPin className="h-3.5 w-3.5" /> All locations
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <Badge className={cn(defaultAgent.isActive ? "bg-emerald-600" : "bg-slate-500")}>
-                                {defaultAgent.isActive ? "Active" : "Disabled"}
-                              </Badge>
-                              <Button size="sm" variant="outline" onClick={() => toggleActive(defaultAgent.id)}>
-                                {defaultAgent.isActive ? "Disable" : "Enable"}
-                              </Button>
-                              <Button size="sm" className="gap-2" onClick={() => openEditAgent(defaultAgent)}>
-                                <Pencil className="h-4 w-4" />
-                                Edit
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
                       <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                           <div className="text-sm font-semibold text-slate-900">Location agents</div>
                           <div className="text-xs text-slate-500">
-                            {combinedAgentsForSelectedLocation.filter((a) => a.type === "location").length} agents
+                            {filteredAgents.filter((a) => a.type === "location").length} agents
                           </div>
                         </div>
 
                         <div className="p-2 sm:p-3">
-                          {combinedAgentsForSelectedLocation.filter((a) => a.type === "location").length === 0 && !query.trim() ? (
+                          {filteredAgents.filter((a) => a.type === "location").length === 0 && !query.trim() ? (
                             <div className="p-6 text-center text-sm text-slate-500">
                               No agents assigned to this location yet.
                             </div>
                           ) : (
                             <div className="space-y-2">
-                              {combinedAgentsForSelectedLocation
+                              {filteredAgents
                                 .filter((a) => a.type === "location")
                                 .map((agent) => (
                                   <div
                                     key={agent.id}
                                     className={cn(
                                       "rounded-lg border bg-white px-3 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3",
-                                      !agent.isActive && "opacity-70"
+                                      !agent.is_active && "opacity-70"
                                     )}
                                   >
                                     <div className="min-w-0">
-                                      <div className="font-semibold text-slate-900 truncate">{agent.name}</div>
+                                      <div className="font-semibold text-slate-900 truncate">{getAgentDisplayName(agent)}</div>
                                       <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                                         <span className="inline-flex items-center gap-1">
                                           <Phone className="h-3.5 w-3.5" /> {agent.phone}
                                         </span>
                                         <span className="inline-flex items-center gap-1">
-                                          <MapPin className="h-3.5 w-3.5" /> {selectedLocation?.name}
+                                          <MapPin className="h-3.5 w-3.5" /> {getAgentLocationName(agent, selectedLocation)}
                                         </span>
                                       </div>
                                     </div>
 
                                     <div className="flex items-center gap-2">
-                                      <Badge className={cn(agent.isActive ? "bg-emerald-600" : "bg-slate-500")}>
-                                        {agent.isActive ? "Active" : "Disabled"}
+                                      <Badge className={cn(agent.is_active ? "bg-emerald-600" : "bg-slate-500")}>
+                                        {agent.is_active ? "Active" : "Disabled"}
                                       </Badge>
-                                      <Button size="sm" variant="outline" onClick={() => toggleActive(agent.id)}>
-                                        {agent.isActive ? "Disable" : "Enable"}
-                                      </Button>
                                       <Button size="sm" variant="outline" className="gap-2" onClick={() => openEditAgent(agent)}>
                                         <Pencil className="h-4 w-4" />
                                         Edit
@@ -449,9 +391,9 @@ export default function Agents() {
                                         size="sm"
                                         variant="outline"
                                         className="text-red-600 hover:bg-red-50"
-                                        onClick={() => unassignFromLocation(agent.id)}
+                                        onClick={() => deactivateMutation.mutate(agent.id)}
                                       >
-                                        Remove
+                                        Deactivate
                                       </Button>
                                     </div>
                                   </div>
@@ -459,7 +401,7 @@ export default function Agents() {
                             </div>
                           )}
 
-                          {query.trim() && combinedAgentsForSelectedLocation.filter((a) => a.type === "location").length === 0 && (
+                          {query.trim() && filteredAgents.filter((a) => a.type === "location").length === 0 && (
                             <div className="p-6 text-center text-sm text-slate-500">
                               No agents match your search for this location.
                             </div>
@@ -522,10 +464,10 @@ export default function Agents() {
                 Cancel
               </Button>
               <Button
-                disabled={!createName.trim() || !createPhone.trim() || !selectedLocationId}
-                onClick={onCreate}
+                disabled={!createName.trim() || !createPhone.trim() || (createType === 'location' && !selectedLocationId) || createMutation.isPending}
+                onClick={() => createMutation.mutate()}
               >
-                Save agent
+                {createMutation.isPending ? 'Saving...' : 'Save agent'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -573,10 +515,10 @@ export default function Agents() {
                 Cancel
               </Button>
               <Button
-                disabled={!editName.trim() || !editPhone.trim()}
-                onClick={saveEditAgent}
+                disabled={!editName.trim() || !editPhone.trim() || updateMutation.isPending}
+                onClick={() => updateMutation.mutate()}
               >
-                Save changes
+                {updateMutation.isPending ? 'Saving...' : 'Save changes'}
               </Button>
             </DialogFooter>
           </DialogContent>

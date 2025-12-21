@@ -257,6 +257,65 @@ export const apiClient = {
       return response.json();
     },
 
+    // Agents (Admin)
+    adminListAgents: async (params?: { type?: 'general' | 'location'; location_id?: number; is_active?: boolean; search?: string; page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/agents/`);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value === undefined || value === null || value === '') return;
+          url.searchParams.append(key, String(value));
+        });
+      }
+      const response = await fetch(url.toString(), {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({} as any));
+        throw new Error((error as any).error || (error as any).detail || 'Failed to fetch agents');
+      }
+      return response.json();
+    },
+
+    adminCreateAgent: async (data: { name: string; phone: string; type: 'general' | 'location'; location?: number | null; is_active: boolean }) => {
+      const response = await fetch(`${ADMIN_BASE}/agents/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({} as any));
+        throw new Error((error as any).error || (error as any).detail || 'Failed to create agent');
+      }
+      return response.json();
+    },
+
+    adminUpdateAgent: async (id: number, data: Partial<{ name: string; phone: string; type: 'general' | 'location'; location: number | null; is_active: boolean }>) => {
+      const response = await fetch(`${ADMIN_BASE}/agents/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({} as any));
+        throw new Error((error as any).error || (error as any).detail || 'Failed to update agent');
+      }
+      return response.json();
+    },
+
+    // Soft-delete on backend (sets is_active=false, returns 204)
+    adminDeactivateAgent: async (id: number) => {
+      const response = await fetch(`${ADMIN_BASE}/agents/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (response.status === 204) return true;
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({} as any));
+        throw new Error((error as any).error || (error as any).detail || 'Failed to deactivate agent');
+      }
+      return true;
+    },
+
     getPickupOrders: async (params?: { page?: number; page_size?: number }) => {
       const url = new URL(`${ADMIN_BASE}/pickup-orders/`);
       if (params) {
