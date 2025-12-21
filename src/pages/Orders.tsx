@@ -586,7 +586,7 @@ const Orders = () => {
                             </span>
                             {autoCanceled ? (
                               <span className="text-xs text-slate-500">
-                                12 hours expired
+                                12 hours expired.
                               </span>
                             ) : null}
                           </div>
