@@ -510,7 +510,7 @@ export default function Agents() {
           <DialogContent className="sm:max-w-[520px]">
             <DialogHeader>
               <DialogTitle>Edit Agent</DialogTitle>
-              <DialogDescription>Update agent details (UI only for now).</DialogDescription>
+              <DialogDescription>Update agent details</DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4">
