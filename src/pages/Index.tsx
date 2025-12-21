@@ -72,17 +72,29 @@ const Dashboard: React.FC = () => {
     queryFn: () => apiClient.admin.getAnalytics()
   });
 
+  const { data: allOrdersResp } = useQuery<{ count: number; results: Array<{ status?: string }> }>({
+    queryKey: ['all-orders', 'counts'],
+    queryFn: async () => {
+      const res = await apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 });
+      return { count: res.count || 0, results: res.results || [] };
+    },
+    refetchOnWindowFocus: true,
+  });
+
   // Customers
   const { data: customerData } = useQuery<CustomerResponse>({
     queryKey: ['customers'],
     queryFn: () => apiClient.admin.adminGetAllCustomers()
   });
 
+  const norm = (s: unknown) => String(s || '').toLowerCase();
+
   // Derived metrics
-  const totalOrders = Number(analytics?.orders || 0);
+  const totalOrders = Number(allOrdersResp?.count || 0);
   const salesRevenue = Number(analytics?.sales_revenue || 0);
   const customersCount = Number(customerData?.count || 0);
-  const unpaidOrders = Number(analytics?.unpaid_orders || 0);
+  // "Unpaid" = canceled per your rule
+  const unpaidOrders = Number((allOrdersResp?.results || []).filter((o) => norm(o.status) === 'canceled').length);
 
   const topProducts = useMemo(() => {
     const list = (analytics?.quantity_sold || [])
@@ -138,27 +150,27 @@ const Dashboard: React.FC = () => {
                   icon: <CreditCard className="h-5 w-5" />,
                   tone: 'amber'
                 },
-                {
-                  title: 'Released/Completed',
-                  value: completedOrReleased.toLocaleString(),
-                  description: 'Fulfilled orders',
-                  icon: <CheckCircle className="h-5 w-5" />,
-                  tone: 'neutral'
-                },
-                {
-                  title: 'Canceled Orders',
-                  value: canceledOrders.toLocaleString(),
-                  description: 'Auto + manual',
-                  icon: <XCircle className="h-5 w-5" />,
-                  tone: 'red'
-                },
-                {
-                  title: 'Total Customers',
-                  value: customersCount.toLocaleString(),
-                  description: 'In system',
-                  icon: <Users className="h-5 w-5" />,
-                  tone: 'neutral'
-                }
+                // {
+                //   title: 'Released',
+                //   value: completedOrReleased.toLocaleString(),
+                //   description: 'Loaded orders',
+                //   icon: <CheckCircle className="h-5 w-5" />,
+                //   tone: 'neutral'
+                // },
+                // {
+                //   title: 'Unpaid Orders',
+                //   value: canceledOrders.toLocaleString(),
+                //   description: 'Total number of unpaid orders',
+                //   icon: <XCircle className="h-5 w-5" />,
+                //   tone: 'red'
+                // },
+                // // {
+                // //   title: 'Total Customers',
+                // //   value: customersCount.toLocaleString(),
+                // //   description: 'In system',
+                // //   icon: <Users className="h-5 w-5" />,
+                // //   tone: 'neutral'
+                // // }
               ]}
             />
 

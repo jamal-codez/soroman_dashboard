@@ -53,10 +53,9 @@ interface OrderResponse {
 }
 
 const statusDisplayMap: Record<string, string> = {
-  pending: 'Pending',
+  pending: 'Awaiting Payment',
   paid: 'Paid',
-  canceled: 'Canceled',
-  completed: 'Completed',
+  canceled: 'Unpaid',
   released: 'Released'
 };
 
@@ -67,7 +66,6 @@ const getStatusIcon = (status: string) => {
     case 'paid': return <CheckCircle className="text-green-500" size={16} />;
     case 'pending': return <Clock className="text-orange-500" size={16} />;
     case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
-    case 'completed': return <CheckCircle className="text-blue-500" size={16} />;
     case 'released': return <CheckCircle className="text-blue-600" size={16} />;
     default: return <CheckCircle className="text-blue-500" size={16} />;
   }
@@ -78,7 +76,6 @@ const getStatusClass = (status: string) => {
     case 'paid': return 'bg-green-50 text-green-700 border-green-200';
     case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
     case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
-    case 'completed': return 'bg-blue-50 text-blue-700 border-blue-200';
     case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
     default: return 'bg-gray-50 text-blue-700 border-blue-200';
   }
@@ -99,7 +96,13 @@ const Orders = () => {
       return { count: response.count || 0, results: response.results || [] };
     },
     retry: 2,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: true,
+    // If there are pending orders, poll so backend auto-cancel is reflected quickly.
+    refetchInterval: (q) => {
+      const data = q.state.data as OrderResponse | undefined;
+      const hasPending = Boolean((data?.results || []).some((o) => (o.status || '').toLowerCase() === 'pending'));
+      return hasPending ? 60_000 : false;
+    },
   });
 
   const autoCancelInFlight = useRef<Set<number>>(new Set());
@@ -233,7 +236,7 @@ const Orders = () => {
     const base = apiResponse?.results || [];
     return base.filter(o => {
       const s = (o.status || '').toLowerCase();
-      if (!(s === 'completed' || s === 'released')) return false;
+      if (s !== 'released') return false;
       return matchesSummaryFilters(o);
     });
   }, [apiResponse?.results, filterType, productFilter, locationFilter, matchesSummaryFilters]);
@@ -469,10 +472,9 @@ const Orders = () => {
                     onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
                   >
                     <option value="">All Statuses</option>
-                    <option value="pending">Pending</option>
+                    <option value="pending">Awaiting Payment</option>
                     <option value="paid">Paid</option>
-                    <option value="canceled">Canceled</option>
-                    <option value="completed">Completed</option>
+                    <option value="canceled">Unpaid</option>
                     <option value="released">Released</option>
                   </select>
 
@@ -555,6 +557,8 @@ const Orders = () => {
                 </TableHeader>
                 <TableBody>
                   {filteredOrders.map((order, idx) => {
+                    const status = (order.status || '').toLowerCase();
+                    const autoCanceled = status === 'canceled' && shouldAutoCancel({ status: 'pending', created_at: order.created_at });
                     const serial = filteredOrders.length - idx;
                     return (
                       <TableRow key={order.id}>
@@ -575,10 +579,17 @@ const Orders = () => {
                         <TableCell className="text-right font-medium text-slate-950">{safeParseNumber(order.quantity).toLocaleString()}</TableCell>
                         <TableCell className="text-right font-semibold text-slate-950">₦{safeParseNumber(order.total_price).toLocaleString()}</TableCell>
                         <TableCell>
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold border rounded-full capitalize ${getStatusClass(order.status)}`}>
-                            {getStatusIcon(order.status)}
-                            <span>{getStatusText(order.status)}</span>
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold border rounded-full capitalize ${getStatusClass(order.status)}`}>
+                              {getStatusIcon(order.status)}
+                              <span>{getStatusText(order.status)}</span>
+                            </span>
+                            {autoCanceled ? (
+                              <span className="text-xs text-slate-500">
+                                12 hours expired
+                              </span>
+                            ) : null}
+                          </div>
                         </TableCell>
                       </TableRow>
                     );

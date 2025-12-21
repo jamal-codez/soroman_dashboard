@@ -51,11 +51,11 @@ interface Order {
     email: string;
     phone_number?: string;
     phone?: string;
-    companyName?: string; // might be missing in your API
-    company_name?: string; // common alt
-    company?: string;      // common alt
+    companyName?: string; 
+    company_name?: string; 
+    company?: string;      
   };
-  // Some backends also put company here:
+ 
   companyName?: string;
   company_name?: string;
   customer?: {
@@ -76,7 +76,7 @@ interface Order {
   products: Array<{ name: string }>;
   quantity: number;
   release_type: 'pickup' | 'delivery';
-  reference: string; // use this when present
+  reference: string; 
   assigned_agent?: unknown;
   agent?: unknown;
   assignedAgent?: unknown;
@@ -92,10 +92,9 @@ interface ReleaseDetails {
   driverName: string;
   driverPhone: string;
   dprNumber: string;
-  loadingDateTime: string; // ISO string
+  loadingDateTime: string; 
 }
 
-// Helper for company 2-letter initials
 const getCompanyInitials = (name: string, max: number = 2): string => {
   const cleaned = String(name ?? "")
     .replace(/[^A-Za-z0-9\s]/g, " ")
@@ -123,6 +122,24 @@ const extractCompanyName = (order: Order): string => {
     order.company_name ||
     ""
   );
+};
+
+// Location can live in different places depending on endpoint/model shape.
+const extractLocation = (order: Order): string => {
+  const rec = order as unknown as Record<string, unknown>;
+
+  const pickup = (rec.pickup as Record<string, unknown> | undefined) || undefined;
+  const delivery = (rec.delivery as Record<string, unknown> | undefined) || undefined;
+
+  const v =
+    (typeof pickup?.state === 'string' ? pickup.state : undefined) ||
+    (typeof pickup?.location === 'string' ? pickup.location : undefined) ||
+    (typeof delivery?.state === 'string' ? delivery.state : undefined) ||
+    (typeof rec.state === 'string' ? (rec.state as string) : undefined) ||
+    (typeof rec.location === 'string' ? (rec.location as string) : undefined) ||
+    '';
+
+  return String(v || '').trim();
 };
 
 // IMPORTANT: do not generate references client-side; use backend `order.reference` only.
@@ -197,9 +214,9 @@ export const PickupProcessing = () => {
   });
 
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
-    queryKey: ['pickup-orders', 'all'],
+    queryKey: ['all-orders', 'release-processing'],
     queryFn: async () => {
-      const response = await apiClient.admin.getPickupOrders({
+      const response = await apiClient.admin.getAllAdminOrders({
         page: 1,
         page_size: 10000,
       });
@@ -210,16 +227,20 @@ export const PickupProcessing = () => {
       };
     },
     retry: 2,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: true
   });
 
   const summary = useMemo(() => {
     const list = apiResponse?.results || [];
-    const total = apiResponse?.count || list.length;
-    const paid = list.filter(o => o.status === 'paid').length;
-    const pending = list.filter(o => o.status === 'pending').length;
-    const released = list.filter(o => o.status === 'released').length;
-    return { total, paid, pending, released };
+    const total = apiResponse?.count ?? list.length;
+
+    const norm = (s: unknown) => String(s || '').toLowerCase();
+    const paid = list.filter((o) => norm(o.status) === 'paid').length;
+    const pending = list.filter((o) => norm(o.status) === 'pending').length;
+    const released = list.filter((o) => norm(o.status) === 'released').length;
+    const canceled = list.filter((o) => norm(o.status) === 'canceled').length;
+
+    return { total, paid, pending, released, canceled };
   }, [apiResponse?.results, apiResponse?.count]);
 
   const ticketRef = useRef<HTMLDivElement>(null);
@@ -230,7 +251,24 @@ export const PickupProcessing = () => {
 
   const buildTicketData = useMemo(() => {
     if (!selectedOrder) return null;
-    const details = releaseDetailsByOrder[selectedOrder.id];
+
+    const oRec = selectedOrder as unknown as Record<string, unknown>;
+    const rt = (oRec.release_ticket || oRec.releaseTicket) as Record<string, unknown> | undefined;
+
+    // Prefer locally entered details, but fall back to persisted backend values.
+    const local = releaseDetailsByOrder[selectedOrder.id];
+    const resolved: ReleaseDetails | null = local
+      ? local
+      : rt
+        ? {
+            truckNumber: String((rt.truck_number ?? rt.truckNumber ?? '') as any),
+            driverName: String((rt.driver_name ?? rt.driverName ?? '') as any),
+            driverPhone: String((rt.driver_phone ?? rt.driverPhone ?? '') as any),
+            dprNumber: String((rt.dpr_number ?? rt.dprNumber ?? '') as any),
+            loadingDateTime: String((rt.loading_datetime ?? rt.loadingDateTime ?? '') as any),
+          }
+        : null;
+
     const companyName = extractCompanyName(selectedOrder) || '-';
     const userRec = selectedOrder.user as unknown as Record<string, unknown>;
     const phone =
@@ -243,40 +281,75 @@ export const PickupProcessing = () => {
       customerName: `${selectedOrder.user.first_name} ${selectedOrder.user.last_name}`,
       companyName,
       customerPhone: String(phone),
-      product: selectedOrder.products.map(p => p.name).join(', '),
+      product: selectedOrder.products.map((p) => p.name).join(', '),
       qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
-      truckNumber: details?.truckNumber || '-',
-      driverName: details?.driverName || '-',
-      driverPhone: details?.driverPhone || '-',
-      dprNumber: details?.dprNumber || '-',
-      loadingDateTime: details?.loadingDateTime
-        ? format(new Date(details.loadingDateTime), 'PPpp')
-        : '-'
+      truckNumber: resolved?.truckNumber || '-',
+      driverName: resolved?.driverName || '-',
+      driverPhone: resolved?.driverPhone || '-',
+      dprNumber: resolved?.dprNumber || '-',
+      loadingDateTime: resolved?.loadingDateTime ? format(new Date(resolved.loadingDateTime), 'PPpp') : '-',
     } satisfies ReleaseTicketData;
   }, [selectedOrder, releaseDetailsByOrder]);
 
   const canPrintTicket = useMemo(() => {
     if (!selectedOrder) return false;
-    const d = releaseDetailsByOrder[selectedOrder.id];
+
+    const local = releaseDetailsByOrder[selectedOrder.id];
+    if (local) {
+      return Boolean(
+        local.truckNumber?.trim() &&
+          local.driverName?.trim() &&
+          local.driverPhone?.trim() &&
+          local.dprNumber?.trim() &&
+          local.loadingDateTime?.trim()
+      );
+    }
+
+    const oRec = selectedOrder as unknown as Record<string, unknown>;
+    const rt = (oRec.release_ticket || oRec.releaseTicket) as Record<string, unknown> | undefined;
+    const req = (k1: string, k2: string) => String(((rt?.[k1] ?? rt?.[k2]) as any) ?? '').trim();
+
     return Boolean(
-      d?.truckNumber?.trim() &&
-      d?.driverName?.trim() &&
-      d?.driverPhone?.trim() &&
-      d?.dprNumber?.trim() &&
-      d?.loadingDateTime?.trim()
+      req('truck_number', 'truckNumber') &&
+        req('driver_name', 'driverName') &&
+        req('driver_phone', 'driverPhone') &&
+        req('dpr_number', 'dprNumber') &&
+        req('loading_datetime', 'loadingDateTime')
     );
   }, [selectedOrder, releaseDetailsByOrder]);
 
   const openRelease = (order: Order) => {
     setSelectedOrder(order);
+
     const existing = releaseDetailsByOrder[order.id];
-    setReleaseForm(existing || {
-      truckNumber: order.trucks?.[0] || '',
-      driverName: '',
-      driverPhone: '',
-      dprNumber: '',
-      loadingDateTime: ''
-    });
+
+    // If backend persists ticket details, prefer them when opening the dialog.
+    const oRec = order as unknown as Record<string, unknown>;
+    const rt = (oRec.release_ticket || oRec.releaseTicket) as Record<string, unknown> | undefined;
+
+    const fromBackend: ReleaseDetails | null = rt
+      ? {
+          truckNumber: String((rt.truck_number ?? rt.truckNumber ?? '') as any),
+          driverName: String((rt.driver_name ?? rt.driverName ?? '') as any),
+          driverPhone: String((rt.driver_phone ?? rt.driverPhone ?? '') as any),
+          dprNumber: String((rt.dpr_number ?? rt.dprNumber ?? '') as any),
+          loadingDateTime: String((rt.loading_datetime ?? rt.loadingDateTime ?? '') as any),
+        }
+      : null;
+
+    setReleaseForm(
+      existing ||
+        (fromBackend && Object.values(fromBackend).some((v) => String(v).trim().length > 0)
+          ? fromBackend
+          : {
+              truckNumber: order.trucks?.[0] || '',
+              driverName: '',
+              driverPhone: '',
+              dprNumber: '',
+              loadingDateTime: ''
+            })
+    );
+
     setReleaseOpen(true);
   };
 
@@ -305,8 +378,16 @@ export const PickupProcessing = () => {
       saveReleaseDetails();
       setReleaseOpen(false);
 
-      // Backend release (details will be wired later)
-      await apiClient.admin.releaseOrder(selectedOrder.id);
+      // Persist release details in backend
+      await apiClient.admin.releaseOrder(selectedOrder.id, {
+        truck_number: releaseForm.truckNumber,
+        driver_name: releaseForm.driverName,
+        driver_phone: releaseForm.driverPhone,
+        dpr_number: releaseForm.dprNumber,
+        loading_datetime: releaseForm.loadingDateTime,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['pickup-orders', 'all'] });
       queryClient.invalidateQueries({ queryKey: ['all-orders'] });
 
       toast({ title: 'Success!', description: 'ORDER RELEASED' });
@@ -341,6 +422,10 @@ export const PickupProcessing = () => {
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base
+      .filter((order) => {
+        // Only show pickup orders on this screen even though totals are all-orders
+        return order.release_type === 'pickup';
+      })
       .filter(order => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return true;
@@ -485,7 +570,6 @@ export const PickupProcessing = () => {
               cards={[
                 { title: 'Total Orders', value: String(summary.total), description: 'All orders', icon: <FileText />, tone: 'neutral' },
                 { title: 'Paid', value: String(summary.paid), description: 'Ready to release', icon: <CheckCircle2 />, tone: 'green' },
-                // { title: 'Pending', value: String(summary.pending), description: 'Awaiting payment', icon: <Timer />, tone: 'amber' },
                 { title: 'Released', value: String(summary.released), description: 'Tickets available', icon: <Truck />, tone: 'neutral' },
               ]}
             />
@@ -569,7 +653,7 @@ export const PickupProcessing = () => {
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">{order.id}</TableCell>
                       <TableCell>{getOrderReference(order) || '-'}</TableCell>
-                      <TableCell>{order.pickup?.state || '-'}</TableCell>
+                      <TableCell>{extractLocation(order) || '-'}</TableCell>
                       <TableCell>{extractAssignedAgentName(order) || '-'}</TableCell>
                       <TableCell>
                         <div>

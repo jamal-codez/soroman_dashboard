@@ -199,14 +199,24 @@ export const apiClient = {
       return response.ok ? true : response.json();
     },
 
-    releaseOrder: async (orderId: number) => {
-      const response = await fetch(`${ADMIN_BASE}/release-order/${orderId}/`, {
-        method: 'GET',
+    releaseOrder: async (orderId: number, data?: {
+      truck_number: string;
+      driver_name: string;
+      driver_phone: string;
+      dpr_number: string;
+      loading_datetime: string; // ISO string
+    }) => {
+      // Prefer the new RESTful endpoint that can persist ticket details.
+      // Backend should implement: POST /orders/<id>/release/
+      const url = `${ADMIN_BASE}/orders/${orderId}/release/`;
+      const response = await fetch(url, {
+        method: 'POST',
         headers: getHeaders(),
+        body: JSON.stringify(data || {}),
       });
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to release order');
+        const error = await response.json().catch(() => ({} as any));
+        throw new Error((error as any).error || (error as any).detail || 'Failed to release order');
       }
       return response.json();
     },
