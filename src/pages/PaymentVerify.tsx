@@ -342,7 +342,7 @@ export default function PaymentVerification() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {/* <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <select
                     aria-label="Timeframe filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
@@ -373,7 +373,7 @@ export default function PaymentVerification() {
                   <div className="text-sm text-slate-600 flex items-center">
                     Showing <span className="mx-1 font-semibold text-slate-900">{filteredPayments.length}</span> pending payments
                   </div>
-                </div>
+                </div> */}
               </div>
             </div>
 
