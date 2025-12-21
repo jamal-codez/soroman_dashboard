@@ -29,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
@@ -747,6 +748,9 @@ export const PickupProcessing = () => {
                             <DialogContent>
                               <DialogHeader>
                                 <DialogTitle>Release Order</DialogTitle>
+                                <DialogDescription>
+                                  Enter truck and driver details to release this order and persist the release ticket.
+                                </DialogDescription>
                               </DialogHeader>
                               <div className="space-y-4">
                                 <div>

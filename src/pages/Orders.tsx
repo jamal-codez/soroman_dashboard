@@ -604,14 +604,10 @@ const Orders = () => {
                           {(() => {
                             const name = getAssignedAgentName(order);
                             const phone = getAssignedAgentPhone(order);
-                            const type = getAssignedAgentType(order);
-                            const loc = getAssignedAgentLocation(order);
 
                             const parts = [
                               name,
-                              phone ? `(${phone})` : '',
-                              type ? `• ${type}` : '',
-                              loc ? `• ${loc}` : '',
+                              phone ? `${phone}` : '',
                             ].filter(Boolean);
 
                             return parts.length ? parts.join(' ') : '-';

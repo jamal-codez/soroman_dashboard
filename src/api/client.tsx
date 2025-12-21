@@ -208,16 +208,30 @@ export const apiClient = {
     }) => {
       // Prefer the new RESTful endpoint that can persist ticket details.
       // Backend should implement: POST /orders/<id>/release/
-      const url = `${ADMIN_BASE}/orders/${orderId}/release/`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(data || {}),
-      });
+      const primaryUrl = `${ADMIN_BASE}/orders/${orderId}/release/`;
+      const fallbackUrl = `${ADMIN_BASE}/release/${orderId}/`;
+
+      const doPost = async (url: string) => {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(data || {}),
+        });
+        return response;
+      };
+
+      let response = await doPost(primaryUrl);
+
+      // Some deployments still expose the legacy release endpoint.
+      if (response.status === 404) {
+        response = await doPost(fallbackUrl);
+      }
+
       if (!response.ok) {
         const error = await response.json().catch(() => ({} as any));
         throw new Error((error as any).error || (error as any).detail || 'Failed to release order');
       }
+
       return response.json();
     },
 
