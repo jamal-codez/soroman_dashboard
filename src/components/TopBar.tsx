@@ -7,7 +7,7 @@ export const TopBar = () => {
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-3">
           <span className="text-[1rem] font-medium text-slate-800">
-            Hi, {localStorage.getItem('fullname')?.split(' ')[0] || 'Guest'}
+            Welcome back!
           </span>
           <div className="w-9 h-9 rounded-full bg-slate-900 flex items-center justify-center text-white text-sm">
             {localStorage.getItem('fullname')

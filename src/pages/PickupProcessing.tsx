@@ -663,15 +663,15 @@ export const PickupProcessing = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Order ID</TableHead>
-                    <TableHead>Order Reference</TableHead>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Reference</TableHead>
                     <TableHead>Location</TableHead>
-                    <TableHead>Assigned Agent</TableHead>
+                    <TableHead>Agent</TableHead>
                     <TableHead>Customer</TableHead>
-                    <TableHead>Product(s)</TableHead>
-                    <TableHead>Quantity</TableHead>
-                    <TableHead>Order Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Qty (L)</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-center">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

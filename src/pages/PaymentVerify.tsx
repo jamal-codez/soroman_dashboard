@@ -452,9 +452,9 @@ export default function PaymentVerification() {
                               {updatingPaymentId === payment.id ? (
                                 <Loader2 className="animate-spin mr-2" size={16} />
                               ) : (
-                                <ShieldCheck className="mr-2" size={16} />
+                                <ShieldCheck className="mr-1" size={16} />
                               )}
-                              Verify
+                              Confirm
                             </Button>
                           </TableCell>
                         </TableRow>

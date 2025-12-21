@@ -583,7 +583,7 @@ const Orders = () => {
                     <TableHead>Company</TableHead>
                     <TableHead>Phone</TableHead>
                     <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Quantity</TableHead>
+                    <TableHead className="text-right">Qty (L)</TableHead>
                     <TableHead className="text-right">Amount Paid</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
