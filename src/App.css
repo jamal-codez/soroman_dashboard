@@ -1,4 +1,3 @@
-/* Overwrite default Vite template constraints for dashboard app */
 #root {
   max-width: none;
   margin: 0;
