@@ -203,7 +203,6 @@ export const apiClient = {
       truck_number: string;
       driver_name: string;
       driver_phone: string;
-      dpr_number: string;
       loading_datetime: string; // ISO string
     }) => {
       // Use ONLY the new endpoint so ticket details are persisted.
@@ -217,8 +216,12 @@ export const apiClient = {
       });
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({} as any));
-        throw new Error((error as any).error || (error as any).detail || 'Failed to release order');
+        const error = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const message =
+          (typeof error.error === 'string' && error.error) ||
+          (typeof error.detail === 'string' && error.detail) ||
+          'Failed to release order';
+        throw new Error(message);
       }
 
       return response.json();
@@ -273,8 +276,12 @@ export const apiClient = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        const error = await response.json().catch(() => ({} as any));
-        throw new Error((error as any).error || (error as any).detail || 'Failed to fetch agents');
+        const error = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const message =
+          (typeof error.error === 'string' && error.error) ||
+          (typeof error.detail === 'string' && error.detail) ||
+          'Failed to fetch agents';
+        throw new Error(message);
       }
       return response.json();
     },
@@ -286,8 +293,12 @@ export const apiClient = {
         body: JSON.stringify(data),
       });
       if (!response.ok) {
-        const error = await response.json().catch(() => ({} as any));
-        throw new Error((error as any).error || (error as any).detail || 'Failed to create agent');
+        const error = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const message =
+          (typeof error.error === 'string' && error.error) ||
+          (typeof error.detail === 'string' && error.detail) ||
+          'Failed to create agent';
+        throw new Error(message);
       }
       return response.json();
     },
@@ -299,8 +310,12 @@ export const apiClient = {
         body: JSON.stringify(data),
       });
       if (!response.ok) {
-        const error = await response.json().catch(() => ({} as any));
-        throw new Error((error as any).error || (error as any).detail || 'Failed to update agent');
+        const error = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const message =
+          (typeof error.error === 'string' && error.error) ||
+          (typeof error.detail === 'string' && error.detail) ||
+          'Failed to update agent';
+        throw new Error(message);
       }
       return response.json();
     },
@@ -313,8 +328,12 @@ export const apiClient = {
       });
       if (response.status === 204) return true;
       if (!response.ok) {
-        const error = await response.json().catch(() => ({} as any));
-        throw new Error((error as any).error || (error as any).detail || 'Failed to deactivate agent');
+        const error = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const message =
+          (typeof error.error === 'string' && error.error) ||
+          (typeof error.detail === 'string' && error.detail) ||
+          'Failed to deactivate agent';
+        throw new Error(message);
       }
       return true;
     },

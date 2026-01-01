@@ -87,8 +87,6 @@ interface Order {
   driverName?: string;
   driver_phone?: string;
   driverPhone?: string;
-  dpr_number?: string;
-  dprNumber?: string;
   loading_datetime?: string;
   loadingDateTime?: string;
 }
@@ -102,7 +100,6 @@ interface ReleaseDetails {
   truckNumber: string;
   driverName: string;
   driverPhone: string;
-  dprNumber: string;
   loadingDateTime: string; 
 }
 
@@ -231,45 +228,44 @@ const getOrderTicketDetails = (
   // legacy nested object support (older contract)
   const rt = (rec.release_ticket || rec.releaseTicket) as Record<string, unknown> | undefined;
 
-  const truckNumber =
-    local?.truckNumber ??
-    (typeof (rec.truck_number as any) === 'string' ? (rec.truck_number as any) : undefined) ??
-    (typeof (rec.truckNumber as any) === 'string' ? (rec.truckNumber as any) : undefined) ??
-    (rt ? String((rt.truck_number ?? rt.truckNumber ?? '') as any) : '');
-
-  const driverName =
-    local?.driverName ??
-    (typeof (rec.driver_name as any) === 'string' ? (rec.driver_name as any) : undefined) ??
-    (typeof (rec.driverName as any) === 'string' ? (rec.driverName as any) : undefined) ??
-    (rt ? String((rt.driver_name ?? rt.driverName ?? '') as any) : '');
-
-  const driverPhone =
-    local?.driverPhone ??
-    (typeof (rec.driver_phone as any) === 'string' ? (rec.driver_phone as any) : undefined) ??
-    (typeof (rec.driverPhone as any) === 'string' ? (rec.driverPhone as any) : undefined) ??
-    (rt ? String((rt.driver_phone ?? rt.driverPhone ?? '') as any) : '');
-
-  const dprNumber =
-    local?.dprNumber ??
-    (typeof (rec.dpr_number as any) === 'string' ? (rec.dpr_number as any) : undefined) ??
-    (typeof (rec.dprNumber as any) === 'string' ? (rec.dprNumber as any) : undefined) ??
-    (rt ? String((rt.dpr_number ?? rt.dprNumber ?? '') as any) : '');
-
-  const loadingDateTime =
-    local?.loadingDateTime ??
-    (typeof (rec.loading_datetime as any) === 'string' ? (rec.loading_datetime as any) : undefined) ??
-    (typeof (rec.loadingDateTime as any) === 'string' ? (rec.loadingDateTime as any) : undefined) ??
-    (rt ? String((rt.loading_datetime ?? rt.loadingDateTime ?? '') as any) : '');
-
-  const details: ReleaseDetails = {
-    truckNumber: String(truckNumber ?? '').trim(),
-    driverName: String(driverName ?? '').trim(),
-    driverPhone: String(driverPhone ?? '').trim(),
-    dprNumber: String(dprNumber ?? '').trim(),
-    loadingDateTime: String(loadingDateTime ?? '').trim(),
+  const readStr = (obj: Record<string, unknown> | undefined, ...keys: string[]): string => {
+    if (!obj) return '';
+    for (const k of keys) {
+      const v = obj[k];
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number') return String(v);
+    }
+    return '';
   };
 
-  const hasAny = Object.values(details).some((v) => String(v).trim().length > 0);
+  const truckNumber =
+    local?.truckNumber ||
+    readStr(rec, 'truck_number', 'truckNumber') ||
+    readStr(rt, 'truck_number', 'truckNumber');
+
+  const driverName =
+    local?.driverName ||
+    readStr(rec, 'driver_name', 'driverName') ||
+    readStr(rt, 'driver_name', 'driverName');
+
+  const driverPhone =
+    local?.driverPhone ||
+    readStr(rec, 'driver_phone', 'driverPhone') ||
+    readStr(rt, 'driver_phone', 'driverPhone');
+
+  const loadingDateTime =
+    local?.loadingDateTime ||
+    readStr(rec, 'loading_datetime', 'loadingDateTime') ||
+    readStr(rt, 'loading_datetime', 'loadingDateTime');
+
+  const details: ReleaseDetails = {
+    truckNumber: truckNumber.trim(),
+    driverName: driverName.trim(),
+    driverPhone: driverPhone.trim(),
+    loadingDateTime: loadingDateTime.trim(),
+  };
+
+  const hasAny = Object.values(details).some((v) => v.trim().length > 0);
   return hasAny ? details : null;
 };
 
@@ -302,7 +298,6 @@ export const PickupProcessing = () => {
     truckNumber: '',
     driverName: '',
     driverPhone: '',
-    dprNumber: '',
     loadingDateTime: ''
   });
 
@@ -365,7 +360,6 @@ export const PickupProcessing = () => {
       truckNumber: resolved?.truckNumber || '-',
       driverName: resolved?.driverName || '-',
       driverPhone: resolved?.driverPhone || '-',
-      dprNumber: resolved?.dprNumber || '-',
       loadingDateTime: resolved?.loadingDateTime ? formatTicketLoadingDateTime(resolved.loadingDateTime) : '-',
     } satisfies ReleaseTicketData;
   }, [selectedOrder, releaseDetailsByOrder]);
@@ -381,7 +375,6 @@ export const PickupProcessing = () => {
       resolved.truckNumber?.trim() &&
         resolved.driverName?.trim() &&
         resolved.driverPhone?.trim() &&
-        resolved.dprNumber?.trim() &&
         resolved.loadingDateTime?.trim()
     );
   }, [selectedOrder, releaseDetailsByOrder]);
@@ -400,7 +393,6 @@ export const PickupProcessing = () => {
               truckNumber: order.trucks?.[0] || '',
               driverName: '',
               driverPhone: '',
-              dprNumber: '',
               loadingDateTime: ''
             })
     );
@@ -420,7 +412,7 @@ export const PickupProcessing = () => {
     if (!selectedOrder) return;
 
     // Basic validation
-    if (!releaseForm.truckNumber.trim() || !releaseForm.driverName.trim() || !releaseForm.driverPhone.trim() || !releaseForm.dprNumber.trim() || !releaseForm.loadingDateTime.trim()) {
+    if (!releaseForm.truckNumber.trim() || !releaseForm.driverName.trim() || !releaseForm.driverPhone.trim() || !releaseForm.loadingDateTime.trim()) {
       toast({
         title: 'Missing information',
         description: 'Please fill in all release details before releasing.',
@@ -437,7 +429,6 @@ export const PickupProcessing = () => {
         truck_number: releaseForm.truckNumber,
         driver_name: releaseForm.driverName,
         driver_phone: releaseForm.driverPhone,
-        dpr_number: releaseForm.dprNumber,
         loading_datetime: releaseForm.loadingDateTime,
       });
 
@@ -722,15 +713,15 @@ export const PickupProcessing = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
+                    {/* <TableHead>ID</TableHead> */}
                     <TableHead>Reference</TableHead>
                     {/* <TableHead>Type</TableHead> */}
                     <TableHead>Location</TableHead>
                     <TableHead>Agent</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Truck No.</TableHead>
-                    <TableHead>Truck Driver</TableHead>
-                    <TableHead>Date/Time</TableHead>
+                    <TableHead>Driver Details</TableHead>
+                    <TableHead>Loading Date/Time</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Qty (L)</TableHead>
                     <TableHead>Status</TableHead>
@@ -748,7 +739,7 @@ export const PickupProcessing = () => {
 
                     return (
                       <TableRow key={order.id}>
-                        <TableCell className="font-medium">{order.id}</TableCell>
+                        {/* <TableCell className="font-medium">{order.id}</TableCell> */}
                         <TableCell>{getOrderReference(order) || '-'}</TableCell>
                         {/* <TableCell className="capitalize">{order.release_type || '-'}</TableCell> */}
                         <TableCell>{extractLocation(order) || '-'}</TableCell>
@@ -835,14 +826,6 @@ export const PickupProcessing = () => {
                                     />
                                   </div>
                                   <div>
-                                    <Label htmlFor="dprNumber">DPR Number</Label>
-                                    <Input
-                                      id="dprNumber"
-                                      value={releaseForm.dprNumber}
-                                      onChange={(e) => setReleaseForm({ ...releaseForm, dprNumber: e.target.value })}
-                                    />
-                                  </div>
-                                  <div>
                                     <Label htmlFor="loadingDateTime">Loading Date & Time</Label>
                                     <Input
                                       id="loadingDateTime"
@@ -909,7 +892,7 @@ export const PickupProcessing = () => {
                     <>
                       {!canPrintTicket && (
                         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                          Ticket cannot be printed yet. Please release the order and fill all release details (Truck Number, Driver Name/Phone, DPR Number, Loading Date &amp; Time).
+                          Ticket cannot be printed yet. Please release the order and fill all release details (Truck Number, Driver Name/Phone, Loading Date &amp; Time).
                         </div>
                       )}
 
@@ -934,7 +917,6 @@ export const PickupProcessing = () => {
                               truckNumber: '-',
                               driverName: '-',
                               driverPhone: '-',
-                              dprNumber: '-',
                               loadingDateTime: '-',
                             }
                           }

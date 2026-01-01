@@ -10,7 +10,6 @@ export type ReleaseTicketData = {
   truckNumber: string;
   driverName: string;
   driverPhone: string;
-  dprNumber: string;
   loadingDateTime: string;
 };
 
@@ -42,7 +41,6 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
             <TicketRow label="Truck Number" value={data.truckNumber} />
             <TicketRow label="Driver's Name" value={data.driverName} />
             <TicketRow label="Driver's Phone" value={data.driverPhone} />
-            <TicketRow label="DPR Number" value={data.dprNumber} />
             <TicketRow label="Loading Date & Time" value={data.loadingDateTime} />
           </div>
         </div>
