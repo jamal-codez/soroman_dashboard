@@ -398,7 +398,7 @@ export default function Agents() {
                                         className="text-red-600 hover:bg-red-50"
                                         onClick={() => deactivateMutation.mutate(agent.id)}
                                       >
-                                        Deactivate
+                                        Remove
                                       </Button>
                                     </div>
                                   </div>

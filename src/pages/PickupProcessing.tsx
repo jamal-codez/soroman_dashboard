@@ -81,6 +81,16 @@ interface Order {
   assigned_agent?: unknown;
   agent?: unknown;
   assignedAgent?: unknown;
+  truck_number?: string;
+  truckNumber?: string;
+  driver_name?: string;
+  driverName?: string;
+  driver_phone?: string;
+  driverPhone?: string;
+  dpr_number?: string;
+  dprNumber?: string;
+  loading_datetime?: string;
+  loadingDateTime?: string;
 }
 
 interface OrderResponse {
@@ -211,6 +221,68 @@ const formatAssignedAgent = (order: Order): string => {
   return parts.length ? parts.join(' ') : '';
 };
 
+// --- Ticket helpers (backend contract: flat fields on order) ---
+const getOrderTicketDetails = (
+  order: Order,
+  local?: ReleaseDetails
+): ReleaseDetails | null => {
+  const rec = order as unknown as Record<string, unknown>;
+
+  // legacy nested object support (older contract)
+  const rt = (rec.release_ticket || rec.releaseTicket) as Record<string, unknown> | undefined;
+
+  const truckNumber =
+    local?.truckNumber ??
+    (typeof (rec.truck_number as any) === 'string' ? (rec.truck_number as any) : undefined) ??
+    (typeof (rec.truckNumber as any) === 'string' ? (rec.truckNumber as any) : undefined) ??
+    (rt ? String((rt.truck_number ?? rt.truckNumber ?? '') as any) : '');
+
+  const driverName =
+    local?.driverName ??
+    (typeof (rec.driver_name as any) === 'string' ? (rec.driver_name as any) : undefined) ??
+    (typeof (rec.driverName as any) === 'string' ? (rec.driverName as any) : undefined) ??
+    (rt ? String((rt.driver_name ?? rt.driverName ?? '') as any) : '');
+
+  const driverPhone =
+    local?.driverPhone ??
+    (typeof (rec.driver_phone as any) === 'string' ? (rec.driver_phone as any) : undefined) ??
+    (typeof (rec.driverPhone as any) === 'string' ? (rec.driverPhone as any) : undefined) ??
+    (rt ? String((rt.driver_phone ?? rt.driverPhone ?? '') as any) : '');
+
+  const dprNumber =
+    local?.dprNumber ??
+    (typeof (rec.dpr_number as any) === 'string' ? (rec.dpr_number as any) : undefined) ??
+    (typeof (rec.dprNumber as any) === 'string' ? (rec.dprNumber as any) : undefined) ??
+    (rt ? String((rt.dpr_number ?? rt.dprNumber ?? '') as any) : '');
+
+  const loadingDateTime =
+    local?.loadingDateTime ??
+    (typeof (rec.loading_datetime as any) === 'string' ? (rec.loading_datetime as any) : undefined) ??
+    (typeof (rec.loadingDateTime as any) === 'string' ? (rec.loadingDateTime as any) : undefined) ??
+    (rt ? String((rt.loading_datetime ?? rt.loadingDateTime ?? '') as any) : '');
+
+  const details: ReleaseDetails = {
+    truckNumber: String(truckNumber ?? '').trim(),
+    driverName: String(driverName ?? '').trim(),
+    driverPhone: String(driverPhone ?? '').trim(),
+    dprNumber: String(dprNumber ?? '').trim(),
+    loadingDateTime: String(loadingDateTime ?? '').trim(),
+  };
+
+  const hasAny = Object.values(details).some((v) => String(v).trim().length > 0);
+  return hasAny ? details : null;
+};
+
+const formatTicketLoadingDateTime = (raw: string): string => {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  try {
+    return format(new Date(v), 'PPpp');
+  } catch {
+    return v;
+  }
+};
+
 export const PickupProcessing = () => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
@@ -273,22 +345,8 @@ export const PickupProcessing = () => {
   const buildTicketData = useMemo(() => {
     if (!selectedOrder) return null;
 
-    const oRec = selectedOrder as unknown as Record<string, unknown>;
-    const rt = (oRec.release_ticket || oRec.releaseTicket) as Record<string, unknown> | undefined;
-
-    // Prefer locally entered details, but fall back to persisted backend values.
     const local = releaseDetailsByOrder[selectedOrder.id];
-    const resolved: ReleaseDetails | null = local
-      ? local
-      : rt
-        ? {
-            truckNumber: String((rt.truck_number ?? rt.truckNumber ?? '') as any),
-            driverName: String((rt.driver_name ?? rt.driverName ?? '') as any),
-            driverPhone: String((rt.driver_phone ?? rt.driverPhone ?? '') as any),
-            dprNumber: String((rt.dpr_number ?? rt.dprNumber ?? '') as any),
-            loadingDateTime: String((rt.loading_datetime ?? rt.loadingDateTime ?? '') as any),
-          }
-        : null;
+    const resolved = getOrderTicketDetails(selectedOrder, local);
 
     const companyName = extractCompanyName(selectedOrder) || '-';
     const userRec = selectedOrder.user as unknown as Record<string, unknown>;
@@ -308,7 +366,7 @@ export const PickupProcessing = () => {
       driverName: resolved?.driverName || '-',
       driverPhone: resolved?.driverPhone || '-',
       dprNumber: resolved?.dprNumber || '-',
-      loadingDateTime: resolved?.loadingDateTime ? format(new Date(resolved.loadingDateTime), 'PPpp') : '-',
+      loadingDateTime: resolved?.loadingDateTime ? formatTicketLoadingDateTime(resolved.loadingDateTime) : '-',
     } satisfies ReleaseTicketData;
   }, [selectedOrder, releaseDetailsByOrder]);
 
@@ -316,26 +374,15 @@ export const PickupProcessing = () => {
     if (!selectedOrder) return false;
 
     const local = releaseDetailsByOrder[selectedOrder.id];
-    if (local) {
-      return Boolean(
-        local.truckNumber?.trim() &&
-          local.driverName?.trim() &&
-          local.driverPhone?.trim() &&
-          local.dprNumber?.trim() &&
-          local.loadingDateTime?.trim()
-      );
-    }
-
-    const oRec = selectedOrder as unknown as Record<string, unknown>;
-    const rt = (oRec.release_ticket || oRec.releaseTicket) as Record<string, unknown> | undefined;
-    const req = (k1: string, k2: string) => String(((rt?.[k1] ?? rt?.[k2]) as any) ?? '').trim();
+    const resolved = getOrderTicketDetails(selectedOrder, local);
+    if (!resolved) return false;
 
     return Boolean(
-      req('truck_number', 'truckNumber') &&
-        req('driver_name', 'driverName') &&
-        req('driver_phone', 'driverPhone') &&
-        req('dpr_number', 'dprNumber') &&
-        req('loading_datetime', 'loadingDateTime')
+      resolved.truckNumber?.trim() &&
+        resolved.driverName?.trim() &&
+        resolved.driverPhone?.trim() &&
+        resolved.dprNumber?.trim() &&
+        resolved.loadingDateTime?.trim()
     );
   }, [selectedOrder, releaseDetailsByOrder]);
 
@@ -343,24 +390,11 @@ export const PickupProcessing = () => {
     setSelectedOrder(order);
 
     const existing = releaseDetailsByOrder[order.id];
-
-    // If backend persists ticket details, prefer them when opening the dialog.
-    const oRec = order as unknown as Record<string, unknown>;
-    const rt = (oRec.release_ticket || oRec.releaseTicket) as Record<string, unknown> | undefined;
-
-    const fromBackend: ReleaseDetails | null = rt
-      ? {
-          truckNumber: String((rt.truck_number ?? rt.truckNumber ?? '') as any),
-          driverName: String((rt.driver_name ?? rt.driverName ?? '') as any),
-          driverPhone: String((rt.driver_phone ?? rt.driverPhone ?? '') as any),
-          dprNumber: String((rt.dpr_number ?? rt.dprNumber ?? '') as any),
-          loadingDateTime: String((rt.loading_datetime ?? rt.loadingDateTime ?? '') as any),
-        }
-      : null;
+    const fromBackend = getOrderTicketDetails(order);
 
     setReleaseForm(
       existing ||
-        (fromBackend && Object.values(fromBackend).some((v) => String(v).trim().length > 0)
+        (fromBackend
           ? fromBackend
           : {
               truckNumber: order.trucks?.[0] || '',
@@ -437,28 +471,29 @@ export const PickupProcessing = () => {
   const uniqueLocations = useMemo(() => {
     const list = apiResponse?.results || [];
     const locs = list
-      .map((o) => {
-        const pickup = (o.pickup as unknown as Record<string, unknown> | undefined) || undefined;
-        return typeof pickup?.state === 'string' ? pickup.state : undefined;
-      })
-      .filter((v): v is string => typeof v === 'string' && v.length > 0);
+      .map((o) => extractLocation(o))
+      .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
     return Array.from(new Set(locs)).sort();
   }, [apiResponse?.results]);
 
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base
-      .filter((order) => {
-        // Only show pickup orders on this screen even though totals are all-orders
-        return order.release_type === 'pickup';
-      })
+      // Show ALL orders here (pickup + delivery)
       .filter(order => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return true;
+
         const inId = String(order.id).toLowerCase().includes(q);
         const inName = `${order.user.first_name} ${order.user.last_name}`.toLowerCase().includes(q);
         const inRef = getOrderReference(order).toLowerCase().includes(q);
-        return inId || inName || inRef;
+
+        const ticket = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
+        const inTruck = (ticket?.truckNumber || '').toLowerCase().includes(q);
+        const inDriverName = (ticket?.driverName || '').toLowerCase().includes(q);
+        const inDriverPhone = (ticket?.driverPhone || '').toLowerCase().includes(q);
+
+        return inId || inName || inRef || inTruck || inDriverName || inDriverPhone;
       })
       .filter(order => {
         if (!filterType) return true;
@@ -471,20 +506,26 @@ export const PickupProcessing = () => {
       })
       .filter(order => {
         if (!locationFilter) return true;
-        return order.pickup?.state === locationFilter;
+        return extractLocation(order) === locationFilter;
       })
       .filter(order => {
         if (!statusFilter) return true;
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
       });
-  }, [apiResponse?.results, searchQuery, filterType, locationFilter, statusFilter]);
+  }, [apiResponse?.results, searchQuery, filterType, locationFilter, statusFilter, releaseDetailsByOrder]);
 
   const exportToCSV = (orders: Order[]) => {
     const headers = [
       "Order ID",
       "Reference",
+      "Release Type",
+      "Location",
+      "Assigned Agent",
       "Customer Name",
       "Email",
+      "Truck Number",
+      "Driver (Name & Phone)",
+      "Loading Date & Time",
       "Pickup Date",
       "Pickup Time",
       "State",
@@ -493,26 +534,44 @@ export const PickupProcessing = () => {
       "Status",
       "Created At",
       "Products",
-      "Quantity",
-      "Release Type"
+      "Quantity"
     ];
 
-    const rows = orders.map(order => [
-      order.id,
-      getOrderReference(order),
-      `${order.user.first_name} ${order.user.last_name}`,
-      order.user.email,
-      order.pickup.pickup_date,
-      order.pickup.pickup_time,
-      order.pickup.state,
-      order.trucks.join(", "),
-      order.total_price,
-      order.status,
-      order.created_at,
-      order.products.map(p => p.name).join(", "),
-      order.quantity,
-      order.release_type
-    ]);
+    const rows = orders.map(order => {
+      const ticket = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
+      const truckNumber = ticket?.truckNumber || '';
+      const driverName = ticket?.driverName || '';
+      const driverPhone = ticket?.driverPhone || '';
+      const loadingDateTime = ticket?.loadingDateTime ? formatTicketLoadingDateTime(ticket.loadingDateTime) : '';
+
+      const rec = order as unknown as Record<string, unknown>;
+      const pickupRec = (rec.pickup as Record<string, unknown> | undefined) || undefined;
+      const pickupDate = typeof pickupRec?.pickup_date === 'string' ? pickupRec.pickup_date : '';
+      const pickupTime = typeof pickupRec?.pickup_time === 'string' ? pickupRec.pickup_time : '';
+      const pickupState = typeof pickupRec?.state === 'string' ? pickupRec.state : '';
+
+      return [
+        order.id,
+        getOrderReference(order),
+        order.release_type,
+        extractLocation(order),
+        formatAssignedAgent(order),
+        `${order.user.first_name} ${order.user.last_name}`,
+        order.user.email,
+        truckNumber,
+        [driverName, driverPhone].filter(Boolean).join(' / '),
+        loadingDateTime,
+        pickupDate,
+        pickupTime,
+        pickupState,
+        Array.isArray(order.trucks) ? order.trucks.join(", ") : '',
+        order.total_price,
+        order.status,
+        order.created_at,
+        order.products.map(p => p.name).join(", "),
+        order.quantity
+      ];
+    });
 
     const csvContent =
       [headers, ...rows]
@@ -665,9 +724,13 @@ export const PickupProcessing = () => {
                   <TableRow>
                     <TableHead>ID</TableHead>
                     <TableHead>Reference</TableHead>
+                    {/* <TableHead>Type</TableHead> */}
                     <TableHead>Location</TableHead>
                     <TableHead>Agent</TableHead>
                     <TableHead>Customer</TableHead>
+                    <TableHead>Truck No.</TableHead>
+                    <TableHead>Truck Driver</TableHead>
+                    <TableHead>Date/Time</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Qty (L)</TableHead>
                     <TableHead>Status</TableHead>
@@ -675,130 +738,148 @@ export const PickupProcessing = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredOrders.map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell className="font-medium">{order.id}</TableCell>
-                      <TableCell>{getOrderReference(order) || '-'}</TableCell>
-                      <TableCell>{extractLocation(order) || '-'}</TableCell>
-                      <TableCell>{formatAssignedAgent(order) || '-'}</TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">
-                            {order.user.first_name} {order.user.last_name}
+                  {filteredOrders.map((order) => {
+                    const ticket = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
+
+                    const truckNumber = ticket?.truckNumber || '';
+                    const driverName = ticket?.driverName || '';
+                    const driverPhone = ticket?.driverPhone || '';
+                    const loadingDateTime = ticket?.loadingDateTime ? formatTicketLoadingDateTime(ticket.loadingDateTime) : '';
+
+                    return (
+                      <TableRow key={order.id}>
+                        <TableCell className="font-medium">{order.id}</TableCell>
+                        <TableCell>{getOrderReference(order) || '-'}</TableCell>
+                        {/* <TableCell className="capitalize">{order.release_type || '-'}</TableCell> */}
+                        <TableCell>{extractLocation(order) || '-'}</TableCell>
+                        <TableCell>{formatAssignedAgent(order) || '-'}</TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">
+                              {order.user.first_name} {order.user.last_name}
+                            </div>
                           </div>
-                          <div className="text-xs text-slate-500">
-                            {/* Optional: show company under name */}
-                            {/* {extractCompanyName(order) || "-"} */}
+                        </TableCell>
+                        <TableCell>{truckNumber || '-'}</TableCell>
+                        <TableCell>
+                          {driverName || driverPhone ? (
+                            <div>
+                              <div className="font-medium">{driverName || '-'}</div>
+                              <div className="text-xs text-slate-500">{driverPhone || '-'}</div>
+                            </div>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                        <TableCell>{loadingDateTime || '-'}</TableCell>
+                        <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
+                        <TableCell>{order.quantity.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
+                            {getStatusIcon(order.status)}
+                            <span className="ml-1.5">{statusDisplayMap[order.status]}</span>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
-                      <TableCell>{order.quantity.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
-                          {getStatusIcon(order.status)}
-                          <span className="ml-1.5">{statusDisplayMap[order.status]}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Dialog
-                            open={releaseOpen && selectedOrder?.id === order.id}
-                            onOpenChange={(isOpen) => {
-                              if (!isOpen) {
-                                setReleaseOpen(false);
-                                setSelectedOrder(null);
-                              }
-                            }}
-                          >
-                            <DialogTrigger asChild>
-                              <Button
-                                size="sm"
-                                className="h-8 gap-1"
-                                onClick={() => openRelease(order)}
-                                disabled={order.status !== 'paid'}
-                              >
-                                <Truck className="h-4 w-4" />
-                                <span>Release</span>
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Release Order</DialogTitle>
-                                <DialogDescription>
-                                  Enter truck and driver details to release this order and persist the release ticket.
-                                </DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div>
-                                  <Label htmlFor="truckNumber">Truck Number</Label>
-                                  <Input
-                                    id="truckNumber"
-                                    value={releaseForm.truckNumber}
-                                    onChange={(e) => setReleaseForm({ ...releaseForm, truckNumber: e.target.value })}
-                                  />
-                                </div>
-                                <div>
-                                  <Label htmlFor="driverName">Driver Name</Label>
-                                  <Input
-                                    id="driverName"
-                                    value={releaseForm.driverName}
-                                    onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
-                                  />
-                                </div>
-                                <div>
-                                  <Label htmlFor="driverPhone">Driver Phone</Label>
-                                  <Input
-                                    id="driverPhone"
-                                    value={releaseForm.driverPhone}
-                                    onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
-                                  />
-                                </div>
-                                <div>
-                                  <Label htmlFor="dprNumber">DPR Number</Label>
-                                  <Input
-                                    id="dprNumber"
-                                    value={releaseForm.dprNumber}
-                                    onChange={(e) => setReleaseForm({ ...releaseForm, dprNumber: e.target.value })}
-                                  />
-                                </div>
-                                <div>
-                                  <Label htmlFor="loadingDateTime">Loading Date & Time</Label>
-                                  <Input
-                                    id="loadingDateTime"
-                                    type="datetime-local"
-                                    value={releaseForm.loadingDateTime}
-                                    onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
-                                  />
-                                </div>
-                              </div>
-                              <DialogFooter>
-                                <Button variant="outline" onClick={() => setReleaseOpen(false)}>
-                                  Cancel
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Dialog
+                              open={releaseOpen && selectedOrder?.id === order.id}
+                              onOpenChange={(isOpen) => {
+                                if (!isOpen) {
+                                  setReleaseOpen(false);
+                                  setSelectedOrder(null);
+                                }
+                              }}
+                            >
+                              <DialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  className="h-8 gap-1"
+                                  onClick={() => openRelease(order)}
+                                  disabled={order.status !== 'paid'}
+                                >
+                                  <Truck className="h-4 w-4" />
+                                  <span>Release</span>
                                 </Button>
-                                <Button onClick={handleReleaseWithDetails}>
-                                  Confirm Release
-                                </Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 gap-1"
-                            onClick={() => openTicket(order)}
-                          >
-                            <Printer className="h-4 w-4" />
-                            <span>Ticket</span>
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Release Order</DialogTitle>
+                                  <DialogDescription>
+                                    Enter truck and driver details to release this order and persist the release ticket.
+                                  </DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4">
+                                  <div>
+                                    <Label htmlFor="truckNumber">Truck Number</Label>
+                                    <Input
+                                      id="truckNumber"
+                                      value={releaseForm.truckNumber}
+                                      onChange={(e) => setReleaseForm({ ...releaseForm, truckNumber: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="driverName">Driver Name</Label>
+                                    <Input
+                                      id="driverName"
+                                      value={releaseForm.driverName}
+                                      onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="driverPhone">Driver Phone</Label>
+                                    <Input
+                                      id="driverPhone"
+                                      value={releaseForm.driverPhone}
+                                      onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="dprNumber">DPR Number</Label>
+                                    <Input
+                                      id="dprNumber"
+                                      value={releaseForm.dprNumber}
+                                      onChange={(e) => setReleaseForm({ ...releaseForm, dprNumber: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="loadingDateTime">Loading Date & Time</Label>
+                                    <Input
+                                      id="loadingDateTime"
+                                      type="datetime-local"
+                                      value={releaseForm.loadingDateTime}
+                                      onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
+                                    />
+                                  </div>
+                                </div>
+                                <DialogFooter>
+                                  <Button variant="outline" onClick={() => setReleaseOpen(false)}>
+                                    Cancel
+                                  </Button>
+                                  <Button onClick={handleReleaseWithDetails}>
+                                    Confirm Release
+                                  </Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 gap-1"
+                              onClick={() => openTicket(order)}
+                            >
+                              <Printer className="h-4 w-4" />
+                              <span>Ticket</span>
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
 
                   {filteredOrders.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-slate-500 py-10">
+                      <TableCell colSpan={13} className="text-center text-slate-500 py-10">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
