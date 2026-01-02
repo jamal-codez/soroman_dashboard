@@ -84,12 +84,36 @@ const getStatusClass = (status: string) => {
   }
 };
 
+const getAssignedAgent = (o: Order): Record<string, unknown> | null => {
+  const rec = o as unknown as Record<string, unknown>;
+  const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
+  if (!a || typeof a !== 'object') return null;
+  return a as Record<string, unknown>;
+};
+
+const getAssignedAgentName = (o: Order): string => {
+  const aRec = getAssignedAgent(o);
+  if (!aRec) return '';
+  const fullName = [aRec.first_name, aRec.last_name]
+    .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    .join(' ')
+    .trim();
+  return (
+    fullName ||
+    (typeof aRec.name === 'string' ? aRec.name : '') ||
+    (typeof aRec.full_name === 'string' ? aRec.full_name : '') ||
+    (typeof aRec.username === 'string' ? aRec.username : '') ||
+    ''
+  );
+};
+
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
   const [productFilter, setProductFilter] = useState<string|null>(null);
   const [locationFilter, setLocationFilter] = useState<string|null>(null);
   const [statusFilter, setStatusFilter] = useState<string|null>(null);
+  const [agentFilter, setAgentFilter] = useState<string|null>(null);
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
@@ -164,6 +188,17 @@ const Orders = () => {
     return Array.from(new Set(states)).sort();
   }, [apiResponse?.results]);
 
+  const uniqueAgents = useMemo(() => {
+    const list = apiResponse?.results || [];
+    const names = list
+      .map((o) => {
+        const n = getAssignedAgentName(o);
+        return n ? n.trim() : '';
+      })
+      .filter((n): n is string => Boolean(n));
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [apiResponse?.results]);
+
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base
@@ -206,8 +241,13 @@ const Orders = () => {
       .filter(order => {
         if (!statusFilter) return true;
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
+      })
+      .filter(order => {
+        if (!agentFilter) return true;
+        const n = getAssignedAgentName(order).trim();
+        return n === agentFilter;
       });
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter]);
+  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter, agentFilter]);
 
   const safeParseNumber = (v: unknown) => {
     if (v == null) return 0;
@@ -218,40 +258,63 @@ const Orders = () => {
     return Number.isFinite(n) ? n : 0;
   };
 
-  const matchesSummaryFilters = (order: Order) => {
-    if (filterType) {
-      const date = new Date(order.created_at);
-      if (filterType === 'today' && !isToday(date)) return false;
-      if (filterType === 'week' && !isThisWeek(date)) return false;
-      if (filterType === 'month' && !isThisMonth(date)) return false;
-      if (filterType === 'year' && !isThisYear(date)) return false;
-    }
-    if (productFilter) {
-      if (!order.products.some(p => p.name === productFilter)) return false;
-    }
-    if (locationFilter) {
-      if (order.state !== locationFilter) return false;
-    }
-    return true;
-  };
+  // Summary totals should respond to the same filters as the table.
+  // We intentionally ignore `statusFilter` so the breakdown still shows
+  // released/canceled counts within the currently filtered dataset.
+  const filteredOrdersForSummary = useMemo(() => {
+    const base = apiResponse?.results || [];
+
+    return base
+      .filter((order) => {
+        const query = searchQuery.trim();
+        if (!query) return true;
+        const q = query.toLowerCase();
+        const name = `${order.user?.first_name ?? ''} ${order.user?.last_name ?? ''}`.toLowerCase();
+        const ref = getOrderReference(order).toLowerCase();
+        const truck = String(order.truck_number || order.customer_details?.truckNumber || order.customer_details?.truck_number || '').toLowerCase();
+        const driverName = String(order.driver_name || order.customer_details?.driverName || order.customer_details?.driver_name || '').toLowerCase();
+        const inId = String(order.id).includes(q);
+        const inName = name.includes(q);
+        const inProducts = order.products.some((p) => String(p.name ?? '').toLowerCase().includes(q));
+        const inReleaseType = String(order.release_type ?? '').toLowerCase().includes(q);
+        const inState = order.state ? String(order.state).toLowerCase().includes(q) : false;
+        const inRef = ref.includes(q);
+        const inTruck = truck.includes(q);
+        const inDriver = driverName.includes(q);
+
+        return inId || inName || inProducts || inReleaseType || inState || inRef || inTruck || inDriver;
+      })
+      .filter((order) => {
+        if (!filterType) return true;
+        const date = new Date(order.created_at);
+        if (filterType === 'today') return isToday(date);
+        if (filterType === 'week') return isThisWeek(date);
+        if (filterType === 'month') return isThisMonth(date);
+        if (filterType === 'year') return isThisYear(date);
+        return true;
+      })
+      .filter((order) => {
+        if (!productFilter) return true;
+        return order.products.some((p) => p.name === productFilter);
+      })
+      .filter((order) => {
+        if (!locationFilter) return true;
+        return order.state === locationFilter;
+      })
+      .filter((order) => {
+        if (!agentFilter) return true;
+        const n = getAssignedAgentName(order).trim();
+        return n === agentFilter;
+      });
+  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, agentFilter]);
 
   const releasedFilteredOrders = useMemo(() => {
-    const base = apiResponse?.results || [];
-    return base.filter(o => {
-      const s = (o.status || '').toLowerCase();
-      if (s !== 'released') return false;
-      return matchesSummaryFilters(o);
-    });
-  }, [apiResponse?.results, filterType, productFilter, locationFilter, matchesSummaryFilters]);
+    return filteredOrdersForSummary.filter((o) => (o.status || '').toLowerCase() === 'released');
+  }, [filteredOrdersForSummary]);
 
   const canceledFilteredOrders = useMemo(() => {
-    const base = apiResponse?.results || [];
-    return base.filter(o => {
-      const s = (o.status || '').toLowerCase();
-      if (s !== 'canceled') return false;
-      return matchesSummaryFilters(o);
-    });
-  }, [apiResponse?.results, filterType, productFilter, locationFilter, matchesSummaryFilters]);
+    return filteredOrdersForSummary.filter((o) => (o.status || '').toLowerCase() === 'canceled');
+  }, [filteredOrdersForSummary]);
 
   const releasedTotals = useMemo(() => {
     const totalQty = releasedFilteredOrders.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
@@ -310,29 +373,6 @@ const Orders = () => {
 
   const getProductsList = (o: Order) =>
     (o.products || []).map(p => p.name).filter(Boolean).join(', ');
-
-  const getAssignedAgent = (o: Order): Record<string, unknown> | null => {
-    const rec = o as unknown as Record<string, unknown>;
-    const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
-    if (!a || typeof a !== 'object') return null;
-    return a as Record<string, unknown>;
-  };
-
-  const getAssignedAgentName = (o: Order): string => {
-    const aRec = getAssignedAgent(o);
-    if (!aRec) return '';
-    const fullName = [aRec.first_name, aRec.last_name]
-      .filter((v): v is string => typeof v === 'string' && v.length > 0)
-      .join(' ')
-      .trim();
-    return (
-      fullName ||
-      (typeof aRec.name === 'string' ? aRec.name : '') ||
-      (typeof aRec.full_name === 'string' ? aRec.full_name : '') ||
-      (typeof aRec.username === 'string' ? aRec.username : '') ||
-      ''
-    );
-  };
 
   const getAssignedAgentPhone = (o: Order): string => {
     const aRec = getAssignedAgent(o);
@@ -481,7 +521,7 @@ const Orders = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
                   <select
                     aria-label="Date filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
@@ -534,6 +574,18 @@ const Orders = () => {
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+
+                  <select
+                    aria-label="Agent filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={agentFilter ?? ''}
+                    onChange={(e) => setAgentFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">All Marketers</option>
+                    {uniqueAgents.map((a) => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -578,7 +630,7 @@ const Orders = () => {
                     <TableHead className="w-[90px]">Time</TableHead>
                     <TableHead>Reference</TableHead>
                     <TableHead>Location</TableHead>
-                    <TableHead>Agent</TableHead>
+                    <TableHead>Marketer</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Company</TableHead>
                     <TableHead>Phone</TableHead>

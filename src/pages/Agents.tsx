@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { format, isThisMonth, isThisWeek, isThisYear, isToday } from "date-fns";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
@@ -44,6 +45,17 @@ type Agent = {
   is_active: boolean;
 };
 
+type OrderLike = {
+  id: number;
+  status?: string;
+  created_at: string;
+  quantity?: number | string;
+  assigned_agent?: unknown;
+  assignedAgent?: unknown;
+  agent?: unknown;
+  assigned_agent_id?: number | null;
+};
+
 function normalizePhone(input: string) {
   return input.replace(/\s+/g, " ").trim();
 }
@@ -72,6 +84,9 @@ export default function Agents() {
 
   const [agentTypeFilter, setAgentTypeFilter] = useState<AgentType | 'all'>('location');
   const [onlyActive, setOnlyActive] = useState<'all' | 'true' | 'false'>('true');
+
+  // Released-orders reporting timeframe filter (client-side)
+  const [agentStatsFilterType, setAgentStatsFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
 
   const queryClient = useQueryClient();
 
@@ -132,12 +147,12 @@ export default function Agents() {
   } = useQuery<unknown>({
     queryKey: ["admin-agents", { selectedLocationId, query, agentTypeFilter, onlyActive }],
     queryFn: async () => {
-      const params: any = {};
+      const params: Record<string, unknown> = {};
       if (agentTypeFilter !== 'all') params.type = agentTypeFilter;
       if (selectedLocationId && agentTypeFilter !== 'general') params.location_id = selectedLocationId;
       if (onlyActive !== 'all') params.is_active = onlyActive === 'true';
       if (query.trim()) params.search = query.trim();
-      return apiClient.admin.adminListAgents(params);
+      return apiClient.admin.adminListAgents(params as unknown as { type?: 'general' | 'location'; location_id?: number; is_active?: boolean; search?: string; page?: number; page_size?: number });
     },
     retry: 2,
     refetchOnWindowFocus: true,
@@ -145,6 +160,73 @@ export default function Agents() {
 
   const agentsPaged = useMemo(() => asPagedResults<Agent>(agentsResponse), [agentsResponse]);
   const agents = agentsPaged.results;
+
+  // --- Released orders stats (best-effort; uses all-orders endpoint) ---
+  const { data: ordersRaw } = useQuery<unknown>({
+    queryKey: ["all-orders", "agents-stats"],
+    queryFn: () => apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 }),
+    retry: 2,
+    refetchOnWindowFocus: true,
+  });
+
+  const ordersPaged = useMemo(() => asPagedResults<OrderLike>(ordersRaw), [ordersRaw]);
+  const releasedOrders = useMemo(() => {
+    const base = ordersPaged.results || [];
+    const isReleased = (s: unknown) => String(s || '').toLowerCase() === 'released';
+
+    return base.filter((o) => {
+      if (!isReleased(o.status)) return false;
+      if (!agentStatsFilterType) return true;
+      const d = new Date(o.created_at);
+      if (agentStatsFilterType === 'today') return isToday(d);
+      if (agentStatsFilterType === 'week') return isThisWeek(d);
+      if (agentStatsFilterType === 'month') return isThisMonth(d);
+      if (agentStatsFilterType === 'year') return isThisYear(d);
+      return true;
+    });
+  }, [ordersPaged.results, agentStatsFilterType]);
+
+  const safeQty = (v: unknown): number => {
+    if (v == null) return 0;
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    const n = parseFloat(String(v).replace(/[^0-9.-]+/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const getOrderAgentId = (o: OrderLike): number | null => {
+    if (typeof o.assigned_agent_id === 'number' && Number.isFinite(o.assigned_agent_id)) return o.assigned_agent_id;
+
+    const rec = o as unknown as Record<string, unknown>;
+    const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
+    if (!a || typeof a !== 'object') return null;
+
+    const aRec = a as Record<string, unknown>;
+    const id = aRec.id;
+    if (typeof id === 'number' && Number.isFinite(id)) return id;
+    if (typeof id === 'string' && id.trim() && Number.isFinite(Number(id))) return Number(id);
+    return null;
+  };
+
+  const agentPerformance = useMemo(() => {
+    // Map agentId -> stats
+    const byId = new Map<number, { orders: number; qty: number }>();
+
+    for (const o of releasedOrders) {
+      const agentId = getOrderAgentId(o);
+      if (agentId == null) continue;
+
+      const prev = byId.get(agentId) || { orders: 0, qty: 0 };
+      byId.set(agentId, {
+        orders: prev.orders + 1,
+        qty: prev.qty + safeQty(o.quantity),
+      });
+    }
+
+    return agents.map((a) => {
+      const s = byId.get(a.id) || { orders: 0, qty: 0 };
+      return { agent: a, orders: s.orders, qty: s.qty };
+    });
+  }, [agents, releasedOrders]);
 
   const selectedLocation = useMemo(
     () => locations.find((l) => l.id === selectedLocationId) || null,
@@ -255,33 +337,93 @@ export default function Agents() {
         <div className="flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="Agents"
+              title="Marketers"
               actions={
                 <Button onClick={() => setOpenCreate(true)} className="gap-2">
                   <Plus className="h-4 w-4" />
-                  Add agent
+                  Add marketer
                 </Button>
               }
             />
 
             <SummaryCards
               cards={[
-                { title: 'Locations', value: String(stats.locations), description: 'Available states', icon: <MapPin className="h-5 w-5" />, tone: 'neutral' },
-                { title: 'Total agents', value: String(stats.totalAgents), description: 'Including default', icon: <UsersRound className="h-5 w-5" />, tone: 'neutral' },
-                { title: 'Assignments', value: String(stats.assignments), description: 'Across locations', icon: <UserRound className="h-5 w-5" />, tone: 'amber' },
+                { title: 'Locations', value: String(stats.locations), description: 'Available locations', icon: <MapPin className="h-5 w-5" />, tone: 'neutral' },
+                { title: 'Total marketers', value: String(stats.totalAgents), description: 'Per location', icon: <UsersRound className="h-5 w-5" />, tone: 'neutral' },
+                { title: 'Assignments', value: String(stats.assignments), description: 'Per location', icon: <UserRound className="h-5 w-5" />, tone: 'amber' },
               ]}
             />
 
-            {/* <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              ...existing commented block...
-              </div> */}
-            {/* filter/search panel hidden */}
+            {/* Released orders performance */}
+            <Card className="overflow-hidden">
+              <CardHeader className="pb-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base">Marketers performance</CardTitle>
+                    <CardDescription>
+                      Total released orders and litres sold per marketer.
+                    </CardDescription>
+                  </div>
+                  <select
+                    aria-label="Agent performance timeframe"
+                    className="border border-gray-300 rounded px-3 py-2 h-11 bg-white"
+                    value={agentStatsFilterType ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value as ''|'today'|'week'|'month'|'year';
+                      setAgentStatsFilterType(v === '' ? null : v);
+                    }}
+                  >
+                    <option value="">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="year">This Year</option>
+                  </select>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-left">
+                        <th className="py-2 px-3 font-semibold text-slate-700">Marketers</th>
+                        {/* <th className="py-2 px-3 font-semibold text-slate-700">Type</th>
+                        <th className="py-2 px-3 font-semibold text-slate-700">Location</th> */}
+                        <th className="py-2 px-3 font-semibold text-slate-700 text-right">Released orders</th>
+                        <th className="py-2 px-3 font-semibold text-slate-700 text-right">Qty (L)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {agentPerformance
+                        .slice()
+                        .sort((a, b) => b.orders - a.orders || b.qty - a.qty || a.agent.name.localeCompare(b.agent.name))
+                        .map((row) => (
+                          <tr key={row.agent.id} className="border-b border-slate-100">
+                            <td className="py-2 px-3 text-slate-900">{row.agent.name}</td>
+                            {/* <td className="py-2 px-3 text-slate-700">{row.agent.type}</td>
+                            <td className="py-2 px-3 text-slate-700">{row.agent.location_name || '—'}</td> */}
+                            <td className="py-2 px-3 text-slate-900 text-right">{row.orders.toLocaleString()}</td>
+                            <td className="py-2 px-3 text-slate-900 text-right">{row.qty.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      {agentPerformance.length === 0 ? (
+                        <tr>
+                          <td className="py-6 px-3 text-slate-500" colSpan={5}>
+                            No marketers found.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <Card className="lg:col-span-4 overflow-hidden">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Locations</CardTitle>
-                  <CardDescription>Select a location to manage its agents</CardDescription>
+                  <CardDescription>Select a location to manage its marketers</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-0">
                   {locationsLoading ? (
@@ -334,7 +476,7 @@ export default function Agents() {
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <CardTitle className="text-base">
-                        Manage Agents for {selectedLocation?.name ?? '—'}
+                        Manage Marketers for {selectedLocation?.name ?? '—'}
                       </CardTitle>
                     </div>
                   </div>
@@ -349,16 +491,16 @@ export default function Agents() {
                     <div className="space-y-4">
                       <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                          <div className="text-sm font-semibold text-slate-900">Location agents</div>
+                          <div className="text-sm font-semibold text-slate-900">Location marketers</div>
                           <div className="text-xs text-slate-500">
-                            {filteredAgents.filter((a) => a.type === "location").length} agents
+                            {filteredAgents.filter((a) => a.type === "location").length} marketers
                           </div>
                         </div>
 
                         <div className="p-2 sm:p-3">
                           {filteredAgents.filter((a) => a.type === "location").length === 0 && !query.trim() ? (
                             <div className="p-6 text-center text-sm text-slate-500">
-                              No agents assigned to this location yet.
+                              No marketers assigned to this location yet.
                             </div>
                           ) : (
                             <div className="space-y-2">
@@ -408,7 +550,7 @@ export default function Agents() {
 
                           {query.trim() && filteredAgents.filter((a) => a.type === "location").length === 0 && (
                             <div className="p-6 text-center text-sm text-slate-500">
-                              No agents match your search for this location.
+                              No marketers match your search for this location.
                             </div>
                           )}
                         </div>
@@ -432,9 +574,9 @@ export default function Agents() {
         >
           <DialogContent className="sm:max-w-[520px]">
             <DialogHeader>
-              <DialogTitle>Add Agent</DialogTitle>
+              <DialogTitle>Add Marketers</DialogTitle>
               <DialogDescription>
-                Create a new agent for <span className="font-medium">{selectedLocation?.name || "selected location"}</span>.
+                Create a new marketer for <span className="font-medium">{selectedLocation?.name || "selected location"}</span>.
               </DialogDescription>
             </DialogHeader>
 
@@ -509,8 +651,8 @@ export default function Agents() {
         >
           <DialogContent className="sm:max-w-[520px]">
             <DialogHeader>
-              <DialogTitle>Edit Agent</DialogTitle>
-              <DialogDescription>Update agent details</DialogDescription>
+              <DialogTitle>Edit Marketers</DialogTitle>
+              <DialogDescription>Update marketers details</DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4">
@@ -582,7 +724,7 @@ export default function Agents() {
                       <option key={l.id} value={String(l.id)}>{l.name}</option>
                     ))}
                   </select>
-                  <div className="text-xs text-slate-500">Required for location agents.</div>
+                  <div className="text-xs text-slate-500">Required for location marketers.</div>
                 </div>
               ) : (
                 <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-700">
