@@ -7,6 +7,7 @@ import type {
 
 const TOAST_LIMIT = 1
 const TOAST_REMOVE_DELAY = 1000
+const TOAST_DEFAULT_DISMISS_DELAY = 3000
 
 type ToasterToast = ToastProps & {
   id: string
@@ -137,9 +138,12 @@ function dispatch(action: Action) {
   })
 }
 
-type Toast = Omit<ToasterToast, "id">
+type Toast = Omit<ToasterToast, "id"> & {
+  /** Auto-dismiss after this many ms. Set to 0 or null to disable auto-dismiss. */
+  duration?: number | null
+}
 
-function toast({ ...props }: Toast) {
+function toast({ duration = TOAST_DEFAULT_DISMISS_DELAY, ...props }: Toast) {
   const id = genId()
 
   const update = (props: ToasterToast) =>
@@ -160,6 +164,12 @@ function toast({ ...props }: Toast) {
       },
     },
   })
+
+  if (typeof duration === "number" && duration > 0) {
+    window.setTimeout(() => {
+      dismiss()
+    }, duration)
+  }
 
   return {
     id: id,

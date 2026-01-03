@@ -319,7 +319,7 @@ export default function PaymentVerification() {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="Confirm Payments"
+              title="Pending Payments"
               // description="Verify pending payments and mark orders as paid."
               // actions={
               //   <Button onClick={exportToCSV}>

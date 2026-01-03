@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { cn } from "@/lib/utils";
 import { 
   Home, 
@@ -20,6 +21,7 @@ import {
   BarChart2
 } from "lucide-react";
 import { Button } from './ui/button';
+import { apiClient } from '@/api/client';
 
 // SUPERADMIN= 0,"SUPERADMIN"
 // ADMIN= 1,"General Admin"
@@ -39,7 +41,7 @@ const navItems = [
   { title: "Release/Ticketing", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1, 3, 4] },
   // { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1,2,4] },
   // { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
-  { title: "Confirm Payments", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
+  { title: "Pending Payments", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
   { title: "Manage Staff", icon: User, path: "/users-management", allowedRoles: [0, 1] },
   { title: "Manage Marketers", icon: Users, path: "/agents", allowedRoles: [0, 1] }
 ];
@@ -49,16 +51,54 @@ export const SidebarNav = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const role = parseInt(localStorage.getItem('role')||'10');
-  
+
   const handleLogout = () => {
-    // Clear tokens and role from localStorage
     localStorage.removeItem('token');
     localStorage.removeItem('role');
     localStorage.removeItem('fullname');
     localStorage.removeItem('label');
-    
-    // Navigate to login page
     navigate('/login');
+  };
+
+  const { data: pendingVerifyResponse } = useQuery({
+    queryKey: ['sidebar', 'verify-orders-count'],
+    queryFn: () => apiClient.admin.getVerifyOrders({ search: '', page: 1, page_size: 1 }),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const pendingPaymentsCount = useMemo(() => {
+    const c = (pendingVerifyResponse as any)?.count;
+    return typeof c === 'number' ? c : 0;
+  }, [pendingVerifyResponse]);
+
+  const { data: allOrdersResponse } = useQuery({
+    queryKey: ['sidebar', 'paid-orders-count'],
+    queryFn: () => apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 }),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const paidAwaitingReleaseCount = useMemo(() => {
+    const results = (allOrdersResponse as any)?.results as Array<any> | undefined;
+    if (!Array.isArray(results)) return 0;
+    return results.filter((o) => (o?.status || '').toLowerCase() === 'paid').length;
+  }, [allOrdersResponse]);
+
+  const getBadgeCount = (path: string) => {
+    if (path === '/payment-verify') return pendingPaymentsCount;
+    if (path === '/pickup-processing') return paidAwaitingReleaseCount;
+    return 0;
+  };
+
+  const renderBadge = (count: number) => {
+    if (!count) return null;
+    const text = count > 99 ? '99+' : String(count);
+    return (
+      <span className="ml-auto inline-flex min-w-[22px] items-center justify-center rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold leading-none text-primary-foreground">
+        {text}
+      </span>
+    );
   };
 
   return (
@@ -101,6 +141,7 @@ export const SidebarNav = () => {
             return null; // Skip rendering this item if the role is not allowed
           }
           const isActive = location.pathname === item.path;
+          const badgeCount = getBadgeCount(item.path);
           return (
             <a 
               key={item.title}
@@ -118,6 +159,7 @@ export const SidebarNav = () => {
               {expanded && (
                 <span className={cn("ml-3 text-[1rem]", isActive && "text-sidebar-foreground")}>{item.title}</span>
               )}
+              {expanded && renderBadge(badgeCount)}
             </a>
           );
         })}

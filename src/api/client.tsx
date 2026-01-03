@@ -131,25 +131,41 @@ export const apiClient = {
       return response.json();
     },
 
-    editBankAccount: async (id: number, data: Partial<{ name: string; acct_no: string; bank_name: string }>) => {
+    editBankAccount: async (
+      id: number,
+      data: Partial<{ name: string; acct_no: string; bank_name: string; location_id?: number | null; is_active?: boolean; suspended?: boolean }>
+    ) => {
       const response = await fetch(`${ADMIN_BASE}/banks/${id}/edit/`, {
         method: 'PATCH',
         headers: getHeaders(), // assumes it returns Content-Type and Authorization headers
         body: JSON.stringify(data),
       });
-    
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to update bank account');
       }
-    
+
       return response.json();
     },
     
 
     // Bank Accounts
-    getBankAccounts: async () => {
-      const response = await fetch(`${ADMIN_BASE}/bank-accounts/`, {
+    getBankAccounts: async (params?: {
+      location_id?: number | string;
+      state?: number | string;
+      location?: string;
+      state_name?: string;
+      active?: boolean | string;
+    }) => {
+      const url = new URL(`${ADMIN_BASE}/bank-accounts/`);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value === undefined || value === null || value === '') return;
+          url.searchParams.append(key, String(value));
+        });
+      }
+      const response = await fetch(url.toString(), {
         headers: getHeaders(),
       });
       return response.json();
@@ -565,7 +581,8 @@ export const apiClient = {
       const url = new URL(`${ADMIN_BASE}/verify-orders/`);
       if (params) {
         Object.entries(params).forEach(([key, value]) => {
-          if (value) url.searchParams.append(key, value.toString());
+          if (value === undefined || value === null) return;
+          url.searchParams.append(key, value.toString());
         });
       }
       const response = await fetch(url.toString(), {

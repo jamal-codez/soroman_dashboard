@@ -77,6 +77,11 @@ interface BankAccount {
   name: string;
   created_at: string;
   suspended: boolean;
+
+  // New backend fields
+  is_active?: boolean;
+  is_primary?: boolean;
+  location?: number | { id: number; name: string } | null;
 }
 
 export default function Finance() {
@@ -86,7 +91,7 @@ export default function Finance() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: '', acct_no: '', bank_name: '' });
+  const [formData, setFormData] = useState({ name: '', acct_no: '', bank_name: '', location_id: '' });
   const [submissionStatus, setSubmissionStatus] = useState<'success' | 'error' | null>(null);
   const [localState, setLocalState] = useState<{ [key: number]: StatePrice }>({});
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; productId: number | null; abbrev:string| null; updatedPrice: number | null }>({
@@ -105,14 +110,23 @@ export default function Finance() {
     name: '',
     acct_no: '',
     bank_name: '',
+    location_id: '',
   });
+
+  const [selectedBankLocationId, setSelectedBankLocationId] = useState<string>('');
+  const [showInactiveBankAccounts, setShowInactiveBankAccounts] = useState(false);
 
   useEffect(() => {
     if (editingBank) {
+      const rec = editingBank as unknown as Record<string, any>;
+      const loc = rec.location;
+      const locId = typeof loc === 'number' ? loc : (loc && typeof loc.id === 'number' ? loc.id : '');
+
       setEditFormData({
-        name: editingBank.name,
-        acct_no: editingBank.acct_no,
-        bank_name: editingBank.bank_name,
+        name: rec.name,
+        acct_no: rec.acct_no,
+        bank_name: rec.bank_name,
+        location_id: locId ? String(locId) : '',
       });
     }
   }, [editingBank]);
@@ -124,9 +138,12 @@ export default function Finance() {
   
   const handleEditSubmit = async () => {
     if (!editingBank) return;
-  
-    await apiClient.admin.editBankAccount(editingBank.id, editFormData);
-  
+
+    await apiClient.admin.editBankAccount(editingBank.id, {
+      ...editFormData,
+      location_id: editFormData.location_id ? Number(editFormData.location_id) : null,
+    });
+
     setShowEditModal(false);
     setEditingBank(null);
     queryClient.invalidateQueries({ queryKey: ['banks'] });
@@ -162,9 +179,13 @@ export default function Finance() {
   });
 
   const bankQuery = useQuery<BankAccount[]>({
-    queryKey: ['banks'],
-    queryFn: () => apiClient.admin.getBanks(),
-    retry: 2
+    queryKey: ['banks', selectedBankLocationId, showInactiveBankAccounts],
+    queryFn: () =>
+      apiClient.admin.getBankAccounts({
+        location_id: selectedBankLocationId || undefined,
+        active: showInactiveBankAccounts ? 'false' : 'true',
+      }),
+    retry: 2,
   });
 
   const stateQuery = useQuery<StatePrice[]>({
@@ -211,8 +232,8 @@ export default function Finance() {
   });
 
   const addBankAccountMutation = useMutation({
-    mutationFn: (data: { name: string; acct_no: string; bank_name: string }) =>
-      apiClient.admin.postBankAccount(data),
+    mutationFn: (data: { name: string; acct_no: string; bank_name: string; location_id?: number | null }) =>
+      apiClient.admin.postBankAccount(data as any),
     onSuccess: () => {
       setSubmissionStatus('success');
       queryClient.invalidateQueries({ queryKey: ['bank-accounts'] });
@@ -230,9 +251,9 @@ export default function Finance() {
   });
 
   const handleToggle = async (id:number) => {
-    const newStatus = !isActive;
-    setIsActive(newStatus);
-    await toggleSuspend(id, !newStatus);
+    // backend now toggles is_active per account (and syncs suspended)
+    await toggleSuspend(id);
+    queryClient.invalidateQueries({ queryKey: ['banks'] });
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -246,14 +267,19 @@ export default function Finance() {
       setTimeout(() => setSubmissionStatus(null), 2000);
       return;
     }
-    addBankAccountMutation.mutate(formData, {
-      onSuccess: () => {
-        setSubmissionStatus('success');
+
+    addBankAccountMutation.mutate(
+      {
+        name: formData.name,
+        acct_no: formData.acct_no,
+        bank_name: formData.bank_name,
+        location_id: formData.location_id ? Number(formData.location_id) : null,
       },
-      onError: () => {
-        setSubmissionStatus('error');
-      },
-    });
+      {
+        onSuccess: () => setSubmissionStatus('success'),
+        onError: () => setSubmissionStatus('error'),
+      }
+    );
   };
 
   const toggleSuspendMutation = useMutation({
@@ -267,7 +293,7 @@ export default function Finance() {
     }
   });
 
-  const toggleSuspend = async (id: number, suspend: boolean) => {
+  const toggleSuspend = async (id: number, suspend?: boolean) => {
     await toggleSuspendMutation.mutateAsync({ id, suspend });
   };
   
@@ -386,7 +412,33 @@ export default function Finance() {
 
             {/* Bank Accounts */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-              <h2 className="text-lg font-semibold mb-4">Bank Accounts</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+                <h2 className="text-lg font-semibold">Bank Accounts</h2>
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                  <select
+                    aria-label="Filter bank accounts by location"
+                    className="border border-gray-300 rounded px-3 py-2 h-10"
+                    value={selectedBankLocationId}
+                    onChange={(e) => setSelectedBankLocationId(e.target.value)}
+                  >
+                    <option value="">All Locations</option>
+                    {stateQuery.data?.map((s) => (
+                      <option key={s.id} value={String(s.id)}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-slate-600">Show inactive</span>
+                    <Switch
+                      checked={showInactiveBankAccounts}
+                      onCheckedChange={setShowInactiveBankAccounts}
+                    />
+                  </div>
+                </div>
+              </div>
               {bankQuery.isLoading ? (
                 <div className="space-y-4">
                   {[...Array(3)].map((_, i) => (
@@ -402,6 +454,7 @@ export default function Finance() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Location</TableHead>
                       <TableHead>Bank Name</TableHead>
                       <TableHead>Account Name</TableHead>
                       <TableHead>Account Number</TableHead>
@@ -409,35 +462,43 @@ export default function Finance() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {bankQuery.data?.map((bank) => (
-                      <TableRow key={bank.id}>
-                        <TableCell className="font-medium">{bank.bank_name}</TableCell>
-                        <TableCell className="font-medium">{bank.name}</TableCell>
-                        <TableCell className="font-medium">{bank.acct_no}</TableCell>
-                        <TableCell className="font-medium">{new Date(bank.created_at).toISOString().slice(0, 10)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-4">
-                            <Switch
-                              checked={!bank.suspended}
-                              onCheckedChange={() => handleToggle(bank.id)}
-                              className={`${
-                                isActive ? 'bg-green-500' : 'bg-red-500'
-                              } data-[state=unchecked]:bg-red-500 data-[state=checked]:bg-green-500`}
-                            />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                setEditingBank(bank);
-                                setShowEditModal(true);
-                              }}
-                            >
-                              <Pencil size={16} />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {bankQuery.data?.map((bank) => {
+                      const rec = bank as unknown as Record<string, any>;
+                      const loc = rec.location;
+                      const locName =
+                        (loc && typeof loc === 'object' && typeof loc.name === 'string' ? loc.name : '') ||
+                        '';
+                      const isActive = typeof rec.is_active === 'boolean' ? rec.is_active : !rec.suspended;
+
+                      return (
+                        <TableRow key={bank.id}>
+                          <TableCell className="font-medium">{locName || '—'}</TableCell>
+                          <TableCell className="font-medium">{bank.bank_name}</TableCell>
+                          <TableCell className="font-medium">{bank.name}</TableCell>
+                          <TableCell className="font-medium">{bank.acct_no}</TableCell>
+                          <TableCell className="font-medium">{new Date(bank.created_at).toISOString().slice(0, 10)}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-4">
+                              <Switch
+                                checked={isActive}
+                                onCheckedChange={() => handleToggle(bank.id)}
+                                className={`data-[state=unchecked]:bg-red-500 data-[state=checked]:bg-green-500`}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  setEditingBank(bank as any);
+                                  setShowEditModal(true);
+                                }}
+                              >
+                                <Pencil size={16} />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -457,6 +518,19 @@ export default function Finance() {
             <DialogTitle>Add Bank Account</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <select
+              aria-label="Location"
+              className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
+              value={formData.location_id}
+              onChange={(e) => setFormData((p) => ({ ...p, location_id: e.target.value }))}
+            >
+              <option value="">All Locations (optional)</option>
+              {stateQuery.data?.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
             <Input
               name="name"
               placeholder="Account Name"
@@ -518,6 +592,19 @@ export default function Finance() {
             <DialogTitle>Edit Bank Account</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <select
+              aria-label="Location"
+              className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
+              value={editFormData.location_id}
+              onChange={(e) => setEditFormData((p) => ({ ...p, location_id: e.target.value }))}
+            >
+              <option value="">All Locations (optional)</option>
+              {stateQuery.data?.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
             <Input
               name="name"
               placeholder="Account Name"
