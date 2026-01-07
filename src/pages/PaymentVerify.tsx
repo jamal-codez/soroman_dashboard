@@ -32,6 +32,29 @@ interface PaymentOrder {
   reference: string;
   updated_at: string;
 
+  // Customer fields (varies by endpoint)
+  user?: {
+    first_name?: string;
+    last_name?: string;
+    phone_number?: string;
+    phone?: string;
+  };
+  customer?: {
+    first_name?: string;
+    last_name?: string;
+    phone_number?: string;
+    phone?: string;
+  };
+
+  // Order fields sometimes embedded
+  products?: Array<{ name?: string; unit_price?: string | number; price?: string | number; unitPrice?: string | number }>;
+  quantity?: number;
+  qty?: number;
+  litres?: number;
+  state?: string;
+  location?: string;
+  pickup?: { state?: string };
+
   // Account object (as commonly returned by the API)
   acct?: {
     id: number;
@@ -64,6 +87,16 @@ interface PaymentOrder {
   account_name?: string;
 }
 
+type BankAccount = {
+  id: number;
+  acct_no: string;
+  bank_name: string;
+  name: string;
+  location?: string;
+  location_id?: number | null;
+  is_active?: boolean;
+};
+
 interface OrderResponse {
   count: number;
   results: PaymentOrder[];
@@ -75,15 +108,18 @@ function VerifyConfirmModal({
   onClose,
   onConfirm,
   payment,
+  bankAccounts,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
   payment: PaymentOrder | null;
+  bankAccounts: BankAccount[];
 }) {
   if (!payment) return null;
   const createdDate = new Date(payment.created_at);
-  const { acct_no, name, bank_name } = extractAccountDetails(payment);
+  const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
+  const { qty, unitPrice } = extractProductInfo(payment);
 
   return (
     <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
@@ -93,7 +129,7 @@ function VerifyConfirmModal({
         </DialogHeader>
 
         <div className="space-y-3 text-sm">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-1 gap-3">
             <div>
               <div className="text-xs text-slate-500">Date</div>
               <div className="font-medium text-slate-900">
@@ -104,33 +140,48 @@ function VerifyConfirmModal({
               <div className="text-xs text-slate-500">Order Reference</div>
               <div className="font-medium text-slate-900">{getOrderReference(payment) || payment.order_id}</div>
             </div>
+            <div>
+              <div className="text-xs text-slate-500">Customer</div>
+              <div className="font-medium text-slate-900">{customerName || '—'}</div>
+              {customerPhone ? <div className="text-slate-700">{customerPhone}</div> : null}
+            </div>
           </div>
 
-          <div className="rounded-md border border-slate-200 p-3">
-            <div className="text-xs text-slate-500 mb-2">Account Details</div>
-            <div className="font-medium text-slate-900">Acct No: {acct_no || '—'}</div>
-            <div className="text-slate-700">Name: {name || '—'}</div>
-            <div className="text-slate-700">Bank: {bank_name || '—'}</div>
+          {/* <div className="rounded-md border border-slate-200 p-3">
+            <div className="text-xs text-slate-500 mb-2">Customer</div>
+            <div className="font-medium text-slate-900">{customerName || '—'}</div>
+            {customerPhone ? <div className="text-slate-700">{customerPhone}</div> : null}
+          </div> */}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs text-slate-500">Price per Litre</div>
+              <div className="font-medium text-slate-900">{unitPrice ? `₦${unitPrice}` : '—'}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Quantity</div>
+              <div className="font-medium text-slate-900">{qty || '—'} Litres</div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <div className="text-xs text-slate-500">Amount</div>
+              <div className="text-xs text-slate-500">Total Amount</div>
               <div className="font-semibold text-slate-950">₦{parseFloat(payment.amount || '0').toLocaleString()}</div>
             </div>
-            <div>
+            {/* <div>
               <div className="text-xs text-slate-500">Status</div>
               <div>
-                <Badge className={getStatusClass(payment.status.toLowerCase())}>
-                  {payment.status.toLowerCase()}
-                </Badge>
+                <Badge className={getStatusClass(payment.status.toLowerCase())}>{payment.status.toLowerCase()}</Badge>
               </div>
-            </div>
+            </div> */}
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={onConfirm}>Confirm</Button>
         </DialogFooter>
       </DialogContent>
@@ -151,31 +202,111 @@ function getStatusClass(status: string): string {
   }
 }
 
-// Extract account details robustly from possible shapes
-function extractAccountDetails(p: PaymentOrder) {
+// Extract account details robustly from possible shapes.
+// Prefer whatever the verify-orders API returns; if missing, fallback to Finance bank accounts.
+function extractAccountDetails(p: PaymentOrder, bankAccounts?: BankAccount[]) {
   const rec = p as unknown as Record<string, unknown>;
   const acctLike = (rec.acct || rec.bank_account || rec.account || {}) as Record<string, unknown>;
+
+  const state =
+    (typeof rec.state === 'string' ? (rec.state as string) : '') ||
+    (typeof rec.location === 'string' ? (rec.location as string) : '') ||
+    '';
+
+  const acctId =
+    (typeof acctLike.id === 'number' ? acctLike.id : undefined) ||
+    (typeof (rec.bank_account_id as unknown) === 'number' ? (rec.bank_account_id as number) : undefined) ||
+    (typeof (rec.acct_id as unknown) === 'number' ? (rec.acct_id as number) : undefined);
+
+  const list = Array.isArray(bankAccounts) ? bankAccounts : [];
+  const byId = acctId ? list.find((b) => b.id === acctId) : undefined;
+  const byLocation = state ? list.find((b) => (b.location || '') === state) : undefined;
+  const fallback = byId || byLocation;
 
   const acct_no =
     (typeof acctLike.acct_no === 'string' ? acctLike.acct_no : undefined) ||
     (typeof acctLike.account_number === 'string' ? acctLike.account_number : undefined) ||
+    (fallback?.acct_no || undefined) ||
     (typeof rec.acct_no === 'string' ? (rec.acct_no as string) : '') ||
     '';
 
   const name =
     (typeof acctLike.name === 'string' ? acctLike.name : undefined) ||
     (typeof acctLike.account_name === 'string' ? acctLike.account_name : undefined) ||
+    (fallback?.name || undefined) ||
     (typeof rec.account_name === 'string' ? (rec.account_name as string) : '') ||
     '';
 
   const bank_name =
     (typeof acctLike.bank_name === 'string' ? acctLike.bank_name : undefined) ||
     (typeof acctLike.bank === 'string' ? acctLike.bank : undefined) ||
+    (fallback?.bank_name || undefined) ||
     (typeof rec.bank_name === 'string' ? (rec.bank_name as string) : '') ||
     '';
 
   return { acct_no, name, bank_name };
 }
+
+const extractLocation = (p: PaymentOrder): string => {
+  const rec = p as unknown as Record<string, unknown>;
+  const pickup = (rec.pickup as Record<string, unknown> | undefined) || undefined;
+  return (
+    (typeof rec.location === 'string' ? (rec.location as string) : '') ||
+    (typeof rec.state === 'string' ? (rec.state as string) : '') ||
+    (typeof pickup?.state === 'string' ? (pickup.state as string) : '') ||
+    ''
+  );
+};
+
+const extractCustomerDisplay = (p: PaymentOrder): { name: string; phone: string } => {
+  const u = p.user || p.customer || ({} as PaymentOrder['user']);
+  const name = [u?.first_name, u?.last_name].filter(Boolean).join(' ').trim();
+  const phone = String(u?.phone_number || u?.phone || '').trim();
+  return { name, phone };
+};
+
+const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; unitPrice: string } => {
+  const products = Array.isArray(p.products) ? p.products : [];
+  const product = products
+    .map((x) => x?.name)
+    .filter(Boolean)
+    .join(', ');
+
+  const toNumber = (v: unknown): number | undefined => {
+    if (v === null || v === undefined) return undefined;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+    if (typeof v === 'string') {
+      const s = v.trim();
+      if (!s) return undefined;
+      const n = Number(s.replace(/,/g, ''));
+      return Number.isFinite(n) ? n : undefined;
+    }
+    return undefined;
+  };
+
+  const qtyNum =
+    toNumber(p.quantity) ??
+    toNumber(p.qty) ??
+    toNumber(p.litres) ??
+    // Some verify-order serializers return quantity on the first product line
+    toNumber(products?.[0] as unknown as { quantity?: unknown }) ??
+    toNumber((products?.[0] as unknown as Record<string, unknown>)?.quantity) ??
+    toNumber((products?.[0] as unknown as Record<string, unknown>)?.qty) ??
+    toNumber((products?.[0] as unknown as Record<string, unknown>)?.litres);
+
+  const qty = qtyNum !== undefined ? qtyNum.toLocaleString() : '';
+
+  const rawUnit = products?.[0]?.unit_price ?? products?.[0]?.unitPrice ?? products?.[0]?.price;
+  const unitPrice =
+    rawUnit === undefined || rawUnit === null || rawUnit === ''
+      ? ''
+      : (() => {
+          const n = Number(String(rawUnit).replace(/,/g, ''));
+          return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(rawUnit);
+        })();
+
+  return { product, qty, unitPrice };
+};
 
 export default function PaymentVerification() {
   const queryClient = useQueryClient();
@@ -202,12 +333,28 @@ export default function PaymentVerification() {
 
   const allPayments = useMemo(() => apiResponse?.results || [], [apiResponse?.results]);
 
+  // Finance-configured bank accounts (used as fallback when verify-orders response omits details)
+  const { data: bankAccountsResponse } = useQuery<{ results?: BankAccount[]; count?: number } | BankAccount[]>({
+    queryKey: ['bank-accounts', 'verify-payment-fallback'],
+    queryFn: async () => {
+      const res = await apiClient.admin.getBankAccounts({ active: true });
+      return res;
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const bankAccounts: BankAccount[] = useMemo(() => {
+    if (!bankAccountsResponse) return [];
+    return Array.isArray(bankAccountsResponse)
+      ? bankAccountsResponse
+      : (bankAccountsResponse.results || []);
+  }, [bankAccountsResponse]);
+
   const uniqueLocations = useMemo(() => {
     const locs = allPayments
       .map((p) => {
-        const rec = p as unknown as Record<string, unknown>;
-        const pickup = (rec.pickup as Record<string, unknown> | undefined) || undefined;
-        return (rec.state as string) || (rec.location as string) || (pickup?.state as string);
+        return extractLocation(p);
       })
       .filter((v): v is string => typeof v === 'string' && v.length > 0);
     return Array.from(new Set(locs)).sort();
@@ -234,10 +381,7 @@ export default function PaymentVerification() {
       })
       .filter(p => {
         if (!locationFilter) return true;
-        const rec = p as unknown as Record<string, unknown>;
-        const pickup = (rec.pickup as Record<string, unknown> | undefined) || undefined;
-        const loc = (rec.state as string) || (rec.location as string) || (pickup?.state as string);
-        return loc === locationFilter;
+        return extractLocation(p) === locationFilter;
       });
   }, [allPayments, searchQuery, filterType, locationFilter]);
 
@@ -286,7 +430,7 @@ export default function PaymentVerification() {
   const exportToCSV = () => {
     const headers = ['Date', 'Order Reference', 'Account No', 'Account Name', 'Bank', 'Amount', 'Status'];
     const rows = filteredPayments.map(p => {
-      const { acct_no, name, bank_name } = extractAccountDetails(p);
+      const { acct_no, name, bank_name } = extractAccountDetails(p, bankAccounts);
       return [
         format(new Date(p.created_at), 'dd/MM/yyyy'),
         getOrderReference(p) || p.order_id,
@@ -334,7 +478,7 @@ export default function PaymentVerification() {
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <Input
-                      placeholder="Search by order reference or ID..."
+                      placeholder="Search here..."
                       className="pl-10"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
@@ -342,7 +486,7 @@ export default function PaymentVerification() {
                   </div>
                 </div>
 
-                {/* <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3">
                   <select
                     aria-label="Timeframe filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
@@ -370,21 +514,26 @@ export default function PaymentVerification() {
                     ))}
                   </select>
 
-                  <div className="text-sm text-slate-600 flex items-center">
+                  {/* <div className="text-sm text-slate-600 flex items-center">
                     Showing <span className="mx-1 font-semibold text-slate-900">{filteredPayments.length}</span> pending payments
-                  </div>
-                </div> */}
-              </div>
-            </div>
+                  </div> */}
+                </div>
+               </div>
+             </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>S/N</TableHead>
                     <TableHead>Date</TableHead>
+                    <TableHead>Time</TableHead>
                     <TableHead>Order Reference</TableHead>
-                    <TableHead>Account Details</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Qty/Price</TableHead>
+                    <TableHead className="text-right">Total Amount</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
@@ -393,89 +542,102 @@ export default function PaymentVerification() {
                   {isLoading ? (
                     [...Array(5)].map((_, index) => (
                       <TableRow key={index}>
+                        <TableCell><Skeleton className="h-4 w-10" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                        <TableCell>
-                          <div className="space-y-2">
-                            <Skeleton className="h-4 w-48" />
-                            <Skeleton className="h-4 w-40" />
-                          </div>
-                        </TableCell>
+                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                         <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-8 w-32" /></TableCell>
-                      </TableRow>
-                    ))
+                       </TableRow>
+                     ))
                   ) : filteredPayments.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center h-24 text-slate-500">
-                        No pending payments found
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredPayments.map((payment) => {
-                      const { acct_no, name, bank_name } = extractAccountDetails(payment);
-                      return (
-                        <TableRow key={payment.id}>
+                     <TableRow>
+                      <TableCell colSpan={11} className="text-center h-24 text-slate-500">
+                         No pending payments found
+                       </TableCell>
+                     </TableRow>
+                   ) : (
+                    filteredPayments.map((payment, idx) => {
+                      const created = new Date(payment.created_at);
+                      const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
+                      const location = extractLocation(payment);
+                      const { product, qty, unitPrice } = extractProductInfo(payment);
+                       return (
+                         <TableRow key={payment.id}>
+                          <TableCell className="text-slate-700">{idx + 1}</TableCell>
                           <TableCell>
-                            {new Date(payment.created_at).toLocaleDateString('en-GB', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric',
-                            })}
+                            {Number.isNaN(created.getTime())
+                              ? '—'
+                              : created.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          </TableCell>
+                          <TableCell>
+                            {Number.isNaN(created.getTime()) ? '—' : created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                           </TableCell>
                           <TableCell className="font-semibold text-slate-950">
                             {getOrderReference(payment) || payment.order_id}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="font-medium">Acct No: {acct_no || '—'}</span>
-                              <span className="text-slate-600">Name: {name || '—'}</span>
-                              <span className="text-slate-600">Bank: {bank_name || '—'}</span>
+                              <span className="font-medium">{customerName || '—'}</span>
+                              <span className="text-slate-600">{customerPhone || ''}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="text-right font-semibold text-slate-950">
-                            ₦{parseFloat(payment.amount || '0').toLocaleString()}
-                          </TableCell>
+                          <TableCell>{location || '—'}</TableCell>
+                          <TableCell>{product || '—'}</TableCell>
                           <TableCell>
-                            <Badge className={getStatusClass(payment.status.toLowerCase())}>
-                              {payment.status.toLowerCase()}
-                            </Badge>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{qty || '—'} Litres</span>
+                              <span className="text-slate-600">Price: {unitPrice ? `₦${unitPrice}` : '—'}</span>
+                            </div>
                           </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={updatingPaymentId === payment.id}
-                              onClick={() => handleVerifyClick(payment)}
-                            >
-                              {updatingPaymentId === payment.id ? (
-                                <Loader2 className="animate-spin mr-2" size={16} />
-                              ) : (
-                                <ShieldCheck className="mr-1" size={16} />
-                              )}
-                              Confirm
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
+                           <TableCell className="text-right font-semibold text-slate-950">
+                             ₦{parseFloat(String(payment.amount || '0')).toLocaleString()}
+                           </TableCell>
+                           <TableCell>
+                             <Badge className={getStatusClass(payment.status.toLowerCase())}>
+                               {payment.status.toLowerCase()}
+                             </Badge>
+                           </TableCell>
+                           <TableCell>
+                             <Button
+                               variant="outline"
+                               size="sm"
+                               disabled={updatingPaymentId === payment.id}
+                               onClick={() => handleVerifyClick(payment)}
+                             >
+                               {updatingPaymentId === payment.id ? (
+                                 <Loader2 className="animate-spin mr-2" size={16} />
+                               ) : (
+                                 <ShieldCheck className="mr-1" size={16} />
+                               )}
+                               Confirm
+                             </Button>
+                           </TableCell>
+                         </TableRow>
+                       );
+                     })
+                   )}
                 </TableBody>
               </Table>
             </div>
+
+            <VerifyConfirmModal
+              isOpen={isConfirmModalOpen}
+              onClose={() => {
+                setIsConfirmModalOpen(false);
+                setSelectedPayment(null);
+              }}
+              onConfirm={handleConfirm}
+              payment={selectedPayment}
+              bankAccounts={bankAccounts}
+            />
           </div>
         </div>
-
-        <VerifyConfirmModal
-          isOpen={isConfirmModalOpen}
-          onClose={() => {
-            setIsConfirmModalOpen(false);
-            setSelectedPayment(null);
-          }}
-          onConfirm={handleConfirm}
-          payment={selectedPayment}
-        />
       </div>
     </div>
   );

@@ -74,7 +74,7 @@ interface Order {
   total_price: string;
   status: 'pending' | 'paid' | 'canceled' | 'released';
   created_at: string;
-  products: Array<{ name: string }>;
+  products: Array<{ name: string; unit_price?: number | string; unitPrice?: number | string; price?: number | string }>;
   quantity: number;
   release_type: 'pickup' | 'delivery';
   reference: string; 
@@ -100,6 +100,19 @@ interface ReleaseDetails {
   truckNumber: string;
   driverName: string;
   driverPhone: string;
+  deliveryAddress: string;
+  comp1Qty: string;
+  comp1Ullage: string;
+  comp2Qty: string;
+  comp2Ullage: string;
+  comp3Qty: string;
+  comp3Ullage: string;
+  comp4Qty: string;
+  comp4Ullage: string;
+  comp5Qty: string;
+  comp5Ullage: string;
+  loaderName: string;
+  loaderPhone: string;
   loadingDateTime: string; 
 }
 
@@ -253,6 +266,66 @@ const getOrderTicketDetails = (
     readStr(rec, 'driver_phone', 'driverPhone') ||
     readStr(rt, 'driver_phone', 'driverPhone');
 
+  const deliveryAddress =
+    local?.deliveryAddress ||
+    readStr(rec, 'delivery_address', 'deliveryAddress') ||
+    readStr(rt, 'delivery_address', 'deliveryAddress');
+
+  const comp1Qty =
+    local?.comp1Qty ||
+    readStr(rec, 'comp1_qty', 'comp1Qty', 'compartment_1_qty') ||
+    readStr(rt, 'comp1_qty', 'comp1Qty', 'compartment_1_qty');
+  const comp1Ullage =
+    local?.comp1Ullage ||
+    readStr(rec, 'comp1_ullage', 'comp1Ullage', 'compartment_1_ullage') ||
+    readStr(rt, 'comp1_ullage', 'comp1Ullage', 'compartment_1_ullage');
+
+  const comp2Qty =
+    local?.comp2Qty ||
+    readStr(rec, 'comp2_qty', 'comp2Qty', 'compartment_2_qty') ||
+    readStr(rt, 'comp2_qty', 'comp2Qty', 'compartment_2_qty');
+  const comp2Ullage =
+    local?.comp2Ullage ||
+    readStr(rec, 'comp2_ullage', 'comp2Ullage', 'compartment_2_ullage') ||
+    readStr(rt, 'comp2_ullage', 'comp2Ullage', 'compartment_2_ullage');
+
+  const comp3Qty =
+    local?.comp3Qty ||
+    readStr(rec, 'comp3_qty', 'comp3Qty', 'compartment_3_qty') ||
+    readStr(rt, 'comp3_qty', 'comp3Qty', 'compartment_3_qty');
+  const comp3Ullage =
+    local?.comp3Ullage ||
+    readStr(rec, 'comp3_ullage', 'comp3Ullage', 'compartment_3_ullage') ||
+    readStr(rt, 'comp3_ullage', 'comp3Ullage', 'compartment_3_ullage');
+
+  const comp4Qty =
+    local?.comp4Qty ||
+    readStr(rec, 'comp4_qty', 'comp4Qty', 'compartment_4_qty') ||
+    readStr(rt, 'comp4_qty', 'comp4Qty', 'compartment_4_qty');
+  const comp4Ullage =
+    local?.comp4Ullage ||
+    readStr(rec, 'comp4_ullage', 'comp4Ullage', 'compartment_4_ullage') ||
+    readStr(rt, 'comp4_ullage', 'comp4Ullage', 'compartment_4_ullage');
+
+  const comp5Qty =
+    local?.comp5Qty ||
+    readStr(rec, 'comp5_qty', 'comp5Qty', 'compartment_5_qty') ||
+    readStr(rt, 'comp5_qty', 'comp5Qty', 'compartment_5_qty');
+  const comp5Ullage =
+    local?.comp5Ullage ||
+    readStr(rec, 'comp5_ullage', 'comp5Ullage', 'compartment_5_ullage') ||
+    readStr(rt, 'comp5_ullage', 'comp5Ullage', 'compartment_5_ullage');
+
+  const loaderName =
+    local?.loaderName ||
+    readStr(rec, 'loader_name', 'loaderName') ||
+    readStr(rt, 'loader_name', 'loaderName');
+
+  const loaderPhone =
+    local?.loaderPhone ||
+    readStr(rec, 'loader_phone', 'loaderPhone') ||
+    readStr(rt, 'loader_phone', 'loaderPhone');
+
   const loadingDateTime =
     local?.loadingDateTime ||
     readStr(rec, 'loading_datetime', 'loadingDateTime') ||
@@ -262,11 +335,45 @@ const getOrderTicketDetails = (
     truckNumber: truckNumber.trim(),
     driverName: driverName.trim(),
     driverPhone: driverPhone.trim(),
+    deliveryAddress: deliveryAddress.trim(),
+    comp1Qty: comp1Qty.trim(),
+    comp1Ullage: comp1Ullage.trim(),
+    comp2Qty: comp2Qty.trim(),
+    comp2Ullage: comp2Ullage.trim(),
+    comp3Qty: comp3Qty.trim(),
+    comp3Ullage: comp3Ullage.trim(),
+    comp4Qty: comp4Qty.trim(),
+    comp4Ullage: comp4Ullage.trim(),
+    comp5Qty: comp5Qty.trim(),
+    comp5Ullage: comp5Ullage.trim(),
+    loaderName: loaderName.trim(),
+    loaderPhone: loaderPhone.trim(),
     loadingDateTime: loadingDateTime.trim(),
   };
 
   const hasAny = Object.values(details).some((v) => v.trim().length > 0);
   return hasAny ? details : null;
+};
+
+const buildCompartmentDetailsText = (d: ReleaseDetails): string => {
+  const pairs: Array<[string, string]> = [
+    [String(d.comp1Qty || '').trim(), String(d.comp1Ullage || '').trim()],
+    [String(d.comp2Qty || '').trim(), String(d.comp2Ullage || '').trim()],
+    [String(d.comp3Qty || '').trim(), String(d.comp3Ullage || '').trim()],
+    [String(d.comp4Qty || '').trim(), String(d.comp4Ullage || '').trim()],
+    [String(d.comp5Qty || '').trim(), String(d.comp5Ullage || '').trim()],
+  ];
+
+  const lines = pairs
+    .map(([qty, ullage], idx) => {
+      if (!qty && !ullage) return null;
+      const label = `Compartment ${idx + 1}`;
+      // leave blanks as blanks (no dashes)
+      return `${label}: Qty ${qty} L, Ullage ${ullage}`;
+    })
+    .filter(Boolean) as string[];
+
+  return lines.join('\n');
 };
 
 const formatTicketLoadingDateTime = (raw: string): string => {
@@ -277,6 +384,24 @@ const formatTicketLoadingDateTime = (raw: string): string => {
   } catch {
     return v;
   }
+};
+
+const extractUnitPrice = (order: Order): string => {
+  const p = order.products?.[0] as Record<string, unknown> | undefined;
+  const o = order as unknown as Record<string, unknown>;
+  const raw =
+    (p && (p.unit_price ?? p.unitPrice ?? p.price)) ||
+    // sometimes the order itself may have a unit price field
+    (o.unit_price as unknown) ||
+    (o.unit_price_per_litre as unknown) ||
+    (o.unit_price_per_liter as unknown) ||
+    (o.price_per_litre as unknown) ||
+    (o.price_per_liter as unknown);
+
+  if (raw === undefined || raw === null || raw === '') return '';
+  const n = Number(String(raw).replace(/,/g, ''));
+  if (!Number.isFinite(n)) return String(raw);
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
 export const PickupProcessing = () => {
@@ -298,6 +423,19 @@ export const PickupProcessing = () => {
     truckNumber: '',
     driverName: '',
     driverPhone: '',
+    deliveryAddress: '',
+    comp1Qty: '',
+    comp1Ullage: '',
+    comp2Qty: '',
+    comp2Ullage: '',
+    comp3Qty: '',
+    comp3Ullage: '',
+    comp4Qty: '',
+    comp4Ullage: '',
+    comp5Qty: '',
+    comp5Ullage: '',
+    loaderName: '',
+    loaderPhone: '',
     loadingDateTime: ''
   });
 
@@ -342,13 +480,15 @@ export const PickupProcessing = () => {
 
     const local = releaseDetailsByOrder[selectedOrder.id];
     const resolved = getOrderTicketDetails(selectedOrder, local);
+    const compartmentDetailsText = resolved ? buildCompartmentDetailsText(resolved) : '';
+    const unitPrice = extractUnitPrice(selectedOrder);
 
-    const companyName = extractCompanyName(selectedOrder) || '-';
+    const companyName = extractCompanyName(selectedOrder) || '';
     const userRec = selectedOrder.user as unknown as Record<string, unknown>;
     const phone =
       (typeof userRec.phone_number === 'string' ? userRec.phone_number : undefined) ||
       (typeof userRec.phone === 'string' ? userRec.phone : undefined) ||
-      '-';
+      '';
 
     return {
       orderReference: getOrderReference(selectedOrder),
@@ -357,10 +497,15 @@ export const PickupProcessing = () => {
       customerPhone: String(phone),
       product: selectedOrder.products.map((p) => p.name).join(', '),
       qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
-      truckNumber: resolved?.truckNumber || '-',
-      driverName: resolved?.driverName || '-',
-      driverPhone: resolved?.driverPhone || '-',
-      loadingDateTime: resolved?.loadingDateTime ? formatTicketLoadingDateTime(resolved.loadingDateTime) : '-',
+      unitPrice,
+      truckNumber: resolved?.truckNumber || '',
+      driverName: resolved?.driverName || '',
+      driverPhone: resolved?.driverPhone || '',
+      deliveryAddress: resolved?.deliveryAddress || '',
+      compartmentDetails: compartmentDetailsText || '',
+      loaderName: resolved?.loaderName || '',
+      loaderPhone: resolved?.loaderPhone || '',
+      loadingDateTime: resolved?.loadingDateTime ? formatTicketLoadingDateTime(resolved.loadingDateTime) : '',
     } satisfies ReleaseTicketData;
   }, [selectedOrder, releaseDetailsByOrder]);
 
@@ -393,6 +538,19 @@ export const PickupProcessing = () => {
               truckNumber: order.trucks?.[0] || '',
               driverName: '',
               driverPhone: '',
+              deliveryAddress: '',
+              comp1Qty: '',
+              comp1Ullage: '',
+              comp2Qty: '',
+              comp2Ullage: '',
+              comp3Qty: '',
+              comp3Ullage: '',
+              comp4Qty: '',
+              comp4Ullage: '',
+              comp5Qty: '',
+              comp5Ullage: '',
+              loaderName: '',
+              loaderPhone: '',
               loadingDateTime: ''
             })
     );
@@ -411,25 +569,69 @@ export const PickupProcessing = () => {
   const handleReleaseWithDetails = async () => {
     if (!selectedOrder) return;
 
+    // These fields should be left blank (no manual input)
+    const sanitized: ReleaseDetails = {
+      ...releaseForm,
+      comp1Qty: '',
+      comp1Ullage: '',
+      comp2Qty: '',
+      comp2Ullage: '',
+      comp3Qty: '',
+      comp3Ullage: '',
+      comp4Qty: '',
+      comp4Ullage: '',
+      comp5Qty: '',
+      comp5Ullage: '',
+      loaderName: '',
+      loaderPhone: '',
+    };
+
     // Basic validation
-    if (!releaseForm.truckNumber.trim() || !releaseForm.driverName.trim() || !releaseForm.driverPhone.trim() || !releaseForm.loadingDateTime.trim()) {
+    if (
+      !sanitized.truckNumber.trim() ||
+      !sanitized.driverName.trim() ||
+      !sanitized.driverPhone.trim() ||
+      !sanitized.loadingDateTime.trim()
+    ) {
       toast({
         title: 'Missing information',
-        description: 'Please fill in all release details before releasing.',
+        description: "Truck Number, Driver's Name, Driver's Phone, and Loading Date & Time are required.",
         variant: 'destructive'
       });
       return;
     }
 
     try {
-      saveReleaseDetails();
+      setReleaseForm(sanitized);
+      if (selectedOrder) {
+        setReleaseDetailsByOrder((prev) => ({
+          ...prev,
+          [selectedOrder.id]: sanitized,
+        }));
+      }
 
       // Persist release details in backend
       await apiClient.admin.releaseOrder(selectedOrder.id, {
-        truck_number: releaseForm.truckNumber,
-        driver_name: releaseForm.driverName,
-        driver_phone: releaseForm.driverPhone,
-        loading_datetime: releaseForm.loadingDateTime,
+        truck_number: sanitized.truckNumber,
+        driver_name: sanitized.driverName,
+        driver_phone: sanitized.driverPhone,
+        // Optional fields (may be blank)
+        delivery_address: sanitized.deliveryAddress?.trim() ? sanitized.deliveryAddress : undefined,
+        // compartments + loader must remain blank
+        compartment_details: undefined,
+        comp1_qty: undefined,
+        comp1_ullage: undefined,
+        comp2_qty: undefined,
+        comp2_ullage: undefined,
+        comp3_qty: undefined,
+        comp3_ullage: undefined,
+        comp4_qty: undefined,
+        comp4_ullage: undefined,
+        comp5_qty: undefined,
+        comp5_ullage: undefined,
+        loader_name: undefined,
+        loader_phone: undefined,
+        loading_datetime: sanitized.loadingDateTime,
       });
 
       setReleaseOpen(false);
@@ -636,7 +838,7 @@ export const PickupProcessing = () => {
                     onClick={() => exportToCSV(filteredOrders)}
                   >
                     <Download className="mr-1" size={16} />
-                    Export
+                    Download Report
                   </Button>
                 </>
               }
@@ -713,8 +915,8 @@ export const PickupProcessing = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {/* <TableHead>ID</TableHead> */}
-                    <TableHead>Reference</TableHead>
+                    <TableHead>ID</TableHead>
+                    {/* <TableHead>Reference</TableHead> */}
                     {/* <TableHead>Type</TableHead> */}
                     <TableHead>Location</TableHead>
                     <TableHead>Agent</TableHead>
@@ -739,8 +941,8 @@ export const PickupProcessing = () => {
 
                     return (
                       <TableRow key={order.id}>
-                        {/* <TableCell className="font-medium">{order.id}</TableCell> */}
-                        <TableCell>{getOrderReference(order) || '-'}</TableCell>
+                        <TableCell className="font-medium">{order.id}</TableCell>
+                        {/* <TableCell>{getOrderReference(order) || '-'}</TableCell> */}
                         {/* <TableCell className="capitalize">{order.release_type || '-'}</TableCell> */}
                         <TableCell>{extractLocation(order) || '-'}</TableCell>
                         <TableCell>{formatAssignedAgent(order) || '-'}</TableCell>
@@ -793,14 +995,15 @@ export const PickupProcessing = () => {
                                   <span>Release</span>
                                 </Button>
                               </DialogTrigger>
-                              <DialogContent>
+                              <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-lg sm:w-full flex flex-col max-h-[90vh]">
                                 <DialogHeader>
                                   <DialogTitle>Release Order</DialogTitle>
                                   <DialogDescription>
-                                    Enter truck and driver details to release this order and persist the release ticket.
+                                    Enter truck/driver and ticket details to release this order and generate the release ticket.
                                   </DialogDescription>
                                 </DialogHeader>
-                                <div className="space-y-4">
+
+                                <div className="space-y-4 overflow-y-auto pr-1 flex-1">
                                   <div>
                                     <Label htmlFor="truckNumber">Truck Number</Label>
                                     <Input
@@ -809,22 +1012,101 @@ export const PickupProcessing = () => {
                                       onChange={(e) => setReleaseForm({ ...releaseForm, truckNumber: e.target.value })}
                                     />
                                   </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                      <Label htmlFor="driverName">Driver's Name</Label>
+                                      <Input
+                                        id="driverName"
+                                        value={releaseForm.driverName}
+                                        onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="driverPhone">Driver's Phone</Label>
+                                      <Input
+                                        id="driverPhone"
+                                        value={releaseForm.driverPhone}
+                                        onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
+                                      />
+                                    </div>
+                                  </div>
+
                                   <div>
-                                    <Label htmlFor="driverName">Driver Name</Label>
-                                    <Input
-                                      id="driverName"
-                                      value={releaseForm.driverName}
-                                      onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
+                                    <Label htmlFor="deliveryAddress">Delivery Address</Label>
+                                    <Textarea
+                                      id="deliveryAddress"
+                                      value={releaseForm.deliveryAddress}
+                                      onChange={(e) => setReleaseForm({ ...releaseForm, deliveryAddress: e.target.value })}
+                                      placeholder="Enter delivery address"
                                     />
                                   </div>
-                                  <div>
-                                    <Label htmlFor="driverPhone">Driver Phone</Label>
-                                    <Input
-                                      id="driverPhone"
-                                      value={releaseForm.driverPhone}
-                                      onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
-                                    />
+
+                                  <div className="space-y-2">
+                                    <Label>Compartment Details</Label>
+                                    <div className="rounded-md border border-slate-200 p-3">
+                                      <div className="grid grid-cols-[minmax(120px,1fr)_minmax(110px,1fr)_minmax(110px,1fr)] gap-2 text-xs font-semibold text-slate-600">
+                                        <div>S/N</div>
+                                        <div>Qty (Litres)</div>
+                                        <div>Ullage</div>
+                                      </div>
+
+                                      {([
+                                        { n: 1, qtyKey: 'comp1Qty', ullKey: 'comp1Ullage', required: false },
+                                        { n: 2, qtyKey: 'comp2Qty', ullKey: 'comp2Ullage', required: false },
+                                        { n: 3, qtyKey: 'comp3Qty', ullKey: 'comp3Ullage', required: false },
+                                        { n: 4, qtyKey: 'comp4Qty', ullKey: 'comp4Ullage', required: false },
+                                        { n: 5, qtyKey: 'comp5Qty', ullKey: 'comp5Ullage', required: false },
+                                      ] as const).map((row) => (
+                                        <div key={row.n} className="grid grid-cols-[minmax(120px,1fr)_minmax(110px,1fr)_minmax(110px,1fr)] gap-2 mt-2 items-center">
+                                          <div className="text-sm text-slate-700">
+                                            {row.n}
+                                            {row.required ? <span className="text-red-500"> *</span> : null}
+                                          </div>
+                                          <Input
+                                            inputMode="numeric"
+                                            placeholder=""
+                                            value={releaseForm[row.qtyKey]}
+                                            onChange={(e) => setReleaseForm({ ...releaseForm, [row.qtyKey]: e.target.value } as ReleaseDetails)}
+                                            disabled
+                                          />
+                                          <Input
+                                            inputMode="numeric"
+                                            placeholder=""
+                                            value={releaseForm[row.ullKey]}
+                                            onChange={(e) => setReleaseForm({ ...releaseForm, [row.ullKey]: e.target.value } as ReleaseDetails)}
+                                            disabled
+                                          />
+                                        </div>
+                                      ))}
+
+                                      {/* <div className="mt-3 text-xs text-slate-500">
+                                        These fields are intentionally disabled and will remain blank on the ticket.
+                                      </div> */}
+                                    </div>
                                   </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                      <Label htmlFor="loaderName">Loader's Name</Label>
+                                      <Input
+                                        id="loaderName"
+                                        value={releaseForm.loaderName}
+                                        onChange={(e) => setReleaseForm({ ...releaseForm, loaderName: e.target.value })}
+                                        disabled
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="loaderPhone">Loader's Phone</Label>
+                                      <Input
+                                        id="loaderPhone"
+                                        value={releaseForm.loaderPhone}
+                                        onChange={(e) => setReleaseForm({ ...releaseForm, loaderPhone: e.target.value })}
+                                        disabled
+                                      />
+                                    </div>
+                                  </div>
+
                                   <div>
                                     <Label htmlFor="loadingDateTime">Loading Date & Time</Label>
                                     <Input
@@ -835,7 +1117,8 @@ export const PickupProcessing = () => {
                                     />
                                   </div>
                                 </div>
-                                <DialogFooter>
+
+                                <DialogFooter className="pt-3 border-t border-slate-200 bg-white">
                                   <Button variant="outline" onClick={() => setReleaseOpen(false)}>
                                     Cancel
                                   </Button>
@@ -845,6 +1128,7 @@ export const PickupProcessing = () => {
                                 </DialogFooter>
                               </DialogContent>
                             </Dialog>
+
                             <Button
                               size="sm"
                               variant="outline"
@@ -880,19 +1164,20 @@ export const PickupProcessing = () => {
                 if (!open) setTicketOpen(false);
               }}
             >
-              <DialogContent className="sm:max-w-[860px]">
+              <DialogContent className="sm:max-w-[860px] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:w-auto flex flex-col max-h-[90vh]">
                 <DialogHeader>
                   <DialogTitle>Release Ticket</DialogTitle>
                 </DialogHeader>
 
-                <div className="space-y-3">
+                {/* Scrollable content; footer stays at the bottom */}
+                <div className="space-y-3 overflow-y-auto pr-1 flex-1">
                   {!selectedOrder ? (
                     <div className="text-sm text-slate-600">Select an order to view the ticket.</div>
                   ) : (
                     <>
                       {!canPrintTicket && (
                         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                          Ticket cannot be printed yet. Please release the order and fill all release details (Truck Number, Driver Name/Phone, Loading Date &amp; Time).
+                          Ticket cannot be printed yet. Please release the order and fill the required details.
                         </div>
                       )}
 
@@ -903,21 +1188,26 @@ export const PickupProcessing = () => {
                             buildTicketData || {
                               orderReference: getOrderReference(selectedOrder),
                               customerName: `${selectedOrder.user.first_name} ${selectedOrder.user.last_name}`,
-                              companyName: extractCompanyName(selectedOrder) || '-',
+                              companyName: extractCompanyName(selectedOrder) || '',
                               customerPhone: (() => {
                                 const userRec = selectedOrder.user as unknown as Record<string, unknown>;
                                 const phone =
                                   (typeof userRec.phone_number === 'string' ? userRec.phone_number : undefined) ||
                                   (typeof userRec.phone === 'string' ? userRec.phone : undefined) ||
-                                  '-';
+                                  '';
                                 return String(phone);
                               })(),
                               product: selectedOrder.products.map((p) => p.name).join(', '),
                               qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
-                              truckNumber: '-',
-                              driverName: '-',
-                              driverPhone: '-',
-                              loadingDateTime: '-',
+                              unitPrice: extractUnitPrice(selectedOrder),
+                              truckNumber: '',
+                              driverName: '',
+                              driverPhone: '',
+                              deliveryAddress: '',
+                              compartmentDetails: '',
+                              loaderName: '',
+                              loaderPhone: '',
+                              loadingDateTime: '',
                             }
                           }
                         />
@@ -926,7 +1216,8 @@ export const PickupProcessing = () => {
                   )}
                 </div>
 
-                <DialogFooter>
+                {/* Footer stays at the bottom; not sticky in the middle of content */}
+                <DialogFooter className="pt-3 border-t border-slate-200 bg-white">
                   <Button variant="outline" onClick={() => setTicketOpen(false)}>
                     Close
                   </Button>
@@ -935,7 +1226,7 @@ export const PickupProcessing = () => {
                       if (!canPrintTicket) {
                         toast({
                           title: 'Missing release details',
-                          description: 'Fill all release details before printing the ticket.',
+                          description: "Fill missing details before printing the ticket.",
                           variant: 'destructive',
                         });
                         return;
