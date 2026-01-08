@@ -452,7 +452,7 @@ const Orders = () => {
 
     const summaryBlock = [
       ['Orders Summary'],
-      []
+      [],
       // ['Filter', getFilterLabelForFile()],
       // ['Status', statusFilter ? getStatusText(statusFilter) : 'All'],
       ['Total Released Orders', releasedTotals.totalOrders.toString()],
@@ -475,7 +475,7 @@ const Orders = () => {
     link.href = URL.createObjectURL(blob);
     link.setAttribute(
       'download',
-      `Orders.csv`
+      `Orders_Report.csv`
     );
     document.body.appendChild(link);
     link.click();
