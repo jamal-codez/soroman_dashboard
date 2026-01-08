@@ -53,7 +53,10 @@ interface PaymentOrder {
   litres?: number;
   state?: string;
   location?: string;
-  pickup?: { state?: string };
+  pickup?: { state?: string; location?: string };
+  delivery?: { state?: string; location?: string };
+  location_name?: string;
+  location_id?: number | null;
 
   // Account object (as commonly returned by the API)
   acct?: {
@@ -85,6 +88,13 @@ interface PaymentOrder {
   acct_no?: string;
   bank_name?: string;
   account_name?: string;
+
+  // Backend snapshot fields (preferred for display)
+  paid_to_account_number?: string;
+  paid_to_account_name?: string;
+  paid_to_bank_name?: string;
+
+  bank_account_id?: number | null;
 }
 
 type BankAccount = {
@@ -120,6 +130,7 @@ function VerifyConfirmModal({
   const createdDate = new Date(payment.created_at);
   const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
   const { qty, unitPrice } = extractProductInfo(payment);
+  const paidInto = extractPaidInto(payment);
 
   return (
     <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
@@ -147,11 +158,18 @@ function VerifyConfirmModal({
             </div>
           </div>
 
+          <div>
+          <div className="text-xs text-slate-500">Paid Into</div>
+            <div className="font-semibold text-slate-900">Account Number: {paidInto.account_number || '—'}</div>
+            <div className="text-slate-700">Bank Name: {paidInto.bank_name || '—'}</div>
+            <div className="text-slate-700">Account Name: {paidInto.account_name || '—'}</div>
           {/* <div className="rounded-md border border-slate-200 p-3">
-            <div className="text-xs text-slate-500 mb-2">Customer</div>
-            <div className="font-medium text-slate-900">{customerName || '—'}</div>
-            {customerPhone ? <div className="text-slate-700">{customerPhone}</div> : null}
+            <div className="text-xs text-slate-500 mb-2">Paid Into</div>
+            <div className="font-semibold text-slate-900">{paidInto.account_name || '—'}</div>
+            <div className="text-slate-700">{paidInto.account_number || '—'}</div>
+            <div className="text-slate-700">{paidInto.bank_name || '—'}</div>
           </div> */}
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -169,12 +187,6 @@ function VerifyConfirmModal({
               <div className="text-xs text-slate-500">Total Amount</div>
               <div className="font-semibold text-slate-950">₦{parseFloat(payment.amount || '0').toLocaleString()}</div>
             </div>
-            {/* <div>
-              <div className="text-xs text-slate-500">Status</div>
-              <div>
-                <Badge className={getStatusClass(payment.status.toLowerCase())}>{payment.status.toLowerCase()}</Badge>
-              </div>
-            </div> */}
           </div>
         </div>
 
@@ -247,15 +259,68 @@ function extractAccountDetails(p: PaymentOrder, bankAccounts?: BankAccount[]) {
   return { acct_no, name, bank_name };
 }
 
+function extractPaidInto(p: PaymentOrder): { account_name: string; account_number: string; bank_name: string } {
+  const rec = p as unknown as Record<string, unknown>;
+
+  const snapNumber = typeof rec.paid_to_account_number === 'string' ? (rec.paid_to_account_number as string) : '';
+  const snapName = typeof rec.paid_to_account_name === 'string' ? (rec.paid_to_account_name as string) : '';
+  const snapBank = typeof rec.paid_to_bank_name === 'string' ? (rec.paid_to_bank_name as string) : '';
+
+  if (snapNumber.trim()) {
+    return {
+      account_name: snapName.trim(),
+      account_number: snapNumber.trim(),
+      bank_name: snapBank.trim(),
+    };
+  }
+
+  const acctLike = (rec.bank_account || rec.acct || rec.account || {}) as Record<string, unknown>;
+
+  const account_number =
+    (typeof acctLike.acct_no === 'string' ? (acctLike.acct_no as string) : '') ||
+    (typeof acctLike.account_number === 'string' ? (acctLike.account_number as string) : '') ||
+    (typeof rec.acct_no === 'string' ? (rec.acct_no as string) : '') ||
+    '';
+
+  const account_name =
+    (typeof acctLike.name === 'string' ? (acctLike.name as string) : '') ||
+    (typeof acctLike.account_name === 'string' ? (acctLike.account_name as string) : '') ||
+    (typeof rec.account_name === 'string' ? (rec.account_name as string) : '') ||
+    '';
+
+  const bank_name =
+    (typeof acctLike.bank_name === 'string' ? (acctLike.bank_name as string) : '') ||
+    (typeof acctLike.bank === 'string' ? (acctLike.bank as string) : '') ||
+    (typeof rec.bank_name === 'string' ? (rec.bank_name as string) : '') ||
+    '';
+
+  return {
+    account_name: String(account_name || '').trim(),
+    account_number: String(account_number || '').trim(),
+    bank_name: String(bank_name || '').trim(),
+  };
+}
+
 const extractLocation = (p: PaymentOrder): string => {
   const rec = p as unknown as Record<string, unknown>;
+
   const pickup = (rec.pickup as Record<string, unknown> | undefined) || undefined;
-  return (
-    (typeof rec.location === 'string' ? (rec.location as string) : '') ||
-    (typeof rec.state === 'string' ? (rec.state as string) : '') ||
-    (typeof pickup?.state === 'string' ? (pickup.state as string) : '') ||
-    ''
-  );
+  const delivery = (rec.delivery as Record<string, unknown> | undefined) || undefined;
+
+  // Verify-orders should provide explicit location fields; prefer them first.
+  const v =
+    (typeof rec.location_name === 'string' ? (rec.location_name as string) : undefined) ||
+    (typeof rec.locationName === 'string' ? (rec.locationName as string) : undefined) ||
+    (typeof rec.location === 'string' ? (rec.location as string) : undefined) ||
+    (typeof rec.state === 'string' ? (rec.state as string) : undefined) ||
+    // Legacy fallbacks (other endpoints)
+    (typeof pickup?.state === 'string' ? pickup.state : undefined) ||
+    (typeof pickup?.location === 'string' ? pickup.location : undefined) ||
+    (typeof delivery?.state === 'string' ? delivery.state : undefined) ||
+    (typeof delivery?.location === 'string' ? delivery.location : undefined) ||
+    '';
+
+  return String(v || '').trim();
 };
 
 const extractCustomerDisplay = (p: PaymentOrder): { name: string; phone: string } => {
@@ -464,12 +529,6 @@ export default function PaymentVerification() {
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="Pending Payments"
-              // description="Verify pending payments and mark orders as paid."
-              // actions={
-              //   <Button onClick={exportToCSV}>
-              //     <Download className="mr-1" size={16} /> Export
-              //   </Button>
-              // }
             />
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
@@ -513,10 +572,6 @@ export default function PaymentVerification() {
                       <option key={l} value={l}>{l}</option>
                     ))}
                   </select>
-
-                  {/* <div className="text-sm text-slate-600 flex items-center">
-                    Showing <span className="mx-1 font-semibold text-slate-900">{filteredPayments.length}</span> pending payments
-                  </div> */}
                 </div>
                </div>
              </div>
@@ -526,15 +581,16 @@ export default function PaymentVerification() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>S/N</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Time</TableHead>
+                    <TableHead>Date/Time</TableHead>
+                    {/* <TableHead>Time</TableHead> */}
                     <TableHead>Order Reference</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Qty/Price</TableHead>
-                    <TableHead className="text-right">Total Amount</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>Paid Into</TableHead>
+                    <TableHead>Amount Paid</TableHead>
+                    {/* <TableHead>Status</TableHead> */}
                     <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -550,6 +606,7 @@ export default function PaymentVerification() {
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-40" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
                         <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-8 w-32" /></TableCell>
@@ -557,7 +614,7 @@ export default function PaymentVerification() {
                      ))
                   ) : filteredPayments.length === 0 ? (
                      <TableRow>
-                      <TableCell colSpan={11} className="text-center h-24 text-slate-500">
+                      <TableCell colSpan={12} className="text-center h-24 text-slate-500">
                          No pending payments found
                        </TableCell>
                      </TableRow>
@@ -567,17 +624,18 @@ export default function PaymentVerification() {
                       const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
                       const location = extractLocation(payment);
                       const { product, qty, unitPrice } = extractProductInfo(payment);
+                      const paidInto = extractPaidInto(payment);
                        return (
                          <TableRow key={payment.id}>
                           <TableCell className="text-slate-700">{idx + 1}</TableCell>
                           <TableCell>
                             {Number.isNaN(created.getTime())
                               ? '—'
-                              : created.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                              : created.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })} {Number.isNaN(created.getTime()) ? '—' : created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                           </TableCell>
-                          <TableCell>
+                          {/* <TableCell>
                             {Number.isNaN(created.getTime()) ? '—' : created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                          </TableCell>
+                          </TableCell> */}
                           <TableCell className="font-semibold text-slate-950">
                             {getOrderReference(payment) || payment.order_id}
                           </TableCell>
@@ -595,14 +653,20 @@ export default function PaymentVerification() {
                               <span className="text-slate-600">Price: {unitPrice ? `₦${unitPrice}` : '—'}</span>
                             </div>
                           </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <span className="text-slate-900 font-semibold">{paidInto.account_number || '—'}</span>
+                              <span className="text-slate-700">{paidInto.bank_name || '—'}</span>
+                            </div>
+                          </TableCell>
                            <TableCell className="text-right font-semibold text-slate-950">
                              ₦{parseFloat(String(payment.amount || '0')).toLocaleString()}
                            </TableCell>
-                           <TableCell>
+                           {/* <TableCell>
                              <Badge className={getStatusClass(payment.status.toLowerCase())}>
                                {payment.status.toLowerCase()}
                              </Badge>
-                           </TableCell>
+                           </TableCell> */}
                            <TableCell>
                              <Button
                                variant="outline"

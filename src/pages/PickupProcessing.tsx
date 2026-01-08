@@ -101,6 +101,7 @@ interface ReleaseDetails {
   driverName: string;
   driverPhone: string;
   deliveryAddress: string;
+  nmdrpaNumber: string;
   comp1Qty: string;
   comp1Ullage: string;
   comp2Qty: string;
@@ -271,6 +272,11 @@ const getOrderTicketDetails = (
     readStr(rec, 'delivery_address', 'deliveryAddress') ||
     readStr(rt, 'delivery_address', 'deliveryAddress');
 
+  const nmdrpaNumber =
+    local?.nmdrpaNumber ||
+    readStr(rec, 'nmdrpa_number', 'nmdrpaNumber') ||
+    readStr(rt, 'nmdrpa_number', 'nmdrpaNumber');
+
   const comp1Qty =
     local?.comp1Qty ||
     readStr(rec, 'comp1_qty', 'comp1Qty', 'compartment_1_qty') ||
@@ -336,6 +342,7 @@ const getOrderTicketDetails = (
     driverName: driverName.trim(),
     driverPhone: driverPhone.trim(),
     deliveryAddress: deliveryAddress.trim(),
+    nmdrpaNumber: nmdrpaNumber.trim(),
     comp1Qty: comp1Qty.trim(),
     comp1Ullage: comp1Ullage.trim(),
     comp2Qty: comp2Qty.trim(),
@@ -424,6 +431,7 @@ export const PickupProcessing = () => {
     driverName: '',
     driverPhone: '',
     deliveryAddress: '',
+    nmdrpaNumber: '',
     comp1Qty: '',
     comp1Ullage: '',
     comp2Qty: '',
@@ -492,9 +500,11 @@ export const PickupProcessing = () => {
 
     return {
       orderReference: getOrderReference(selectedOrder),
+      location: extractLocation(selectedOrder),
       customerName: `${selectedOrder.user.first_name} ${selectedOrder.user.last_name}`,
       companyName,
       customerPhone: String(phone),
+      nmdrpaNumber: resolved?.nmdrpaNumber || '',
       product: selectedOrder.products.map((p) => p.name).join(', '),
       qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
       unitPrice,
@@ -539,6 +549,7 @@ export const PickupProcessing = () => {
               driverName: '',
               driverPhone: '',
               deliveryAddress: '',
+              nmdrpaNumber: '',
               comp1Qty: '',
               comp1Ullage: '',
               comp2Qty: '',
@@ -617,6 +628,7 @@ export const PickupProcessing = () => {
         driver_phone: sanitized.driverPhone,
         // Optional fields (may be blank)
         delivery_address: sanitized.deliveryAddress?.trim() ? sanitized.deliveryAddress : undefined,
+        nmdrpa_number: sanitized.nmdrpaNumber?.trim() ? sanitized.nmdrpaNumber : undefined,
         // compartments + loader must remain blank
         compartment_details: undefined,
         comp1_qty: undefined,
@@ -999,7 +1011,7 @@ export const PickupProcessing = () => {
                                 <DialogHeader>
                                   <DialogTitle>Release Order</DialogTitle>
                                   <DialogDescription>
-                                    Enter truck/driver and ticket details to release this order and generate the release ticket.
+                                    Enter details to release this order and generate the loading ticket.
                                   </DialogDescription>
                                 </DialogHeader>
 
@@ -1030,6 +1042,15 @@ export const PickupProcessing = () => {
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
                                       />
                                     </div>
+                                  </div>
+
+                                  <div>
+                                    <Label htmlFor="nmdrpaNumber">NMDRPA Number</Label>
+                                    <Input
+                                      id="nmdrpaNumber"
+                                      value={releaseForm.nmdrpaNumber}
+                                      onChange={(e) => setReleaseForm({ ...releaseForm, nmdrpaNumber: e.target.value })}
+                                    />
                                   </div>
 
                                   <div>
@@ -1187,6 +1208,7 @@ export const PickupProcessing = () => {
                           data={
                             buildTicketData || {
                               orderReference: getOrderReference(selectedOrder),
+                              location: extractLocation(selectedOrder),
                               customerName: `${selectedOrder.user.first_name} ${selectedOrder.user.last_name}`,
                               companyName: extractCompanyName(selectedOrder) || '',
                               customerPhone: (() => {
@@ -1197,6 +1219,7 @@ export const PickupProcessing = () => {
                                   '';
                                 return String(phone);
                               })(),
+                              nmdrpaNumber: '',
                               product: selectedOrder.products.map((p) => p.name).join(', '),
                               qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
                               unitPrice: extractUnitPrice(selectedOrder),

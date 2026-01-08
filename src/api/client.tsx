@@ -215,34 +215,38 @@ export const apiClient = {
       return response.ok ? true : response.json();
     },
 
-    releaseOrder: async (orderId: number, data?: {
-      truck_number: string;
-      driver_name: string;
-      driver_phone: string;
-      loading_datetime: string; // ISO string
-      delivery_address?: string;
-      compartment_details?: string;
-      comp1_qty?: string;
-      comp1_ullage?: string;
-      comp2_qty?: string;
-      comp2_ullage?: string;
-      comp3_qty?: string;
-      comp3_ullage?: string;
-      comp4_qty?: string;
-      comp4_ullage?: string;
-      comp5_qty?: string;
-      comp5_ullage?: string;
-      loader_name?: string;
-      loader_phone?: string;
-    }) => {
+    releaseOrder: async (
+      id: number,
+      payload: {
+        truck_number: string;
+        driver_name: string;
+        driver_phone: string;
+        loading_datetime: string;
+        delivery_address?: string;
+        nmdrpa_number?: string;
+        compartment_details?: string;
+        comp1_qty?: string;
+        comp1_ullage?: string;
+        comp2_qty?: string;
+        comp2_ullage?: string;
+        comp3_qty?: string;
+        comp3_ullage?: string;
+        comp4_qty?: string;
+        comp4_ullage?: string;
+        comp5_qty?: string;
+        comp5_ullage?: string;
+        loader_name?: string;
+        loader_phone?: string;
+      }
+    ) => {
       // Use ONLY the new endpoint so ticket details are persisted.
       // POST /api/admin/orders/<id>/release/
-      const url = `${ADMIN_BASE}/orders/${orderId}/release/`;
+      const url = `${ADMIN_BASE}/orders/${id}/release/`;
 
       const response = await fetch(url, {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify(data || {}),
+        body: JSON.stringify(payload || {}),
       });
 
       if (!response.ok) {
