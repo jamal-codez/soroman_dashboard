@@ -103,6 +103,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           <SignatureLine label="Finance Clearance" />
           <SignatureLine label="Commercial Manager" />
           <SignatureLine label="Depot Manager" />
+          <SignatureLine label="Dispatch Officer" />
           <SignatureLine label="Security" />
         </div>
 
