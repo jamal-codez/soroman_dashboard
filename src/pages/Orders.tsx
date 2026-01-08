@@ -66,11 +66,11 @@ const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()]
 
 const getStatusIcon = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid': return <CheckCircle className="text-green-500" size={16} />;
-    case 'pending': return <Clock className="text-orange-500" size={16} />;
-    case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
-    case 'released': return <CheckCircle className="text-blue-600" size={16} />;
-    default: return <CheckCircle className="text-blue-500" size={16} />;
+    case 'paid': return <CheckCircle className="text-green-500" size={14} />;
+    case 'pending': return <Clock className="text-orange-500" size={14} />;
+    case 'canceled': return <AlertCircle className="text-red-500" size={14} />;
+    case 'released': return <CheckCircle className="text-blue-600" size={14} />;
+    default: return <CheckCircle className="text-blue-500" size={14} />;
   }
 };
 
@@ -421,15 +421,15 @@ const Orders = () => {
     const headers = [
       'S/N',
       'Date & Time',
-      'Reference',
-      'Name',
+      'Order Reference',
+      'Customer Name',
       'Phone Number',
-      'Company',
+      'Company Name',
       'Location',
-      'Marketer',
+      'Assigned Marketer',
       'Product',
       'Quantity (L)',
-      'Amount Paid (₦)',
+      'Amount Paid (N)',
       'Status',
     ];
 
@@ -451,15 +451,16 @@ const Orders = () => {
     ]);
 
     const summaryBlock = [
-      ['Report Summary'],
-      ['Filter', getFilterLabelForFile()],
-      ['Status', statusFilter ? getStatusText(statusFilter) : 'All'],
+      ['Orders Summary'],
+      []
+      // ['Filter', getFilterLabelForFile()],
+      // ['Status', statusFilter ? getStatusText(statusFilter) : 'All'],
       ['Total Released Orders', releasedTotals.totalOrders.toString()],
       ['Quantity Released (Litres)', releasedTotals.totalQty.toLocaleString()],
       ['Total Amount Released (N)', releasedTotals.totalAmount.toLocaleString()],
       ['Total Canceled Orders', canceledTotals.totalOrders.toString()],
-      ['Quantity Canceled (Litres)', canceledTotals.totalQty.toLocaleString()],
-      ['Total Amount Canceled (N)', canceledTotals.totalAmount.toLocaleString()],
+      // ['Quantity Canceled (Litres)', canceledTotals.totalQty.toLocaleString()],
+      // ['Total Amount Canceled (N)', canceledTotals.totalAmount.toLocaleString()],
       [],
     ];
 
@@ -474,7 +475,7 @@ const Orders = () => {
     link.href = URL.createObjectURL(blob);
     link.setAttribute(
       'download',
-      `orders_export_${getFilterLabelForFile()}_${getStatusLabelForFile()}_${new Date().toISOString()}.csv`
+      `Orders.csv`
     );
     document.body.appendChild(link);
     link.click();
@@ -615,23 +616,23 @@ const Orders = () => {
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-              <Table>
+              <Table className="text-sm">
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[60px]">S/N</TableHead>
-                    <TableHead className="w-[140px]">Date &amp; Time</TableHead>
-                    <TableHead className="w-[140px]">Reference</TableHead>
-                    <TableHead className="min-w-[170px]">Name &amp; Phone</TableHead>
-                    <TableHead className="min-w-[150px]">Company</TableHead>
-                    <TableHead className="w-[120px]">Location</TableHead>
-                    <TableHead className="min-w-[150px]">Marketer</TableHead>
-                    <TableHead className="min-w-[150px]">Product</TableHead>
-                    <TableHead className="w-[90px] text-right">Qty</TableHead>
-                    <TableHead className="w-[120px] text-right">Amount</TableHead>
-                    <TableHead className="w-[110px]">Action</TableHead>
+                  <TableRow className="[&>th]:py-2 [&>th]:px-2">
+                    <TableHead className="w-[52px]">S/N</TableHead>
+                    <TableHead className="w-[120px]">Date &amp; Time</TableHead>
+                    <TableHead className="w-[120px]">Order Reference</TableHead>
+                    <TableHead className="w-[170px]">Customer Details</TableHead>
+                    <TableHead className="w-[140px]">Company Name</TableHead>
+                    <TableHead className="w-[105px]">Location</TableHead>
+                    <TableHead className="w-[150px]">Assigned Marketer</TableHead>
+                    <TableHead className="w-[150px]">Product</TableHead>
+                    <TableHead className="w-[80px]">Qty (L)</TableHead>
+                    <TableHead className="w-[105px]">Amount</TableHead>
+                    <TableHead className="w-[110px]">Status</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
+                <TableBody className="[&>tr>td]:py-2 [&>tr>td]:px-2">
                   {filteredOrders.map((order, idx) => {
                     const status = (order.status || '').toLowerCase();
                     const autoCanceled =
@@ -646,39 +647,41 @@ const Orders = () => {
                       <TableRow key={order.id}>
                         <TableCell className="text-slate-600">{serial}</TableCell>
 
-                        <TableCell className="text-slate-700">
+                        <TableCell className="text-slate-700 whitespace-nowrap">
                           <div className="leading-tight">
                             <div className="font-medium text-slate-900">
                               {format(new Date(order.created_at), 'dd/MM/yyyy')}
                             </div>
-                            <div className="text-xs text-slate-500">
+                            <div className="text-[11px] text-slate-500">
                               {format(new Date(order.created_at), 'HH:mm')}
                             </div>
                           </div>
                         </TableCell>
 
-                        <TableCell className="font-semibold text-slate-950">
+                        <TableCell className="font-semibold text-slate-950 whitespace-nowrap">
                           {getSalesRef(order) || '-'}
                         </TableCell>
 
                         <TableCell>
                           <div className="leading-tight">
-                            <div className="font-medium text-slate-950 capitalize">
+                            <div className="font-medium text-slate-950 capitalize max-w-[170px]">
                               {getCustomerFullName(order) || '-'}
                             </div>
-                            <div className="text-xs text-slate-600">
+                            <div className="text-[11px] text-slate-600 whitespace-nowrap">
                               {getPhoneNumber(order) || '-'}
                             </div>
                           </div>
                         </TableCell>
 
-                        <TableCell className="text-slate-800">
+                        <TableCell className="text-slate-800 truncate max-w-[140px]">
                           {getCompanyName(order) || '-'}
                         </TableCell>
 
-                        <TableCell className="text-slate-800">{order.state || '-'}</TableCell>
+                        <TableCell className="text-slate-800 whitespace-nowrap">
+                          {order.state || '-'}
+                        </TableCell>
 
-                        <TableCell className="text-slate-800">
+                        <TableCell className="text-slate-800 max-w-[150px]">
                           {(() => {
                             const parts = [
                               marketerName ? marketerName.trim() : '',
@@ -688,28 +691,30 @@ const Orders = () => {
                           })()}
                         </TableCell>
 
-                        <TableCell className="text-slate-800">{getProductsList(order) || '-'}</TableCell>
+                        <TableCell className="text-slate-800 truncate max-w-[150px]">
+                          {getProductsList(order) || '-'}
+                        </TableCell>
 
-                        <TableCell className="text-right font-medium text-slate-950">
+                        <TableCell className="text-right font-medium text-slate-950 whitespace-nowrap">
                           {safeParseNumber(order.quantity).toLocaleString()}
                         </TableCell>
 
-                        <TableCell className="text-right font-semibold text-slate-950">
+                        <TableCell className="text-right font-semibold text-slate-950 whitespace-nowrap">
                           ₦{safeParseNumber(order.total_price).toLocaleString()}
                         </TableCell>
 
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <span
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold border rounded-full capitalize ${getStatusClass(
+                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] border rounded-full uppercase ${getStatusClass(
                                 order.status
                               )}`}
                             >
                               {getStatusIcon(order.status)}
-                              <span>{getStatusText(order.status)}</span>
+                              <span className="whitespace-nowrap">{getStatusText(order.status)}</span>
                             </span>
                             {autoCanceled ? (
-                              <span className="text-xs text-slate-500">12 hours expired</span>
+                              <span className="text-[11px] text-slate-500">12 hours expired</span>
                             ) : null}
                           </div>
                         </TableCell>
