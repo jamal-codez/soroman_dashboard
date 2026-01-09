@@ -226,10 +226,13 @@ const extractAssignedAgentPhone = (order: Order): string => {
 
 const formatAssignedAgent = (order: Order): string => {
   const name = extractAssignedAgentName(order);
-  const phone = extractAssignedAgentPhone(order);
+  // const phone = extractAssignedAgentPhone(order);
 
-  const parts = [name, phone ? `(${phone})` : ''].filter(Boolean);
+  const parts = [name].filter(Boolean);
   return parts.length ? parts.join(' ') : '';
+
+  // const parts = [name, phone ? `(${phone})` : ''].filter(Boolean);
+  // return parts.length ? parts.join(' ') : '';
 };
 
 // --- Ticket helpers (backend contract: flat fields on order) ---
@@ -927,17 +930,17 @@ export const PickupProcessing = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
+                    <TableHead>Order ID</TableHead>
                     {/* <TableHead>Reference</TableHead> */}
                     {/* <TableHead>Type</TableHead> */}
-                    <TableHead>Location</TableHead>
-                    <TableHead>Agent</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Truck No.</TableHead>
-                    <TableHead>Driver Details</TableHead>
                     <TableHead>Loading Date/Time</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Assigned Agent</TableHead>
+                    <TableHead>Location</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Qty (L)</TableHead>
+                    <TableHead>Driver Details</TableHead>
+                    <TableHead>Truck No.</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-center">Action</TableHead>
                   </TableRow>
@@ -956,8 +959,7 @@ export const PickupProcessing = () => {
                         <TableCell className="font-medium">{order.id}</TableCell>
                         {/* <TableCell>{getOrderReference(order) || '-'}</TableCell> */}
                         {/* <TableCell className="capitalize">{order.release_type || '-'}</TableCell> */}
-                        <TableCell>{extractLocation(order) || '-'}</TableCell>
-                        <TableCell>{formatAssignedAgent(order) || '-'}</TableCell>
+                        <TableCell>{loadingDateTime || '-'}</TableCell>
                         <TableCell>
                           <div>
                             <div className="font-medium">
@@ -965,7 +967,10 @@ export const PickupProcessing = () => {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>{truckNumber || '-'}</TableCell>
+                        <TableCell>{formatAssignedAgent(order) || '-'}</TableCell>
+                        <TableCell>{extractLocation(order) || '-'}</TableCell>
+                        <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
+                        <TableCell>{order.quantity.toLocaleString()}</TableCell>
                         <TableCell>
                           {driverName || driverPhone ? (
                             <div>
@@ -976,9 +981,7 @@ export const PickupProcessing = () => {
                             '-'
                           )}
                         </TableCell>
-                        <TableCell>{loadingDateTime || '-'}</TableCell>
-                        <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
-                        <TableCell>{order.quantity.toLocaleString()}</TableCell>
+                        <TableCell>{truckNumber || '-'}</TableCell>
                         <TableCell>
                           <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
                             {getStatusIcon(order.status)}

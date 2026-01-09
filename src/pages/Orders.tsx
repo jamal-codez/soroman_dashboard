@@ -673,11 +673,11 @@ const Orders = () => {
                           </div>
                         </TableCell>
 
-                        <TableCell className="text-slate-800 truncate max-w-[140px]">
+                        <TableCell className="text-slate-800 max-w-[140px]">
                           {getCompanyName(order) || '-'}
                         </TableCell>
 
-                        <TableCell className="text-slate-800 whitespace-nowrap">
+                        <TableCell className="text-slate-800 truncate whitespace-nowrap max-w-[105px]">
                           {order.state || '-'}
                         </TableCell>
 
@@ -685,7 +685,7 @@ const Orders = () => {
                           {(() => {
                             const parts = [
                               marketerName ? marketerName.trim() : '',
-                              marketerPhone ? `(${marketerPhone})` : '',
+                              // marketerPhone ? `(${marketerPhone})` : '',
                             ].filter(Boolean);
                             return parts.length ? parts.join(' ') : '-';
                           })()}
