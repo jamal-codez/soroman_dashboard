@@ -1020,10 +1020,21 @@ export const PickupProcessing = () => {
 
                                 <div className="space-y-4 overflow-y-auto pr-1 flex-1">
                                   <div>
+                                    <Label htmlFor="loadingDateTime">Loading Date & Time</Label>
+                                    <Input
+                                      id="loadingDateTime"
+                                      type="datetime-local"
+                                      value={releaseForm.loadingDateTime}
+                                      required
+                                      onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
                                     <Label htmlFor="truckNumber">Truck Number</Label>
                                     <Input
                                       id="truckNumber"
                                       value={releaseForm.truckNumber}
+                                      required
                                       onChange={(e) => setReleaseForm({ ...releaseForm, truckNumber: e.target.value })}
                                     />
                                   </div>
@@ -1034,6 +1045,7 @@ export const PickupProcessing = () => {
                                       <Input
                                         id="driverName"
                                         value={releaseForm.driverName}
+                                        required
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
                                       />
                                     </div>
@@ -1042,6 +1054,7 @@ export const PickupProcessing = () => {
                                       <Input
                                         id="driverPhone"
                                         value={releaseForm.driverPhone}
+                                        required
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
                                       />
                                     </div>
@@ -1053,6 +1066,7 @@ export const PickupProcessing = () => {
                                       id="nmdrpaNumber"
                                       value={releaseForm.nmdrpaNumber}
                                       onChange={(e) => setReleaseForm({ ...releaseForm, nmdrpaNumber: e.target.value })}
+                                      disabled
                                     />
                                   </div>
 
@@ -1062,7 +1076,7 @@ export const PickupProcessing = () => {
                                       id="deliveryAddress"
                                       value={releaseForm.deliveryAddress}
                                       onChange={(e) => setReleaseForm({ ...releaseForm, deliveryAddress: e.target.value })}
-                                      placeholder="Enter delivery address"
+                                      disabled
                                     />
                                   </div>
 
@@ -1131,15 +1145,6 @@ export const PickupProcessing = () => {
                                     </div>
                                   </div>
 
-                                  <div>
-                                    <Label htmlFor="loadingDateTime">Loading Date & Time</Label>
-                                    <Input
-                                      id="loadingDateTime"
-                                      type="datetime-local"
-                                      value={releaseForm.loadingDateTime}
-                                      onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
-                                    />
-                                  </div>
                                 </div>
 
                                 <DialogFooter className="pt-3 border-t border-slate-200 bg-white">
@@ -1225,7 +1230,7 @@ export const PickupProcessing = () => {
                               nmdrpaNumber: '',
                               product: selectedOrder.products.map((p) => p.name).join(', '),
                               qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
-                              unitPrice: extractUnitPrice(selectedOrder),
+                              // unitPrice: extractUnitPrice(selectedOrder),
                               truckNumber: '',
                               driverName: '',
                               driverPhone: '',
