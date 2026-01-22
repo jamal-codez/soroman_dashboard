@@ -294,7 +294,7 @@ export default function SecurityPage() {
                       <Detail label="NMDPRA Number" value={getDprOrNmdpra(match)} />
                       <Detail label="Driver's Name" value={getDriverName(match)} />
                       <Detail label="Truck Number" value={getTruckNumber(match)} />
-                      <Detail label="Agent Name" value={getAssignedAgentName(match)} />
+                      <Detail label="Marketer" value={getAssignedAgentName(match)} />
                       <Detail label="Loading Date & Time" value={getLoadingDateTime(match)} />
                     </div>
                   )}
