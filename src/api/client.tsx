@@ -2,11 +2,17 @@ const ADMIN_BASE = 'https://api.ordersoroman.com/api/admin';
 // const ADMIN_BASE = 'http://127.0.0.1:8000/api/admin';
 
 // Utility function to generate headers
-const getHeaders = (additionalHeaders = {}) => ({
-  'Content-Type': 'application/json',
-  Authorization: `Token ${localStorage.getItem('token')}`,
-  ...additionalHeaders,
-});
+const getHeaders = (additionalHeaders = {}) => {
+  const token = localStorage.getItem('token');
+  // Avoid sending `Authorization: Token null/undefined`.
+  const authHeader = token ? { Authorization: `Token ${token}` } : {};
+
+  return {
+    'Content-Type': 'application/json',
+    ...authHeader,
+    ...additionalHeaders,
+  };
+};
 
 const getHeadersfree = (additionalHeaders = {}) => ({
   'Content-Type': 'application/json',
@@ -294,6 +300,14 @@ export const apiClient = {
       const response = await fetch(url.toString(), {
         headers: getHeaders(),
       });
+      if (!response.ok) {
+        const error = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const message =
+          (typeof error.error === 'string' && error.error) ||
+          (typeof error.detail === 'string' && error.detail) ||
+          `Failed to fetch orders (${response.status})`;
+        throw new Error(message);
+      }
       return response.json();
     },
 

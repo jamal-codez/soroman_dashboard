@@ -46,10 +46,10 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
       <div ref={ref} className="bg-white text-slate-900 p-8">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Soroman" className="h-8 w-8" />
+            <img src="/logo.png" alt="Soroman" className="h-12 w-12" />
             <div>
               <div className="text-lg font-bold">Soroman Nigeria Limited</div>
-              <div className="text-sm">Release Ticket for {data.location || ""}</div>
+              <div className="text-sm">Release Ticket for <span className="font-semibold text-green-700">{data.location || ""}</span></div>
             </div>
           </div>
           <div className="text-right">
@@ -60,9 +60,9 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
 
         <div className="mt-6 border border-slate-300 overflow-hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2">
-            <TicketRow label="Customer Name" value={data.customerName} />
-            <TicketRow label="Company Name" value={data.companyName} />
-            <TicketRow label="Customer Phone" value={data.customerPhone} />
+            <TicketRow label="Customer's Name" value={data.customerName} />
+            <TicketRow label="Company's Name" value={data.companyName} />
+            <TicketRow label="Customer's Phone" value={data.customerPhone} />
             <TicketRow label="NMDPRA Number" value={data.nmdrpaNumber} />
             <TicketRow label="Product" value={`${data.product} x ${data.qty}`} />
             {/* <TicketRow label="Quantity" value={data.qty} /> */}
@@ -97,18 +97,17 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           </div>
         </div>
 
-        <div className="mt-6 space-y-3 text-sm">
-          <SignatureLine label="Loader's Name" />
-          <SignatureLine label="Loader's Phone No." />
-          <SignatureLine label="Finance Clearance" />
-          <SignatureLine label="Commercial Manager" />
-          <SignatureLine label="Depot Manager" />
-          <SignatureLine label="Dispatch Officer" />
-          <SignatureLine label="Security" />
+        <div className="mt-6 space-y-5 text-sm">
+          <SignatureLine label="Loader's Name & Phone No." />
+          <SignatureLine label="Finance Clearance" placeholders />
+          <SignatureLine label="Commercial Manager" placeholders />
+          <SignatureLine label="Depot Manager" placeholders />
+          <SignatureLine label="Dispatch Officer" placeholders />
+          <SignatureLine label="Security" placeholders />
         </div>
 
         <div className="mt-12 bg-green-900 p-3 text-sm flex items-center justify-center text-white text-center">
-          <div>Contact: 07060659524, 08035370741, 08037367917</div>
+          <div>Contact us: <br /> 07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324</div>
         </div>
 
       </div>
@@ -117,11 +116,24 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
 );
 TicketPrint.displayName = "TicketPrint";
 
-function SignatureLine({ label }: { label: string }) {
+function SignatureLine({
+  label,
+  placeholders,
+}: {
+  label: string;
+  placeholders?: boolean;
+}) {
   return (
     <div className="flex items-center gap-2">
       <div className="font-semibold">{label}:</div>
-      <div className="flex-1 border-b border-slate-500 h-5" />
+      <div className="flex-1 relative h-5">
+        <div className="absolute inset-x-0 bottom-0 border-b border-slate-500" />
+        {placeholders ? (
+          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-200">          
+            <span className="px-1">Full Name & Signature</span>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

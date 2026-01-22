@@ -21,6 +21,7 @@ import OfflineSales from "./pages/offlineSales";
 import Report from "./pages/Report";
 import Pricing from "./pages/Pricing";
 import Agents from "./pages/Agents";
+import SecurityPage from "./pages/Security";
 
 const queryClient = new QueryClient();
 
@@ -49,6 +50,7 @@ const App = () => (
           <Route path="/report" element={<Report/>} />
           <Route path="/pricing" element={<Pricing/>} />
           <Route path="/agents" element={<Agents />} />
+          <Route path="/security" element={<SecurityPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

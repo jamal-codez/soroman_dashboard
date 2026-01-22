@@ -72,6 +72,7 @@ const roleMap = {
   2: 'FINANCE',
   3: 'SALES',
   4: 'RELEASE',
+  5: 'SECURITY',
 };
 
 const Settings = () => {
@@ -234,7 +235,11 @@ const Settings = () => {
 
         // General API message
         if (apiErrors.message || apiErrors.detail) {
-          errorMessage = apiErrors.message || apiErrors.detail;
+          const msg =
+            (typeof apiErrors.message === 'string' && apiErrors.message) ||
+            (typeof apiErrors.detail === 'string' && apiErrors.detail) ||
+            '';
+          if (msg) errorMessage = msg;
         }
 
         // Field-specific messages
@@ -524,6 +529,7 @@ const Settings = () => {
                       <SelectItem value="2">Finance Admin</SelectItem>
                       <SelectItem value="3">Marketing Officer</SelectItem>
                       <SelectItem value="4">Release Officer</SelectItem>
+                      <SelectItem value="5">Security Officer</SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>
