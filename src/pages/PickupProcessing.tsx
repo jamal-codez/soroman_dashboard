@@ -193,6 +193,11 @@ const getStatusIcon = (status: Order['status']) => {
   }
 };
 
+// --- AGENT/MARKETER LOGIC REMOVED ---
+/*
+// All code related to assigned_agent, extractAssignedAgentName, formatAssignedAgent, and any UI for marketers/agents is commented out.
+*/
+/*
 const extractAssignedAgentName = (order: Order): string => {
   const rec = order as unknown as Record<string, unknown>;
   const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
@@ -234,7 +239,7 @@ const formatAssignedAgent = (order: Order): string => {
   // const parts = [name, phone ? `(${phone})` : ''].filter(Boolean);
   // return parts.length ? parts.join(' ') : '';
 };
-
+*/
 // --- Ticket helpers (backend contract: flat fields on order) ---
 const getOrderTicketDetails = (
   order: Order,
@@ -728,7 +733,7 @@ export const PickupProcessing = () => {
       "Reference",
       "Release Type",
       "Location",
-      "Assigned Agent",
+      // "Assigned Agent",
       "Customer Name",
       "Email",
       "Truck Number",
@@ -763,7 +768,7 @@ export const PickupProcessing = () => {
         getOrderReference(order),
         order.release_type,
         extractLocation(order),
-        formatAssignedAgent(order),
+        // formatAssignedAgent(order),
         `${order.user.first_name} ${order.user.last_name}`,
         order.user.email,
         truckNumber,
@@ -935,7 +940,7 @@ export const PickupProcessing = () => {
                     {/* <TableHead>Type</TableHead> */}
                     <TableHead>Loading Date/Time</TableHead>
                     <TableHead>Customer</TableHead>
-                    <TableHead>Assigned Agent</TableHead>
+                    {/* <TableHead>Assigned Agent</TableHead> */}
                     <TableHead>Location</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Qty (L)</TableHead>
@@ -967,7 +972,7 @@ export const PickupProcessing = () => {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>{formatAssignedAgent(order) || '-'}</TableCell>
+                        {/* <TableCell>{formatAssignedAgent(order) || '-'}</TableCell> */}
                         <TableCell>{extractLocation(order) || '-'}</TableCell>
                         <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                         <TableCell>{order.quantity.toLocaleString()}</TableCell>
@@ -1230,7 +1235,7 @@ export const PickupProcessing = () => {
                               nmdrpaNumber: '',
                               product: selectedOrder.products.map((p) => p.name).join(', '),
                               qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
-                              // unitPrice: extractUnitPrice(selectedOrder),
+                              unitPrice: '', // Provide empty string for unitPrice to satisfy type
                               truckNumber: '',
                               driverName: '',
                               driverPhone: '',

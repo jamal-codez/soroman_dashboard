@@ -54,6 +54,8 @@ type PagedResponse<T> = { count?: number; results?: T[] };
 const norm = (s: unknown) => String(s ?? "").trim();
 const normLower = (s: unknown) => norm(s).toLowerCase();
 
+/*
+// --- AGENT/MARKETER LOGIC REMOVED ---
 const getAssignedAgent = (o: OrderLike): Record<string, unknown> | null => {
   const rec = o as unknown as Record<string, unknown>;
   const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
@@ -78,6 +80,7 @@ const getAssignedAgentName = (o: OrderLike): string => {
     ""
   );
 };
+*/
 
 function getCustomerName(o: OrderLike) {
   const user = o.user || {};
@@ -294,7 +297,7 @@ export default function SecurityPage() {
                       <Detail label="NMDPRA Number" value={getDprOrNmdpra(match)} />
                       <Detail label="Driver's Name" value={getDriverName(match)} />
                       <Detail label="Truck Number" value={getTruckNumber(match)} />
-                      <Detail label="Marketer" value={getAssignedAgentName(match)} />
+                      {/* <Detail label="Marketer" value={getAssignedAgentName(match)} /> */}
                       <Detail label="Loading Date & Time" value={getLoadingDateTime(match)} />
                     </div>
                   )}

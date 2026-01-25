@@ -84,6 +84,7 @@ const getStatusClass = (status: string) => {
   }
 };
 
+/*
 const getAssignedAgent = (o: Order): Record<string, unknown> | null => {
   const rec = o as unknown as Record<string, unknown>;
   const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
@@ -106,6 +107,7 @@ const getAssignedAgentName = (o: Order): string => {
     ''
   );
 };
+*/
 
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -113,7 +115,7 @@ const Orders = () => {
   const [productFilter, setProductFilter] = useState<string|null>(null);
   const [locationFilter, setLocationFilter] = useState<string|null>(null);
   const [statusFilter, setStatusFilter] = useState<string|null>(null);
-  const [agentFilter, setAgentFilter] = useState<string|null>(null);
+  // const [agentFilter, setAgentFilter] = useState<string|null>(null);
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
@@ -188,6 +190,7 @@ const Orders = () => {
     return Array.from(new Set(states)).sort();
   }, [apiResponse?.results]);
 
+  /*
   const uniqueAgents = useMemo(() => {
     const list = apiResponse?.results || [];
     const names = list
@@ -198,6 +201,7 @@ const Orders = () => {
       .filter((n): n is string => Boolean(n));
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
   }, [apiResponse?.results]);
+  */
 
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
@@ -241,13 +245,15 @@ const Orders = () => {
       .filter(order => {
         if (!statusFilter) return true;
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
-      })
+      });
+      /*
       .filter(order => {
         if (!agentFilter) return true;
         const n = getAssignedAgentName(order).trim();
         return n === agentFilter;
       });
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter, agentFilter]);
+      */
+  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter]);
 
   const safeParseNumber = (v: unknown) => {
     if (v == null) return 0;
@@ -300,13 +306,15 @@ const Orders = () => {
       .filter((order) => {
         if (!locationFilter) return true;
         return order.state === locationFilter;
-      })
+      });
+      /*
       .filter((order) => {
         if (!agentFilter) return true;
         const n = getAssignedAgentName(order).trim();
         return n === agentFilter;
       });
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, agentFilter]);
+      */
+  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter]);
 
   const releasedFilteredOrders = useMemo(() => {
     return filteredOrdersForSummary.filter((o) => (o.status || '').toLowerCase() === 'released');
@@ -374,6 +382,7 @@ const Orders = () => {
   const getProductsList = (o: Order) =>
     (o.products || []).map(p => p.name).filter(Boolean).join(', ');
 
+  /*
   const getAssignedAgentPhone = (o: Order): string => {
     const aRec = getAssignedAgent(o);
     if (!aRec) return '';
@@ -399,6 +408,7 @@ const Orders = () => {
       ''
     );
   };
+  */
 
   const getFilterLabelForFile = () => {
     switch (filterType) {
@@ -426,7 +436,7 @@ const Orders = () => {
       'Phone Number',
       'Company Name',
       'Location',
-      'Assigned Marketer',
+      // 'Assigned Marketer',
       'Product',
       'Quantity (L)',
       'Amount Paid (N)',
@@ -443,7 +453,7 @@ const Orders = () => {
       getPhoneNumber(order),
       getCompanyName(order),
       order.state || '-',
-      getAssignedAgentName(order) || '-',
+      // getAssignedAgentName(order) || '-',
       getProductsList(order),
       safeParseNumber(order.quantity).toLocaleString(),
       safeParseNumber(order.total_price).toLocaleString(),
@@ -515,7 +525,7 @@ const Orders = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <select
                     aria-label="Date filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
@@ -569,6 +579,7 @@ const Orders = () => {
                     ))}
                   </select>
 
+                  {/*
                   <select
                     aria-label="Agent filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
@@ -580,6 +591,7 @@ const Orders = () => {
                       <option key={a} value={a}>{a}</option>
                     ))}
                   </select>
+                  */}
                 </div>
               </div>
 
@@ -625,7 +637,7 @@ const Orders = () => {
                     <TableHead className="w-[170px]">Customer Details</TableHead>
                     <TableHead className="w-[140px]">Company Name</TableHead>
                     <TableHead className="w-[105px]">Location</TableHead>
-                    <TableHead className="w-[150px]">Assigned Marketer</TableHead>
+                    {/* <TableHead className="w-[150px]">Assigned Marketer</TableHead> */}
                     <TableHead className="w-[150px]">Product</TableHead>
                     <TableHead className="w-[80px]">Qty (L)</TableHead>
                     <TableHead className="w-[105px]">Amount</TableHead>
@@ -640,8 +652,8 @@ const Orders = () => {
                       shouldAutoCancel({ status: 'pending', created_at: order.created_at });
                     const serial = filteredOrders.length - idx;
 
-                    const marketerName = getAssignedAgentName(order);
-                    const marketerPhone = getAssignedAgentPhone(order);
+                    // const marketerName = getAssignedAgentName(order);
+                    // const marketerPhone = getAssignedAgentPhone(order);
 
                     return (
                       <TableRow key={order.id}>
@@ -681,6 +693,7 @@ const Orders = () => {
                           {order.state || '-'}
                         </TableCell>
 
+                        {/*
                         <TableCell className="text-slate-800 max-w-[150px]">
                           {(() => {
                             const parts = [
@@ -690,6 +703,7 @@ const Orders = () => {
                             return parts.length ? parts.join(' ') : '-';
                           })()}
                         </TableCell>
+                        */}
 
                         <TableCell className="text-slate-800 truncate max-w-[150px]">
                           {getProductsList(order) || '-'}

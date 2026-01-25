@@ -60,6 +60,8 @@ const statusDisplayMap: Record<Order['status'], string> = {
   canceled: 'Unpaid',
 };
 
+/*
+// All code related to assigned_agent, getAssignedAgentSummary, and any UI for marketers/agents is commented out.
 const getAssignedAgentSummary = (order: Order): string => {
   const a = order.assigned_agent as unknown;
   if (!a || typeof a !== 'object') return '';
@@ -69,6 +71,7 @@ const getAssignedAgentSummary = (order: Order): string => {
   const phone = (typeof rec.phone === 'string' ? rec.phone : '') || (typeof rec.phone_number === 'string' ? rec.phone_number : '');
   return [name, phone ? `(${phone})` : ''].filter(Boolean).join(' ');
 };
+*/
 
 export const OrdersTable = () => {
   const { data: orders, isLoading, isError } = useQuery<Order[]>({
@@ -124,7 +127,7 @@ export const OrdersTable = () => {
             <tr className="bg-slate-50">
               <th className="text-left text-xs font-semibold text-slate-500 p-4">REFERENCE</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">CUSTOMER</th>
-              <th className="text-left text-xs font-semibold text-slate-500 p-4">AGENT</th>
+              {/* <th className="text-left text-xs font-semibold text-slate-500 p-4">AGENT</th> */}
               <th className="text-left text-xs font-semibold text-slate-500 p-4">PRODUCT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">QUANTITY</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">DATE</th>
@@ -146,9 +149,9 @@ export const OrdersTable = () => {
                     <div className="text-xs text-slate-500">{order.user.email}</div>
                   </div>
                 </td>
-                <td className="p-4 text-sm text-slate-700">
+                {/* <td className="p-4 text-sm text-slate-700">
                   {getAssignedAgentSummary(order) || '-'}
-                </td>
+                </td> */}
                 <td className="p-4 text-sm text-slate-700">
                   {order.products.map(p => p.abbreviation).join(', ')}
                 </td>
