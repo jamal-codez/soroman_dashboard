@@ -267,6 +267,17 @@ export const apiClient = {
       return response.json();
     },
 
+    confirmTruckExit: async (orderId: string | number) => {
+      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/exit-truck/`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to confirm truck exit');
+      }
+      return response.json();
+    },
+
     // Top Customers
     getTopCustomers: async () => {
       const response = await fetch(`${ADMIN_BASE}/top-customers/`, {
@@ -721,6 +732,17 @@ export const apiClient = {
         headers: getHeaders(),
       });
       return response.ok ? true : response.json();
+    },
+
+    getOrderAudit: async () => {
+      const response = await fetch(`${ADMIN_BASE}/order-audit/`, {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch order audit data');
+      }
+      return response.json();
     },
     
   },

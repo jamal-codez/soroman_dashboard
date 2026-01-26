@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiClient } from "@/api/client";
-import { Search } from "lucide-react";
+import { Search, CheckCircle, CheckIcon, TruckIcon } from "lucide-react";
 import { format } from "date-fns";
 
 type OrderLike = {
@@ -47,40 +47,14 @@ type OrderLike = {
   qty?: number | string | null;
   truckNumber?: string | null;
   driverName?: string | null;
+
+  truck_exited?: boolean;
 };
 
 type PagedResponse<T> = { count?: number; results?: T[] };
 
 const norm = (s: unknown) => String(s ?? "").trim();
 const normLower = (s: unknown) => norm(s).toLowerCase();
-
-/*
-// --- AGENT/MARKETER LOGIC REMOVED ---
-const getAssignedAgent = (o: OrderLike): Record<string, unknown> | null => {
-  const rec = o as unknown as Record<string, unknown>;
-  const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
-  if (!a || typeof a !== "object") return null;
-  return a as Record<string, unknown>;
-};
-
-const getAssignedAgentName = (o: OrderLike): string => {
-  const aRec = getAssignedAgent(o);
-  if (!aRec) return o.agentName || o.assigned_agent_name || "";
-  const fullName = [aRec.first_name, aRec.last_name]
-    .filter((v): v is string => typeof v === "string" && v.length > 0)
-    .join(" ")
-    .trim();
-  return (
-    fullName ||
-    (typeof aRec.name === "string" ? aRec.name : "") ||
-    (typeof aRec.full_name === "string" ? aRec.full_name : "") ||
-    (typeof aRec.username === "string" ? aRec.username : "") ||
-    o.agentName ||
-    o.assigned_agent_name ||
-    ""
-  );
-};
-*/
 
 function getCustomerName(o: OrderLike) {
   const user = o.user || {};
@@ -211,6 +185,8 @@ const isReleased = (status: unknown) => normLower(status) === "released";
 
 export default function SecurityPage() {
   const [query, setQuery] = useState("");
+  const [exiting, setExiting] = useState(false);
+  const [exitedOrderId, setExitedOrderId] = useState<string | number | null>(null);
 
   // We fetch all orders once (like other pages do) and filter client-side.
   const { data, isLoading, isError, error, refetch } = useQuery<PagedResponse<OrderLike>>({
@@ -233,6 +209,18 @@ export default function SecurityPage() {
     if (!isReleased(found.status)) return "NOT_RELEASED" as const;
     return found;
   }, [data?.results, query]);
+
+  // Replace localStorage logic with backend call for truck exit
+  async function confirmTruckExit(orderId: string | number) {
+    setExiting(true);
+    try {
+      await apiClient.admin.confirmTruckExit(orderId);
+      setExitedOrderId(orderId);
+      await refetch(); // Refresh orders to get updated truck_exited status
+    } finally {
+      setExiting(false);
+    }
+  }
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -288,18 +276,36 @@ export default function SecurityPage() {
                   ) : match == null ? (
                     <div className="text-slate-600">No released order found for that ID</div>
                   ) : (
-                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <Detail label="Customer Name" value={getCustomerName(match)} />
-                      <Detail label="Company Name" value={getCompanyName(match)} />
-                      <Detail label="Phone Number" value={getPhone(match)} />
-                      <Detail label="Product" value={getProductName(match)} />
-                      <Detail label="Quantity" value={getQuantity(match)} />
-                      <Detail label="NMDPRA Number" value={getDprOrNmdpra(match)} />
-                      <Detail label="Driver's Name" value={getDriverName(match)} />
-                      <Detail label="Truck Number" value={getTruckNumber(match)} />
-                      {/* <Detail label="Marketer" value={getAssignedAgentName(match)} /> */}
-                      <Detail label="Loading Date & Time" value={getLoadingDateTime(match)} />
-                    </div>
+                    <>
+                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <Detail label="Customer Name" value={getCustomerName(match)} />
+                        <Detail label="Company Name" value={getCompanyName(match)} />
+                        <Detail label="Phone Number" value={getPhone(match)} />
+                        <Detail label="Product" value={getProductName(match)} />
+                        <Detail label="Quantity" value={getQuantity(match)} />
+                        {/* <Detail label="NMDPRA Number" value={getDprOrNmdpra(match)} /> */}
+                        <Detail label="Driver's Name" value={getDriverName(match)} />
+                        <Detail label="Truck Number" value={getTruckNumber(match)} />
+                        <Detail label="Loading Date & Time" value={getLoadingDateTime(match)} />
+                      </div>
+                      <div className="mt-6 flex flex-col items-start">
+                        {(match.truck_exited || exitedOrderId === match.id) ? (
+                          <div className="p-4 rounded bg-green-800 text-white flex items-center gap-2">
+                            <TruckIcon className="w-4 h-4" />
+                            This truck has been exited!
+                          </div>
+                        ) : (
+                          <button
+                            className="px-6 py-4 rounded bg-red-700 text-white hover:bg-red-800 mt-2 flex items-center gap-2 disabled:opacity-60"
+                            onClick={() => confirmTruckExit(match.id)}
+                            disabled={exiting}
+                          >
+                            <TruckIcon className="w-4 h-4" />
+                            {exiting ? "Exiting..." : "Confirm Truck Exit"}
+                          </button>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               </CardContent>

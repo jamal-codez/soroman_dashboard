@@ -1,4 +1,5 @@
 import { forwardRef } from "react";
+import { Globe, Phone } from "lucide-react";
 
 export type ReleaseTicketData = {
   orderReference: string;
@@ -106,8 +107,15 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           <SignatureLine label="Security" placeholders />
         </div>
 
-        <div className="mt-12 bg-green-900 p-3 text-sm flex items-center justify-center text-white text-center">
-          <div>Contact us: <br /> 07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324</div>
+        <div className="mt-12 bg-green-900 p-3 text-sm flex flex-col items-center justify-center text-white text-center gap-2">
+          <div className="flex items-center gap-2 justify-center">
+            <Globe className="w-4 h-4 mr-1" />
+            <span className="font-semibold">ordersoroman.com</span>
+          </div>
+          <div className="flex items-center gap-2 justify-center">
+            <Phone className="w-4 h-4 mr-1" />
+            <span>07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324</span>
+          </div>
         </div>
 
       </div>

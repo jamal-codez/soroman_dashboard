@@ -22,6 +22,7 @@ import Report from "./pages/Report";
 import Pricing from "./pages/Pricing";
 import Agents from "./pages/Agents";
 import SecurityPage from "./pages/Security";
+import OrderAudit from "./pages/OrderAudit";
 
 const queryClient = new QueryClient();
 
@@ -49,6 +50,7 @@ const App = () => (
           <Route path="/offline-sales" element={<OfflineSales/>} />
           <Route path="/report" element={<Report/>} />
           <Route path="/pricing" element={<Pricing/>} />
+          <Route path="/order-audit" element={<OrderAudit />} />
           {/* <Route path="/agents" element={<Agents />} /> */}
           <Route path="/security" element={<SecurityPage />} />
           <Route path="*" element={<NotFound />} />

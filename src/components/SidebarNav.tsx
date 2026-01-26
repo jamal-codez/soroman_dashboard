@@ -19,7 +19,8 @@ import {
   Tag,
   ClipboardList,
   BarChart2,
-  ShieldCheck
+  ShieldCheck,
+  BarChart3
 } from "lucide-react";
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
@@ -45,7 +46,8 @@ const navItems = [
   { title: "Pending Payments", icon: Banknote, path: "/payment-verify", allowedRoles: [0, 1, 2] },
   { title: "Manage Staff", icon: User, path: "/users-management", allowedRoles: [0, 1] },
   // { title: "Manage Marketers", icon: Users, path: "/agents", allowedRoles: [0, 1] },
-  { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 4, 5] }
+  { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 4, 5] },
+  { title: "Order Audit", icon: BarChart3, path: "/order-audit", allowedRoles: [0, 1, 2, 3, 4, 5] }
 ];
 
 export const SidebarNav = () => {
