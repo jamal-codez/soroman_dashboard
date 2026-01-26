@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiClient } from "@/api/client";
-import { Search, CheckCircle, CheckIcon, TruckIcon } from "lucide-react";
+import { Search, CheckCircle, CheckIcon, TruckIcon, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 
 type OrderLike = {
@@ -271,7 +271,12 @@ export default function SecurityPage() {
                     <div className="text-slate-500">Enter an Order ID to view details</div>
                   ) : match === "NOT_RELEASED" ? (
                     <div className="text-slate-600">
-                      This order is not released yet
+                        <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-600" />
+                        <span>
+                          This order is not yet permitted to exit the facility. Please ensure the order has been released before proceeding.
+                        </span>
+                        </div>
                     </div>
                   ) : match == null ? (
                     <div className="text-slate-600">No released order found for that ID</div>
