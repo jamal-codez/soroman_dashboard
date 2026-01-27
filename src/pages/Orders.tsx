@@ -4,6 +4,9 @@ import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { format, isThisWeek, isThisMonth, isThisYear, isToday, addDays, isAfter, isBefore, isSameDay, parseISO } from 'date-fns';
 import {
   Table,
   TableBody,
@@ -17,10 +20,15 @@ import {
   Search,
   CheckCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  BadgeDollarSign,
+  CheckIcon,
+  FuelIcon,
+  HourglassIcon,
+  Hourglass,
+  DollarSign
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { format, isThisWeek, isThisMonth, isThisYear, isToday } from 'date-fns';
 import { shouldAutoCancel } from '@/lib/orderTimers';
 import { getOrderReference } from '@/lib/orderReference';
 
@@ -56,7 +64,7 @@ interface OrderResponse {
 }
 
 const statusDisplayMap: Record<string, string> = {
-  pending: 'Awaiting Payment',
+  pending: 'Pending',
   paid: 'Paid',
   canceled: 'Unpaid',
   released: 'Released'
@@ -66,11 +74,11 @@ const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()]
 
 const getStatusIcon = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid': return <CheckCircle className="text-green-500" size={14} />;
-    case 'pending': return <Clock className="text-orange-500" size={14} />;
+    case 'paid': return <DollarSign className="text-green-500" size={14} />;
+    case 'pending': return <Hourglass className="text-orange-500" size={14} />;
     case 'canceled': return <AlertCircle className="text-red-500" size={14} />;
-    case 'released': return <CheckCircle className="text-blue-600" size={14} />;
-    default: return <CheckCircle className="text-blue-500" size={14} />;
+    case 'released': return <FuelIcon className="text-blue-600" size={14} />;
+    default: return <FuelIcon className="text-blue-500" size={14} />;
   }
 };
 
@@ -82,6 +90,22 @@ const getStatusClass = (status: string) => {
     case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
     default: return 'bg-gray-50 text-blue-700 border-blue-200';
   }
+};
+
+const extractUnitPrice = (order: Order): string => {
+  const p = order.products?.[0] as Record<string, unknown> | undefined;
+  const o = order as unknown as Record<string, unknown>;
+  const raw =
+    (p && (p.unit_price ?? p.unitPrice ?? p.price)) ||
+    (o.unit_price as unknown) ||
+    (o.unit_price_per_litre as unknown) ||
+    (o.unit_price_per_liter as unknown) ||
+    (o.price_per_litre as unknown) ||
+    (o.price_per_liter as unknown);
+  if (raw === undefined || raw === null || raw === '') return '';
+  const n = Number(String(raw).replace(/,/g, ''));
+  if (!Number.isFinite(n)) return String(raw);
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
 /*
@@ -115,6 +139,7 @@ const Orders = () => {
   const [productFilter, setProductFilter] = useState<string|null>(null);
   const [locationFilter, setLocationFilter] = useState<string|null>(null);
   const [statusFilter, setStatusFilter] = useState<string|null>(null);
+  const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   // const [agentFilter, setAgentFilter] = useState<string|null>(null);
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
@@ -226,12 +251,14 @@ const Orders = () => {
         return inId || inName || inProducts || inReleaseType || inState || inRef || inTruck || inDriver;
       })
       .filter(order => {
-        if (!filterType) return true;
-        const date = new Date(order.created_at);
-        if (filterType === 'today') return isToday(date);
-        if (filterType === 'week') return isThisWeek(date);
-        if (filterType === 'month') return isThisMonth(date);
-        if (filterType === 'year') return isThisYear(date);
+        if (dateRange.from && dateRange.to) {
+          const orderDate = new Date(order.created_at);
+          // Inclusive range
+          return (
+            (isSameDay(orderDate, dateRange.from) || isAfter(orderDate, dateRange.from)) &&
+            (isSameDay(orderDate, dateRange.to) || isBefore(orderDate, addDays(dateRange.to, 1)))
+          );
+        }
         return true;
       })
       .filter(order => {
@@ -253,7 +280,7 @@ const Orders = () => {
         return n === agentFilter;
       });
       */
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter]);
+  }, [apiResponse?.results, searchQuery, dateRange, productFilter, locationFilter, statusFilter]);
 
   const safeParseNumber = (v: unknown) => {
     if (v == null) return 0;
@@ -264,9 +291,6 @@ const Orders = () => {
     return Number.isFinite(n) ? n : 0;
   };
 
-  // Summary totals should respond to the same filters as the table.
-  // We intentionally ignore `statusFilter` so the breakdown still shows
-  // released/canceled counts within the currently filtered dataset.
   const filteredOrdersForSummary = useMemo(() => {
     const base = apiResponse?.results || [];
 
@@ -291,12 +315,13 @@ const Orders = () => {
         return inId || inName || inProducts || inReleaseType || inState || inRef || inTruck || inDriver;
       })
       .filter((order) => {
-        if (!filterType) return true;
-        const date = new Date(order.created_at);
-        if (filterType === 'today') return isToday(date);
-        if (filterType === 'week') return isThisWeek(date);
-        if (filterType === 'month') return isThisMonth(date);
-        if (filterType === 'year') return isThisYear(date);
+        if (dateRange.from && dateRange.to) {
+          const orderDate = new Date(order.created_at);
+          return (
+            (isSameDay(orderDate, dateRange.from) || isAfter(orderDate, dateRange.from)) &&
+            (isSameDay(orderDate, dateRange.to) || isBefore(orderDate, addDays(dateRange.to, 1)))
+          );
+        }
         return true;
       })
       .filter((order) => {
@@ -314,7 +339,7 @@ const Orders = () => {
         return n === agentFilter;
       });
       */
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter]);
+  }, [apiResponse?.results, searchQuery, dateRange, productFilter, locationFilter]);
 
   const releasedFilteredOrders = useMemo(() => {
     return filteredOrdersForSummary.filter((o) => (o.status || '').toLowerCase() === 'released');
@@ -417,7 +442,7 @@ const Orders = () => {
       case 'month': return 'this-month';
       case 'year': return 'this-year';
       default: return 'all';
-    }
+    };
   };
 
   const getStatusLabelForFile = () => {
@@ -438,6 +463,7 @@ const Orders = () => {
       'Location',
       // 'Assigned Marketer',
       'Product',
+      'Unit Price',
       'Quantity (L)',
       'Amount Paid (N)',
       'Status',
@@ -455,6 +481,7 @@ const Orders = () => {
       order.state || '-',
       // getAssignedAgentName(order) || '-',
       getProductsList(order),
+      extractUnitPrice(order),
       safeParseNumber(order.quantity).toLocaleString(),
       safeParseNumber(order.total_price).toLocaleString(),
       getStatusText(order.status),
@@ -465,10 +492,9 @@ const Orders = () => {
       [],
       // ['Filter', getFilterLabelForFile()],
       // ['Status', statusFilter ? getStatusText(statusFilter) : 'All'],
-      ['Total Released Orders', releasedTotals.totalOrders.toString()],
-      ['Quantity Released (Litres)', releasedTotals.totalQty.toLocaleString()],
-      ['Total Amount Released (N)', releasedTotals.totalAmount.toLocaleString()],
-      ['Total Canceled Orders', canceledTotals.totalOrders.toString()],
+      ['Total Released', releasedTotals.totalOrders.toString()],
+      ['Quantity Released', `${releasedTotals.totalQty.toLocaleString()} Litres`],
+      ['Total Amount', `N ${releasedTotals.totalAmount.toLocaleString()}`],
       // ['Quantity Canceled (Litres)', canceledTotals.totalQty.toLocaleString()],
       // ['Total Amount Canceled (N)', canceledTotals.totalAmount.toLocaleString()],
       [],
@@ -525,22 +551,25 @@ const Orders = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                  <select
-                    aria-label="Date filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={filterType ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value as ''|'today'|'week'|'month'|'year';
-                      setFilterType(v === '' ? null : v);
-                    }}
-                  >
-                    <option value="">All Time</option>
-                    <option value="today">Today</option>
-                    <option value="week">This Week</option>
-                    <option value="month">This Month</option>
-                    <option value="year">This Year</option>
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full h-11 justify-start text-left font-normal">
+                        {dateRange.from && dateRange.to
+                          ? `${format(dateRange.from, 'dd MMM yyyy')} - ${format(dateRange.to, 'dd MMM yyyy')}`
+                          : 'Select date range'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="range"
+                        selected={dateRange}
+                        onSelect={(range) => setDateRange(range as { from: Date | null; to: Date | null })}
+                        numberOfMonths={2}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
 
                   <select
                     aria-label="Status filter"
@@ -634,11 +663,12 @@ const Orders = () => {
                     <TableHead className="w-[52px]">S/N</TableHead>
                     <TableHead className="w-[120px]">Date &amp; Time</TableHead>
                     <TableHead className="w-[120px]">Order Reference</TableHead>
-                    <TableHead className="w-[170px]">Customer Details</TableHead>
-                    <TableHead className="w-[140px]">Company Name</TableHead>
+                    <TableHead className="w-[170px]">Customer</TableHead>
+                    <TableHead className="w-[140px]">Company</TableHead>
                     <TableHead className="w-[105px]">Location</TableHead>
                     {/* <TableHead className="w-[150px]">Assigned Marketer</TableHead> */}
                     <TableHead className="w-[150px]">Product</TableHead>
+                    <TableHead className="w-[105px]">Unit Price</TableHead>
                     <TableHead className="w-[80px]">Qty (L)</TableHead>
                     <TableHead className="w-[105px]">Amount</TableHead>
                     <TableHead className="w-[110px]">Status</TableHead>
@@ -710,12 +740,17 @@ const Orders = () => {
                         </TableCell>
 
                         <TableCell className="text-right font-medium text-slate-950 whitespace-nowrap">
+                          ₦{extractUnitPrice(order)}
+                        </TableCell>
+
+                        <TableCell className="text-right font-medium text-slate-950 whitespace-nowrap">
                           {safeParseNumber(order.quantity).toLocaleString()}
                         </TableCell>
 
                         <TableCell className="text-right font-semibold text-slate-950 whitespace-nowrap">
                           ₦{safeParseNumber(order.total_price).toLocaleString()}
                         </TableCell>
+                        
 
                         <TableCell>
                           <div className="flex flex-col gap-1">

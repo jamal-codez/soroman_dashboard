@@ -60,6 +60,23 @@ const statusDisplayMap: Record<Order['status'], string> = {
   canceled: 'Unpaid',
 };
 
+// Helper to extract unit price from order
+const extractUnitPrice = (order: Order): string => {
+  const p = order.products?.[0] as Record<string, unknown> | undefined;
+  const o = order as unknown as Record<string, unknown>;
+  const raw =
+    (p && (p.unit_price ?? p.unitPrice ?? p.price)) ||
+    (o.unit_price as unknown) ||
+    (o.unit_price_per_litre as unknown) ||
+    (o.unit_price_per_liter as unknown) ||
+    (o.price_per_litre as unknown) ||
+    (o.price_per_liter as unknown);
+  if (raw === undefined || raw === null || raw === '') return '';
+  const n = Number(String(raw).replace(/,/g, ''));
+  if (!Number.isFinite(n)) return String(raw);
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+};
+
 /*
 // All code related to assigned_agent, getAssignedAgentSummary, and any UI for marketers/agents is commented out.
 const getAssignedAgentSummary = (order: Order): string => {
@@ -131,6 +148,7 @@ export const OrdersTable = () => {
               <th className="text-left text-xs font-semibold text-slate-500 p-4">PRODUCT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">QUANTITY</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">DATE</th>
+              <th className="text-left text-xs font-semibold text-slate-500 p-4">UNIT PRICE</th>
               <th className="text-right text-xs font-semibold text-slate-500 p-4">AMOUNT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">STATUS</th>
               <th className="text-center text-xs font-semibold text-slate-500 p-4">Delivery Method</th>
@@ -163,6 +181,7 @@ export const OrdersTable = () => {
                     year: 'numeric'
                   })}
                 </td>
+                <td className="p-4 text-sm text-slate-700">₦{extractUnitPrice(order)}</td>
                 <td className="p-4 text-sm font-medium text-slate-900 text-right">
                   ₦{Number(String(order.total_price).replace(/[^0-9.-]+/g, '') || 0).toLocaleString()}
                 </td>
