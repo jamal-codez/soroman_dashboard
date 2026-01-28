@@ -739,15 +739,15 @@ const Orders = () => {
                           {getProductsList(order) || '-'}
                         </TableCell>
 
-                        <TableCell className="text-right font-medium text-slate-950 whitespace-nowrap">
+                        <TableCell className="text-left font-medium text-slate-950 whitespace-nowrap">
                           ₦{extractUnitPrice(order)}
                         </TableCell>
 
-                        <TableCell className="text-right font-medium text-slate-950 whitespace-nowrap">
+                        <TableCell className="text-left font-medium text-slate-950 whitespace-nowrap">
                           {safeParseNumber(order.quantity).toLocaleString()}
                         </TableCell>
 
-                        <TableCell className="text-right font-semibold text-slate-950 whitespace-nowrap">
+                        <TableCell className="text-left font-semibold text-slate-950 whitespace-nowrap">
                           ₦{safeParseNumber(order.total_price).toLocaleString()}
                         </TableCell>
                         
@@ -755,12 +755,12 @@ const Orders = () => {
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <span
-                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] border rounded-full uppercase ${getStatusClass(
+                              className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(
                                 order.status
                               )}`}
                             >
                               {getStatusIcon(order.status)}
-                              <span className="whitespace-nowrap">{getStatusText(order.status)}</span>
+                              <span className="ml-1.5">{getStatusText(order.status)}</span>
                             </span>
                             {autoCanceled ? (
                               <span className="text-[11px] text-slate-500">12 hours expired</span>
