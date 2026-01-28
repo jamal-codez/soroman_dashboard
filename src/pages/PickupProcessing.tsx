@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
-import { format, isThisMonth, isThisWeek, isThisYear, isToday } from 'date-fns';
+import { format, isThisMonth, isThisWeek, isThisYear, isToday, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
 import { apiClient } from '@/api/client';
 import { useReactToPrint } from 'react-to-print';
 import { TicketPrint, type ReleaseTicketData } from '@/components/TicketPrint';
@@ -48,6 +48,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { PageHeader } from '@/components/PageHeader';
 import { SummaryCards } from '@/components/SummaryCards';
 import { getOrderReference } from '@/lib/orderReference';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 interface Order {
   id: number;
@@ -428,6 +430,8 @@ export const PickupProcessing = () => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
+  const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
+  const [productFilter, setProductFilter] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -694,6 +698,14 @@ export const PickupProcessing = () => {
     return Array.from(new Set(locs)).sort();
   }, [apiResponse?.results]);
 
+  const uniqueProducts = useMemo(() => {
+    const list = apiResponse?.results || [];
+    const names = list
+      .flatMap((o) => (o.products || []).map((p) => p?.name))
+      .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+    return Array.from(new Set(names)).sort();
+  }, [apiResponse?.results]);
+
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base
@@ -713,7 +725,19 @@ export const PickupProcessing = () => {
 
         return inId || inName || inRef || inTruck || inDriverName || inDriverPhone;
       })
+      .filter((order) => {
+        // Date range filter (if selected) takes precedence over quick filters.
+        if (dateRange.from && dateRange.to) {
+          const orderDate = new Date(order.created_at);
+          return (
+            (isSameDay(orderDate, dateRange.from) || isAfter(orderDate, dateRange.from)) &&
+            (isSameDay(orderDate, dateRange.to) || isBefore(orderDate, addDays(dateRange.to, 1)))
+          );
+        }
+        return true;
+      })
       .filter(order => {
+        // Existing quick timeframe filter
         if (!filterType) return true;
         const d = new Date(order.created_at);
         if (filterType === 'today') return isToday(d);
@@ -721,6 +745,10 @@ export const PickupProcessing = () => {
         if (filterType === 'month') return isThisMonth(d);
         if (filterType === 'year') return isThisYear(d);
         return true;
+      })
+      .filter((order) => {
+        if (!productFilter) return true;
+        return (order.products || []).some((p) => p?.name === productFilter);
       })
       .filter(order => {
         if (!locationFilter) return true;
@@ -730,7 +758,7 @@ export const PickupProcessing = () => {
         if (!statusFilter) return true;
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
       });
-  }, [apiResponse?.results, searchQuery, filterType, locationFilter, statusFilter, releaseDetailsByOrder]);
+  }, [apiResponse?.results, searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, releaseDetailsByOrder]);
 
   const exportToCSV = (orders: Order[]) => {
     const headers = [
@@ -853,7 +881,7 @@ export const PickupProcessing = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="Release Orders"
+              title="Loading Tickets"
               // description="Capture release details, release paid orders, and generate a printable ticket." 
               actions={
                 <>
@@ -872,7 +900,7 @@ export const PickupProcessing = () => {
             <SummaryCards
               cards={[
                 { title: 'Total Orders', value: String(summary.total), description: 'All orders', icon: <FileText />, tone: 'neutral' },
-                { title: 'Paid', value: String(summary.paid), description: 'Ready to release', icon: <CheckCircle2 />, tone: 'green' },
+                { title: 'Paid', value: String(summary.paid), description: 'Ready to load', icon: <CheckCircle2 />, tone: 'green' },
                 { title: 'Released', value: String(summary.released), description: 'Tickets available', icon: <Truck />, tone: 'neutral' },
               ]}
             />
@@ -884,7 +912,7 @@ export const PickupProcessing = () => {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
                     <Input
                       type="text"
-                      placeholder="Search pickups by name, reference or ID..."
+                      placeholder="Search orders by name, reference or ID..."
                       className="pl-10"
                       value={searchQuery}
                       onChange={handleSearch}
@@ -892,22 +920,37 @@ export const PickupProcessing = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-3 gap-3">
-                    <select
-                    aria-label="Timeframe filter"
+                <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 gap-3">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between">
+                        {dateRange.from && dateRange.to
+                          ? `${format(dateRange.from, 'MMM dd, yyyy')} - ${format(dateRange.to, 'MMM dd, yyyy')}`
+                          : 'Select Date Range'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="range"
+                        selected={dateRange}
+                        onSelect={(range) => setDateRange({ from: range?.from ?? null, to: range?.to ?? null })}
+                        numberOfMonths={2}
+                      />
+                    </PopoverContent>
+                  </Popover>
+
+                  <select
+                    aria-label="Product filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={filterType ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value as ''|'today'|'week'|'month'|'year';
-                      setFilterType(v === '' ? null : v);
-                    }}
+                    value={productFilter ?? ''}
+                    onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
                   >
-                    <option value="">All Time</option>
-                    <option value="today">Today</option>
-                    <option value="week">This Week</option>
-                    <option value="month">This Month</option>
-                    <option value="year">This Year</option>
+                    <option value="">All Products</option>
+                    {uniqueProducts.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
                   </select>
+
                   <select
                     aria-label="Location filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
@@ -933,6 +976,7 @@ export const PickupProcessing = () => {
                     <option value="released">Loaded</option>
                   </select>
                 </div>
+
               </div>
             </div>
 

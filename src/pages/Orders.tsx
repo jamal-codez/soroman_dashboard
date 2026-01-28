@@ -552,7 +552,7 @@ const Orders = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full h-11 justify-start text-left font-normal">
@@ -580,9 +580,9 @@ const Orders = () => {
                   >
                     <option value="">All Statuses</option>
                     <option value="pending">Pending</option>
-                    <option value="paid">Paid</option>
-                    <option value="canceled">Unpaid</option>
-                    <option value="released">Released</option>
+                    <option value="paid">Released</option>
+                    <option value="canceled">Canceled</option>
+                    <option value="released">Loaded</option>
                   </select>
 
                   <select
@@ -626,35 +626,92 @@ const Orders = () => {
               </div>
 
               {/* Totals (unchanged) */}
-              <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="flex items-center gap-6">
-                  <div>
-                    <div className="text-sm text-slate-500">Released Orders</div>
-                    <div className="text-lg font-semibold text-slate-800">{releasedTotals.totalOrders}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-slate-500">Quantity Released</div>
-                    <div className="text-lg font-semibold text-slate-800">{releasedTotals.totalQty.toLocaleString()} Ltrs</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-slate-500">Total Amount</div>
-                    <div className="text-lg font-semibold text-slate-800">₦{releasedTotals.totalAmount.toLocaleString()}</div>
+              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-1">
+                {/* Loaded */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-blue-100">
+                        <Truck className="text-blue-700" size={16} />
+                      </span>
+                      Loaded Orders
+                    </div>
+                    <div className="text-xs text-slate-500">Summary</div>
                   </div>
 
-                  <div>
-                    <div className="text-sm text-slate-500">Canceled Orders</div>
-                    <div className="text-lg font-semibold text-slate-800">{canceledTotals.totalOrders}</div>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                    <div className="rounded-md bg-white p-3 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-500">Orders</div>
+                        <CheckCircle className="text-blue-600" size={16} />
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">{releasedTotals.totalOrders}</div>
+                    </div>
+                    <div className="rounded-md bg-white p-3 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-500">Quantity</div>
+                        <FuelIcon className="text-blue-600" size={16} />
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">
+                        {releasedTotals.totalQty.toLocaleString()}{' '}
+                        <span className="text-sm font-medium text-slate-600">Ltrs</span>
+                      </div>
+                    </div>
+                    <div className="rounded-md bg-white p-3 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-500">Amount</div>
+                        <BadgeDollarSign className="text-blue-600" size={16} />
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">
+                        ₦{releasedTotals.totalAmount.toLocaleString()}
+                      </div>
+                    </div>
                   </div>
-                  {/* <div>
-                    <div className="text-sm text-slate-500">Quantity Canceled</div>
-                    <div className="text-lg font-semibold text-slate-800">{canceledTotals.totalQty.toLocaleString()} Ltrs</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-slate-500">Amount Canceled</div>
-                    <div className="text-lg font-semibold text-slate-800">₦{canceledTotals.totalAmount.toLocaleString()}</div>
-                  </div> */}
                 </div>
+
+                {/* Unpaid */}
+                {/* <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-orange-100">
+                        <Hourglass className="text-orange-700" size={16} />
+                      </span>
+                      Unpaid Orders
+                    </div>
+                    <div className="text-xs text-slate-500">Summary</div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                    <div className="rounded-md bg-white p-3 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-500">Orders</div>
+                        <Clock className="text-orange-600" size={16} />
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">{canceledTotals.totalOrders}</div>
+                    </div>
+                    <div className="rounded-md bg-white p-3 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-500">Quantity</div>
+                        <FuelIcon className="text-orange-600" size={16} />
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">
+                        {canceledTotals.totalQty.toLocaleString()}{' '}
+                        <span className="text-sm font-medium text-slate-600">Ltrs</span>
+                      </div>
+                    </div>
+                    <div className="rounded-md bg-white p-3 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-500">Amount</div>
+                        <BadgeDollarSign className="text-orange-600" size={16} />
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">
+                        ₦{canceledTotals.totalAmount.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div> */}
               </div>
+
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">

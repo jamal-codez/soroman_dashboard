@@ -14,7 +14,7 @@ import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, ShieldCheck, Loader2, Download } from 'lucide-react';
+import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
@@ -129,63 +129,99 @@ function VerifyConfirmModal({
   if (!payment) return null;
   const createdDate = new Date(payment.created_at);
   const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
-  const { qty, unitPrice } = extractProductInfo(payment);
+  const { product, qty, unitPrice } = extractProductInfo(payment);
   const paidInto = extractPaidInto(payment);
+  const location = extractLocation(payment);
+
+  const createdText = Number.isNaN(createdDate.getTime()) ? '—' : createdDate.toLocaleString('en-GB');
+  const orderRef = getOrderReference(payment) || payment.order_id;
+  const totalAmount = `₦${parseFloat(payment.amount || '0').toLocaleString()}`;
+  const productSummary = [product, qty ? `${qty} Litres` : '']
+    .filter(Boolean)
+    .join(' × ')
+    .trim();
 
   return (
     <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-[540px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Confirm Payment</DialogTitle>
+          <DialogTitle className="text-slate-950">Confirm payment & release order</DialogTitle>
+          <div className="text-sm text-slate-600">
+            You’re about to mark this payment as <span className="font-medium text-slate-900">paid</span> and <span className="font-medium text-slate-900">release</span> the
+            order for loading
+          </div>
         </DialogHeader>
 
-        <div className="space-y-3 text-sm">
-          <div className="grid grid-cols-1 sm:grid-cols-1 gap-3">
-            <div>
-              <div className="text-xs text-slate-500">Date</div>
-              <div className="font-medium text-slate-900">
-                {Number.isNaN(createdDate.getTime()) ? '—' : createdDate.toLocaleString('en-GB')}
+        <div className="space-y-4 text-sm">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+              <div className="min-w-0">
+                <div className="text-xs text-slate-500">Order Reference</div>
+                <div className="truncate font-semibold text-slate-950">{orderRef}</div>
+                <div className="mt-2 space-y-1">
+                  <div className="text-xs text-slate-500">Location</div>
+                  <div className="font-medium text-slate-900">{location || '—'}</div>
+                </div>
+              </div>
+
+              <div className="sm:text-right">
+                <div>
+                  <div className="text-xs text-slate-500">Total Amount</div>
+                  <div className="font-semibold text-slate-950">{totalAmount}</div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-xs text-slate-500">Product</div>
+                  <div className="font-medium text-slate-900">{productSummary || '—'}</div>
+                </div>
               </div>
             </div>
-            <div>
-              <div className="text-xs text-slate-500">Order Reference</div>
-              <div className="font-medium text-slate-900">{getOrderReference(payment) || payment.order_id}</div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-md border border-slate-200 p-3">
+              <div className="text-xs text-slate-500">Date</div>
+              <div className="font-medium text-slate-900">{createdText}</div>
             </div>
-            <div>
+
+            <div className="rounded-md border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Customer</div>
               <div className="font-medium text-slate-900">{customerName || '—'}</div>
               {customerPhone ? <div className="text-slate-700">{customerPhone}</div> : null}
             </div>
           </div>
 
-          <div>
-          <div className="text-xs text-slate-500">Paid Into</div>
-            <div className="font-semibold text-slate-900">Account Number: {paidInto.account_number || '—'}</div>
-            <div className="text-slate-700">Bank Name: {paidInto.bank_name || '—'}</div>
-            <div className="text-slate-700">Account Name: {paidInto.account_name || '—'}</div>
-          {/* <div className="rounded-md border border-slate-200 p-3">
-            <div className="text-xs text-slate-500 mb-2">Paid Into</div>
-            <div className="font-semibold text-slate-900">{paidInto.account_name || '—'}</div>
-            <div className="text-slate-700">{paidInto.account_number || '—'}</div>
-            <div className="text-slate-700">{paidInto.bank_name || '—'}</div>
-          </div> */}
+          <div className="rounded-md border border-slate-200 p-3">
+            <div className="mb-2 text-xs font-medium text-slate-500">Paid Into</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div>
+                <div className="text-[11px] text-slate-500">Account Number</div>
+                <div className="font-semibold text-slate-900">{paidInto.account_number || '—'}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-500">Bank</div>
+                <div className="font-medium text-slate-900">{paidInto.bank_name || '—'}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-500">Account Name</div>
+                <div className="font-medium text-slate-900">{paidInto.account_name || '—'}</div>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-md border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Price per Litre</div>
               <div className="font-medium text-slate-900">{unitPrice ? `₦${unitPrice}` : '—'}</div>
             </div>
-            <div>
+            <div className="rounded-md border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Quantity</div>
               <div className="font-medium text-slate-900">{qty || '—'} Litres</div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <div className="text-xs text-slate-500">Total Amount</div>
-              <div className="font-semibold text-slate-950">₦{parseFloat(payment.amount || '0').toLocaleString()}</div>
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+            <div className="text-sm">
+              Do not confirm unless payment is verified. Confirmation triggers order release for loading.
             </div>
           </div>
         </div>
@@ -194,7 +230,7 @@ function VerifyConfirmModal({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={onConfirm}>Confirm</Button>
+          <Button onClick={onConfirm}>Confirm payment & release order</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -465,7 +501,10 @@ export default function PaymentVerification() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
       queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
-      toast({ title: 'Success!', description: 'Payment verified successfully!' });
+      toast({
+        title: 'Success!',
+        description: 'Successfully confirmed payment and order has been released.',
+      });
     },
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -669,7 +708,7 @@ export default function PaymentVerification() {
                            </TableCell> */}
                            <TableCell>
                              <Button
-                               variant="outline"
+                               variant="default"
                                size="sm"
                                disabled={updatingPaymentId === payment.id}
                                onClick={() => handleVerifyClick(payment)}
@@ -677,9 +716,9 @@ export default function PaymentVerification() {
                                {updatingPaymentId === payment.id ? (
                                  <Loader2 className="animate-spin mr-2" size={16} />
                                ) : (
-                                 <ShieldCheck className="mr-1" size={16} />
+                                 <DollarSign className="mr-1" size={14} />
                                )}
-                               Confirm
+                               Confirm Payment
                              </Button>
                            </TableCell>
                          </TableRow>
