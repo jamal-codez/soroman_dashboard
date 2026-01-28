@@ -26,7 +26,8 @@ import {
   FuelIcon,
   HourglassIcon,
   Hourglass,
-  DollarSign
+  DollarSign,
+  Truck
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { shouldAutoCancel } from '@/lib/orderTimers';
@@ -65,19 +66,19 @@ interface OrderResponse {
 
 const statusDisplayMap: Record<string, string> = {
   pending: 'Pending',
-  paid: 'Paid',
-  canceled: 'Unpaid',
-  released: 'Released'
+  paid: 'Released',
+  canceled: 'Canceled',
+  released: 'Loaded'
 };
 
 const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()] || status;
 
 const getStatusIcon = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid': return <DollarSign className="text-green-500" size={14} />;
+    case 'paid': return <FuelIcon className="text-green-500" size={14} />;
     case 'pending': return <Hourglass className="text-orange-500" size={14} />;
-    case 'canceled': return <AlertCircle className="text-red-500" size={14} />;
-    case 'released': return <FuelIcon className="text-blue-600" size={14} />;
+    case 'canceled': return <AlertCircle className="text-red-600" size={14} />;
+    case 'released': return <Truck className="text-blue-600" size={14} />;
     default: return <FuelIcon className="text-blue-500" size={14} />;
   }
 };

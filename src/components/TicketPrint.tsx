@@ -50,7 +50,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
             <img src="/logo.png" alt="Soroman" className="h-12 w-12" />
             <div>
               <div className="text-lg font-bold">Soroman Nigeria Limited</div>
-              <div className="text-sm">Release Ticket for <span className="font-semibold text-green-700">{data.location || ""}</span></div>
+              <div className="text-sm">Loading Ticket for <span className="font-semibold text-green-700">{data.location || ""}</span></div>
             </div>
           </div>
           <div className="text-right">

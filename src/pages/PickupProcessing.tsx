@@ -23,7 +23,9 @@ import {
   XCircle,
   Hourglass,
   Fuel,
-  FuelIcon
+  FuelIcon,
+  TruckIcon,
+  File
 } from 'lucide-react';
 import {
   Dialog,
@@ -181,17 +183,17 @@ const getStatusClass = (status: string) => {
 
 const statusDisplayMap = {
   pending: 'Pending',
-  paid: 'Paid',
+  paid: 'Released',
   canceled: 'Canceled',
-  released: 'Released',
+  released: 'Loaded',
 };
 
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
-    case 'paid': return <DollarSign className="text-green-500" size={14} />;
+    case 'paid': return <FuelIcon className="text-green-500" size={14} />;
     case 'pending': return <Hourglass className="text-orange-500" size={14} />;
     case 'canceled': return <AlertCircle className="text-red-500" size={14} />;
-    case 'released': return <FuelIcon className="text-blue-500" size={14} />;
+    case 'released': return <TruckIcon className="text-blue-500" size={14} />;
     default: return <FuelIcon className="text-orange-500" size={14} />;
   }
 };
@@ -926,9 +928,9 @@ export const PickupProcessing = () => {
                   >
                     <option value="">All Statuses</option>
                     <option value="pending">Pending</option>
-                    <option value="paid">Paid</option>
+                    <option value="paid">Released</option>
                     <option value="canceled">Canceled</option>
-                    <option value="released">Released</option>
+                    <option value="released">Loaded</option>
                   </select>
                 </div>
               </div>
@@ -1014,15 +1016,15 @@ export const PickupProcessing = () => {
                                   onClick={() => openRelease(order)}
                                   disabled={order.status !== 'paid'}
                                 >
-                                  <Truck className="h-4 w-4" />
-                                  <span>Release</span>
+                                  <File className="h-4 w-4" />
+                                  <span>Generate Ticket</span>
                                 </Button>
                               </DialogTrigger>
                               <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-lg sm:w-full flex flex-col max-h-[90vh]">
                                 <DialogHeader>
-                                  <DialogTitle>Release Order</DialogTitle>
+                                  <DialogTitle>Generate Loading Ticket</DialogTitle>
                                   <DialogDescription>
-                                    Enter details to release this order and generate the loading ticket.
+                                    Enter truck details to generate the loading ticket.
                                   </DialogDescription>
                                 </DialogHeader>
 
@@ -1160,7 +1162,7 @@ export const PickupProcessing = () => {
                                     Cancel
                                   </Button>
                                   <Button onClick={handleReleaseWithDetails}>
-                                    Confirm Release
+                                    Generate Ticket
                                   </Button>
                                 </DialogFooter>
                               </DialogContent>
@@ -1214,7 +1216,7 @@ export const PickupProcessing = () => {
                     <>
                       {!canPrintTicket && (
                         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                          Ticket cannot be printed yet. Please release the order and fill the required details.
+                          Ticket cannot be printed yet. Please fill in the required details.
                         </div>
                       )}
 
@@ -1238,7 +1240,7 @@ export const PickupProcessing = () => {
                               nmdrpaNumber: '',
                               product: selectedOrder.products.map((p) => p.name).join(', '),
                               qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
-                              unitPrice: '', // Provide empty string for unitPrice to satisfy type
+                              unitPrice: '', 
                               truckNumber: '',
                               driverName: '',
                               driverPhone: '',
