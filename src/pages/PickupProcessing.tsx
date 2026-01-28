@@ -20,7 +20,10 @@ import {
   DollarSign,
   Timer,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Hourglass,
+  Fuel,
+  FuelIcon
 } from 'lucide-react';
 import {
   Dialog,
@@ -185,11 +188,11 @@ const statusDisplayMap = {
 
 const getStatusIcon = (status: Order['status']) => {
   switch (status) {
-    case 'paid': return <CheckCircle className="text-green-500" size={16} />;
-    case 'pending': return <Clock className="text-orange-500" size={16} />;
-    case 'canceled': return <AlertCircle className="text-red-500" size={16} />;
-    case 'released': return <Truck className="text-blue-500" size={16} />;
-    default: return <Clock className="text-orange-500" size={16} />;
+    case 'paid': return <DollarSign className="text-green-500" size={14} />;
+    case 'pending': return <Hourglass className="text-orange-500" size={14} />;
+    case 'canceled': return <AlertCircle className="text-red-500" size={14} />;
+    case 'released': return <FuelIcon className="text-blue-500" size={14} />;
+    default: return <FuelIcon className="text-orange-500" size={14} />;
   }
 };
 
