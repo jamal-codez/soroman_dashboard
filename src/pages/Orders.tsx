@@ -27,7 +27,8 @@ import {
   HourglassIcon,
   Hourglass,
   DollarSign,
-  Truck
+  Truck,
+  CalendarDays
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { shouldAutoCancel } from '@/lib/orderTimers';
@@ -555,10 +556,15 @@ const Orders = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full h-11 justify-start text-left font-normal">
-                        {dateRange.from && dateRange.to
-                          ? `${format(dateRange.from, 'dd MMM yyyy')} - ${format(dateRange.to, 'dd MMM yyyy')}`
-                          : 'Select date range'}
+                      <Button variant="outline" className="w-full justify-between h-11">
+                        <span className="inline-flex items-center gap-2">
+                          <CalendarDays size={16} className="text-slate-500" />
+                          <span>
+                            {dateRange.from && dateRange.to
+                              ? `${format(dateRange.from, "dd MMM yyyy")} - ${format(dateRange.to, "dd MMM yyyy")}`
+                              : "Select date range"}
+                          </span>
+                        </span>
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">

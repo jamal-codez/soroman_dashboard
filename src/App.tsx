@@ -26,6 +26,12 @@ import OrderAudit from "./pages/OrderAudit";
 
 const queryClient = new QueryClient();
 
+const isGeneralAdmin = () => {
+  const raw = localStorage.getItem('role');
+  const role = raw === null ? NaN : Number(raw);
+  return role === 1;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -50,8 +56,10 @@ const App = () => (
           <Route path="/offline-sales" element={<OfflineSales/>} />
           <Route path="/report" element={<Report/>} />
           <Route path="/pricing" element={<Pricing/>} />
-          <Route path="/order-audit" element={<OrderAudit />} />
-          {/* <Route path="/agents" element={<Agents />} /> */}
+          <Route
+            path="/order-audit"
+            element={isGeneralAdmin() ? <OrderAudit /> : <Navigate to="/dashboard" replace />}
+          />
           <Route path="/security" element={<SecurityPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

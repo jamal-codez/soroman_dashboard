@@ -52,7 +52,7 @@ const navItems = [
   { title: "Manage Staff", icon: User, path: "/users-management", allowedRoles: [0, 1] },
   // { title: "Manage Marketers", icon: Users, path: "/agents", allowedRoles: [0, 1] },
   { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 4, 5] },
-  { title: "Track Actions", icon: ShieldAlertIcon, path: "/order-audit", allowedRoles: [0, 1, 2, 3, 4, 5] }
+  { title: "Track Actions", icon: ShieldAlertIcon, path: "/order-audit", allowedRoles: [1] }
 ];
 
 export const SidebarNav = () => {

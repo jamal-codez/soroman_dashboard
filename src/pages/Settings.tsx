@@ -526,10 +526,10 @@ const Settings = () => {
                     <SelectGroup>
                       <SelectLabel>Available Roles</SelectLabel>
                       <SelectItem value="1">General Admin</SelectItem>
-                      <SelectItem value="2">Finance Admin</SelectItem>
-                      <SelectItem value="3">Marketing Officer</SelectItem>
-                      <SelectItem value="4">Release Officer</SelectItem>
-                      <SelectItem value="5">Security Officer</SelectItem>
+                      <SelectItem value="2">Finance & Release</SelectItem>
+                      <SelectItem value="3">Sales/Marketing</SelectItem>
+                      <SelectItem value="4">Ticketing & Loading</SelectItem>
+                      <SelectItem value="5">Security</SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>

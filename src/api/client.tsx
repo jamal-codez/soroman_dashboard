@@ -294,6 +294,34 @@ export const apiClient = {
       return response.json();
     },
 
+    // Confirm payment & release order (requires CanConfirmPayments permission)
+    confirmPayment: async (orderId: number | string) => {
+      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/confirm-payment/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({}),
+      });
+    
+      if (!response.ok) {
+        // Surface backend status on 409 so we can see what Order.status really is.
+        const payload = (await response
+          .json()
+          .catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+    
+        const baseMsg =
+          (typeof payload.error === 'string' && payload.error) ||
+          (typeof payload.detail === 'string' && payload.detail) ||
+          (await safeReadError(response));
+    
+        const actualStatus = typeof payload.status === 'string' ? payload.status : undefined;
+        const suffix = actualStatus ? ` (order status: ${actualStatus})` : '';
+    
+        throw new Error(`Confirm payment failed (${response.status}): ${baseMsg}${suffix}`);
+      }
+    
+      return response.json();
+    },
+
     // Top Customers
     getTopCustomers: async () => {
       const response = await fetch(`${ADMIN_BASE}/top-customers/`, {
@@ -628,29 +656,33 @@ export const apiClient = {
         body: JSON.stringify(data),
       });
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to update order status');
+        const msg = await safeReadError(response);
+        throw new Error(`Failed to update order status (${response.status}): ${msg}`);
       }
       return response.json();
     },
 
     // Verify Orders
-    getVerifyOrders: async (params?: { 
-      search?: string; 
-      page?: number; 
-      page_size?: number 
+    getVerifyOrders: async (params?: {
+      search?: string;
+      page?: number;
+      page_size?: number;
     }) => {
-      const url = new URL(`${ADMIN_BASE}/verify-orders/`);
-      if (params) {
-        Object.entries(params).forEach(([key, value]) => {
-          if (value === undefined || value === null) return;
-          if (String(value).trim() === '') return;
-          url.searchParams.append(key, value.toString());
-        });
-      }
-      const response = await fetch(url.toString(), {
+      const response = await fetch(`${ADMIN_BASE}/verify-orders/`, {
+        method: 'POST',
         headers: getHeaders(),
+        body: JSON.stringify({
+          ...(params?.search ? { search: params.search } : {}),
+          ...(params?.page !== undefined ? { page: params.page } : {}),
+          ...(params?.page_size !== undefined ? { page_size: params.page_size } : {}),
+        }),
       });
+    
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(`Failed to fetch verify orders (${response.status}): ${msg}`);
+      }
+    
       return response.json();
     },
 
@@ -761,6 +793,7 @@ export const apiClient = {
       action?: string;
       from?: string;
       to?: string;
+      location?: string;
     }) => {
       const url = new URL(`${ADMIN_BASE}/order-audit/`);
       if (params) {

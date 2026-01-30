@@ -25,7 +25,9 @@ import {
   Fuel,
   FuelIcon,
   TruckIcon,
-  File
+  File,
+  Calendar1Icon,
+  CalendarDays
 } from 'lucide-react';
 import {
   Dialog,
@@ -923,10 +925,15 @@ export const PickupProcessing = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 gap-3">
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-between">
-                        {dateRange.from && dateRange.to
-                          ? `${format(dateRange.from, 'MMM dd, yyyy')} - ${format(dateRange.to, 'MMM dd, yyyy')}`
-                          : 'Select Date Range'}
+                      <Button variant="outline" className="w-full justify-between h-11">
+                        <span className="inline-flex items-center gap-2">
+                          <CalendarDays size={16} className="text-slate-500" />
+                          <span>
+                            {dateRange.from && dateRange.to
+                              ? `${format(dateRange.from, "dd MMM yyyy")} - ${format(dateRange.to, "dd MMM yyyy")}`
+                              : "Select date range"}
+                          </span>
+                        </span>
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">

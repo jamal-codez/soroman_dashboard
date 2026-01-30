@@ -16,7 +16,7 @@ import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign } from 'lucide-react';
 import { useState, useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { format, isThisMonth, isThisWeek, isThisYear, isToday } from 'date-fns';
 import { PageHeader } from '@/components/PageHeader';
@@ -127,6 +127,7 @@ function VerifyConfirmModal({
   bankAccounts: BankAccount[];
 }) {
   if (!payment) return null;
+  const isPending = String(payment.status || '').toLowerCase() === 'pending';
   const createdDate = new Date(payment.created_at);
   const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
   const { product, qty, unitPrice } = extractProductInfo(payment);
@@ -146,10 +147,10 @@ function VerifyConfirmModal({
       <DialogContent className="sm:max-w-[540px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-slate-950">Confirm payment & release order</DialogTitle>
-          <div className="text-sm text-slate-600">
+          <DialogDescription className="text-sm text-slate-600">
             You’re about to mark this payment as <span className="font-medium text-slate-900">paid</span> and <span className="font-medium text-slate-900">release</span> the
-            order for loading
-          </div>
+            order for loading.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 text-sm">
@@ -230,7 +231,12 @@ function VerifyConfirmModal({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={onConfirm}>Confirm payment & release order</Button>
+          <Button onClick={onConfirm} disabled={!isPending}>
+            Confirm payment & release order
+          </Button>
+          {!isPending ? (
+            <div className="w-full text-xs text-amber-700">This order is no longer pending, so it can’t be confirmed.</div>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -250,8 +256,14 @@ function getStatusClass(status: string): string {
   }
 }
 
-// Extract account details robustly from possible shapes.
-// Prefer whatever the verify-orders API returns; if missing, fallback to Finance bank accounts.
+// Backends sometimes return variant status strings (or stale states) across different admin endpoints.
+// Treat these as "confirmable" on the frontend, but still allow the confirm endpoint to be the source of truth.
+const isConfirmableStatus = (status: unknown): boolean => {
+  const s = String(status || '').trim().toLowerCase();
+  // Backend confirm-payment currently enforces pending-only; keep frontend aligned to reduce 409 conflicts.
+  return s === 'pending';
+};
+
 function extractAccountDetails(p: PaymentOrder, bankAccounts?: BankAccount[]) {
   const rec = p as unknown as Record<string, unknown>;
   const acctLike = (rec.acct || rec.bank_account || rec.account || {}) as Record<string, unknown>;
@@ -463,7 +475,8 @@ export default function PaymentVerification() {
 
   const filteredPayments = useMemo(() => {
     return allPayments
-      .filter(p => (p.status || '').toLowerCase() === 'pending')
+      // Only show entries that are likely confirmable; this reduces 409 conflicts caused by mismatched list/status.
+      .filter((p) => isConfirmableStatus(p.status))
       .filter(p => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return true;
@@ -490,17 +503,19 @@ export default function PaymentVerification() {
     mutationFn: async (orderId: number) => {
       setUpdatingPaymentId(orderId);
       try {
-        await apiClient.admin.updateOrderStatus({
-          id: orderId,
-          status: 'paid',
-        });
+        await apiClient.admin.confirmPayment(orderId);
       } finally {
         setUpdatingPaymentId(null);
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, orderId) => {
       queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
       queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
+
+      // Also refresh audit-related caches so the action timeline updates immediately if open elsewhere.
+      queryClient.invalidateQueries({ queryKey: ['order-audit'] });
+      queryClient.invalidateQueries({ queryKey: ['order-audit-events', orderId] });
+
       toast({
         title: 'Success!',
         description: 'Successfully confirmed payment and order has been released.',
@@ -517,12 +532,38 @@ export default function PaymentVerification() {
   });
 
   const handleVerifyClick = (payment: PaymentOrder) => {
+    // Re-check the latest status we have before opening the dialog.
+    if (!isConfirmableStatus(payment.status)) {
+      const s = String(payment.status || '').toLowerCase();
+      toast({
+        title: 'Cannot confirm payment',
+        description: `This order is currently ${s || 'not pending'} and cannot be confirmed.`,
+        variant: 'destructive',
+        duration: 3000,
+      });
+      return;
+    }
+
     setSelectedPayment(payment);
     setIsConfirmModalOpen(true);
   };
 
   const handleConfirm = async () => {
     if (!selectedPayment?.id) return;
+
+    const status = String(selectedPayment.status || '').toLowerCase();
+    if (!isConfirmableStatus(status)) {
+      toast({
+        title: 'Cannot confirm payment',
+        description: `This order is already ${status || 'not pending'} and cannot be confirmed again.`,
+        variant: 'destructive',
+        duration: 3000,
+      });
+      setIsConfirmModalOpen(false);
+      setSelectedPayment(null);
+      return;
+    }
+
     try {
       await updatePaymentMutation.mutateAsync(selectedPayment.id);
     } finally {

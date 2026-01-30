@@ -27,7 +27,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, Truck, ShieldCheck, Search, Eye } from "lucide-react";
+import { CheckCircle2, Truck, ShieldCheck, Search, Eye, Calendar as CalendarIcon } from "lucide-react";
 
 type AuditOrder = {
   id: number;
@@ -38,6 +38,7 @@ type AuditOrder = {
   quantity?: string | number;
   amount?: string | number;
   account_details?: string;
+  location?: string;
 
   payment_confirmed_at?: string | null;
   payment_user_email?: string | null;
@@ -69,15 +70,15 @@ type AuditEvent = {
 
 const actionOptions = [
   { key: "", label: "All Actions" },
-  { key: "PAYMENT_CONFIRMED", label: "Payment Confirmed" },
-  { key: "PAYMENT_WEBHOOK_CONFIRMED", label: "Payment Confirmed (Webhook)" },
-  { key: "ORDER_RELEASED", label: "Order Released" },
-  { key: "TRUCK_EXIT_RECORDED", label: "Truck Exit" },
-  { key: "SECURITY_EXIT", label: "Security Exit" },
-  { key: "ORDER_CANCELED", label: "Order Canceled" },
-  { key: "AUTO_CANCELED", label: "Auto Canceled" },
-  { key: "ORDER_STATUS_CHANGED", label: "Status Changed" },
-  { key: "ORDER_UPDATED", label: "Order Updated" },
+  { key: "PAYMENT_CONFIRMED", label: "Payment Confirmed & Released" },
+  // { key: "PAYMENT_WEBHOOK_CONFIRMED", label: "Payment Confirmed (Webhook)" },
+  { key: "ORDER_RELEASED", label: "Truck Loaded" },
+  { key: "TRUCK_EXIT_RECORDED", label: "Security Truck Exit" },
+  // { key: "SECURITY_EXIT", label: "Security Exit" },
+  // { key: "ORDER_CANCELED", label: "Order Canceled" },
+  // { key: "AUTO_CANCELED", label: "Auto Canceled" },
+  // { key: "ORDER_STATUS_CHANGED", label: "Status Changed" },
+  // { key: "ORDER_UPDATED", label: "Order Updated" },
 ] as const;
 
 const formatTs = (raw?: string | null) => {
@@ -96,20 +97,12 @@ const toEndOfDayUTC = (d: Date) => {
   return dt.toISOString().replace(".000Z", "Z");
 };
 
-function ActorPill({ name, email, time, tone }: { name?: string | null; email?: string | null; time?: string | null; tone: "green" | "blue" | "slate" }) {
+function ActorPill({ name, email, time }: { name?: string | null; email?: string | null; time?: string | null; tone: "green" | "blue" | "slate" }) {
   if (!name && !email && !time) return <span className="text-slate-400">—</span>;
-  const cls =
-    tone === "green"
-      ? "bg-green-50 text-green-700 border-green-200"
-      : tone === "blue"
-        ? "bg-blue-50 text-blue-700 border-blue-200"
-        : "bg-slate-50 text-slate-700 border-slate-200";
 
   return (
     <div className="min-w-0">
-      <Badge variant="outline" className={cls}>
-        {name || email || "—"}
-      </Badge>
+      <div className="text-sm font-medium text-slate-900 truncate">{name || email || "—"}</div>
       {email && name ? <div className="text-[11px] text-slate-500 truncate">{email}</div> : null}
       {time ? <div className="text-[11px] text-slate-500">{formatTs(time)}</div> : null}
     </div>
@@ -138,6 +131,7 @@ function EventBadge({ action }: { action: string }) {
 export default function OrderAudit() {
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState<string>("");
+  const [locationFilter, setLocationFilter] = useState<string>("");
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [page, setPage] = useState(1);
   const pageSize = 50;
@@ -153,6 +147,7 @@ export default function OrderAudit() {
       {
         q: search.trim() || "",
         action: actionFilter || "",
+        location: locationFilter.trim() || "",
         from: fromIso || "",
         to: toIso || "",
         page,
@@ -163,6 +158,7 @@ export default function OrderAudit() {
       const data = await apiClient.admin.getOrderAudit({
         q: search.trim() || undefined,
         action: actionFilter || undefined,
+        location: locationFilter.trim() || undefined,
         from: fromIso,
         to: toIso,
         page,
@@ -205,14 +201,14 @@ export default function OrderAudit() {
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
-            <PageHeader title="Order Audit Trail" description="Track which user performed each action for accountability." />
+            <PageHeader title="Track Order Actions" description="Track which user performed each action for accountability." />
 
             <SummaryCards
               cards={[
-                { title: "Total Orders", value: String(summary.total), description: "In audit dataset", icon: <Search />, tone: "neutral" },
-                { title: "Payment Confirmed", value: String(summary.payment), description: "Has payment actor", icon: <CheckCircle2 />, tone: "green" },
-                { title: "Released", value: String(summary.release), description: "Has release actor", icon: <Truck />, tone: "neutral" },
-                { title: "Truck Exit", value: String(summary.exit), description: "Has security actor", icon: <ShieldCheck />, tone: "neutral" },
+                // { title: "Total Orders", value: String(summary.total), description: "In audit dataset", icon: <Search />, tone: "neutral" },
+                { title: "", value: String(summary.payment), description: "Payment Confirmed & Released", icon: <CheckCircle2 />, tone: "green" },
+                { title: "", value: String(summary.release), description: "Trucks Loaded", icon: <Truck />, tone: "neutral" },
+                { title: "", value: String(summary.exit), description: "Trucks Exited", icon: <ShieldCheck />, tone: "neutral" },
               ]}
             />
 
@@ -233,13 +229,18 @@ export default function OrderAudit() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full justify-between h-11">
-                        {dateRange.from && dateRange.to
-                          ? `${format(dateRange.from, "dd MMM yyyy")} - ${format(dateRange.to, "dd MMM yyyy")}`
-                          : "Select date range"}
+                        <span className="inline-flex items-center gap-2">
+                          <CalendarIcon size={16} className="text-slate-500" />
+                          <span>
+                            {dateRange.from && dateRange.to
+                              ? `${format(dateRange.from, "dd MMM yyyy")} - ${format(dateRange.to, "dd MMM yyyy")}`
+                              : "Select date range"}
+                          </span>
+                        </span>
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
@@ -272,12 +273,24 @@ export default function OrderAudit() {
                     ))}
                   </select>
 
+                  <Input
+                    aria-label="Location filter"
+                    placeholder="Search by location"
+                    className="h-11"
+                    value={locationFilter}
+                    onChange={(e) => {
+                      setLocationFilter(e.target.value);
+                      setPage(1);
+                    }}
+                  />
+
                   <Button
                     variant="outline"
                     className="h-11"
                     onClick={() => {
                       setSearch("");
                       setActionFilter("");
+                      setLocationFilter("");
                       setDateRange({ from: null, to: null });
                       setPage(1);
                     }}
@@ -292,17 +305,18 @@ export default function OrderAudit() {
               <Table className="text-sm">
                 <TableHeader>
                   <TableRow className="[&>th]:py-2 [&>th]:px-2">
-                    <TableHead className="w-[64px]">ID</TableHead>
+                    {/* <TableHead className="w-[64px]">ID</TableHead> */}
                     <TableHead className="w-[150px]">Date</TableHead>
-                    <TableHead className="w-[160px]">Order Ref</TableHead>
-                    <TableHead className="w-[180px]">Customer</TableHead>
+                    <TableHead className="w-[160px]">Reference</TableHead>
+                    <TableHead className="w-[160px]">Location</TableHead>
+                    {/* <TableHead className="w-[180px]">Customer</TableHead> */}
                     <TableHead className="w-[180px]">Product</TableHead>
-                    <TableHead className="w-[120px]">Amount</TableHead>
+                    <TableHead className="w-[120px]">Amount Paid</TableHead>
                     <TableHead className="w-[200px]">Paid Into</TableHead>
-                    <TableHead className="w-[230px]">Payment Confirmed</TableHead>
-                    <TableHead className="w-[230px]">Released</TableHead>
-                    <TableHead className="w-[230px]">Truck Exit</TableHead>
-                    <TableHead className="w-[70px]"></TableHead>
+                    <TableHead className="w-[260px]">Finance</TableHead>
+                    <TableHead className="w-[230px]">Ticketing</TableHead>
+                    <TableHead className="w-[230px]">Security Exit</TableHead>
+                    {/* <TableHead className="w-[70px]"></TableHead> */}
                   </TableRow>
                 </TableHeader>
 
@@ -310,53 +324,56 @@ export default function OrderAudit() {
                   {listQuery.isLoading ? (
                     [...Array(8)].map((_, i) => (
                       <TableRow key={i}>
-                        <TableCell colSpan={11}>
+                        <TableCell colSpan={12}>
                           <Skeleton className="h-8 w-full" />
                         </TableCell>
                       </TableRow>
                     ))
                   ) : listQuery.isError ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="py-10 text-center text-red-600">
+                      <TableCell colSpan={12} className="py-10 text-center text-red-600">
                         {String((listQuery.error as Error)?.message || "Failed to load audit data")}
                       </TableCell>
                     </TableRow>
                   ) : orders.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="py-10 text-center text-slate-500">
+                      <TableCell colSpan={12} className="py-10 text-center text-slate-500">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
                   ) : (
                     orders.map((o) => (
                       <TableRow key={o.id}>
-                        <TableCell className="font-semibold text-slate-950">{o.id}</TableCell>
+                        {/* <TableCell className="font-semibold text-slate-950">{o.id}</TableCell> */}
                         <TableCell className="text-slate-700 whitespace-nowrap">{formatTs(o.created_at)}</TableCell>
                         <TableCell className="font-semibold text-slate-950 whitespace-nowrap">
                           {o.order_reference || "—"}
                         </TableCell>
-                        <TableCell className="text-slate-900 truncate max-w-[180px]">{o.customer_name || "—"}</TableCell>
+                        <TableCell className="text-slate-700 truncate max-w-[120px]">{o.location || "—"}</TableCell>
+                        {/* <TableCell className="text-slate-900 truncate max-w-[180px]">{o.customer_name || "—"}</TableCell> */}
                         <TableCell className="text-slate-700 truncate max-w-[180px]">
                           {(o.product || "—")}{o.quantity ? ` × ${String(o.quantity).toLocaleString?.() ?? o.quantity}L` : ""}
                         </TableCell>
                         <TableCell className="font-semibold text-slate-950 whitespace-nowrap">
                           ₦{Number(String(o.amount ?? "0").replace(/,/g, "")).toLocaleString()}
                         </TableCell>
-                        <TableCell className="text-slate-700 truncate max-w-[200px]">{o.account_details || "—"}</TableCell>
+                        <TableCell className="text-slate-700 truncate max-w-[150px]">{o.account_details || "—"}</TableCell>
                         <TableCell>
-                          <ActorPill tone="green" name={o.payment_user_name} email={o.payment_user_email} time={o.payment_confirmed_at ?? null} />
+                          <div className="max-w-[150px]">
+                            <ActorPill tone="green" name={o.payment_user_name} time={o.payment_confirmed_at ?? null} />
+                          </div>
                         </TableCell>
                         <TableCell>
-                          <ActorPill tone="blue" name={o.release_user_name} email={o.release_user_email} time={o.released_at ?? null} />
+                            <ActorPill tone="blue" name={o.release_user_name} time={o.released_at ?? null} />
                         </TableCell>
                         <TableCell>
-                          <ActorPill tone="slate" name={o.truck_exit_user_name} email={o.truck_exit_user_email} time={o.truck_exit_at ?? null} />
+                            <ActorPill tone="slate" name={o.truck_exit_user_name} time={o.truck_exit_at ?? null} />
                         </TableCell>
-                        <TableCell>
-                          <Button variant="outline" size="sm" onClick={() => setOpenOrderId(o.id)}>
-                            <Eye size={16} className="mr-1" /> Timeline
+                        {/* <TableCell>
+                          <Button variant="default" size="sm" onClick={() => setOpenOrderId(o.id)}>
+                            <Eye size={14} className="mr-1" /> Timeline
                           </Button>
-                        </TableCell>
+                        </TableCell> */}
                       </TableRow>
                     ))
                   )}
@@ -385,7 +402,7 @@ export default function OrderAudit() {
             <Sheet open={openOrderId !== null} onOpenChange={(v) => (!v ? setOpenOrderId(null) : null)}>
               <SheetContent side="right" className="w-full sm:max-w-[560px] overflow-y-auto">
                 <SheetHeader>
-                  <SheetTitle>Order Timeline {openOrderId ? `#${openOrderId}` : ''}</SheetTitle>
+                  <SheetTitle>Track Order {openOrderId ? `#${openOrderId}` : ''}</SheetTitle>
                 </SheetHeader>
 
                 <div className="mt-4">
