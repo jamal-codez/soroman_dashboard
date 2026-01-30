@@ -766,15 +766,19 @@ export const apiClient = {
       if (params) {
         Object.entries(params).forEach(([k, v]) => {
           if (v === undefined || v === null) return;
-          if (String(v).trim().length === 0) return;
-          url.searchParams.append(k, String(v));
+          const s = String(v);
+          if (s.trim().length === 0) return;
+          url.searchParams.append(k, s);
         });
       }
       const response = await fetch(url.toString(), {
         method: 'GET',
         headers: getHeaders(),
       });
-      if (!response.ok) throw new Error(await safeReadError(response));
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(`Order audit request failed (${response.status}): ${msg}`);
+      }
       return response.json();
     },
 
@@ -783,15 +787,19 @@ export const apiClient = {
       if (params) {
         Object.entries(params).forEach(([k, v]) => {
           if (v === undefined || v === null) return;
-          if (String(v).trim().length === 0) return;
-          url.searchParams.append(k, String(v));
+          const s = String(v);
+          if (s.trim().length === 0) return;
+          url.searchParams.append(k, s);
         });
       }
       const response = await fetch(url.toString(), {
         method: 'GET',
         headers: getHeaders(),
       });
-      if (!response.ok) throw new Error(await safeReadError(response));
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(`Order audit events request failed (${response.status}): ${msg}`);
+      }
       return response.json();
     },
   },
