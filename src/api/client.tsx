@@ -19,6 +19,22 @@ const getHeadersfree = (additionalHeaders = {}) => ({
   ...additionalHeaders,
 });
 
+// Read backend error responses safely (JSON or text)
+const safeReadError = async (response: Response): Promise<string> => {
+  const ct = response.headers.get('content-type') || '';
+  if (ct.includes('application/json')) {
+    const data = (await response.json().catch(() => null)) as any;
+    return (
+      (data && typeof data.error === 'string' && data.error) ||
+      (data && typeof data.detail === 'string' && data.detail) ||
+      (data && typeof data.message === 'string' && data.message) ||
+      `Request failed (${response.status})`
+    );
+  }
+  const text = await response.text().catch(() => '');
+  return text?.trim() ? text.trim() : `Request failed (${response.status})`;
+};
+
 export const apiClient = {
   admin: {
     // Authentication
@@ -305,7 +321,9 @@ export const apiClient = {
       const url = new URL(`${ADMIN_BASE}/all-orders/`);
       if (params) {
         Object.entries(params).forEach(([key, value]) => {
-          url.searchParams.append(key, value.toString());
+          if (value === undefined || value === null) return;
+          if (String(value).trim() === '') return;
+          url.searchParams.append(key, String(value));
         });
       }
       const response = await fetch(url.toString(), {
@@ -327,7 +345,8 @@ export const apiClient = {
       const url = new URL(`${ADMIN_BASE}/agents/`);
       if (params) {
         Object.entries(params).forEach(([key, value]) => {
-          if (value === undefined || value === null || value === '') return;
+          if (value === undefined || value === null) return;
+          if (String(value).trim() === '') return;
           url.searchParams.append(key, String(value));
         });
       }
@@ -625,6 +644,7 @@ export const apiClient = {
       if (params) {
         Object.entries(params).forEach(([key, value]) => {
           if (value === undefined || value === null) return;
+          if (String(value).trim() === '') return;
           url.searchParams.append(key, value.toString());
         });
       }
@@ -734,16 +754,45 @@ export const apiClient = {
       return response.ok ? true : response.json();
     },
 
-    getOrderAudit: async () => {
-      const response = await fetch(`${ADMIN_BASE}/order-audit/`, {
+    getOrderAudit: async (params?: {
+      page?: number;
+      page_size?: number;
+      q?: string;
+      action?: string;
+      from?: string;
+      to?: string;
+    }) => {
+      const url = new URL(`${ADMIN_BASE}/order-audit/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          if (String(v).trim().length === 0) return;
+          url.searchParams.append(k, String(v));
+        });
+      }
+      const response = await fetch(url.toString(), {
         method: 'GET',
         headers: getHeaders(),
       });
-      if (!response.ok) {
-        throw new Error('Failed to fetch order audit data');
-      }
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
-    
+
+    getOrderAuditEvents: async (orderId: number | string, params?: { page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/orders/${orderId}/audit-events/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          if (String(v).trim().length === 0) return;
+          url.searchParams.append(k, String(v));
+        });
+      }
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
   },
 };
