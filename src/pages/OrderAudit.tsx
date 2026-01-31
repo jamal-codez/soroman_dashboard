@@ -60,6 +60,8 @@ type Paginated<T> = {
   results: T[];
 };
 
+// Removed asPaginated(): backend is now guaranteed to return a paginated shape for /api/admin/order-audit/.
+
 type AuditEvent = {
   id: number;
   action: string;
