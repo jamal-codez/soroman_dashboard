@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import { Globe, Phone } from "lucide-react";
+import { Globe, Phone, PhoneCall } from "lucide-react";
 
 export type ReleaseTicketData = {
   orderReference: string;
@@ -107,24 +107,22 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           <SignatureLine label="Security" placeholders />
         </div>
 
-        <div className="mt-12 bg-green-900 p-4 text-white text-center rounded-lg flex flex-col items-center gap-3">
-          <div className="flex items-center gap-2 justify-center text-lg font-bold">
-            <Globe className="w-5 h-5" />
-            <span>Order Online Easily!</span>
+        {/* Minimal footer CTA */}
+        <div className="mt-10 rounded-lg bg-green-900 px-4 py-3 text-white">
+          <div className="flex items-center justify-center gap-2 text-xs">
+            <Globe className="h-3 w-3" />
+            <span>
+              Visit <span className="underline underline-offset-2 font-bold">ordersoroman.com</span> to order fuel online without stress! 
+            </span>
           </div>
-          <div className="text-base font-semibold mt-1">
-            Visit <span className="underline font-bold">ordersoroman.com</span> to place your order without hassle.
+
+          <div className="mt-2 flex items-center justify-center gap-2 text-xs">
+            <PhoneCall className="h-3 w-3" />
+            <span>
+              <span className="font-bold">07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324</span>
+            </span>
           </div>
-          <div className="text-sm opacity-80 mb-2">
-            Fast, secure, and convenient ordering for all customers.
-          </div>
-          <div className="flex items-center gap-2 justify-center text-base mt-2">
-            <Phone className="w-5 h-5" />
-            <span className="font-semibold">Need help? Call us:</span>
-          </div>
-          <div className="text-sm font-medium tracking-wide">
-            07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324
-          </div>
+
         </div>
 
       </div>
