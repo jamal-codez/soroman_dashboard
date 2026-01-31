@@ -508,9 +508,10 @@ export default function PaymentVerification() {
         setUpdatingPaymentId(null);
       }
     },
-    onSuccess: (_data, orderId) => {
-      queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
-      queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
+    onSuccess: async (_data, orderId) => {
+      // Refresh verify-orders list so the confirmed item disappears.
+      await queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
+      await queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
 
       // Also refresh audit-related caches so the action timeline updates immediately if open elsewhere.
       queryClient.invalidateQueries({ queryKey: ['order-audit'] });
@@ -521,13 +522,21 @@ export default function PaymentVerification() {
         description: 'Successfully confirmed payment and order has been released.',
       });
     },
-    onError: (error: unknown) => {
+    onError: async (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
+      const is409 = typeof message === 'string' && message.includes('(409)');
+
       toast({
-        title: 'Error',
+        title: is409 ? 'Already updated' : 'Error',
         description: message || 'Failed to verify payment',
         variant: 'destructive',
       });
+
+      // If state changed elsewhere, refresh the list so UI stays consistent.
+      if (is409) {
+        await queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
+        await queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
+      }
     },
   });
 
@@ -549,7 +558,7 @@ export default function PaymentVerification() {
   };
 
   const handleConfirm = async () => {
-    if (!selectedPayment?.id) return;
+    if (!selectedPayment?.order_id) return;
 
     const status = String(selectedPayment.status || '').toLowerCase();
     if (!isConfirmableStatus(status)) {
@@ -564,8 +573,22 @@ export default function PaymentVerification() {
       return;
     }
 
+    // IMPORTANT: verify-orders rows are OrderPaymentInfo; use order_id (Order.id) for confirm-payment.
+    const orderId = Number(selectedPayment.order_id);
+    if (!Number.isFinite(orderId)) {
+      toast({
+        title: 'Cannot confirm payment',
+        description: 'Invalid order id returned from verify-orders endpoint.',
+        variant: 'destructive',
+        duration: 3000,
+      });
+      setIsConfirmModalOpen(false);
+      setSelectedPayment(null);
+      return;
+    }
+
     try {
-      await updatePaymentMutation.mutateAsync(selectedPayment.id);
+      await updatePaymentMutation.mutateAsync(orderId);
     } finally {
       setIsConfirmModalOpen(false);
       setSelectedPayment(null);

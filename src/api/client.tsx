@@ -668,21 +668,27 @@ export const apiClient = {
       page?: number;
       page_size?: number;
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/verify-orders/`, {
-        method: 'POST',
+      // List endpoint: use GET with query params (DRF ListAPIView pagination)
+      const url = new URL(`${ADMIN_BASE}/verify-orders/`);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value === undefined || value === null) return;
+          const s = String(value);
+          if (!s.trim()) return;
+          url.searchParams.set(key, s);
+        });
+      }
+
+      const response = await fetch(url.toString(), {
+        method: 'GET',
         headers: getHeaders(),
-        body: JSON.stringify({
-          ...(params?.search ? { search: params.search } : {}),
-          ...(params?.page !== undefined ? { page: params.page } : {}),
-          ...(params?.page_size !== undefined ? { page_size: params.page_size } : {}),
-        }),
       });
-    
+
       if (!response.ok) {
         const msg = await safeReadError(response);
         throw new Error(`Failed to fetch verify orders (${response.status}): ${msg}`);
       }
-    
+
       return response.json();
     },
 
