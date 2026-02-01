@@ -45,13 +45,13 @@ const navItems = [
   { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 3] },
   // { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
   // { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 4] },
-  { title: "Loading Tickets", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1, 3, 4] },
+  { title: "Loading Tickets", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1, 2, 3, 4] },
   // { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1,2,4] },
   // { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
   { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2] },
   { title: "Manage Staff", icon: User, path: "/users-management", allowedRoles: [0, 1] },
   // { title: "Manage Marketers", icon: Users, path: "/agents", allowedRoles: [0, 1] },
-  { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 4, 5] },
+  { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 5] },
   { title: "Track Actions", icon: ShieldAlertIcon, path: "/order-audit", allowedRoles: [1] }
 ];
 
