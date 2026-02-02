@@ -518,8 +518,8 @@ export default function PaymentVerification() {
       queryClient.invalidateQueries({ queryKey: ['order-audit-events', orderId] });
 
       toast({
-        title: 'Success!',
-        description: 'Successfully confirmed payment and order has been released.',
+        title: 'Success ✅',
+        description: 'Payment has been successfully confirmed and order has been released.',
       });
     },
     onError: async (error: unknown) => {
