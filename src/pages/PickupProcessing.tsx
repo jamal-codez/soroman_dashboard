@@ -1121,6 +1121,7 @@ export const PickupProcessing = () => {
                                     </div>
                                   </div>
 
+                                  {/*
                                   <div>
                                     <Label htmlFor="nmdrpaNumber">NMDRPA Number</Label>
                                     <Input
@@ -1178,10 +1179,6 @@ export const PickupProcessing = () => {
                                           />
                                         </div>
                                       ))}
-
-                                      {/* <div className="mt-3 text-xs text-slate-500">
-                                        These fields are intentionally disabled and will remain blank on the ticket.
-                                      </div> */}
                                     </div>
                                   </div>
 
@@ -1205,7 +1202,7 @@ export const PickupProcessing = () => {
                                       />
                                     </div>
                                   </div>
-
+                                  */}
                                 </div>
 
                                 <DialogFooter className="pt-3 border-t border-slate-200 bg-white">

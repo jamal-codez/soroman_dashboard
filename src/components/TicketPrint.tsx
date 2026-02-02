@@ -110,7 +110,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
         </div>
 
         {/* Minimal footer CTA */}
-        <div className="mt-10 rounded-lg bg-green-900 px-4 py-3 text-white">
+        <div className="mt-10 bg-green-900 px-4 py-3 text-white">
           <div className="flex items-center justify-center gap-2 text-xs">
             <Globe className="h-3 w-3" />
             <span>
