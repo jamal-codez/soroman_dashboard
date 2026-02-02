@@ -670,7 +670,7 @@ export const PickupProcessing = () => {
       // Refresh the list used by this page
       await queryClient.invalidateQueries({ queryKey: ['all-orders', 'release-processing'] });
 
-      toast({ title: 'Success!✅', description: 'Loading ticket successfully generated and available for printing' });
+      toast({ title: 'Success ✅', description: 'Loading ticket successfully generated and available for printing' });
 
       // Open ticket modal immediately after release
       setTicketOpen(true);
