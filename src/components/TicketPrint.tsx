@@ -65,10 +65,12 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
             <TicketRow label="Company's Name" value={data.companyName} />
             <TicketRow label="Customer's Phone" value={data.customerPhone} />
             <TicketRow label="NMDPRA Number" value={data.nmdrpaNumber} />
-            <TicketRow label="Product" value={`${data.product} x ${data.qty}`} />
-            {/* <TicketRow label="Quantity" value={data.qty} /> */}
+            {/* <TicketRow label="Product" value={`${data.product} x ${data.qty}`} /> */}
+            <TicketRow label="Product" value={data.product} />
+            <TicketRow label="Quantity" value={data.qty} />
             {/* <TicketRow label="Unit Price" value={`₦${data.unitPrice}`} /> */}
             <TicketRow label="Truck Number" value={data.truckNumber} />
+            <TicketRow label="Change of Truck" value=" " />
             <TicketRow label="Driver's Name" value={data.driverName || " "} />
             <TicketRow label="Driver's Phone" value={data.driverPhone || " "} />
             <div className="p-3 border-t border-slate-300 first:border-t-0 sm:border-t-0 sm:[&:nth-child(n+3)]:border-t sm:border-r sm:[&:nth-child(2n)]:border-r-0 sm:col-span-2">

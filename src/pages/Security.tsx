@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { apiClient } from "@/api/client";
 import { Search, CheckCircle, CheckIcon, TruckIcon, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 
 type OrderLike = {
   id: number | string;
@@ -187,6 +188,7 @@ export default function SecurityPage() {
   const [query, setQuery] = useState("");
   const [exiting, setExiting] = useState(false);
   const [exitedOrderId, setExitedOrderId] = useState<string | number | null>(null);
+  const { toast } = useToast();
 
   // We fetch all orders once (like other pages do) and filter client-side.
   const { data, isLoading, isError, error, refetch } = useQuery<PagedResponse<OrderLike>>({
@@ -217,6 +219,13 @@ export default function SecurityPage() {
       await apiClient.admin.confirmTruckExit(orderId);
       setExitedOrderId(orderId);
       await refetch(); // Refresh orders to get updated truck_exited status
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({
+        title: 'Unable to confirm truck exit',
+        description: msg,
+        variant: 'destructive',
+      });
     } finally {
       setExiting(false);
     }

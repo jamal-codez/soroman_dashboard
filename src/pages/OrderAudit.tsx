@@ -204,14 +204,14 @@ export default function OrderAudit() {
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader title="Track Order Actions" description="Track which user performed each action for accountability." />
 
-            <SummaryCards
+            {/* <SummaryCards
               cards={[
                 // { title: "Total Orders", value: String(summary.total), description: "In audit dataset", icon: <Search />, tone: "neutral" },
                 { title: "", value: String(summary.payment), description: "Payment Confirmed & Released", icon: <CheckCircle2 />, tone: "green" },
                 { title: "", value: String(summary.release), description: "Trucks Loaded", icon: <Truck />, tone: "neutral" },
                 { title: "", value: String(summary.exit), description: "Trucks Exited", icon: <ShieldCheck />, tone: "neutral" },
               ]}
-            />
+            /> */}
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
               <div className="flex flex-col gap-3">

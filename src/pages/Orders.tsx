@@ -110,31 +110,6 @@ const extractUnitPrice = (order: Order): string => {
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
-/*
-const getAssignedAgent = (o: Order): Record<string, unknown> | null => {
-  const rec = o as unknown as Record<string, unknown>;
-  const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
-  if (!a || typeof a !== 'object') return null;
-  return a as Record<string, unknown>;
-};
-
-const getAssignedAgentName = (o: Order): string => {
-  const aRec = getAssignedAgent(o);
-  if (!aRec) return '';
-  const fullName = [aRec.first_name, aRec.last_name]
-    .filter((v): v is string => typeof v === 'string' && v.length > 0)
-    .join(' ')
-    .trim();
-  return (
-    fullName ||
-    (typeof aRec.name === 'string' ? aRec.name : '') ||
-    (typeof aRec.full_name === 'string' ? aRec.full_name : '') ||
-    (typeof aRec.username === 'string' ? aRec.username : '') ||
-    ''
-  );
-};
-*/
-
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
@@ -144,12 +119,39 @@ const Orders = () => {
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   // const [agentFilter, setAgentFilter] = useState<string|null>(null);
 
+  const PAGE_SIZE = 500;
+  const [page, setPage] = useState(1);
+
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
     queryFn: async () => {
-      const response = await apiClient.admin.getAllAdminOrders();
-      if (!response.results) throw new Error('Invalid response format');
-      return { count: response.count || 0, results: response.results || [] };
+      // Backend is paginated; default responses cap the number of records returned.
+      // Pull all pages so the UI can show/export the complete dataset.
+      const page_size = 200;
+      let page = 1;
+      let count = 0;
+      const all: Order[] = [];
+
+      // Safety limit to prevent accidental infinite loops if API shape changes.
+      const MAX_PAGES = 5000;
+
+      while (page <= MAX_PAGES) {
+        const response = await apiClient.admin.getAllAdminOrders({ page, page_size });
+
+        const results = (response?.results ?? []) as Order[];
+        count = Number(response?.count ?? count ?? 0);
+
+        all.push(...results);
+
+        // Stop when API returns fewer than page_size (last page)
+        // or when we've reached/exceeded total count.
+        if (results.length < page_size) break;
+        if (count && all.length >= count) break;
+
+        page += 1;
+      }
+
+      return { count: count || all.length, results: all };
     },
     retry: 2,
     refetchOnWindowFocus: true,
@@ -217,19 +219,6 @@ const Orders = () => {
     return Array.from(new Set(states)).sort();
   }, [apiResponse?.results]);
 
-  /*
-  const uniqueAgents = useMemo(() => {
-    const list = apiResponse?.results || [];
-    const names = list
-      .map((o) => {
-        const n = getAssignedAgentName(o);
-        return n ? n.trim() : '';
-      })
-      .filter((n): n is string => Boolean(n));
-    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
-  }, [apiResponse?.results]);
-  */
-
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base
@@ -275,14 +264,27 @@ const Orders = () => {
         if (!statusFilter) return true;
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
       });
-      /*
-      .filter(order => {
-        if (!agentFilter) return true;
-        const n = getAssignedAgentName(order).trim();
-        return n === agentFilter;
-      });
-      */
   }, [apiResponse?.results, searchQuery, dateRange, productFilter, locationFilter, statusFilter]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  }, [filteredOrders.length]);
+
+  const pagedOrders = useMemo(() => {
+    const safePage = Math.min(Math.max(page, 1), totalPages);
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredOrders.slice(start, start + PAGE_SIZE);
+  }, [filteredOrders, page, totalPages]);
+
+  // Reset to first page whenever filters/search change (avoids landing on an out-of-range page)
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, dateRange, productFilter, locationFilter, statusFilter]);
+
+  // Keep page clamped when totalPages changes (e.g., after filtering)
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(p, 1), totalPages));
+  }, [totalPages]);
 
   const safeParseNumber = (v: unknown) => {
     if (v == null) return 0;
@@ -334,13 +336,6 @@ const Orders = () => {
         if (!locationFilter) return true;
         return order.state === locationFilter;
       });
-      /*
-      .filter((order) => {
-        if (!agentFilter) return true;
-        const n = getAssignedAgentName(order).trim();
-        return n === agentFilter;
-      });
-      */
   }, [apiResponse?.results, searchQuery, dateRange, productFilter, locationFilter]);
 
   const releasedFilteredOrders = useMemo(() => {
@@ -409,34 +404,6 @@ const Orders = () => {
   const getProductsList = (o: Order) =>
     (o.products || []).map(p => p.name).filter(Boolean).join(', ');
 
-  /*
-  const getAssignedAgentPhone = (o: Order): string => {
-    const aRec = getAssignedAgent(o);
-    if (!aRec) return '';
-    return (
-      (typeof aRec.phone === 'string' ? aRec.phone : '') ||
-      (typeof aRec.phone_number === 'string' ? aRec.phone_number : '') ||
-      ''
-    );
-  };
-
-  const getAssignedAgentType = (o: Order): string => {
-    const aRec = getAssignedAgent(o);
-    if (!aRec) return '';
-    return (typeof aRec.type === 'string' ? aRec.type : '') || '';
-  };
-
-  const getAssignedAgentLocation = (o: Order): string => {
-    const aRec = getAssignedAgent(o);
-    if (!aRec) return '';
-    return (
-      (typeof aRec.location_name === 'string' ? aRec.location_name : '') ||
-      (typeof aRec.locationName === 'string' ? aRec.locationName : '') ||
-      ''
-    );
-  };
-  */
-
   const getFilterLabelForFile = () => {
     switch (filterType) {
       case 'today': return 'today';
@@ -463,7 +430,6 @@ const Orders = () => {
       'Phone Number',
       'Company Name',
       'Location',
-      // 'Assigned Marketer',
       'Product',
       'Unit Price',
       'Quantity (L)',
@@ -481,7 +447,6 @@ const Orders = () => {
       getPhoneNumber(order),
       getCompanyName(order),
       order.state || '-',
-      // getAssignedAgentName(order) || '-',
       getProductsList(order),
       extractUnitPrice(order),
       safeParseNumber(order.quantity).toLocaleString(),
@@ -492,13 +457,9 @@ const Orders = () => {
     const summaryBlock = [
       ['Orders Summary'],
       [],
-      // ['Filter', getFilterLabelForFile()],
-      // ['Status', statusFilter ? getStatusText(statusFilter) : 'All'],
       ['Total Released', releasedTotals.totalOrders.toString()],
       ['Quantity Released', `${releasedTotals.totalQty.toLocaleString()} Litres`],
       ['Total Amount', `N ${releasedTotals.totalAmount.toLocaleString()}`],
-      // ['Quantity Canceled (Litres)', canceledTotals.totalQty.toLocaleString()],
-      // ['Total Amount Canceled (N)', canceledTotals.totalAmount.toLocaleString()],
       [],
     ];
 
@@ -614,20 +575,6 @@ const Orders = () => {
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
-
-                  {/*
-                  <select
-                    aria-label="Agent filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={agentFilter ?? ''}
-                    onChange={(e) => setAgentFilter(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">All Marketers</option>
-                    {uniqueAgents.map((a) => (
-                      <option key={a} value={a}>{a}</option>
-                    ))}
-                  </select>
-                  */}
                 </div>
               </div>
 
@@ -674,48 +621,6 @@ const Orders = () => {
                     </div>
                   </div>
                 </div>
-
-                {/* Unpaid */}
-                {/* <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-orange-100">
-                        <Hourglass className="text-orange-700" size={16} />
-                      </span>
-                      Unpaid Orders
-                    </div>
-                    <div className="text-xs text-slate-500">Summary</div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                    <div className="rounded-md bg-white p-3 border border-slate-200">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-500">Orders</div>
-                        <Clock className="text-orange-600" size={16} />
-                      </div>
-                      <div className="mt-1 text-lg font-semibold text-slate-900">{canceledTotals.totalOrders}</div>
-                    </div>
-                    <div className="rounded-md bg-white p-3 border border-slate-200">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-500">Quantity</div>
-                        <FuelIcon className="text-orange-600" size={16} />
-                      </div>
-                      <div className="mt-1 text-lg font-semibold text-slate-900">
-                        {canceledTotals.totalQty.toLocaleString()}{' '}
-                        <span className="text-sm font-medium text-slate-600">Ltrs</span>
-                      </div>
-                    </div>
-                    <div className="rounded-md bg-white p-3 border border-slate-200">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-500">Amount</div>
-                        <BadgeDollarSign className="text-orange-600" size={16} />
-                      </div>
-                      <div className="mt-1 text-lg font-semibold text-slate-900">
-                        ₦{canceledTotals.totalAmount.toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                </div> */}
               </div>
 
             </div>
@@ -730,7 +635,6 @@ const Orders = () => {
                     <TableHead className="w-[170px]">Customer</TableHead>
                     <TableHead className="w-[140px]">Company</TableHead>
                     <TableHead className="w-[105px]">Location</TableHead>
-                    {/* <TableHead className="w-[150px]">Assigned Marketer</TableHead> */}
                     <TableHead className="w-[150px]">Product</TableHead>
                     <TableHead className="w-[105px]">Unit Price</TableHead>
                     <TableHead className="w-[80px]">Qty (L)</TableHead>
@@ -739,15 +643,12 @@ const Orders = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody className="[&>tr>td]:py-2 [&>tr>td]:px-2">
-                  {filteredOrders.map((order, idx) => {
+                  {pagedOrders.map((order, idx) => {
                     const status = (order.status || '').toLowerCase();
                     const autoCanceled =
                       status === 'canceled' &&
                       shouldAutoCancel({ status: 'pending', created_at: order.created_at });
-                    const serial = filteredOrders.length - idx;
-
-                    // const marketerName = getAssignedAgentName(order);
-                    // const marketerPhone = getAssignedAgentPhone(order);
+                    const serial = filteredOrders.length - ((page - 1) * PAGE_SIZE + idx);
 
                     return (
                       <TableRow key={order.id}>
@@ -786,18 +687,6 @@ const Orders = () => {
                         <TableCell className="text-slate-800 truncate whitespace-nowrap max-w-[105px]">
                           {order.state || '-'}
                         </TableCell>
-
-                        {/*
-                        <TableCell className="text-slate-800 max-w-[150px]">
-                          {(() => {
-                            const parts = [
-                              marketerName ? marketerName.trim() : '',
-                              // marketerPhone ? `(${marketerPhone})` : '',
-                            ].filter(Boolean);
-                            return parts.length ? parts.join(' ') : '-';
-                          })()}
-                        </TableCell>
-                        */}
 
                         <TableCell className="text-slate-800 truncate max-w-[150px]">
                           {getProductsList(order) || '-'}
@@ -843,6 +732,46 @@ const Orders = () => {
                   )}
                 </TableBody>
               </Table>
+
+              {/* Pagination */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200 bg-white px-4 py-3">
+                <div className="text-sm text-slate-600">
+                  Showing{' '}
+                  <span className="font-medium text-slate-900">
+                    {filteredOrders.length === 0
+                      ? 0
+                      : (page - 1) * PAGE_SIZE + 1}
+                  </span>
+                  {' '}–{' '}
+                  <span className="font-medium text-slate-900">
+                    {Math.min(page * PAGE_SIZE, filteredOrders.length)}
+                  </span>
+                  {' '}of <span className="font-medium text-slate-900">{filteredOrders.length}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-9"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                  >
+                    Previous
+                  </Button>
+                  <div className="text-sm text-slate-700 whitespace-nowrap">
+                    Page <span className="font-medium text-slate-900">{page}</span> of{' '}
+                    <span className="font-medium text-slate-900">{totalPages}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="h-9"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </div>
 
             {isError && (

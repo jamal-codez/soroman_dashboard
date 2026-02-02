@@ -289,7 +289,8 @@ export const apiClient = {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        throw new Error('Failed to confirm truck exit');
+        const msg = await safeReadError(response);
+        throw new Error(`Failed to confirm truck exit (${response.status}): ${msg}`);
       }
       return response.json();
     },
