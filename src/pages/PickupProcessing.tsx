@@ -678,9 +678,9 @@ export const PickupProcessing = () => {
       // Keep the modal open so the user can retry without re-entering everything.
       setReleaseOpen(true);
 
-      const message = (error as Error)?.message || 'Failed to release order.';
+      const message = (error as Error)?.message || 'Failed to generate loading ticket.';
       toast({
-        title: 'Failed to release',
+        title: 'Try again',
         description: message,
         variant: 'destructive'
       });
