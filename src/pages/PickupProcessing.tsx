@@ -463,8 +463,150 @@ export const PickupProcessing = () => {
     comp5Ullage: '',
     loaderName: '',
     loaderPhone: '',
-    loadingDateTime: ''
+    loadingDateTime: '',
   });
+
+  // --- export/reporting helpers (need component state access) ---
+  const formatDateOnly = (raw: string): string => {
+    const v = String(raw || '').trim();
+    if (!v) return '';
+    try {
+      return format(new Date(v), 'dd/MM/yyyy');
+    } catch {
+      return v;
+    }
+  };
+
+  const extractCustomerPhone = (order: Order): string => {
+    const userRec = order.user as unknown as Record<string, unknown>;
+    const phone =
+      (typeof userRec.phone_number === 'string' ? userRec.phone_number : undefined) ||
+      (typeof userRec.phone === 'string' ? userRec.phone : undefined) ||
+      '';
+    return String(phone || '').trim();
+  };
+
+  const extractFinanceConfirmationTime = (order: Order): string => {
+    const rec = order as unknown as Record<string, unknown>;
+    const candidates: Array<unknown> = [
+      rec.payment_confirmed_at,
+      rec.paymentConfirmedAt,
+      rec.finance_confirmed_at,
+      rec.financeConfirmedAt,
+      rec.confirmed_at,
+      rec.confirmedAt,
+      rec.paid_at,
+      rec.paidAt,
+      rec.updated_at,
+      rec.updatedAt,
+    ];
+
+    const nested = [rec.meta, rec.data, rec.payload, rec.customer_details]
+      .filter((v): v is Record<string, unknown> => Boolean(v) && typeof v === 'object')
+      .flatMap((obj) => [
+        obj.payment_confirmed_at,
+        obj.paymentConfirmedAt,
+        obj.finance_confirmed_at,
+        obj.financeConfirmedAt,
+        obj.confirmed_at,
+        obj.confirmedAt,
+        obj.paid_at,
+        obj.paidAt,
+        obj.updated_at,
+        obj.updatedAt,
+      ]);
+
+    const all = [...candidates, ...nested];
+    const raw = all.find((v) => typeof v === 'string' && v.trim().length > 0) as string | undefined;
+    return raw ? String(raw) : '';
+  };
+
+  const extractFinanceConfirmationDateFromEvents = (
+    events: Array<{ action?: string; timestamp?: string }> | undefined
+  ): string => {
+    if (!events?.length) return '';
+    const hit = events.find((e) => String(e.action || '').toUpperCase() === 'PAYMENT_CONFIRMED');
+    if (!hit?.timestamp) return '';
+    return formatDateOnly(hit.timestamp);
+  };
+
+  const exportToCSV = async (orders: Order[]) => {
+    const headers = [
+      'S/N',
+      'REFERENCE',
+      'COMPANY',
+      'QUANTITY (L)',
+      'UNIT PRICE',
+      'AMOUNT',
+      'LOADING DATE',
+      'DATE OF PAYMENT',
+      'TRUCK NUMBER',
+      'DRIVER (NAME & PHONE)',
+    ];
+
+    const MAX_AUDIT_LOOKUPS = 250;
+    const idList = orders.slice(0, MAX_AUDIT_LOOKUPS).map((o) => o.id);
+
+    const auditByOrderId: Record<number, Array<{ action?: string; timestamp?: string }>> = {};
+    await Promise.all(
+      idList.map(async (orderId) => {
+        try {
+          const res = (await apiClient.admin.getOrderAuditEvents(orderId, { page: 1, page_size: 200 })) as {
+            results?: Array<{ action?: string; timestamp?: string }>;
+          };
+          auditByOrderId[orderId] = res?.results || [];
+        } catch {
+          auditByOrderId[orderId] = [];
+        }
+      })
+    );
+
+    const rows = orders.map((order, idx) => {
+      const ticket = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
+      const truckNumber = ticket?.truckNumber || '';
+      const driverName = ticket?.driverName || '';
+      const driverPhone = ticket?.driverPhone || '';
+      const loadingDate = ticket?.loadingDateTime ? formatDateOnly(ticket.loadingDateTime) : '';
+
+      const company = extractCompanyName(order) || '';
+      const phone = extractCustomerPhone(order);
+      const companyAndPhone = [company, phone].filter(Boolean).join('/');
+
+      const qty = Number(order.quantity || 0) || 0;
+      const unitPrice = extractUnitPrice(order);
+      const amount = String(order.total_price ?? '').trim();
+
+      const fromAudit = extractFinanceConfirmationDateFromEvents(auditByOrderId[order.id]);
+      const fallback = formatDateOnly(extractFinanceConfirmationTime(order));
+      const financeConfirmedDate = fromAudit || fallback;
+
+      return [
+        idx + 1,
+        getOrderReference(order),
+        companyAndPhone,
+        qty ? qty.toLocaleString() : '',
+        unitPrice,
+        amount,
+        loadingDate,
+        financeConfirmedDate,
+        truckNumber,
+        [driverName, driverPhone].filter(Boolean).join(' / '),
+      ];
+    });
+
+    const csvContent = [headers, ...rows]
+      .map((r) => r.map((x) => `"${String(x ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'Report.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
     queryKey: ['all-orders', 'release-processing'],
@@ -616,20 +758,7 @@ export const PickupProcessing = () => {
       loaderPhone: '',
     };
 
-    // Basic validation
-    if (
-      !sanitized.truckNumber.trim() ||
-      !sanitized.driverName.trim() ||
-      !sanitized.driverPhone.trim() ||
-      !sanitized.loadingDateTime.trim()
-    ) {
-      toast({
-        title: 'Missing information',
-        description: "Truck Number, Driver's Name, Driver's Phone, and Loading Date & Time are required.",
-        variant: 'destructive'
-      });
-      return;
-    }
+    // No required-field validation (fields may be empty)
 
     try {
       setReleaseForm(sanitized);
@@ -642,9 +771,9 @@ export const PickupProcessing = () => {
 
       // Persist release details in backend
       await apiClient.admin.releaseOrder(selectedOrder.id, {
-        truck_number: sanitized.truckNumber,
-        driver_name: sanitized.driverName,
-        driver_phone: sanitized.driverPhone,
+        truck_number: sanitized.truckNumber?.trim() ? sanitized.truckNumber : undefined,
+        driver_name: sanitized.driverName?.trim() ? sanitized.driverName : undefined,
+        driver_phone: sanitized.driverPhone?.trim() ? sanitized.driverPhone : undefined,
         // Optional fields (may be blank)
         delivery_address: sanitized.deliveryAddress?.trim() ? sanitized.deliveryAddress : undefined,
         nmdrpa_number: sanitized.nmdrpaNumber?.trim() ? sanitized.nmdrpaNumber : undefined,
@@ -662,7 +791,7 @@ export const PickupProcessing = () => {
         comp5_ullage: undefined,
         loader_name: undefined,
         loader_phone: undefined,
-        loading_datetime: sanitized.loadingDateTime,
+        loading_datetime: sanitized.loadingDateTime?.trim() ? sanitized.loadingDateTime : undefined,
       });
 
       setReleaseOpen(false);
@@ -761,80 +890,6 @@ export const PickupProcessing = () => {
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
       });
   }, [apiResponse?.results, searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, releaseDetailsByOrder]);
-
-  const exportToCSV = (orders: Order[]) => {
-    const headers = [
-      "Order ID",
-      "Reference",
-      "Release Type",
-      "Location",
-      // "Assigned Agent",
-      "Customer Name",
-      "Email",
-      "Truck Number",
-      "Driver (Name & Phone)",
-      "Loading Date & Time",
-      "Pickup Date",
-      "Pickup Time",
-      "State",
-      "Trucks",
-      "Total Price",
-      "Status",
-      "Created At",
-      "Products",
-      "Quantity"
-    ];
-
-    const rows = orders.map(order => {
-      const ticket = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
-      const truckNumber = ticket?.truckNumber || '';
-      const driverName = ticket?.driverName || '';
-      const driverPhone = ticket?.driverPhone || '';
-      const loadingDateTime = ticket?.loadingDateTime ? formatTicketLoadingDateTime(ticket.loadingDateTime) : '';
-
-      const rec = order as unknown as Record<string, unknown>;
-      const pickupRec = (rec.pickup as Record<string, unknown> | undefined) || undefined;
-      const pickupDate = typeof pickupRec?.pickup_date === 'string' ? pickupRec.pickup_date : '';
-      const pickupTime = typeof pickupRec?.pickup_time === 'string' ? pickupRec.pickup_time : '';
-      const pickupState = typeof pickupRec?.state === 'string' ? pickupRec.state : '';
-
-      return [
-        order.id,
-        getOrderReference(order),
-        order.release_type,
-        extractLocation(order),
-        // formatAssignedAgent(order),
-        `${order.user.first_name} ${order.user.last_name}`,
-        order.user.email,
-        truckNumber,
-        [driverName, driverPhone].filter(Boolean).join(' / '),
-        loadingDateTime,
-        pickupDate,
-        pickupTime,
-        pickupState,
-        Array.isArray(order.trucks) ? order.trucks.join(", ") : '',
-        order.total_price,
-        order.status,
-        order.created_at,
-        order.products.map(p => p.name).join(", "),
-        order.quantity
-      ];
-    });
-
-    const csvContent =
-      [headers, ...rows]
-        .map(r => r.map(x => `"${String(x ?? '').replace(/"/g, '""')}"`).join(','))
-        .join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'release_orders.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value.toLowerCase());
@@ -1081,21 +1136,20 @@ export const PickupProcessing = () => {
 
                                 <div className="space-y-4 overflow-y-auto pr-1 flex-1">
                                   <div>
-                                    <Label htmlFor="loadingDateTime">Loading Date & Time</Label>
+                                    <Label htmlFor="loadingDateTime">Loading Date &amp; Time</Label>
                                     <Input
                                       id="loadingDateTime"
                                       type="datetime-local"
                                       value={releaseForm.loadingDateTime}
-                                      required
                                       onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
                                     />
                                   </div>
+
                                   <div>
                                     <Label htmlFor="truckNumber">Truck Number</Label>
                                     <Input
                                       id="truckNumber"
                                       value={releaseForm.truckNumber}
-                                      required
                                       onChange={(e) => setReleaseForm({ ...releaseForm, truckNumber: e.target.value })}
                                     />
                                   </div>
@@ -1106,7 +1160,6 @@ export const PickupProcessing = () => {
                                       <Input
                                         id="driverName"
                                         value={releaseForm.driverName}
-                                        required
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
                                       />
                                     </div>
@@ -1115,7 +1168,6 @@ export const PickupProcessing = () => {
                                       <Input
                                         id="driverPhone"
                                         value={releaseForm.driverPhone}
-                                        required
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
                                       />
                                     </div>
