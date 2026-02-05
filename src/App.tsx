@@ -33,6 +33,12 @@ const isGeneralAdmin = () => {
   return role === 1;
 };
 
+const canViewPfi = () => {
+  const raw = localStorage.getItem('role');
+  const role = raw === null ? NaN : Number(raw);
+  return role === 1 || role === 2;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -44,7 +50,10 @@ const App = () => (
           <Route path="/dashboard" element={<Index />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/inventory" element={<Inventory />} />
-          <Route path="/pfi" element={<PFIPage />} />
+          <Route
+            path="/pfi"
+            element={canViewPfi() ? <PFIPage /> : <Navigate to="/dashboard" replace />}
+          />
           <Route path="/customers" element={<Customers />} />
           <Route path="/finance" element={<Finance />} />
           <Route path="/release" element={<Release />} />

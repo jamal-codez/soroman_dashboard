@@ -40,7 +40,7 @@ const navItems = [
   { title: "Overview", icon: Home, path: "/dashboard", allowedRoles: [0, 1] },
   { title: "Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [0, 1, 2, 3, 4] },
   { title: "Stock Management", icon: Fuel, path: "/inventory", allowedRoles: [0, 1] },
-  { title: "PFI Tracking", icon: ClipboardList, path: "/pfi", allowedRoles: [0, 1] },
+  { title: "PFI Tracking", icon: ClipboardList, path: "/pfi", allowedRoles: [1, 2] },
   // { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
   { title: "Finance", icon: DollarSign, path: "/finance", allowedRoles: [0, 1, 2] },
   { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 3] },
