@@ -244,6 +244,7 @@ export const apiClient = {
         driver_name: string;
         driver_phone: string;
         loading_datetime: string;
+        pfi_id?: number;
         delivery_address?: string;
         nmdrpa_number?: string;
         compartment_details?: string;
@@ -840,6 +841,62 @@ export const apiClient = {
         const msg = await safeReadError(response);
         throw new Error(`Order audit events request failed (${response.status}): ${msg}`);
       }
+      return response.json();
+    },
+
+    getPfis: async (params?: { status?: string; location?: number | string; product?: number | string; page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/pfis`);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value === undefined || value === null) return;
+          if (String(value).trim() === '') return;
+          url.searchParams.append(key, String(value));
+        });
+      }
+      const response = await fetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    createPfi: async (data: {
+      pfi_number: string;
+      location: number;
+      product: number;
+      starting_qty_litres: number;
+      notes?: string;
+    }) => {
+      const response = await fetch(`${ADMIN_BASE}/pfis`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          ...data,
+          status: 'active',
+        }),
+      });
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        // Include status code for the UI (400/409 handling)
+        throw new Error(`${response.status}: ${msg}`);
+      }
+      return response.json();
+    },
+
+    finishPfi: async (id: number | string) => {
+      const response = await fetch(`${ADMIN_BASE}/pfis/${id}/finish/`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    assignOrdersToPfi: async (data: { order_ids: number[]; pfi_id: number }) => {
+      const response = await fetch(`${ADMIN_BASE}/orders/assign-pfi/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
   },

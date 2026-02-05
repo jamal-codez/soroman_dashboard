@@ -98,6 +98,10 @@ interface Order {
   driverPhone?: string;
   loading_datetime?: string;
   loadingDateTime?: string;
+
+  // Backend PFI fields
+  pfi_id?: number | null;
+  pfi_number?: string | null;
 }
 
 interface OrderResponse {
@@ -124,6 +128,8 @@ interface ReleaseDetails {
   loaderName: string;
   loaderPhone: string;
   loadingDateTime: string; 
+  pfi: string;
+  pfiId?: number;
 }
 
 const getCompanyInitials = (name: string, max: number = 2): string => {
@@ -373,6 +379,7 @@ const getOrderTicketDetails = (
     loaderName: loaderName.trim(),
     loaderPhone: loaderPhone.trim(),
     loadingDateTime: loadingDateTime.trim(),
+    pfi: '',
   };
 
   const hasAny = Object.values(details).some((v) => v.trim().length > 0);
@@ -430,6 +437,8 @@ const extractUnitPrice = (order: Order): string => {
 
 export const PickupProcessing = () => {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
@@ -438,7 +447,24 @@ export const PickupProcessing = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  const { toast } = useToast();
+
+  const pfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number: string }>; id?: number } & Record<string, unknown>>({
+    queryKey: ['pfis', 'active'],
+    queryFn: async () => {
+      // Note: backend can later support location/product filtering; for now load actives.
+      return apiClient.admin.getPfis({ status: 'active', page: 1, page_size: 500 });
+    },
+    retry: 1,
+    staleTime: 60_000,
+  });
+
+  const pfiOptions = useMemo(() => {
+    const raw = (pfiQuery.data as any)?.results ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
+    const list = (raw || []) as Array<{ id: number; pfi_number: string }>;
+    return list
+      .filter((p) => p && typeof p.id === 'number' && typeof p.pfi_number === 'string')
+      .map((p) => ({ id: p.id, label: p.pfi_number }));
+  }, [pfiQuery.data]);
 
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [ticketOpen, setTicketOpen] = useState(false);
@@ -456,7 +482,6 @@ export const PickupProcessing = () => {
     comp2Qty: '',
     comp2Ullage: '',
     comp3Qty: '',
-    comp3Ullage: '',
     comp4Qty: '',
     comp4Ullage: '',
     comp5Qty: '',
@@ -464,6 +489,8 @@ export const PickupProcessing = () => {
     loaderName: '',
     loaderPhone: '',
     loadingDateTime: '',
+    pfi: '',
+    pfiId: undefined,
   });
 
   // --- export/reporting helpers (need component state access) ---
@@ -716,14 +743,15 @@ export const PickupProcessing = () => {
               comp2Qty: '',
               comp2Ullage: '',
               comp3Qty: '',
-              comp3Ullage: '',
               comp4Qty: '',
               comp4Ullage: '',
               comp5Qty: '',
               comp5Ullage: '',
               loaderName: '',
               loaderPhone: '',
-              loadingDateTime: ''
+              loadingDateTime: '',
+              pfi: '',
+              pfiId: undefined,
             })
     );
 
@@ -792,6 +820,7 @@ export const PickupProcessing = () => {
         loader_name: undefined,
         loader_phone: undefined,
         loading_datetime: sanitized.loadingDateTime?.trim() ? sanitized.loadingDateTime : undefined,
+        pfi_id: sanitized.pfiId,
       });
 
       setReleaseOpen(false);
@@ -1247,6 +1276,27 @@ export const PickupProcessing = () => {
                                     </div>
                                   </div>
                                   */}
+
+                                  <div>
+                                    <Label htmlFor="pfi">PFI</Label>
+                                    <select
+                                      id="pfi"
+                                      aria-label="PFI"
+                                      title="PFI"
+                                      value={releaseForm.pfiId ?? ''}
+                                      onChange={(e) => {
+                                        const selectedId = e.target.value ? Number(e.target.value) : undefined;
+                                        const selectedLabel = pfiOptions.find((p) => p.id === selectedId)?.label || '';
+                                        setReleaseForm({ ...releaseForm, pfiId: selectedId, pfi: selectedLabel });
+                                      }}
+                                      className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
+                                    >
+                                      <option value="">Select PFI</option>
+                                      {pfiOptions.map((pfi) => (
+                                        <option key={pfi.id} value={pfi.id}>{pfi.label}</option>
+                                      ))}
+                                    </select>
+                                  </div>
                                 </div>
 
                                 <DialogFooter className="pt-3 border-t border-slate-200 bg-white">

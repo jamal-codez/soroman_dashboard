@@ -23,6 +23,7 @@ import Pricing from "./pages/Pricing";
 import Agents from "./pages/Agents";
 import SecurityPage from "./pages/Security";
 import OrderAudit from "./pages/OrderAudit";
+import PFIPage from "./pages/PFI";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +44,7 @@ const App = () => (
           <Route path="/dashboard" element={<Index />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/inventory" element={<Inventory />} />
+          <Route path="/pfi" element={<PFIPage />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/finance" element={<Finance />} />
           <Route path="/release" element={<Release />} />
