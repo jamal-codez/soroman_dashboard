@@ -954,14 +954,6 @@ export const PickupProcessing = () => {
               }
             />
 
-            <SummaryCards
-              cards={[
-                { title: 'Total Orders', value: String(summary.total), description: 'All orders', icon: <FileText />, tone: 'neutral' },
-                { title: 'Paid', value: String(summary.paid), description: 'Ready to load', icon: <CheckCircle2 />, tone: 'green' },
-                { title: 'Released', value: String(summary.released), description: 'Tickets available', icon: <Truck />, tone: 'neutral' },
-              ]}
-            />
-
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col gap-3">
                 <div className="flex flex-col lg:flex-row gap-3">
