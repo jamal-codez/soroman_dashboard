@@ -430,11 +430,10 @@ const Orders = () => {
 
     const headers = [
       'S/N',
-      'Date & Time',
+      'Date',
       'Order Reference',
-      'Customer Name',
-      'Phone Number',
       'Company Name',
+      'Phone Number',
       'Location',
       'Product',
       'Unit Price',
@@ -447,11 +446,10 @@ const Orders = () => {
 
     const rows = exportList.map((order, idx) => [
       idx + 1,
-      format(new Date(order.created_at), 'dd-MM-yyyy HH:mm'),
+      format(new Date(order.created_at), 'dd-MM-yyyy'),
       getSalesRef(order),
-      getCustomerFullName(order),
-      getPhoneNumber(order),
       getCompanyName(order),
+      getPhoneNumber(order),
       order.state || '-',
       getProductsList(order),
       extractUnitPrice(order),
@@ -460,7 +458,7 @@ const Orders = () => {
       getStatusText(order.status),
     ]);
 
-    const generatedAt = format(new Date(), 'dd-MM-yyyy HH:mm');
+    const generatedAt = format(new Date(), 'dd-MM-yyyy');
 
     const locationLabel = locationFilter ? String(locationFilter) : 'All';
     const pfiLabelForExport = pfiFilter ? String(pfiFilter) : 'All';
@@ -472,13 +470,13 @@ const Orders = () => {
 
     // Headings block (must start the CSV)
     const headingBlock = [
-      ['Date Generated', generatedAt],
+      ['Date', generatedAt],
       ['Location', locationLabel],
       ['PFI', pfiLabelForExport],
       ['Product', productLabel],
       ['Quantity Sold', `${totalQtyAll.toLocaleString()} Litres`],
       ['Number of Trucks Sold', String(ordersCountAll)],
-      ['Total Amount', `${totalAmountAll.toLocaleString()} Naira`],
+      ['Total Amount', `N ${totalAmountAll.toLocaleString()}`],
       [],
     ];
 
@@ -819,6 +817,7 @@ const Orders = () => {
                     <TableHead className="w-[105px]">Unit Price</TableHead>
                     <TableHead className="w-[80px]">Qty (L)</TableHead>
                     <TableHead className="w-[105px]">Amount</TableHead>
+                    <TableHead className="w-[95px]">PFI</TableHead>
                     <TableHead className="w-[110px]">Status</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -893,6 +892,10 @@ const Orders = () => {
                           ₦{safeParseNumber(order.total_price).toLocaleString()}
                         </TableCell>
 
+                        <TableCell className="text-slate-800 whitespace-nowrap">
+                          {pfiLabel(order) || '-'}
+                        </TableCell>
+
                         {/* Status */}
                         <TableCell>
                           <div className="flex flex-col gap-1">
@@ -914,7 +917,7 @@ const Orders = () => {
                   })}
                   {filteredOrders.length === 0 && !isLoading && (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center text-slate-500 py-10">
+                      <TableCell colSpan={13} className="text-center text-slate-500 py-10">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
