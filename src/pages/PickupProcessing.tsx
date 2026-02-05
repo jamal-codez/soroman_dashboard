@@ -445,8 +445,8 @@ export const PickupProcessing = () => {
   const [productFilter, setProductFilter] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [pfiFilter, setPfiFilter] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
 
   const pfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number: string }>; id?: number } & Record<string, unknown>>({
     queryKey: ['pfis', 'active'],
@@ -866,6 +866,17 @@ export const PickupProcessing = () => {
     return Array.from(new Set(names)).sort();
   }, [apiResponse?.results]);
 
+  const pfiLabel = (order: Order): string => {
+    if (order.pfi_number === undefined || order.pfi_number === null) return '';
+    return String(order.pfi_number).trim();
+  };
+
+  const uniquePfis = useMemo(() => {
+    const list = apiResponse?.results || [];
+    const pfis = list.map((o) => pfiLabel(o)).filter((v): v is string => Boolean(v));
+    return Array.from(new Set(pfis)).sort((a, b) => a.localeCompare(b));
+  }, [apiResponse?.results]);
+
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base
@@ -917,8 +928,12 @@ export const PickupProcessing = () => {
       .filter(order => {
         if (!statusFilter) return true;
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
+      })
+      .filter((order) => {
+        if (!pfiFilter) return true;
+        return pfiLabel(order) === pfiFilter;
       });
-  }, [apiResponse?.results, searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, releaseDetailsByOrder]);
+  }, [apiResponse?.results, searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, pfiFilter, releaseDetailsByOrder]);
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value.toLowerCase());
@@ -1028,7 +1043,7 @@ export const PickupProcessing = () => {
                     value={productFilter ?? ''}
                     onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
                   >
-                    <option value="">All Products</option>
+                    <option value="">Select Product</option>
                     {uniqueProducts.map((p) => (
                       <option key={p} value={p}>{p}</option>
                     ))}
@@ -1040,13 +1055,13 @@ export const PickupProcessing = () => {
                     value={locationFilter ?? ''}
                     onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
                   >
-                    <option value="">All Locations</option>
+                    <option value="">Select Location</option>
                     {uniqueLocations.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
 
-                  <select
+                  {/* <select
                     aria-label="Status filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
                     value={statusFilter ?? ''}
@@ -1057,6 +1072,26 @@ export const PickupProcessing = () => {
                     <option value="paid">Released</option>
                     <option value="canceled">Canceled</option>
                     <option value="released">Loaded</option>
+                  </select> */}
+
+                  <select
+                    aria-label="PFI filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={pfiFilter ?? ''}
+                    onChange={(e) => setPfiFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">Select PFI</option>
+                    {uniquePfis.length === 0 ? (
+                      <option value="" disabled>
+                        No PFI data yet
+                      </option>
+                    ) : (
+                      uniquePfis.map((pfi) => (
+                        <option key={pfi} value={pfi}>
+                          {pfi}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
 

@@ -675,7 +675,7 @@ const Orders = () => {
                 </div>
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              {/* <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sm text-slate-600">
                   Selected: <span className="font-medium text-slate-900">{selectedOrderIds.size}</span>
                 </div>
@@ -745,7 +745,7 @@ const Orders = () => {
                     </DialogContent>
                   </Dialog>
                 </div>
-              </div>
+              </div> */}
 
               {/* Totals (unchanged) */}
               <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-1">
@@ -764,7 +764,7 @@ const Orders = () => {
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                     <div className="rounded-md bg-white p-3 border border-slate-200">
                       <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-500">Orders</div>
+                        <div className="text-xs text-slate-500">Trucks Loaded</div>
                         <CheckCircle className="text-blue-600" size={16} />
                       </div>
                       <div className="mt-1 text-lg font-semibold text-slate-900">{releasedTotals.totalOrders}</div>
@@ -799,13 +799,13 @@ const Orders = () => {
                 <TableHeader>
                   <TableRow className="[&>th]:py-2 [&>th]:px-2">
                     <TableHead className="w-[44px]">
-                      <div className="flex items-center justify-center">
+                      {/* <div className="flex items-center justify-center">
                         <Checkbox
                           checked={allVisibleSelected}
                           onCheckedChange={(v) => toggleSelectAllVisible(Boolean(v))}
                           aria-label="Select all visible orders"
                         />
-                      </div>
+                      </div> */}
                     </TableHead>
                     <TableHead className="w-[52px]">S/N</TableHead>
                     <TableHead className="w-[120px]">Date &amp; Time</TableHead>
@@ -832,13 +832,13 @@ const Orders = () => {
                     return (
                       <TableRow key={order.id}>
                         <TableCell>
-                          <div className="flex items-center justify-center">
+                          {/* <div className="flex items-center justify-center">
                             <Checkbox
                               checked={selectedOrderIds.has(order.id)}
                               onCheckedChange={(v) => toggleSelectOne(order.id, Boolean(v))}
                               aria-label={`Select order ${order.id}`}
                             />
-                          </div>
+                          </div> */}
                         </TableCell>
                         <TableCell className="text-slate-600">{serial}</TableCell>
 
