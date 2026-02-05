@@ -1078,6 +1078,7 @@ export const PickupProcessing = () => {
                     <TableHead>Qty (L)</TableHead>
                     <TableHead>Driver Details</TableHead>
                     <TableHead>Truck No.</TableHead>
+                    <TableHead>PFI</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-center">Action</TableHead>
                   </TableRow>
@@ -1119,6 +1120,7 @@ export const PickupProcessing = () => {
                           )}
                         </TableCell>
                         <TableCell>{truckNumber || '-'}</TableCell>
+                        <TableCell>{order.pfi_number ? String(order.pfi_number) : '-'}</TableCell>
                         <TableCell>
                           <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
                             {getStatusIcon(order.status)}
@@ -1327,7 +1329,7 @@ export const PickupProcessing = () => {
 
                   {filteredOrders.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={13} className="text-center text-slate-500 py-10">
+                      <TableCell colSpan={14} className="text-center text-slate-500 py-10">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
