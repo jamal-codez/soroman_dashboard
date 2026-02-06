@@ -761,15 +761,15 @@ const Orders = () => {
                       <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-blue-100">
                         <Truck className="text-blue-700" size={16} />
                       </span>
-                      Released Orders
+                      Order Summary
                     </div>
-                    <div className="text-xs text-slate-500">Summary</div>
+                    {/* <div className="text-xs text-slate-500">Summary</div> */}
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                     <div className="rounded-md bg-white p-3 border border-slate-200">
                       <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-500">Trucks Released</div>
+                        <div className="text-xs text-slate-500">Trucks Sold</div>
                         <CheckCircle className="text-blue-600" size={16} />
                       </div>
                       <div className="mt-1 text-lg font-semibold text-slate-900">{releasedTotals.totalOrders}</div>

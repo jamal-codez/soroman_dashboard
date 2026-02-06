@@ -845,7 +845,7 @@ export const apiClient = {
     },
 
     getPfis: async (params?: { status?: string; location?: number | string; product?: number | string; page?: number; page_size?: number }) => {
-      const url = new URL(`${ADMIN_BASE}/pfis`);
+      const url = new URL(`${ADMIN_BASE}/pfis/`);
       if (params) {
         Object.entries(params).forEach(([key, value]) => {
           if (value === undefined || value === null) return;
@@ -862,10 +862,10 @@ export const apiClient = {
       pfi_number: string;
       location: number;
       product: number;
-      starting_qty_litres: number;
+      starting_qty_litres: string;
       notes?: string;
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/pfis`, {
+      const response = await fetch(`${ADMIN_BASE}/pfis/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({

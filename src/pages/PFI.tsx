@@ -266,8 +266,7 @@ export default function PFIPage() {
         pfi_number,
         location,
         product,
-        // backend accepts numbers; but requirement says string is fine too
-        starting_qty_litres: startingAsNumber,
+        starting_qty_litres: `${startingAsNumber.toFixed(2)}`,
         notes: notes || undefined,
       });
 
@@ -337,9 +336,9 @@ export default function PFIPage() {
   );
 
   const metricLabel: Record<PfiMetric, string> = {
-    todaySold: "Today's sold (L)",
-    totalSold: 'Total sold (L)',
-    remaining: 'Remaining (L)',
+    todaySold: "Today's Sales",
+    totalSold: 'Total Sales',
+    remaining: 'Remaining',
   };
 
   const metricValue = (p: BackendPfi) => {
@@ -369,15 +368,15 @@ export default function PFIPage() {
                     <Download className="mr-1" size={16} /> Export CSV
                   </Button> */}
                   <Button onClick={() => setCreateOpen(true)}>
-                    <Plus className="mr-1" size={16} /> New PFI
+                    <Plus className="mr-1" size={16} /> Add PFI
                   </Button>
                 </div>
               }
             />
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <div className="relative lg:col-span-2">
+              <div className="grid grid-cols-2 lg:grid-cols-2 gap-3">
+                <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <Input
                     className="pl-10 h-11"
@@ -398,16 +397,16 @@ export default function PFIPage() {
                   </SelectContent>
                 </Select>
 
-                <Select value={metric} onValueChange={(v: PfiMetric) => setMetric(v)}>
+                {/* <Select value={metric} onValueChange={(v: PfiMetric) => setMetric(v)}>
                   <SelectTrigger className="h-11">
                     <SelectValue placeholder="Metric" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="todaySold">Today's sold</SelectItem>
-                    <SelectItem value="totalSold">Total sold</SelectItem>
+                    <SelectItem value="todaySold">Today's Sales</SelectItem>
+                    <SelectItem value="totalSold">Total Sales</SelectItem>
                     <SelectItem value="remaining">Remaining</SelectItem>
                   </SelectContent>
-                </Select>
+                </Select> */}
               </div>
             </div>
 
@@ -451,14 +450,14 @@ export default function PFIPage() {
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-xs font-medium text-slate-700">{metricLabel[metric]}</div>
                         <div className={`text-sm font-semibold ${isActive ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {fmt(metricValue(p))} L
+                          {fmt(metricValue(p))} Litres
                         </div>
                       </div>
 
                       <div>
                         <div className="flex justify-between text-xs text-slate-600">
-                          <span>Sales Progress</span>
-                          {/* <span>{pct}%</span> */}
+                          {/* <span>Sales Progress</span> */}
+                          <span className='justify-end'>{pct}%</span>
                         </div>
                         <Progress value={pct} className={isActive ? 'bg-emerald-100' : 'bg-rose-100'} />
                       </div>
@@ -466,22 +465,22 @@ export default function PFIPage() {
                       <div className="grid grid-cols-2 gap-2">
                         <div className="rounded-md border border-slate-200 p-2">
                           <div className="text-[11px] text-slate-600">Total Quantity</div>
-                          <div className="text-sm font-semibold">{fmt(starting)} L</div>
+                          <div className="text-sm font-semibold">{fmt(starting)} Litres</div>
                         </div>
                         <div className="rounded-md border border-slate-200 p-2">
                           <div className="text-[11px] text-slate-600">Total Sold</div>
-                          <div className="text-sm font-semibold">{fmt(sold)} L</div>
+                          <div className="text-sm font-semibold">{fmt(sold)} Litres</div>
                         </div>
 
                         <div className="rounded-md border border-slate-200 p-2">
-                          <div className="text-[11px] text-slate-600">Orders</div>
+                          <div className="text-[11px] text-slate-600">Trucks Sold</div>
                           <div className="text-sm font-semibold">{fmt(Number(p.orders_count ?? 0))}</div>
                         </div>
 
                         <div className="rounded-md border border-slate-200 p-2">
                           <div className="text-[11px] text-slate-600">Remaining</div>
                           <div className={`text-sm font-semibold ${remaining > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                            {fmt(remaining)} L
+                            {fmt(remaining)} Litres
                           </div>
                         </div>
 
