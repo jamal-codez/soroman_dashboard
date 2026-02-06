@@ -25,7 +25,19 @@ import {
   Hourglass,
   HourglassIcon,
   DollarSign,
-  ShieldAlertIcon
+  ShieldAlertIcon,
+  Gauge,
+  GaugeIcon,
+  ClipboardCheck,
+  DropletIcon,
+  FileSearch2,
+  LandmarkIcon,
+  TicketPlusIcon,
+  ClockAlertIcon,
+  FileBarChart2Icon,
+  Users2Icon,
+  ActivityIcon,
+  FileBadge2Icon
 } from "lucide-react";
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
@@ -37,23 +49,24 @@ import { apiClient } from '@/api/client';
 // RELEASE=4,"Release Officer"
 
 const navItems = [
-  { title: "Overview", icon: Home, path: "/dashboard", allowedRoles: [0, 1] },
-  { title: "Orders", icon: ShoppingCart, path: "/orders", allowedRoles: [0, 1, 2, 3, 4] },
-  { title: "Stock Management", icon: Fuel, path: "/inventory", allowedRoles: [0, 1] },
-  { title: "PFI Tracking", icon: ClipboardList, path: "/pfi", allowedRoles: [1, 2] },
-  // { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
-  { title: "Finance", icon: DollarSign, path: "/finance", allowedRoles: [0, 1, 2] },
+  { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0, 1] },
+  { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0, 1, 2, 3, 4] },
+  { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0, 1] },
+  { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [1, 2] },
+  { title: "Finance", icon: LandmarkIcon, path: "/finance", allowedRoles: [0, 1, 2] },
   { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 3] },
+  { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 3,] },
+  { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2] },
+  { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2] },
+  { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0, 1] },
+  { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 5] },
+  { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [1] }
+  // { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
   // { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
   // { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 4] },
-  { title: "Loading Tickets", icon: Truck, path: "/pickup-processing", allowedRoles: [0, 1, 3,] },
   // { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1,2,4] },
   // { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
-  { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2] },
-  { title: "Manage Staff", icon: User, path: "/users-management", allowedRoles: [0, 1] },
   // { title: "Manage Marketers", icon: Users, path: "/agents", allowedRoles: [0, 1] },
-  { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 5] },
-  { title: "Track Actions", icon: ShieldAlertIcon, path: "/order-audit", allowedRoles: [1] }
 ];
 
 export const SidebarNav = () => {

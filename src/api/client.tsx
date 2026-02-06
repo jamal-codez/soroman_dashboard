@@ -297,11 +297,11 @@ export const apiClient = {
     },
 
     // Confirm payment & release order (requires CanConfirmPayments permission)
-    confirmPayment: async (orderId: number | string) => {
+    confirmPayment: async (orderId: number | string, payload?: { narration?: string }) => {
       const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/confirm-payment/`, {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({}),
+        body: JSON.stringify(payload || {}),
       });
     
       if (!response.ok) {
@@ -667,6 +667,8 @@ export const apiClient = {
     // Verify Orders
     getVerifyOrders: async (params?: {
       search?: string;
+      status?: string;
+      pfi?: number | string;
       page?: number;
       page_size?: number;
     }) => {

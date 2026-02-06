@@ -12,6 +12,7 @@ import Customers from "./pages/Customers";
 import Finance from "./pages/Finance";
 import Release from "./pages/Release";
 import PaymentVerification from "./pages/PaymentVerify";
+import ConfirmedPayments from "./pages/ConfirmedPayments";
 import Notify from "./pages/Notify";
 import Settings from "./pages/Settings";
 import OrderVerification from "./pages/OrderVerification";
@@ -39,6 +40,12 @@ const canViewPfi = () => {
   return role === 1 || role === 2;
 };
 
+const canViewConfirmedPayments = () => {
+  const raw = localStorage.getItem('role');
+  const role = raw === null ? NaN : Number(raw);
+  return role === 0 || role === 1 || role === 2;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -58,6 +65,10 @@ const App = () => (
           <Route path="/finance" element={<Finance />} />
           <Route path="/release" element={<Release />} />
           <Route path="/payment-verify" element={<PaymentVerification />} />
+          <Route
+            path="/confirmed-payments"
+            element={canViewConfirmedPayments() ? <ConfirmedPayments /> : <Navigate to="/dashboard" replace />}
+          />
           <Route path="/notifications" element={<Notify />} />
           <Route path="/users-management" element={<Settings />} />
           <Route path="/login" element={<Login />} />

@@ -15,8 +15,9 @@ import { TopBar } from '@/components/TopBar';
 import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { format, isThisMonth, isThisWeek, isThisYear, isToday } from 'date-fns';
 import { PageHeader } from '@/components/PageHeader';
@@ -134,11 +135,18 @@ function VerifyConfirmModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (narration: string) => void;
   payment: PaymentOrder | null;
   bankAccounts: BankAccount[];
 }) {
   if (!payment) return null;
+  const [narration, setNarration] = useState('');
+
+  // Reset narration whenever the modal opens or a different payment is selected.
+  useEffect(() => {
+    if (isOpen) setNarration('');
+  }, [isOpen, payment?.id]);
+
   const isPending = String(payment.status || '').toLowerCase() === 'pending';
   const createdDate = new Date(payment.created_at);
   const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
@@ -223,15 +231,14 @@ function VerifyConfirmModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-md border border-slate-200 p-3">
-              <div className="text-xs text-slate-500">Price per Litre</div>
-              <div className="font-medium text-slate-900">{unitPrice ? `₦${unitPrice}` : '—'}</div>
-            </div>
-            <div className="rounded-md border border-slate-200 p-3">
-              <div className="text-xs text-slate-500">Quantity</div>
-              <div className="font-medium text-slate-900">{qty || '—'} Litres</div>
-            </div>
+          <div className="rounded-md border border-slate-200 p-3">
+            <div className="mb-2 text-xs font-medium text-slate-500">Narration (optional)</div>
+            <Textarea
+              value={narration}
+              onChange={(e) => setNarration(e.target.value)}
+              placeholder="Add a note (e.g. part payment, short payment, lump sum, bank transfer details)..."
+              className="min-h-[90px]"
+            />
           </div>
 
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
@@ -245,7 +252,7 @@ function VerifyConfirmModal({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={onConfirm} disabled={!isPending}>
+          <Button onClick={() => onConfirm(narration)} disabled={!isPending}>
             Confirm payment & release order
           </Button>
           {!isPending ? (
@@ -539,22 +546,22 @@ export default function PaymentVerification() {
   }, [allPayments, searchQuery, filterType, locationFilter]);
 
   const updatePaymentMutation = useMutation({
-    mutationFn: async (orderId: number) => {
-      setUpdatingPaymentId(orderId);
+    mutationFn: async (args: { orderId: number; narration: string }) => {
+      setUpdatingPaymentId(args.orderId);
       try {
-        await apiClient.admin.confirmPayment(orderId);
+        await apiClient.admin.confirmPayment(args.orderId, { narration: args.narration?.trim() || undefined });
       } finally {
         setUpdatingPaymentId(null);
       }
     },
-    onSuccess: async (_data, orderId) => {
+    onSuccess: async (_data, args) => {
       // Refresh verify-orders list so the confirmed item disappears.
       await queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
       await queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
 
       // Also refresh audit-related caches so the action timeline updates immediately if open elsewhere.
       queryClient.invalidateQueries({ queryKey: ['order-audit'] });
-      queryClient.invalidateQueries({ queryKey: ['order-audit-events', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['order-audit-events', args.orderId] });
 
       toast({
         title: 'Success ✅',
@@ -596,7 +603,7 @@ export default function PaymentVerification() {
     setIsConfirmModalOpen(true);
   };
 
-  const handleConfirm = async () => {
+  const handleConfirm = async (narration: string) => {
     if (!selectedPayment?.order_id) return;
 
     const status = String(selectedPayment.status || '').toLowerCase();
@@ -627,7 +634,7 @@ export default function PaymentVerification() {
     }
 
     try {
-      await updatePaymentMutation.mutateAsync(orderId);
+      await updatePaymentMutation.mutateAsync({ orderId, narration });
     } finally {
       setIsConfirmModalOpen(false);
       setSelectedPayment(null);
