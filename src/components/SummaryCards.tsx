@@ -26,10 +26,10 @@ export function SummaryCards({ cards }: { cards: SummaryCard[] }) {
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs uppercase tracking-[0.08em] text-slate-500 font-medium">
+                  <div className="text-xs uppercase tracking-[0.05em] text-slate-700 font-medium">
                     {c.title}
                   </div>
-                  <div className="mt-1 text-[26px] sm:text-[28px] font-bold text-slate-950 tracking-[-0.02em] leading-[1.05] truncate">
+                  <div className="mt-4 text-[30px] sm:text-[28px] font-bold text-slate-950 tracking-[-0.02em] leading-[1.05] truncate">
                     {c.value}
                   </div>
                   {c.description ? (
@@ -40,7 +40,7 @@ export function SummaryCards({ cards }: { cards: SummaryCard[] }) {
                 </div>
 
                 <div
-                  className={`h-11 w-11 rounded-2xl ${t.wrap} ring-1 ${t.ring} flex items-center justify-center shrink-0`}
+                  className={`h-10 w-10 rounded-2xl ${t.wrap} ring-1 ${t.ring} flex items-center justify-center shrink-0`}
                 >
                   <span className={t.icon}>{c.icon}</span>
                 </div>

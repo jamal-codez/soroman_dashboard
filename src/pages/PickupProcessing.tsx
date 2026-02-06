@@ -640,12 +640,13 @@ export const PickupProcessing = () => {
     queryFn: async () => {
       const response = await apiClient.admin.getAllAdminOrders({
         page: 1,
-        page_size: 10000,
+        page_size: 1_000_000,
       });
+
       if (!response.results) throw new Error('Invalid response format');
       return {
         count: response.count || 0,
-        results: response.results || []
+        results: response.results || [],
       };
     },
     retry: 2,
@@ -1102,8 +1103,9 @@ export const PickupProcessing = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Order ID</TableHead>
-                    {/* <TableHead>Reference</TableHead> */}
+                    <TableHead className="w-[70px]">S/N</TableHead>
+                    {/* <TableHead>Order ID</TableHead> */}
+                    <TableHead>Reference</TableHead>
                     {/* <TableHead>Type</TableHead> */}
                     <TableHead>Loading Date/Time</TableHead>
                     <TableHead>Customer</TableHead>
@@ -1111,39 +1113,50 @@ export const PickupProcessing = () => {
                     <TableHead>Location</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Qty (L)</TableHead>
-                    <TableHead>Driver Details</TableHead>
                     <TableHead>Truck No.</TableHead>
-                    <TableHead>PFI</TableHead>
+                    <TableHead>Driver Details</TableHead>
+                    {/* <TableHead>PFI</TableHead> */}
                     <TableHead>Status</TableHead>
                     <TableHead className="text-center">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredOrders.map((order) => {
+                  {filteredOrders.map((order, index) => {
+                    const sn = filteredOrders.length - index;
                     const ticket = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
 
                     const truckNumber = ticket?.truckNumber || '';
                     const driverName = ticket?.driverName || '';
                     const driverPhone = ticket?.driverPhone || '';
                     const loadingDateTime = ticket?.loadingDateTime ? formatTicketLoadingDateTime(ticket.loadingDateTime) : '';
+                    const companyName = extractCompanyName(order);
 
                     return (
                       <TableRow key={order.id}>
-                        <TableCell className="font-medium">{order.id}</TableCell>
-                        {/* <TableCell>{getOrderReference(order) || '-'}</TableCell> */}
+                        <TableCell className="font-medium text-slate-600">{sn}</TableCell>
+                        {/* <TableCell className="font-medium">{order.id}</TableCell> */}
+                        <TableCell>{getOrderReference(order) || '-'}</TableCell>
                         {/* <TableCell className="capitalize">{order.release_type || '-'}</TableCell> */}
-                        <TableCell>{loadingDateTime || '-'}</TableCell>
+                        <TableCell>
+                          <div className="max-w-[150px]">{loadingDateTime || '-'}</div>
+                        </TableCell>
                         <TableCell>
                           <div>
-                            <div className="font-medium">
+                            <div className="font-bold text-sm">
+                              <span className="font-medium text-sm block max-w-[220px] truncate" title={companyName || undefined}>
+                              {companyName || '-'}
+                              </span>
                               {order.user.first_name} {order.user.last_name}
                             </div>
                           </div>
                         </TableCell>
                         {/* <TableCell>{formatAssignedAgent(order) || '-'}</TableCell> */}
-                        <TableCell>{extractLocation(order) || '-'}</TableCell>
+                        <TableCell>
+                          <div className="max-w-[135px] truncate">{extractLocation(order) || '-'}</div>
+                        </TableCell>
                         <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                         <TableCell>{order.quantity.toLocaleString()}</TableCell>
+                        <TableCell>{truckNumber || '-'}</TableCell>
                         <TableCell>
                           {driverName || driverPhone ? (
                             <div>
@@ -1154,8 +1167,7 @@ export const PickupProcessing = () => {
                             '-'
                           )}
                         </TableCell>
-                        <TableCell>{truckNumber || '-'}</TableCell>
-                        <TableCell>{order.pfi_number ? String(order.pfi_number) : '-'}</TableCell>
+                        {/* <TableCell>{order.pfi_number ? String(order.pfi_number) : '-'}</TableCell> */}
                         <TableCell>
                           <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
                             {getStatusIcon(order.status)}

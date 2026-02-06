@@ -476,14 +476,9 @@ export default function Finance() {
                           <TableCell className="font-medium">{bank.bank_name}</TableCell>
                           <TableCell className="font-medium">{bank.name}</TableCell>
                           <TableCell className="font-medium">{bank.acct_no}</TableCell>
-                          <TableCell className="font-medium">{new Date(bank.created_at).toISOString().slice(0, 10)}</TableCell>
+                          {/* <TableCell className="font-medium">{new Date(bank.created_at).toISOString().slice(0, 10)}</TableCell> */}
                           <TableCell>
                             <div className="flex items-center gap-4">
-                              <Switch
-                                checked={isActive}
-                                onCheckedChange={() => handleToggle(bank.id)}
-                                className={`data-[state=unchecked]:bg-red-500 data-[state=checked]:bg-green-500`}
-                              />
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -494,6 +489,12 @@ export default function Finance() {
                               >
                                 <Pencil size={16} />
                               </Button>
+                              <Switch
+                                checked={isActive}
+                                onCheckedChange={() => handleToggle(bank.id)}
+                                className={`data-[state=unchecked]:bg-red-500 data-[state=checked]:bg-green-500`}
+                              />
+                              
                             </div>
                           </TableCell>
                         </TableRow>

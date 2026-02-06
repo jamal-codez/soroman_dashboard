@@ -64,6 +64,8 @@ type UserType = {
   role: number;
   suspended: boolean;
   last_login: string;
+  last_login_ip?: string | null;
+  last_login_user_agent?: string | null;
   label: string;
 };
 
@@ -99,6 +101,21 @@ const Settings = () => {
   const [showPassword, setShowPassword] = useState(false);
 
   const { toast } = useToast();
+
+  const formatLastLogin = (value?: string | null) => {
+    if (!value) return 'N/A';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value; // fallback to raw string if it's not a valid date
+
+    // Example output: "Feb 6, 2026, 1:05 PM"
+    return d.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
 
   const generatePassword = () => {
     const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -381,7 +398,9 @@ const Settings = () => {
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Last Login</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {/* <TableHead>Device Used</TableHead> */}
+                    {/* <TableHead>IP</TableHead> */}
+                    <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -411,7 +430,11 @@ const Settings = () => {
                           {!user.suspended ? 'Active' : 'Suspended'}
                         </span>
                       </TableCell>
-                      <TableCell>{user.last_login || 'N/A'}</TableCell>
+                      <TableCell>{formatLastLogin(user.last_login)}</TableCell>
+                      {/* <TableCell className="max-w-[280px] truncate" title={user.last_login_user_agent || undefined}>
+                        {user.last_login_user_agent || '—'}
+                      </TableCell> */}
+                      {/* <TableCell>{user.last_login_ip || '—'}</TableCell> */}
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button variant="outline" size="sm" onClick={() => handleOpenDialog(user)}>
@@ -455,9 +478,9 @@ const Settings = () => {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
+            <DialogTitle>{editingUser ? 'Edit Staff' : 'Add New Staff'}</DialogTitle>
             <DialogDescription>
-              {editingUser ? 'Update user details and permissions.' : 'Fill in the information for the new user.'}
+              {editingUser ? 'Update staff details and permissions.' : 'Fill in the information for the new staff.'}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -526,9 +549,9 @@ const Settings = () => {
                     <SelectGroup>
                       <SelectLabel>Available Roles</SelectLabel>
                       <SelectItem value="1">General Admin</SelectItem>
-                      <SelectItem value="2">Finance & Release</SelectItem>
-                      <SelectItem value="3">Sales/Marketing</SelectItem>
-                      <SelectItem value="4">Ticketing & Loading</SelectItem>
+                      <SelectItem value="2">Finance Officer</SelectItem>
+                      {/* <SelectItem value="3">Sales/Marketing</SelectItem> */}
+                      <SelectItem value="4">Release Officer</SelectItem>
                       <SelectItem value="5">Security</SelectItem>
                     </SelectGroup>
                   </SelectContent>
