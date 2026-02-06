@@ -38,12 +38,18 @@ interface PaymentOrder {
     last_name?: string;
     phone_number?: string;
     phone?: string;
+    companyName?: string;
+    company_name?: string;
+    company?: string;
   };
   customer?: {
     first_name?: string;
     last_name?: string;
     phone_number?: string;
     phone?: string;
+    companyName?: string;
+    company_name?: string;
+    company?: string;
   };
 
   // Order fields sometimes embedded
@@ -95,6 +101,12 @@ interface PaymentOrder {
   paid_to_bank_name?: string;
 
   bank_account_id?: number | null;
+
+  // Company fields sometimes live at the payment/order level
+  companyName?: string;
+  company_name?: string;
+  company?: string;
+  customer_details?: Record<string, unknown>;
 }
 
 type BankAccount = {
@@ -130,6 +142,7 @@ function VerifyConfirmModal({
   const isPending = String(payment.status || '').toLowerCase() === 'pending';
   const createdDate = new Date(payment.created_at);
   const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
+  const companyName = extractCompanyName(payment);
   const { product, qty, unitPrice } = extractProductInfo(payment);
   const paidInto = extractPaidInto(payment);
   const location = extractLocation(payment);
@@ -186,7 +199,8 @@ function VerifyConfirmModal({
 
             <div className="rounded-md border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Customer</div>
-              <div className="font-medium text-slate-900">{customerName || '—'}</div>
+              <div className="font-bold text-slate-900">{companyName || '—'}</div>
+              {/* {companyName ? <div className="text-slate-700">{companyName}</div> : null} */}
               {customerPhone ? <div className="text-slate-700">{customerPhone}</div> : null}
             </div>
           </div>
@@ -419,6 +433,31 @@ const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; un
         })();
 
   return { product, qty, unitPrice };
+};
+
+const extractCompanyName = (p: PaymentOrder): string => {
+  const rec = p as unknown as Record<string, unknown>;
+  const u = (rec.user as Record<string, unknown> | undefined) || undefined;
+  const c = (rec.customer as Record<string, unknown> | undefined) || undefined;
+  const cd = (rec.customer_details as Record<string, unknown> | undefined) || undefined;
+
+  const v =
+    // Backend: VerifyOrderUserSerializer now exposes this explicitly
+    (typeof u?.company_name === 'string' ? u.company_name : undefined) ||
+    (typeof u?.companyName === 'string' ? u.companyName : undefined) ||
+    (typeof u?.company === 'string' ? u.company : undefined) ||
+    (typeof c?.company_name === 'string' ? c.company_name : undefined) ||
+    (typeof c?.companyName === 'string' ? c.companyName : undefined) ||
+    (typeof c?.company === 'string' ? c.company : undefined) ||
+    (typeof cd?.company_name === 'string' ? (cd.company_name as string) : undefined) ||
+    (typeof cd?.companyName === 'string' ? (cd.companyName as string) : undefined) ||
+    (typeof cd?.company === 'string' ? (cd.company as string) : undefined) ||
+    (typeof rec.company_name === 'string' ? (rec.company_name as string) : undefined) ||
+    (typeof rec.companyName === 'string' ? (rec.companyName as string) : undefined) ||
+    (typeof rec.company === 'string' ? (rec.company as string) : undefined) ||
+    '';
+
+  return String(v || '').trim();
 };
 
 export default function PaymentVerification() {
@@ -705,6 +744,7 @@ export default function PaymentVerification() {
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-48" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-40" /></TableCell>
@@ -717,7 +757,7 @@ export default function PaymentVerification() {
                      ))
                   ) : filteredPayments.length === 0 ? (
                      <TableRow>
-                      <TableCell colSpan={12} className="text-center h-24 text-slate-500">
+                      <TableCell colSpan={13} className="text-center h-24 text-slate-500">
                          No pending payments found
                        </TableCell>
                      </TableRow>
@@ -725,6 +765,7 @@ export default function PaymentVerification() {
                     filteredPayments.map((payment, idx) => {
                       const created = new Date(payment.created_at);
                       const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
+                      const companyName = extractCompanyName(payment);
                       const location = extractLocation(payment);
                       const { product, qty, unitPrice } = extractProductInfo(payment);
                       const paidInto = extractPaidInto(payment);
@@ -744,7 +785,7 @@ export default function PaymentVerification() {
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="font-medium">{customerName || '—'}</span>
+                              <span className="font-medium">{companyName || '—'}</span>
                               <span className="text-slate-600">{customerPhone || ''}</span>
                             </div>
                           </TableCell>
