@@ -337,7 +337,12 @@ const Orders = () => {
   }, [filteredOrders]);
 
   const releasedFilteredOrders = useMemo(() => {
-    return filteredOrdersForSummary.filter((o) => (o.status || '').toLowerCase() === 'released');
+    // Include both PAID (released for loading) and RELEASED (loaded) orders.
+    const s = (v: unknown) => String(v || '').toLowerCase();
+    return filteredOrdersForSummary.filter((o) => {
+      const status = s(o.status);
+      return status === 'paid' || status === 'released';
+    });
   }, [filteredOrdersForSummary]);
 
   const canceledFilteredOrders = useMemo(() => {
@@ -749,14 +754,14 @@ const Orders = () => {
 
               {/* Totals (unchanged) */}
               <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-1">
-                {/* Loaded */}
+                {/* Released (Paid) */}
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
                       <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-blue-100">
                         <Truck className="text-blue-700" size={16} />
                       </span>
-                      Loaded Orders
+                      Released Orders
                     </div>
                     <div className="text-xs text-slate-500">Summary</div>
                   </div>
@@ -764,7 +769,7 @@ const Orders = () => {
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                     <div className="rounded-md bg-white p-3 border border-slate-200">
                       <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-500">Trucks Loaded</div>
+                        <div className="text-xs text-slate-500">Trucks Released</div>
                         <CheckCircle className="text-blue-600" size={16} />
                       </div>
                       <div className="mt-1 text-lg font-semibold text-slate-900">{releasedTotals.totalOrders}</div>
@@ -784,9 +789,7 @@ const Orders = () => {
                         <div className="text-xs text-slate-500">Amount</div>
                         <BadgeDollarSign className="text-blue-600" size={16} />
                       </div>
-                      <div className="mt-1 text-lg font-semibold text-slate-900">
-                        ₦{releasedTotals.totalAmount.toLocaleString()}
-                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">₦{releasedTotals.totalAmount.toLocaleString()}</div>
                     </div>
                   </div>
                 </div>
