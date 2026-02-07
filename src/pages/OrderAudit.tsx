@@ -40,15 +40,48 @@ type AuditOrder = {
   account_details?: string;
   location?: string;
 
+  // New (dynamic) actor fields from backend (preferred)
   payment_confirmed_at?: string | null;
-  payment_user_email?: string | null;
-  payment_user_name?: string | null;
+  payment_actor_id?: number | null;
+  payment_actor_full_name?: string | null;
+  payment_actor_email?: string | null;
+  payment_actor_obj?: {
+    id?: number | null;
+    full_name?: string | null;
+    email?: string | null;
+    role?: number | string | null;
+    label?: string | null;
+  } | null;
 
   released_at?: string | null;
-  release_user_email?: string | null;
-  release_user_name?: string | null;
+  release_actor_id?: number | null;
+  release_actor_full_name?: string | null;
+  release_actor_email?: string | null;
+  release_actor_obj?: {
+    id?: number | null;
+    full_name?: string | null;
+    email?: string | null;
+    role?: number | string | null;
+    label?: string | null;
+  } | null;
 
   truck_exit_at?: string | null;
+  truck_exit_actor_id?: number | null;
+  truck_exit_actor_full_name?: string | null;
+  truck_exit_actor_email?: string | null;
+  truck_exit_actor_obj?: {
+    id?: number | null;
+    full_name?: string | null;
+    email?: string | null;
+    role?: number | string | null;
+    label?: string | null;
+  } | null;
+
+  // Legacy (snapshot-like) fields (fallback)
+  payment_user_email?: string | null;
+  payment_user_name?: string | null;
+  release_user_email?: string | null;
+  release_user_name?: string | null;
   truck_exit_user_email?: string | null;
   truck_exit_user_name?: string | null;
 };
@@ -59,6 +92,52 @@ type Paginated<T> = {
   previous?: string | null;
   results: T[];
 };
+
+// Helpers (must be declared before use inside component)
+function resolveActor(order: AuditOrder, stage: "payment" | "release" | "exit") {
+  if (stage === "payment") {
+    const name =
+      order.payment_actor_obj?.full_name ??
+      order.payment_actor_full_name ??
+      order.payment_user_name ??
+      null;
+    const email =
+      order.payment_actor_obj?.email ??
+      order.payment_actor_email ??
+      order.payment_user_email ??
+      null;
+    const time = order.payment_confirmed_at ?? null;
+    return { name, email, time };
+  }
+
+  if (stage === "release") {
+    const name =
+      order.release_actor_obj?.full_name ??
+      order.release_actor_full_name ??
+      order.release_user_name ??
+      null;
+    const email =
+      order.release_actor_obj?.email ??
+      order.release_actor_email ??
+      order.release_user_email ??
+      null;
+    const time = order.released_at ?? null;
+    return { name, email, time };
+  }
+
+  const name =
+    order.truck_exit_actor_obj?.full_name ??
+    order.truck_exit_actor_full_name ??
+    order.truck_exit_user_name ??
+    null;
+  const email =
+    order.truck_exit_actor_obj?.email ??
+    order.truck_exit_actor_email ??
+    order.truck_exit_user_email ??
+    null;
+  const time = order.truck_exit_at ?? null;
+  return { name, email, time };
+}
 
 // Removed asPaginated(): backend is now guaranteed to return a paginated shape for /api/admin/order-audit/.
 
@@ -176,9 +255,18 @@ export default function OrderAudit() {
 
   const summary = useMemo(() => {
     const total = listQuery.data?.count ?? orders.length;
-    const payment = orders.filter((o) => Boolean(o.payment_user_email || o.payment_user_name)).length;
-    const release = orders.filter((o) => Boolean(o.release_user_email || o.release_user_name)).length;
-    const exit = orders.filter((o) => Boolean(o.truck_exit_user_email || o.truck_exit_user_name)).length;
+    const payment = orders.filter((o) => {
+      const a = resolveActor(o, "payment");
+      return Boolean(a.name || a.email);
+    }).length;
+    const release = orders.filter((o) => {
+      const a = resolveActor(o, "release");
+      return Boolean(a.name || a.email);
+    }).length;
+    const exit = orders.filter((o) => {
+      const a = resolveActor(o, "exit");
+      return Boolean(a.name || a.email);
+    }).length;
     return { total, payment, release, exit };
   }, [listQuery.data?.count, orders]);
 
@@ -343,7 +431,12 @@ export default function OrderAudit() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    orders.map((o) => (
+                    orders.map((o) => {
+                      const paymentA = resolveActor(o, "payment");
+                      const releaseA = resolveActor(o, "release");
+                      const exitA = resolveActor(o, "exit");
+
+                      return (
                       <TableRow key={o.id}>
                         {/* <TableCell className="font-semibold text-slate-950">{o.id}</TableCell> */}
                         <TableCell className="text-slate-700 whitespace-nowrap">{formatTs(o.created_at)}</TableCell>
@@ -361,14 +454,14 @@ export default function OrderAudit() {
                         <TableCell className="text-slate-700 truncate max-w-[150px]">{o.account_details || "—"}</TableCell>
                         <TableCell>
                           <div className="max-w-[150px]">
-                            <ActorPill tone="green" name={o.payment_user_name} time={o.payment_confirmed_at ?? null} />
+                            <ActorPill tone="green" name={paymentA.name} time={paymentA.time} />
                           </div>
                         </TableCell>
                         <TableCell>
-                            <ActorPill tone="blue" name={o.release_user_name} time={o.released_at ?? null} />
+                            <ActorPill tone="blue" name={releaseA.name} time={releaseA.time} />
                         </TableCell>
                         <TableCell>
-                            <ActorPill tone="slate" name={o.truck_exit_user_name} time={o.truck_exit_at ?? null} />
+                            <ActorPill tone="slate" name={exitA.name} time={exitA.time} />
                         </TableCell>
                         {/* <TableCell>
                           <Button variant="default" size="sm" onClick={() => setOpenOrderId(o.id)}>
@@ -376,7 +469,7 @@ export default function OrderAudit() {
                           </Button>
                         </TableCell> */}
                       </TableRow>
-                    ))
+                    )})
                   )}
                 </TableBody>
               </Table>
