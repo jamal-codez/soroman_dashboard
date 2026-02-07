@@ -289,7 +289,7 @@ export default function OrderAudit() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto space-y-5">
+          <div className="max-w-7xl mx-auto space-y-3">
             <PageHeader title="Track Order Actions" description="Track which user performed each action for accountability." />
 
             {/* <SummaryCards
@@ -301,13 +301,13 @@ export default function OrderAudit() {
               ]}
             /> */}
 
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+            {/* <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
               <div className="flex flex-col gap-3">
                 <div className="flex flex-col lg:flex-row gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <Input
-                      placeholder="Search by order ID, customer, product, reference, or user email…"
+                      placeholder="Search by order ID, customer, location..."
                       className="pl-10"
                       value={search}
                       onChange={(e) => {
@@ -319,7 +319,7 @@ export default function OrderAudit() {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <Popover>
+                  {/* <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full justify-between h-11">
                         <span className="inline-flex items-center gap-2">
@@ -344,9 +344,9 @@ export default function OrderAudit() {
                         initialFocus
                       />
                     </PopoverContent>
-                  </Popover>
+                  </Popover> */}
 
-                  <select
+                  {/* <select
                     aria-label="Action filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11 bg-white"
                     value={actionFilter}
@@ -360,9 +360,9 @@ export default function OrderAudit() {
                         {a.label}
                       </option>
                     ))}
-                  </select>
+                  </select> */}
 
-                  <Input
+                  {/* <Input
                     aria-label="Location filter"
                     placeholder="Search by location"
                     className="h-11"
@@ -385,10 +385,10 @@ export default function OrderAudit() {
                     }}
                   >
                     Clear filters
-                  </Button>
-                </div>
-              </div>
-            </div>
+                  </Button> */}
+                {/* </div> */}
+              {/* </div> */}
+            {/* </div> */} 
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <Table className="text-sm">
@@ -402,7 +402,7 @@ export default function OrderAudit() {
                     <TableHead className="w-[180px]">Product</TableHead>
                     <TableHead className="w-[120px]">Amount Paid</TableHead>
                     <TableHead className="w-[200px]">Paid Into</TableHead>
-                    <TableHead className="w-[260px]">Finance</TableHead>
+                    <TableHead className="w-[260px]">Payment Confirmation</TableHead>
                     <TableHead className="w-[230px]">Ticketing</TableHead>
                     <TableHead className="w-[230px]">Security Exit</TableHead>
                     {/* <TableHead className="w-[70px]"></TableHead> */}
