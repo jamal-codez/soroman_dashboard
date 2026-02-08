@@ -324,6 +324,36 @@ export const apiClient = {
       return response.json();
     },
 
+    // Confirmed Payments (paid + released orders)
+    getConfirmedPayments: async (params?: {
+      search?: string;
+      pfi?: number | string;
+      page?: number;
+      page_size?: number;
+    }) => {
+      const url = new URL(`${ADMIN_BASE}/confirmed-payments/`);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value === undefined || value === null) return;
+          const s = String(value);
+          if (!s.trim()) return;
+          url.searchParams.set(key, s);
+        });
+      }
+
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(`Failed to fetch confirmed payments (${response.status}): ${msg}`);
+      }
+
+      return response.json();
+    },
+
     // Top Customers
     getTopCustomers: async () => {
       const response = await fetch(`${ADMIN_BASE}/top-customers/`, {

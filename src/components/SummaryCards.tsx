@@ -24,26 +24,26 @@ export function SummaryCards({ cards }: { cards: SummaryCard[] }) {
         return (
           <Card key={`${c.title}-${idx}`} className="shadow-sm">
             <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs uppercase tracking-[0.05em] text-slate-700 font-medium">
-                    {c.title}
-                  </div>
-                  <div className="mt-4 text-[30px] sm:text-[28px] font-bold text-slate-950 tracking-[-0.02em] leading-[1.05] truncate">
-                    {c.value}
-                  </div>
-                  {c.description ? (
-                    <div className="mt-1 text-[0.95rem] text-slate-600 leading-[1.4]">
-                      {c.description}
-                    </div>
-                  ) : null}
-                </div>
-
+              <div className="flex flex-col gap-2">
                 <div
-                  className={`h-10 w-10 rounded-2xl ${t.wrap} ring-1 ${t.ring} flex items-center justify-center shrink-0`}
+                  className={`h-10 w-10 rounded-2xl ${t.wrap} ring-1 ${t.ring} flex items-center justify-center`}
                 >
                   <span className={t.icon}>{c.icon}</span>
                 </div>
+
+                <div className="mt-5 text-xs uppercase tracking-[0.05em] text-slate-700 font-medium">
+                  {c.title}
+                </div>
+
+                <div className="text-[28px] sm:text-[28px] font-bold text-slate-950 tracking-[-0.02em] leading-[1.05] truncate">
+                  {c.value}
+                </div>
+
+                {c.description ? (
+                  <div className="text-[0.95rem] text-slate-600 leading-[1.4]">
+                    {c.description}
+                  </div>
+                ) : null}
               </div>
             </CardContent>
           </Card>

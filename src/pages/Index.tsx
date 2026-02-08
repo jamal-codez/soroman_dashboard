@@ -266,14 +266,14 @@ const Dashboard: React.FC = () => {
                 // },
                 {
                   title: "Today's Revenue",
-                  value: todayTotals.amount.toLocaleString(),
+                  value: `₦${todayTotals.amount.toLocaleString()}`,
                   // description: `₦${todayTotals.amount.toLocaleString()}`,
                   icon: <BadgeDollarSign className="h-5 w-5" />,
                   tone: 'neutral',
                 },
                 {
                   title: "Quantity Sold Today",
-                  value: todayTotals.litres.toLocaleString(),
+                  value: `${todayTotals.litres.toLocaleString()} Litres`,
                   // description: `${todayTotals.litres.toLocaleString()} Litres`,
                   icon: <FuelIcon className="h-5 w-5" />,
                   tone: 'amber',
@@ -325,9 +325,9 @@ const Dashboard: React.FC = () => {
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                 <h2 className="text-sm sm:text-base font-semibold text-slate-800">Today's Sales by Location</h2>
-                <span className="text-xs text-slate-500">
+                {/* <span className="text-xs text-slate-500">
                   {locationTodayCards.length ? `${locationTodayCards.length} location(s)` : 'No sales today'}
-                </span>
+                </span> */}
               </div>
               <div className="p-4">
                 {locationTodayCards.length === 0 ? (
