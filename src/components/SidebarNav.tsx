@@ -60,7 +60,7 @@ const navItems = [
   { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2] },
   { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0, 1] },
   { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 5] },
-  { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [1] }
+  // { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [1] }
   // { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
   // { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
   // { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 4] },
