@@ -49,18 +49,18 @@ import { apiClient } from '@/api/client';
 // RELEASE=4,"Release Officer"
 
 const navItems = [
-  { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0, 1] },
+  { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0, 1, 2] },
   { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0, 1, 2, 3, 4] },
   { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0, 1] },
   { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [1, 2] },
   { title: "Finance", icon: LandmarkIcon, path: "/finance", allowedRoles: [0, 1, 2] },
   { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 3] },
-  { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 3,] },
+  { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 4,] },
   { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2] },
   { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2] },
   { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0, 1] },
   { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 5] },
-  // { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [1] }
+  { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [1] }
   // { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 3] },
   // { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
   // { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 4] },
