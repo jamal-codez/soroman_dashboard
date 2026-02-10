@@ -49,7 +49,7 @@ import { apiClient } from '@/api/client';
 // RELEASE=4,"Release Officer"
 
 const navItems = [
-  { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0, 1, 2] },
+  { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0, 1, 2, 3, 4] },
   { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0, 1, 2, 3, 4] },
   { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0, 1] },
   { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [1, 2] },
