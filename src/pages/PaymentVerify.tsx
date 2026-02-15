@@ -197,7 +197,7 @@ function VerifyConfirmModalBody({
           <DialogTitle className="text-slate-950">Confirm payment & release order</DialogTitle>
           <DialogDescription className="text-sm text-slate-600">
             You’re about to mark this payment as <span className="font-medium text-slate-900">paid</span> and <span className="font-medium text-slate-900">release</span> the
-            order for loading.
+            order for loading
           </DialogDescription>
         </DialogHeader>
 
