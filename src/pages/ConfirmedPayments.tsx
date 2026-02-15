@@ -195,7 +195,6 @@ export default function ConfirmedPayments() {
       const results: PaymentOrder[] = [];
       let count = 0;
 
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const response = (await apiClient.admin.getAllAdminOrders({
           page,

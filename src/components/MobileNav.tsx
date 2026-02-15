@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -23,9 +23,13 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { apiClient } from '@/api/client';
 
+type LucideIcon = React.ComponentType<{ className?: string; size?: number | string }>;
+type PagedCount = { count?: number };
+type OrdersResults = { results?: Array<{ status?: string | null }> };
+
 type NavItem = {
   title: string;
-  icon: any;
+  icon: LucideIcon;
   path: string;
   allowedRoles: number[];
 };
@@ -59,7 +63,7 @@ export function MobileNav() {
   });
 
   const pendingPaymentsCount = useMemo(() => {
-    const c = (pendingVerifyResponse as any)?.count;
+    const c = (pendingVerifyResponse as PagedCount | undefined)?.count;
     return typeof c === 'number' ? c : 0;
   }, [pendingVerifyResponse]);
 
@@ -71,7 +75,7 @@ export function MobileNav() {
   });
 
   const paidAwaitingReleaseCount = useMemo(() => {
-    const results = (allOrdersResponse as any)?.results as Array<any> | undefined;
+    const results = (allOrdersResponse as OrdersResults | undefined)?.results;
     if (!Array.isArray(results)) return 0;
     return results.filter((o) => (o?.status || '').toLowerCase() === 'paid').length;
   }, [allOrdersResponse]);

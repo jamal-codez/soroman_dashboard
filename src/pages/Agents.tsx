@@ -611,7 +611,7 @@ export default function Agents() {
                   aria-label="Agent type"
                   className="border border-gray-300 rounded px-3 py-2 h-11"
                   value={createType}
-                  onChange={(e) => setCreateType(e.target.value as any)}
+                  onChange={(e) => setCreateType(e.target.value as AgentType)}
                 >
                   <option value="location">Location</option>
                   <option value="general">General</option>
@@ -687,7 +687,7 @@ export default function Agents() {
                   className="border border-gray-300 rounded px-3 py-2 h-11"
                   value={editType}
                   onChange={(e) => {
-                    const t = e.target.value as any;
+                    const t = e.target.value as AgentType;
                     setEditType(t);
                     if (t === 'general') setEditLocationId(null);
                     if (t === 'location' && editLocationId == null) setEditLocationId(selectedLocationId);

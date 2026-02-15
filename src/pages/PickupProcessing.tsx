@@ -460,7 +460,8 @@ export const PickupProcessing = () => {
   });
 
   const pfiOptions = useMemo(() => {
-    const raw = (pfiQuery.data as any)?.results ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
+    const rec = (pfiQuery.data && typeof pfiQuery.data === 'object') ? (pfiQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
     const list = (raw || []) as Array<{ id: number; pfi_number: string }>;
     return list
       .filter((p) => p && typeof p.id === 'number' && typeof p.pfi_number === 'string')

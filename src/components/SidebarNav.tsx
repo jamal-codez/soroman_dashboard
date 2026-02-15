@@ -42,6 +42,9 @@ import {
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
 
+type PagedCount = { count?: number };
+type OrdersResults = { results?: Array<{ status?: string | null }> };
+
 // SUPERADMIN= 0,"SUPERADMIN"
 // ADMIN= 1,"General Admin"
 // FINANCE =2,"Finance Admin"
@@ -91,7 +94,7 @@ export const SidebarNav = () => {
   });
 
   const pendingPaymentsCount = useMemo(() => {
-    const c = (pendingVerifyResponse as any)?.count;
+    const c = (pendingVerifyResponse as PagedCount | undefined)?.count;
     return typeof c === 'number' ? c : 0;
   }, [pendingVerifyResponse]);
 
@@ -103,7 +106,7 @@ export const SidebarNav = () => {
   });
 
   const paidAwaitingReleaseCount = useMemo(() => {
-    const results = (allOrdersResponse as any)?.results as Array<any> | undefined;
+    const results = (allOrdersResponse as OrdersResults | undefined)?.results;
     if (!Array.isArray(results)) return 0;
     return results.filter((o) => (o?.status || '').toLowerCase() === 'paid').length;
   }, [allOrdersResponse]);

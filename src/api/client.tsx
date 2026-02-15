@@ -23,11 +23,12 @@ const getHeadersfree = (additionalHeaders = {}) => ({
 const safeReadError = async (response: Response): Promise<string> => {
   const ct = response.headers.get('content-type') || '';
   if (ct.includes('application/json')) {
-    const data = (await response.json().catch(() => null)) as any;
+    const data: unknown = await response.json().catch(() => null);
+    const rec = (data && typeof data === 'object') ? (data as Record<string, unknown>) : null;
     return (
-      (data && typeof data.error === 'string' && data.error) ||
-      (data && typeof data.detail === 'string' && data.detail) ||
-      (data && typeof data.message === 'string' && data.message) ||
+      (rec && typeof rec.error === 'string' && rec.error) ||
+      (rec && typeof rec.detail === 'string' && rec.detail) ||
+      (rec && typeof rec.message === 'string' && rec.message) ||
       `Request failed (${response.status})`
     );
   }

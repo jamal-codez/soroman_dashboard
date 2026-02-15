@@ -132,7 +132,7 @@ const Dashboard: React.FC = () => {
     queryFn: () => apiClient.admin.adminGetAllCustomers()
   });
 
-  const ordersAll = allOrdersResp?.results || [];
+  const ordersAll = useMemo(() => allOrdersResp?.results || [], [allOrdersResp?.results]);
 
   const norm = (s: unknown) => String(s || '').toLowerCase();
 
@@ -167,8 +167,10 @@ const Dashboard: React.FC = () => {
   }, [todayOrders]);
 
   const activePfis = useMemo(() => {
-    const list = ((pfisResp as any)?.results ?? []) as PfiLite[];
-    return (Array.isArray(list) ? list : []).filter((p) => String(p.status || 'active').toLowerCase() === 'active');
+    const rec = (pfisResp && typeof pfisResp === 'object') ? (pfisResp as Record<string, unknown>) : null;
+    const raw = rec?.results;
+    const list = (Array.isArray(raw) ? (raw as PfiLite[]) : []) as PfiLite[];
+    return list.filter((p) => String(p.status || 'active').toLowerCase() === 'active');
   }, [pfisResp]);
 
   const pfiTodayCards = useMemo(() => {

@@ -141,12 +141,38 @@ function VerifyConfirmModal({
   bankAccounts: BankAccount[];
 }) {
   if (!payment) return null;
+
+  return (
+    <VerifyConfirmModalBody
+      isOpen={isOpen}
+      onClose={onClose}
+      onConfirm={onConfirm}
+      payment={payment}
+      bankAccounts={bankAccounts}
+    />
+  );
+
+}
+
+function VerifyConfirmModalBody({
+  isOpen,
+  onClose,
+  onConfirm,
+  payment,
+  bankAccounts,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (narration: string) => void;
+  payment: PaymentOrder;
+  bankAccounts: BankAccount[];
+}) {
   const [narration, setNarration] = useState('');
 
   // Reset narration whenever the modal opens or a different payment is selected.
   useEffect(() => {
     if (isOpen) setNarration('');
-  }, [isOpen, payment?.id]);
+  }, [isOpen, payment.id]);
 
   const isPending = String(payment.status || '').toLowerCase() === 'pending';
   const createdDate = new Date(payment.created_at);

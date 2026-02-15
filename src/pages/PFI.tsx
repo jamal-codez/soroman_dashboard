@@ -196,7 +196,8 @@ export default function PFIPage() {
   });
 
   const productOptions = useMemo(() => {
-    const raw = (productsQuery.data as any)?.results ?? (Array.isArray(productsQuery.data) ? productsQuery.data : []);
+    const rec = (productsQuery.data && typeof productsQuery.data === 'object') ? (productsQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(productsQuery.data) ? productsQuery.data : []);
     const list = (raw || []) as BackendProduct[];
     return list
       .filter((p) => p && typeof p.id === 'number' && typeof p.name === 'string')
@@ -211,7 +212,8 @@ export default function PFIPage() {
   });
 
   const locationOptions = useMemo(() => {
-    const raw = (locationsQuery.data as any)?.results ?? (Array.isArray(locationsQuery.data) ? locationsQuery.data : []);
+    const rec = (locationsQuery.data && typeof locationsQuery.data === 'object') ? (locationsQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(locationsQuery.data) ? locationsQuery.data : []);
     const list = (raw || []) as BackendLocation[];
     return list
       .filter((l) => l && typeof l.id === 'number')
@@ -222,7 +224,8 @@ export default function PFIPage() {
   }, [locationsQuery.data]);
 
   const pfis: BackendPfi[] = useMemo(() => {
-    const raw = (pfiQuery.data as any)?.results ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
+    const rec = (pfiQuery.data && typeof pfiQuery.data === 'object') ? (pfiQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
     return (raw || []) as BackendPfi[];
   }, [pfiQuery.data]);
 

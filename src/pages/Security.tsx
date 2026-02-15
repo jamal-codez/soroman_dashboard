@@ -16,8 +16,8 @@ type OrderLike = {
   status?: string | null;
 
   // Shape used elsewhere in app
-  user?: Record<string, any> | null;
-  customer_details?: Record<string, any> | null;
+  user?: Record<string, unknown> | null;
+  customer_details?: Record<string, unknown> | null;
   products?: Array<{ name?: string | null }> | null;
   quantity?: number | string | null;
 
@@ -120,11 +120,17 @@ function getProductName(o: OrderLike) {
     .join(", ");
   if (fromProducts) return fromProducts;
 
-  const p = o.product as any;
+  const p = o.product as unknown;
+  const pRec = p && typeof p === 'object' ? (p as Record<string, unknown>) : null;
   return (
     o.product_name ||
     (typeof p === "string" ? p : null) ||
-    (p && typeof p === "object" ? (p.name || p.product_name || p.product || p.type) : null) ||
+    (pRec
+      ? (typeof pRec.name === 'string' && pRec.name) ||
+        (typeof pRec.product_name === 'string' && pRec.product_name) ||
+        (typeof pRec.product === 'string' && pRec.product) ||
+        (typeof pRec.type === 'string' && pRec.type)
+      : null) ||
     ""
   );
 }

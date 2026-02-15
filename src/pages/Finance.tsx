@@ -105,7 +105,7 @@ export default function Finance() {
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editingBank, setEditingBank] = useState(null);
+  const [editingBank, setEditingBank] = useState<BankAccount | null>(null);
 
   const [editFormData, setEditFormData] = useState({
     name: '',
@@ -119,14 +119,19 @@ export default function Finance() {
 
   useEffect(() => {
     if (editingBank) {
-      const rec = editingBank as unknown as Record<string, any>;
+      const rec = editingBank as unknown as Record<string, unknown>;
       const loc = rec.location;
-      const locId = typeof loc === 'number' ? loc : (loc && typeof loc.id === 'number' ? loc.id : '');
+      const locId =
+        typeof loc === 'number'
+          ? loc
+          : (loc && typeof loc === 'object' && typeof (loc as Record<string, unknown>).id === 'number'
+              ? (loc as Record<string, unknown>).id
+              : '');
 
       setEditFormData({
-        name: rec.name,
-        acct_no: rec.acct_no,
-        bank_name: rec.bank_name,
+        name: String(rec.name ?? ''),
+        acct_no: String(rec.acct_no ?? ''),
+        bank_name: String(rec.bank_name ?? ''),
         location_id: locId ? String(locId) : '',
       });
     }
@@ -234,7 +239,7 @@ export default function Finance() {
 
   const addBankAccountMutation = useMutation({
     mutationFn: (data: { name: string; acct_no: string; bank_name: string; location_id?: number | null }) =>
-      apiClient.admin.postBankAccount(data as any),
+      apiClient.admin.postBankAccount(data),
     onSuccess: () => {
       setSubmissionStatus('success');
       queryClient.invalidateQueries({ queryKey: ['bank-accounts'] });
@@ -465,12 +470,17 @@ export default function Finance() {
                   </TableHeader>
                   <TableBody>
                     {bankQuery.data?.map((bank) => {
-                      const rec = bank as unknown as Record<string, any>;
+                      const rec = bank as unknown as Record<string, unknown>;
                       const loc = rec.location;
                       const locName =
-                        (loc && typeof loc === 'object' && typeof loc.name === 'string' ? loc.name : '') ||
+                        (loc && typeof loc === 'object' && typeof (loc as Record<string, unknown>).name === 'string'
+                          ? String((loc as Record<string, unknown>).name)
+                          : '') ||
                         '';
-                      const isActive = typeof rec.is_active === 'boolean' ? rec.is_active : !rec.suspended;
+                      const isActive =
+                        typeof rec.is_active === 'boolean'
+                          ? rec.is_active
+                          : !(typeof rec.suspended === 'boolean' ? rec.suspended : false);
 
                       return (
                         <TableRow key={bank.id}>
@@ -485,7 +495,7 @@ export default function Finance() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => {
-                                  setEditingBank(bank as any);
+                                  setEditingBank(bank);
                                   setShowEditModal(true);
                                 }}
                               >

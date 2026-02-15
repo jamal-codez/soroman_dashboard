@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useCallback } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
@@ -320,7 +321,7 @@ const Settings = () => {
     }
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const response = await apiClient.admin.getUsers();
       setUsers(response);
@@ -332,11 +333,11 @@ const Settings = () => {
         duration: 1000, // Set toast duration to 1 second
       });
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [fetchUsers]);
 
   const summary = {
     total: users.length,
