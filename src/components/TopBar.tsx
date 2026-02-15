@@ -2,7 +2,7 @@ import { Bell, Search } from 'lucide-react';
 
 export const TopBar = () => {
   return (
-    <div className="flex justify-between items-center h-16 px-4 sm:px-6 bg-white border-b border-slate-200">
+    <div className="hidden sm:flex justify-between items-center h-16 px-4 sm:px-6 bg-white border-b border-slate-200">
       <div className="flex-1" />
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-3">

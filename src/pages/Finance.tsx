@@ -35,6 +35,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
 import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -397,13 +398,14 @@ export default function Finance() {
       <SidebarNav />
       
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
       
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="Finance Dashboard"
-              // description="Revenue, payments, delivery rates, and bank accounts."
+              description="Monitor revenue, bank accounts, outstanding items, and finance performance trends."
             />
 
             <div className="pt-1 pb-1">

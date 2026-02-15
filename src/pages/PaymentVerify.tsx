@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
 import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign } from 'lucide-react';
@@ -673,11 +674,13 @@ export default function PaymentVerification() {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="Pending Payments"
+              description="Review incoming payment, confirm payments, and track verification status."
             />
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">

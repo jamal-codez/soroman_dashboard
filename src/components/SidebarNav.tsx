@@ -125,10 +125,12 @@ export const SidebarNav = () => {
   };
 
   return (
-    <div className={cn(
-      "bg-sidebar text-sidebar-foreground h-screen transition-all duration-300 flex flex-col",
-      expanded ? "w-64" : "w-20"
-    )}>
+    <div
+      className={cn(
+        "hidden sm:flex bg-sidebar text-sidebar-foreground h-screen transition-all duration-300 flex-col",
+        expanded ? "w-64" : "w-20"
+      )}
+    >
       <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
         <div className={cn("flex items-center", expanded ? "" : "justify-center w-full")}>
           {expanded && (

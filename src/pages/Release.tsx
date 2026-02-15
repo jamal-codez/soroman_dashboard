@@ -20,6 +20,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
 import { format, isThisMonth, isThisWeek, isThisYear, isToday } from 'date-fns';
 import { PageHeader } from '@/components/PageHeader';
 
@@ -104,7 +105,7 @@ export default function Release (){
   }, [releases, searchQuery, filterType, locationFilter, statusFilter]);
 
   const exportToCSV = () => {
-    const headers = ['Date', 'Order ID', 'Reference', 'Customer', 'Product', 'Quantity', 'Status', 'Location'];
+    const headers = ['Date', 'Order ID', 'Reference', 'Customer', 'Product', 'Quantity', 'Truck No', 'Status', 'Location'];
     const rows = filteredReleases.map(item => [
       item.date,
       item.id,
@@ -112,6 +113,7 @@ export default function Release (){
       item.customer,
       item.product,
       item.quantity,
+      item.truckNumber || '',
       item.status,
       item.state || '',
     ]);
@@ -155,6 +157,7 @@ export default function Release (){
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
@@ -236,6 +239,7 @@ export default function Release (){
                     <TableHead>Customer</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Quantity</TableHead>
+                    <TableHead>Truck No</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
@@ -249,6 +253,7 @@ export default function Release (){
                       <TableCell>{item.customer}</TableCell>
                       <TableCell>{item.product}</TableCell>
                       <TableCell>{item.quantity.toLocaleString()}</TableCell>
+                      <TableCell>{item.truckNumber || '—'}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className={getStatusBadgeClass(item.status)}>
                           {item.status}

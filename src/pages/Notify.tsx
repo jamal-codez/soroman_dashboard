@@ -1,10 +1,20 @@
 import React from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
+import { PageHeader } from '@/components/PageHeader';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Bell, MessageSquare } from 'lucide-react';
-import type { Notification } from '@/types/notification';
+
+type Notification = {
+  id: number;
+  title: string;
+  message: string;
+  time: string;
+  type: string;
+  read: boolean;
+};
 
 const notifications: Notification[] = [
   {
@@ -54,13 +64,14 @@ const NotificationsPage = () => {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Notifications</h1>
-              <p className="text-slate-500">View and manage your notifications</p>
-            </div>
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="Notifications"
+              description="View, triage, and keep track of important system updates and alerts."
+            />
 
             <Card>
               <CardHeader>

@@ -3,6 +3,7 @@ import { format, isThisMonth, isThisWeek, isThisYear, isToday } from "date-fns";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
+import { MobileNav } from "@/components/MobileNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -332,12 +333,14 @@ export default function Agents() {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
 
         <div className="flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="Marketers"
+              description="Manage marketing officers, review assignments, and track released order performance."
               actions={
                 <Button onClick={() => setOpenCreate(true)} className="gap-2">
                   <Plus className="h-4 w-4" />

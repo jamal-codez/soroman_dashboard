@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/dialog";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
+import { MobileNav } from "@/components/MobileNav";
 import { format, isThisMonth, isThisWeek, isThisYear, isToday, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
 import { apiClient } from '@/api/client';
 import { useReactToPrint } from 'react-to-print';
@@ -787,7 +788,22 @@ export const PickupProcessing = () => {
       loaderPhone: '',
     };
 
-    // No required-field validation (fields may be empty)
+    // Required-field validation
+    const missing: string[] = [];
+    if (!String(sanitized.loadingDateTime || '').trim()) missing.push('Loading date & time');
+    if (!String(sanitized.truckNumber || '').trim()) missing.push('Truck number');
+    if (!String(sanitized.driverName || '').trim()) missing.push("Driver's name");
+    if (!String(sanitized.driverPhone || '').trim()) missing.push("Driver's phone");
+    if (!sanitized.pfiId) missing.push('PFI');
+
+    if (missing.length) {
+      toast({
+        title: 'Missing required fields',
+        description: `Please fill: ${missing.join(', ')}.`,
+        variant: 'destructive',
+      });
+      return;
+    }
 
     try {
       setReleaseForm(sanitized);
@@ -945,6 +961,7 @@ export const PickupProcessing = () => {
       <div className="flex h-screen bg-slate-100">
         <SidebarNav />
         <div className="flex-1 flex flex-col overflow-hidden">
+          <MobileNav />
           <TopBar />
           <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
             <div className="text-center">
@@ -961,6 +978,7 @@ export const PickupProcessing = () => {
       <div className="flex h-screen bg-slate-100">
         <SidebarNav />
         <div className="flex-1 flex flex-col overflow-hidden">
+          <MobileNav />
           <TopBar />
           <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
             <div className="text-center text-red-500">
@@ -979,12 +997,13 @@ export const PickupProcessing = () => {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="Loading Tickets"
-              // description="Capture release details, release paid orders, and generate a printable ticket." 
+              description="Generate loading tickets for paid orders, capture truck details, and export reports."
               actions={
                 <>
                   <Button
@@ -1206,19 +1225,25 @@ export const PickupProcessing = () => {
 
                                 <div className="space-y-4 overflow-y-auto pr-1 flex-1">
                                   <div>
-                                    <Label htmlFor="loadingDateTime">Loading Date &amp; Time</Label>
+                                    <Label htmlFor="loadingDateTime">
+                                      Loading Date &amp; Time <span className="text-red-500">*</span>
+                                    </Label>
                                     <Input
                                       id="loadingDateTime"
                                       type="datetime-local"
+                                      required
                                       value={releaseForm.loadingDateTime}
                                       onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
                                     />
                                   </div>
 
                                   <div>
-                                    <Label htmlFor="truckNumber">Truck Number</Label>
+                                    <Label htmlFor="truckNumber">
+                                      Truck Number <span className="text-red-500">*</span>
+                                    </Label>
                                     <Input
                                       id="truckNumber"
+                                      required
                                       value={releaseForm.truckNumber}
                                       onChange={(e) => setReleaseForm({ ...releaseForm, truckNumber: e.target.value })}
                                     />
@@ -1226,112 +1251,38 @@ export const PickupProcessing = () => {
 
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div>
-                                      <Label htmlFor="driverName">Driver's Name</Label>
+                                      <Label htmlFor="driverName">
+                                        Driver's Name <span className="text-red-500">*</span>
+                                      </Label>
                                       <Input
                                         id="driverName"
+                                        required
                                         value={releaseForm.driverName}
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
                                       />
                                     </div>
                                     <div>
-                                      <Label htmlFor="driverPhone">Driver's Phone</Label>
+                                      <Label htmlFor="driverPhone">
+                                        Driver's Phone <span className="text-red-500">*</span>
+                                      </Label>
                                       <Input
                                         id="driverPhone"
+                                        required
                                         value={releaseForm.driverPhone}
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
                                       />
                                     </div>
                                   </div>
 
-                                  {/*
                                   <div>
-                                    <Label htmlFor="nmdrpaNumber">NMDRPA Number</Label>
-                                    <Input
-                                      id="nmdrpaNumber"
-                                      value={releaseForm.nmdrpaNumber}
-                                      onChange={(e) => setReleaseForm({ ...releaseForm, nmdrpaNumber: e.target.value })}
-                                      disabled
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <Label htmlFor="deliveryAddress">Delivery Address</Label>
-                                    <Textarea
-                                      id="deliveryAddress"
-                                      value={releaseForm.deliveryAddress}
-                                      onChange={(e) => setReleaseForm({ ...releaseForm, deliveryAddress: e.target.value })}
-                                      disabled
-                                    />
-                                  </div>
-
-                                  <div className="space-y-2">
-                                    <Label>Compartment Details</Label>
-                                    <div className="rounded-md border border-slate-200 p-3">
-                                      <div className="grid grid-cols-[minmax(120px,1fr)_minmax(110px,1fr)_minmax(110px,1fr)] gap-2 text-xs font-semibold text-slate-600">
-                                        <div>S/N</div>
-                                        <div>Qty (Litres)</div>
-                                        <div>Ullage</div>
-                                      </div>
-
-                                      {([
-                                        { n: 1, qtyKey: 'comp1Qty', ullKey: 'comp1Ullage', required: false },
-                                        { n: 2, qtyKey: 'comp2Qty', ullKey: 'comp2Ullage', required: false },
-                                        { n: 3, qtyKey: 'comp3Qty', ullKey: 'comp3Ullage', required: false },
-                                        { n: 4, qtyKey: 'comp4Qty', ullKey: 'comp4Ullage', required: false },
-                                        { n: 5, qtyKey: 'comp5Qty', ullKey: 'comp5Ullage', required: false },
-                                      ] as const).map((row) => (
-                                        <div key={row.n} className="grid grid-cols-[minmax(120px,1fr)_minmax(110px,1fr)_minmax(110px,1fr)] gap-2 mt-2 items-center">
-                                          <div className="text-sm text-slate-700">
-                                            {row.n}
-                                            {row.required ? <span className="text-red-500"> *</span> : null}
-                                          </div>
-                                          <Input
-                                            inputMode="numeric"
-                                            placeholder=""
-                                            value={releaseForm[row.qtyKey]}
-                                            onChange={(e) => setReleaseForm({ ...releaseForm, [row.qtyKey]: e.target.value } as ReleaseDetails)}
-                                            disabled
-                                          />
-                                          <Input
-                                            inputMode="numeric"
-                                            placeholder=""
-                                            value={releaseForm[row.ullKey]}
-                                            onChange={(e) => setReleaseForm({ ...releaseForm, [row.ullKey]: e.target.value } as ReleaseDetails)}
-                                            disabled
-                                          />
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div>
-                                      <Label htmlFor="loaderName">Loader's Name</Label>
-                                      <Input
-                                        id="loaderName"
-                                        value={releaseForm.loaderName}
-                                        onChange={(e) => setReleaseForm({ ...releaseForm, loaderName: e.target.value })}
-                                        disabled
-                                      />
-                                    </div>
-                                    <div>
-                                      <Label htmlFor="loaderPhone">Loader's Phone</Label>
-                                      <Input
-                                        id="loaderPhone"
-                                        value={releaseForm.loaderPhone}
-                                        onChange={(e) => setReleaseForm({ ...releaseForm, loaderPhone: e.target.value })}
-                                        disabled
-                                      />
-                                    </div>
-                                  </div>
-                                  */}
-
-                                  <div>
-                                    <Label htmlFor="pfi">PFI</Label>
+                                    <Label htmlFor="pfi">
+                                      PFI <span className="text-red-500">*</span>
+                                    </Label>
                                     <select
                                       id="pfi"
                                       aria-label="PFI"
                                       title="PFI"
+                                      required
                                       value={releaseForm.pfiId ?? ''}
                                       onChange={(e) => {
                                         const selectedId = e.target.value ? Number(e.target.value) : undefined;
@@ -1342,7 +1293,9 @@ export const PickupProcessing = () => {
                                     >
                                       <option value="">Select PFI</option>
                                       {pfiOptions.map((pfi) => (
-                                        <option key={pfi.id} value={pfi.id}>{pfi.label}</option>
+                                        <option key={pfi.id} value={pfi.id}>
+                                          {pfi.label}
+                                        </option>
                                       ))}
                                     </select>
                                   </div>

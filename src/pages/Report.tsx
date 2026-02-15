@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
+import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { 
   Table,
@@ -82,17 +84,15 @@ const Reports = () => {
       <SidebarNav />
       
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-8">
-            {/* Header Section */}
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Reports Dashboard</h1>
-                <p className="text-slate-600 mt-1">Analytical reports and data exports</p>
-              </div>
-            </div>
+            <PageHeader
+              title="Reports"
+              description="View analytical reports and export operational data for stock and sales."
+            />
 
             {/* Filters Section */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">

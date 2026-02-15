@@ -35,6 +35,8 @@ import {
 import { apiClient } from '@/api/client';
 import AddProductModal from '@/components/AddProductModal';
 import { useToast } from '@/hooks/use-toast';
+import { MobileNav } from '@/components/MobileNav';
+import { PageHeader } from '@/components/PageHeader';
 
 interface Product {
   id: number;
@@ -256,14 +258,14 @@ const Inventory = () => {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">All Inventory</h1>
-              <div className="flex gap-2">
-              </div>
-            </div>
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="Inventory"
+              description="View stock levels by depot/state, manage products, and update availability."
+            />
 
             {/* Row 1: Search */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">

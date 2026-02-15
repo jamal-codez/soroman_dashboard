@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -356,12 +357,13 @@ export default function PFIPage() {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="PFI Tracking"
-            //   description="Track cargo batches (PFIs) per location and product. One active PFI per location/product."
+              description="Track PFIs by location and product, monitor sold and remaining litres, and add new PFIs."
               actions={
                 <div className="flex gap-2">
                   {/* <Button variant="outline" onClick={() => exportPfiCsv(filtered)}>

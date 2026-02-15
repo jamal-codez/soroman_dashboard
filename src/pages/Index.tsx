@@ -4,6 +4,7 @@ import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { PageHeader } from '@/components/PageHeader';
 import { SummaryCards } from '@/components/SummaryCards';
+import { MobileNav } from '@/components/MobileNav';
 import { apiClient } from '@/api/client';
 import { format, isToday, parseISO } from 'date-fns';
 import {
@@ -243,91 +244,42 @@ const Dashboard: React.FC = () => {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-4 sm:p-6">
           <div className="max-w-7xl mx-auto space-y-5">
-            <PageHeader title="Dashboard Overview" />
+            <PageHeader
+              title="Dashboard Overview"
+              description="Today’s performance at a glance, plus key operational metrics for orders, loading and revenue."
+            />
 
             <SummaryCards
               cards={[
-                // {
-                //   title: 'Total Orders',
-                //   value: totalOrders.toLocaleString(),
-                //   // description: analyticsLoading ? 'Loading…' : (safePercent(analytics?.orders_change) ? 'All time' : 'No change data'),
-                //   icon: <ShoppingCart className="h-5 w-5" />,
-                //   tone: 'neutral',
-                // },
-                // {
-                //   title: 'Total Revenue',
-                //   value: currency(salesRevenue),
-                //   description: analyticsLoading ? 'Loading…' : (safePercent(analytics?.sales_revenue_change) ? `Change: ${safePercent(analytics?.sales_revenue_change)}` : 'All time'),
-                //   icon: <TrendingUp className="h-5 w-5" />,
-                //   tone: 'green',
-                // },
                 {
                   title: "Today's Revenue",
                   value: `₦${todayTotals.amount.toLocaleString()}`,
-                  // description: `₦${todayTotals.amount.toLocaleString()}`,
                   icon: <BadgeDollarSign className="h-5 w-5" />,
                   tone: 'neutral',
                 },
                 {
                   title: "Quantity Sold Today",
                   value: `${todayTotals.litres.toLocaleString()} Litres`,
-                  // description: `${todayTotals.litres.toLocaleString()} Litres`,
                   icon: <FuelIcon className="h-5 w-5" />,
                   tone: 'amber',
                 },
                 {
                   title: "Trucks Loaded Today",
                   value: todayTotals.releasedOrLoaded.toLocaleString(),
-                  // description: 'paid + released statuses',
                   icon: <TruckIcon className="h-5 w-5" />,
                   tone: 'green',
                 },
-                // {
-                //   title: 'Unpaid Orders',
-                //   value: unpaidOrders.toLocaleString(),
-                //   description: 'Awaiting payment',
-                //   icon: <CreditCard className="h-5 w-5" />,
-                //   tone: 'amber',
-                // },
-                
               ]}
             />
-
-            {/* Active PFIs: today's sales per PFI */}
-            {/* <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                <h2 className="text-sm sm:text-base font-semibold text-slate-800">Active PFIs — Today's Sales</h2>
-                <span className="text-xs text-slate-500">
-                  {pfiTodayCards.length ? `${pfiTodayCards.length} active` : 'No active PFIs'}
-                </span>
-              </div>
-              <div className="p-4">
-                {pfiTodayCards.length === 0 ? (
-                  <p className="text-sm text-slate-500">No active PFIs found.</p>
-                ) : (
-                  <SummaryCards
-                    cards={pfiTodayCards.map((p) => ({
-                      title: p.pfi_number,
-                      value: `${p.litres.toLocaleString()} L`,
-                      description: `₦${p.amount.toLocaleString()} • ${p.orders.toLocaleString()} order(s)`,
-                      icon: <BarChart3 className="h-5 w-5" />,
-                      tone: p.litres > 0 ? 'green' : 'neutral',
-                    }))}
-                  />
-                )}
-              </div>
-            </div> */}
 
             {/* Today's summary by location */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                 <h2 className="text-sm sm:text-base font-semibold text-slate-800">Today's Sales by Location</h2>
-                {/* <span className="text-xs text-slate-500">
-                  {locationTodayCards.length ? `${locationTodayCards.length} location(s)` : 'No sales today'}
-                </span> */}
               </div>
               <div className="p-4">
                 {locationTodayCards.length === 0 ? (
@@ -337,37 +289,6 @@ const Dashboard: React.FC = () => {
                 )}
               </div>
             </div>
-
-            {/* Top Products (by volume) */}
-            {/* <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                <h2 className="text-sm sm:text-base font-semibold text-slate-800">Top Products by Volume</h2>
-                <span className="text-xs text-slate-500">{topProducts.length ? `Top ${topProducts.length}` : 'No data'}</span>
-              </div>
-              <div className="p-4">
-                {topProducts.length === 0 ? (
-                  <p className="text-sm text-slate-500">No product performance data available.</p>
-                ) : (
-                  <ul className="space-y-3">
-                    {topProducts.map((p, idx) => (
-                      <li key={`${getProdName(p)}-${idx}`} className="flex items-center justify-between">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{getProdName(p)}</p>
-                          {Number.isFinite(p.change) ? (
-                            <p className={`text-xs ${Number(p.change) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              {Number(p.change) >= 0 ? '+' : ''}{Number(p.change || 0).toFixed(1)}%
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="ml-4 text-sm font-semibold text-slate-800">
-                          {(p.current_quantity || 0).toLocaleString()} L
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div> */}
 
             <div className="h-10" />
           </div>

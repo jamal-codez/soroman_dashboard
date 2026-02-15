@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
+import { MobileNav } from "@/components/MobileNav";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -235,22 +236,14 @@ export default function SecurityPage() {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
 
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-4xl mx-auto space-y-5">
             <PageHeader
               title="Security Clearance"
-              description="Search by Order ID to verify released orders"
-            //   actions={
-            //     <button
-            //       className="text-sm text-slate-600 underline"
-            //       onClick={() => refetch()}
-            //       type="button"
-            //     >
-            //       Refresh
-            //     </button>
-            //   }
+              description="Look up an order to confirm truck exit and validate released deliveries."
             />
 
             <Card>

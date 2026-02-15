@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
+import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -79,6 +81,7 @@ export default function OfflineSales() {
     state: 0,
     trucks: [''],
     status: 'pending' as 'pending' | 'paid',
+    date: new Date().toISOString(),
     items: [{ product: 0, quantity: '' }],
     notes: ''
   });
@@ -160,6 +163,7 @@ export default function OfflineSales() {
       state: sale.state,
       trucks: [...(sale.trucks || []), ''],
       status: sale.status,
+      date: sale.date,
       items: [...sale.items.map(item => ({ ...item, quantity: item.quantity.toString() })), { product: 0, quantity: '' }],
       notes: sale.notes || ''
     });
@@ -178,7 +182,7 @@ export default function OfflineSales() {
 
   const resetForm = () => {
     setFormData({
-      created_at: new Date().toISOString(),
+      date: new Date().toISOString(),
       state: 0,
       trucks: [''],
       status: 'pending',
@@ -216,13 +220,15 @@ export default function OfflineSales() {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Offline Sales Dashboard</h1>
-            </div>
-            
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="Offline Sales"
+              description="Log offline transactions, manage items and trucks, and export sales history."
+            />
+
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">
@@ -283,7 +289,7 @@ export default function OfflineSales() {
                                   </span>
                                 </Label>
                                 <DatePicker
-                                  selected={new Date(formData.created_at)}
+                                  selected={new Date(formData.date)}
                                   onSelect={(date) => date && setFormData({...formData, date: date.toISOString()})}
                                   className="w-full rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
                                 />
@@ -539,7 +545,7 @@ export default function OfflineSales() {
                 <TableBody>
                   {(sales || []).map((sale) => (
                     <TableRow key={sale.id}>
-                      <TableCell>{new Date(sale.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell>{new Date(sale.date).toLocaleDateString()}</TableCell>
                       <TableCell>
                         {states.find(s => s.id === sale.state)?.name || 'Unknown State'}
                       </TableCell>

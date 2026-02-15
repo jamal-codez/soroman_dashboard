@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
@@ -43,6 +44,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PageHeader } from '@/components/PageHeader';
 
 interface Order {
   id: number;
@@ -566,18 +568,21 @@ const Orders = () => {
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
+
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">All Orders</h1>
-              <div className="flex gap-2">
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="All Orders"
+              description="Search, filter and manage all customer orders from creation to release."
+              actions={
                 <Button onClick={exportToCSV}>
                   <Download className="mr-1" size={16} /> Download Report
                 </Button>
-              </div>
-            </div>
+              }
+            />
 
             {/* Summary and Filters */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">

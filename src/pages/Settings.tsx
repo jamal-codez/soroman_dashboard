@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -348,13 +349,14 @@ const Settings = () => {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="mb-5">
               <PageHeader
                 title="Staff Management"
-                // description="Create, edit and manage staff access across the dashboard."
+                description="Create, edit and manage staff access across the dashboard."
                 actions={
                   <Button className="gap-2" onClick={() => handleOpenDialog()}>
                     <UserPlus className="h-4 w-4" />

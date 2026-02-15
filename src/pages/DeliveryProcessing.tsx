@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/dialog";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
+import { MobileNav } from "@/components/MobileNav";
+import { PageHeader } from "@/components/PageHeader";
 import { format } from 'date-fns';
 
 interface Delivery {
@@ -123,13 +125,15 @@ export const DeliveryProcessing = () => {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Delivery Process Dashboard</h1>
-            </div>
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="Delivery Processing"
+              description="Track scheduled deliveries, update delivery status, and export delivery reports."
+            />
             
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col gap-3">

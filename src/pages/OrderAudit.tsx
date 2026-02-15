@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { CheckCircle2, Truck, ShieldCheck, Search, Eye, Calendar as CalendarIcon } from "lucide-react";
+import { MobileNav } from "@/components/MobileNav";
 
 type AuditOrder = {
   id: number;
@@ -287,6 +288,7 @@ export default function OrderAudit() {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-3">
