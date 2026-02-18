@@ -18,8 +18,8 @@ export const TopBar = () => {
     <div className="hidden sm:flex items-center h-16 px-4 sm:px-6 bg-white border-b border-slate-200">
       <div className="min-w-0">
         <div className="text-[1rem] font-normal text-slate-900">
-          {greeting}
-          <span className="font-bold">{fullName ? `, ${fullName}` : ''}</span>
+          {/* {greeting} */} Hello
+          <span className="font-bold">{fullName ? ` ${fullName}` : ''} 👋🏽</span>
         </div>
       </div>
 
