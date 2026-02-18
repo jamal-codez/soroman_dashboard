@@ -29,7 +29,12 @@ import {
   Hourglass,
   DollarSign,
   Truck,
-  CalendarDays
+  CalendarDays,
+  Phone,
+  PhoneOutgoingIcon,
+  User,
+  UserCircle2,
+  User2
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { shouldAutoCancel } from '@/lib/orderTimers';
@@ -393,6 +398,16 @@ const Orders = () => {
       (cd && typeof cd.phone === 'string' ? cd.phone : '') ||
       (user && typeof user.phone_number === 'string' ? user.phone_number : '') ||
       (user && typeof user.phone === 'string' ? user.phone : '') ||
+      ''
+    );
+  };
+
+  const getEmail = (o: Order): string => {
+    const cd = o.customer_details as Record<string, unknown> | undefined;
+    const user = o.user as Record<string, unknown> | undefined;
+    return (
+      (cd && typeof cd.email === 'string' ? cd.email : '') ||
+      (user && typeof user.email === 'string' ? user.email : '') ||
       ''
     );
   };
@@ -817,10 +832,10 @@ const Orders = () => {
                       </div> */}
                     </TableHead>
                     <TableHead className="w-[52px]">S/N</TableHead>
-                    <TableHead className="w-[120px]">Date &amp; Time</TableHead>
-                    <TableHead className="w-[120px]">Order Reference</TableHead>
-                    <TableHead className="w-[170px]">Customer</TableHead>
-                    <TableHead className="w-[140px]">Company</TableHead>
+                    <TableHead className="w-[120px]">Date</TableHead>
+                    <TableHead className="w-[120px]">Reference</TableHead>
+                    <TableHead className="w-[170px]">Name & Company</TableHead>
+                    <TableHead className="w-[140px]">Contact</TableHead>
                     <TableHead className="w-[105px]">Location</TableHead>
                     <TableHead className="w-[150px]">Product</TableHead>
                     <TableHead className="w-[105px]">Unit Price</TableHead>
@@ -868,24 +883,50 @@ const Orders = () => {
 
                         <TableCell>
                           <div className="leading-tight">
-                            <div className="font-medium text-slate-950 capitalize max-w-[170px]">
-                              {getCustomerFullName(order) || '-'}
+                            <div className="font-bold text-slate-950 capitalize break-words whitespace-normal">
+                              {getCompanyName(order) || '-'}
                             </div>
-                            <div className="text-[11px] text-slate-600 whitespace-nowrap">
-                              {getPhoneNumber(order) || '-'}
+                            <div className="mt-1 inline-flex items-center gap-1 text-slate-700 break-words whitespace-normal">
+                              <User2 size={12} className="text-green-700" />
+                              <span>{getCustomerFullName(order) || '-'}</span>
                             </div>
                           </div>
                         </TableCell>
 
-                        <TableCell className="text-slate-800 max-w-[140px]">
-                          {getCompanyName(order) || '-'}
+                        <TableCell className="text-slate-800">
+                          <div className="break-words whitespace-normal">
+                            {getPhoneNumber(order) ? (
+                              <a
+                                href={`tel:${getPhoneNumber(order)}`}
+                                className="inline-flex items-center gap-2 font-bold text-slate-900 hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                                title="Call"
+                              >
+                                <PhoneOutgoingIcon size={12} className="text-green-700" />
+                                {getPhoneNumber(order)}
+                              </a>
+                            ) : (
+                              '-'
+                            )}
+                          </div>
+
+                          {getEmail(order) ? (
+                            <a
+                              href={`mailto:${getEmail(order)}`}
+                              className="mt-0 block text-[11px] font-medium lowercase text-blue-700 underline underline-offset-2 hover:text-blue-800 truncate max-w-[140px]"
+                              onClick={(e) => e.stopPropagation()}
+                              title="Send email"
+                            >
+                              {getEmail(order)}
+                            </a>
+                          ) : null}
                         </TableCell>
 
                         <TableCell className="text-slate-800 truncate whitespace-nowrap max-w-[105px]">
                           {order.state || '-'}
                         </TableCell>
 
-                        <TableCell className="text-slate-800 truncate max-w-[150px]">
+                        <TableCell className="text-slate-800 break-words whitespace-normal">
                           {getProductsList(order) || '-'}
                         </TableCell>
 

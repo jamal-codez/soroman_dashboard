@@ -516,7 +516,7 @@ export default function ConfirmedPayments() {
                           <TableCell className="max-w-[240px] truncate" title={company || undefined}>
                             {company || '—'}
                           </TableCell>
-                          <TableCell className="max-w-[180px] truncate" title={truckNo || undefined}>
+                          <TableCell className="font-bold max-w-[180px] truncate" title={truckNo || undefined}>
                             {truckNo || '—'}
                           </TableCell>
                           <TableCell className="max-w-[260px] truncate" title={location || undefined}>
@@ -525,11 +525,11 @@ export default function ConfirmedPayments() {
                           <TableCell className="max-w-[260px] truncate" title={product || undefined}>
                             {product || '—'}
                           </TableCell>
-                          <TableCell className="max-w-[260px] truncate" title={String(qty) || undefined}>
+                          <TableCell className="font-bold max-w-[260px] truncate" title={String(qty) || undefined}>
                             {qty ? `${qty} Litres` : '—'}
                           </TableCell>
                           <TableCell>{unitPrice ? `₦${unitPrice}` : '—'}</TableCell>
-                          <TableCell className="text-right font-semibold text-slate-950">
+                          <TableCell className="text-right font-bold text-slate-950">
                             ₦{safeToNumber(p.total_price ?? p.amount).toLocaleString()}
                           </TableCell>
                           <TableCell className="max-w-[320px] truncate" title={String(p.payment_narration || '') || undefined}>

@@ -15,7 +15,7 @@ import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
 import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign } from 'lucide-react';
+import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -822,20 +822,32 @@ export default function PaymentVerification() {
                           <TableCell>
                             <div className="flex flex-col">
                               <span className="font-medium">{companyName || '—'}</span>
-                              <span className="text-slate-600">{customerPhone || ''}</span>
+                              {customerPhone ? (
+                                <a
+                                  href={`tel:${customerPhone}`}
+                                  className="inline-flex items-center gap-2 text-slate-700 font-bold hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="Call"
+                                >
+                                  <PhoneOutgoing size={12} className="text-green-700" />
+                                  {customerPhone}
+                                </a>
+                              ) : (
+                                <span className="text-slate-700">{customerPhone || ''}</span>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>{location || '—'}</TableCell>
                           <TableCell>{product || '—'}</TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="font-medium">{qty || '—'} Litres</span>
+                              <span className="font-bold">{qty || '—'} Litres</span>
                               <span className="text-slate-600">Price: {unitPrice ? `₦${unitPrice}` : '—'}</span>
                             </div>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="text-slate-900 font-semibold">{paidInto.account_number || '—'}</span>
+                              <span className="text-slate-900 font-bold">{paidInto.account_number || '—'}</span>
                               <span className="text-slate-700">{paidInto.bank_name || '—'}</span>
                             </div>
                           </TableCell>

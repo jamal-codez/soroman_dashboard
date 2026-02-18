@@ -37,7 +37,10 @@ import {
   FileBarChart2Icon,
   Users2Icon,
   ActivityIcon,
-  FileBadge2Icon
+  FileBadge2Icon,
+  ChevronsLeft,
+  ChevronsRight,
+  LogOutIcon
 } from "lucide-react";
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
@@ -128,102 +131,147 @@ export const SidebarNav = () => {
   };
 
   return (
-    <div
+    <aside
       className={cn(
-        "hidden sm:flex bg-sidebar text-sidebar-foreground h-screen transition-all duration-300 flex-col",
-        expanded ? "w-64" : "w-20"
+        // desktop sidebar only (mobile uses MobileNav)
+        "hidden sm:flex h-screen flex-col border-r",
+        // black theme
+        "bg-black text-white border-white/10",
+        // smooth collapse
+        "transition-[width] duration-200 ease-in-out",
+        expanded ? "w-64" : "w-[76px]"
       )}
+      aria-label="Sidebar navigation"
     >
-      <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
-        <div className={cn("flex items-center", expanded ? "" : "justify-center w-full")}>
-          {expanded && (
-            <div className="flex items-center gap-2">
-                <img
-                src="/logo.png"
-                alt=""
-                className='w-10 h-10 '
-                />
-              <span className="font-bold text-xl">Soroman</span>
-            </div>
+      {/* Header */}
+      <div className={cn(
+        "flex items-center gap-3 px-4 py-4 border-b",
+        "border-white/10"
+      )}>
+        <div
+          className={cn(
+            "flex items-center gap-2 min-w-0",
+            expanded ? "" : "justify-center flex-1"
           )}
-          {!expanded && (
-            <img
-            src="/logo.png"
-            alt=""
-            className='w-5 h-5 '
-            />
-          )}
-        </div>
-        <Button
-          variant="ghost"
-          className="text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-          onClick={() => setExpanded(!expanded)}
+          title={expanded ? undefined : "Soroman"}
         >
-          {expanded ? <ArrowLeft size={20} /> : <Menu size={20} />}
+          <img src="/logo.png" alt="Soroman" className={cn("shrink-0", expanded ? "w-9 h-9" : "w-8 h-8")} />
+          {expanded ? (
+            <div className="min-w-0 leading-tight">
+              <div className="font-semibold text-base">Soroman</div>
+              <div className="text-[11px] text-white/60">Dashboard</div>
+            </div>
+          ) : null}
+        </div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "ml-auto shrink-0 rounded-md",
+            "text-white/80 hover:text-white hover:bg-white/10",
+            // keep toggle in a consistent spot when collapsed
+            !expanded && "ml-0"
+          )}
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
+          title={expanded ? "Collapse" : "Expand"}
+        >
+          {expanded ? <ChevronsLeft size={18} /> : <ChevronsRight size={18} />}
         </Button>
       </div>
-      
-      <div className="flex flex-col flex-1 overflow-y-auto py-4">
-        {navItems.map((item) => {
-          if (!item.allowedRoles.includes(role)) {
-            return null; // Skip rendering this item if the role is not allowed
-          }
-          const isActive = location.pathname === item.path;
-          const badgeCount = getBadgeCount(item.path);
-          return (
-            <a 
-              key={item.title}
-              href={item.path}
-              onClick={(e) => {
-                e.preventDefault();
-                navigate(item.path);
-              }}
-              className={cn(
-                "flex items-center py-3 px-4 hover:bg-sidebar-accent transition-colors",
-                isActive && "bg-sidebar-accent border-l-4 border-primary"
-              )}
-            >
-              <item.icon className={cn("text-sidebar-foreground/70", isActive && "text-primary-foreground")} size={20} />
-              {expanded && (
-                <span className={cn("ml-3 text-[1rem]", isActive && "text-sidebar-foreground")}>{item.title}</span>
-              )}
-              {expanded && renderBadge(badgeCount)}
-            </a>
-          );
-        })}
-      </div>
-      
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-2">
-          {expanded && (
-            <>
-              <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center">
-                <span className="text-sm">
-                {localStorage.getItem('fullname')
-            ?.split(' ')
-            .map((name) => name[0])
-            .join('')
-            .slice(0, 2) || 'AA'}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <p className="text-sm font-medium">{localStorage.getItem('fullname')}</p>
-                <p className="text-xs text-slate-400">{localStorage.getItem('label')}</p>
-              </div>
-            </>
-          )}
-          <Button
-            variant="ghost"
-            className={cn(
-              "text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent",
-              expanded ? "ml-auto" : "mx-auto"
-            )}
-            onClick={handleLogout}
-          >
-            <LogOut size={20} />
-          </Button>
+
+      {/* Nav */}
+      <nav
+        className={cn(
+          "flex-1 overflow-y-auto py-3",
+          "scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+        )}
+        aria-label="Primary"
+      >
+        <div className={cn("space-y-1", expanded ? "px-2" : "px-1")}>
+          {navItems.map((item) => {
+            if (!item.allowedRoles.includes(role)) return null;
+
+            const isActive = location.pathname === item.path;
+            const badgeCount = getBadgeCount(item.path);
+
+            return (
+              <a
+                key={item.title}
+                href={item.path}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate(item.path);
+                }}
+                className={cn(
+                  "group flex items-center rounded-md text-sm",
+                  // identical height & visual rhythm in both states
+                  "h-11",
+                  expanded ? "gap-3 px-3" : "justify-center px-0",
+                  "transition-colors",
+                  isActive
+                    ? "bg-white/10 text-white"
+                    : "text-white/80 hover:bg-white/5 hover:text-white"
+                )}
+                aria-current={isActive ? 'page' : undefined}
+                title={expanded ? undefined : item.title}
+              >
+                <item.icon
+                  size={18}
+                  className={cn(
+                    "shrink-0",
+                    isActive ? "text-white" : "text-white/70 group-hover:text-white"
+                  )}
+                />
+
+                {expanded ? <span className="min-w-0 flex-1 truncate">{item.title}</span> : null}
+
+                {expanded ? renderBadge(badgeCount) : null}
+              </a>
+            );
+          })}
         </div>
+      </nav>
+
+      {/* Footer */}
+      <div className={cn("border-t p-3", "border-white/10")}>
+        {expanded ? (
+          <div className="mb-3 flex items-center gap-3 px-2">
+            <div className="h-9 w-9 rounded-full bg-white/10 flex items-center justify-center text-xs font-semibold">
+              {localStorage
+                .getItem('fullname')
+                ?.split(' ')
+                .map((name) => name[0])
+                .join('')
+                .slice(0, 2) || 'AA'}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-white">{localStorage.getItem('fullname') || ''}</div>
+              <div className="truncate text-xs text-white/60">{localStorage.getItem('label') || ''}</div>
+            </div>
+          </div>
+        ) : null}
+
+        <Button
+          type="button"
+          variant="ghost"
+          className={cn(
+            // match menu item sizing
+            "h-11 w-full rounded-md",
+            expanded ? "justify-start gap-2 px-3" : "justify-center px-0",
+            // red logout
+            "text-red-300 hover:text-red-200 hover:bg-red-500/10"
+          )}
+          onClick={handleLogout}
+          title="Logout"
+          aria-label="Logout"
+        >
+          <LogOutIcon size={16} className="text-red-300" />
+          {expanded ? <span className="font-semibold">Logout</span> : null}
+        </Button>
       </div>
-    </div>
+    </aside>
   );
 };
