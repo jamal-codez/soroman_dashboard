@@ -789,23 +789,6 @@ export const PickupProcessing = () => {
       loaderPhone: '',
     };
 
-    // Required-field validation
-    const missing: string[] = [];
-    if (!String(sanitized.loadingDateTime || '').trim()) missing.push('Loading date & time');
-    if (!String(sanitized.truckNumber || '').trim()) missing.push('Truck number');
-    if (!String(sanitized.driverName || '').trim()) missing.push("Driver's name");
-    if (!String(sanitized.driverPhone || '').trim()) missing.push("Driver's phone");
-    if (!sanitized.pfiId) missing.push('PFI');
-
-    if (missing.length) {
-      toast({
-        title: 'Missing required fields',
-        description: `Please fill: ${missing.join(', ')}.`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
     try {
       setReleaseForm(sanitized);
       if (selectedOrder) {
@@ -1227,12 +1210,11 @@ export const PickupProcessing = () => {
                                 <div className="space-y-4 overflow-y-auto pr-1 flex-1">
                                   <div>
                                     <Label htmlFor="loadingDateTime">
-                                      Loading Date &amp; Time <span className="text-red-500">*</span>
+                                      Loading Date &amp; Time
                                     </Label>
                                     <Input
                                       id="loadingDateTime"
                                       type="datetime-local"
-                                      required
                                       value={releaseForm.loadingDateTime}
                                       onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
                                     />
@@ -1240,11 +1222,10 @@ export const PickupProcessing = () => {
 
                                   <div>
                                     <Label htmlFor="truckNumber">
-                                      Truck Number <span className="text-red-500">*</span>
+                                      Truck Number
                                     </Label>
                                     <Input
                                       id="truckNumber"
-                                      required
                                       value={releaseForm.truckNumber}
                                       onChange={(e) => setReleaseForm({ ...releaseForm, truckNumber: e.target.value })}
                                     />
@@ -1253,22 +1234,20 @@ export const PickupProcessing = () => {
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div>
                                       <Label htmlFor="driverName">
-                                        Driver's Name <span className="text-red-500">*</span>
+                                        Driver's Name
                                       </Label>
                                       <Input
                                         id="driverName"
-                                        required
                                         value={releaseForm.driverName}
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
                                       />
                                     </div>
                                     <div>
                                       <Label htmlFor="driverPhone">
-                                        Driver's Phone <span className="text-red-500">*</span>
+                                        Driver's Phone
                                       </Label>
                                       <Input
                                         id="driverPhone"
-                                        required
                                         value={releaseForm.driverPhone}
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
                                       />
@@ -1277,13 +1256,12 @@ export const PickupProcessing = () => {
 
                                   <div>
                                     <Label htmlFor="pfi">
-                                      PFI <span className="text-red-500">*</span>
+                                      PFI
                                     </Label>
                                     <select
                                       id="pfi"
                                       aria-label="PFI"
                                       title="PFI"
-                                      required
                                       value={releaseForm.pfiId ?? ''}
                                       onChange={(e) => {
                                         const selectedId = e.target.value ? Number(e.target.value) : undefined;
