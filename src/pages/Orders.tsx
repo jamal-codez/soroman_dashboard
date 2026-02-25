@@ -147,7 +147,7 @@ const Orders = () => {
 
   // Keep the Orders table fast on initial load.
   // Export still uses the full (backend-paginated) dataset.
-  const PAGE_SIZE = 25;
+  const PAGE_SIZE = 200;
   const [page, setPage] = useState(1);
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
