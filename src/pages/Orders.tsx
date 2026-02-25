@@ -145,7 +145,9 @@ const Orders = () => {
   const [assignPfiId, setAssignPfiId] = useState<number | ''>('');
   const [assignBusy, setAssignBusy] = useState(false);
 
-  const PAGE_SIZE = 500;
+  // Keep the Orders table fast on initial load.
+  // Export still uses the full (backend-paginated) dataset.
+  const PAGE_SIZE = 25;
   const [page, setPage] = useState(1);
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
