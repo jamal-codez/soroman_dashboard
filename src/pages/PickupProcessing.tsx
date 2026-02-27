@@ -1215,6 +1215,7 @@ export const PickupProcessing = () => {
                                     <Input
                                       id="loadingDateTime"
                                       type="datetime-local"
+                                      required
                                       value={releaseForm.loadingDateTime}
                                       onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
                                     />
@@ -1226,6 +1227,7 @@ export const PickupProcessing = () => {
                                     </Label>
                                     <Input
                                       id="truckNumber"
+                                      required
                                       value={releaseForm.truckNumber}
                                       onChange={(e) => setReleaseForm({ ...releaseForm, truckNumber: e.target.value })}
                                     />
@@ -1238,6 +1240,7 @@ export const PickupProcessing = () => {
                                       </Label>
                                       <Input
                                         id="driverName"
+                                        required
                                         value={releaseForm.driverName}
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
                                       />
@@ -1248,6 +1251,7 @@ export const PickupProcessing = () => {
                                       </Label>
                                       <Input
                                         id="driverPhone"
+                                        required
                                         value={releaseForm.driverPhone}
                                         onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
                                       />
@@ -1260,6 +1264,7 @@ export const PickupProcessing = () => {
                                     </Label>
                                     <select
                                       id="pfi"
+                                      required
                                       aria-label="PFI"
                                       title="PFI"
                                       value={releaseForm.pfiId ?? ''}
