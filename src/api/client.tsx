@@ -401,6 +401,22 @@ export const apiClient = {
       return response.json();
     },
 
+    // Permanently delete an order (irreversible)
+    deleteOrder: async (orderId: number | string) => {
+      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(`Failed to delete order (${response.status}): ${msg}`);
+      }
+
+      // Most DELETE endpoints return 204 No Content.
+      return true;
+    },
+
     // Agents (Admin)
     adminListAgents: async (params?: { type?: 'general' | 'location'; location_id?: number; is_active?: boolean; search?: string; page?: number; page_size?: number }) => {
       const url = new URL(`${ADMIN_BASE}/agents/`);

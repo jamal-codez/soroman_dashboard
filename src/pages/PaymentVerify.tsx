@@ -15,7 +15,7 @@ import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
 import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing } from 'lucide-react';
+import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -504,6 +504,11 @@ export default function PaymentVerification() {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const { toast } = useToast();
 
+  // Track cancel/delete confirmation
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [paymentToCancel, setPaymentToCancel] = useState<PaymentOrder | null>(null);
+  const [cancelingOrderId, setCancelingOrderId] = useState<number | null>(null);
+
   const { data: apiResponse, isLoading } = useQuery<OrderResponse>({
     queryKey: ['verify-orders', 'all'],
     queryFn: async () => {
@@ -613,6 +618,36 @@ export default function PaymentVerification() {
     },
   });
 
+  const deleteOrderMutation = useMutation({
+    mutationFn: async (orderId: number) => {
+      setCancelingOrderId(orderId);
+      try {
+        await apiClient.admin.deleteOrder(orderId);
+      } finally {
+        setCancelingOrderId(null);
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
+      await queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-orders'] });
+
+      toast({
+        title: 'Order cancelled',
+        description: 'The order has been deleted from the system.',
+      });
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        title: 'Failed to cancel order',
+        description: message || 'Unable to delete order',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const handleVerifyClick = (payment: PaymentOrder) => {
     // Re-check the latest status we have before opening the dialog.
     if (!isConfirmableStatus(payment.status)) {
@@ -628,6 +663,11 @@ export default function PaymentVerification() {
 
     setSelectedPayment(payment);
     setIsConfirmModalOpen(true);
+  };
+
+  const handleCancelClick = (payment: PaymentOrder) => {
+    setPaymentToCancel(payment);
+    setIsCancelModalOpen(true);
   };
 
   const handleConfirm = async (narration: string) => {
@@ -665,6 +705,29 @@ export default function PaymentVerification() {
     } finally {
       setIsConfirmModalOpen(false);
       setSelectedPayment(null);
+    }
+  };
+
+  const confirmCancelOrder = async () => {
+    if (!paymentToCancel?.order_id) return;
+
+    const orderId = Number(paymentToCancel.order_id);
+    if (!Number.isFinite(orderId)) {
+      toast({
+        title: 'Cannot cancel order',
+        description: 'Invalid order id returned from verify-orders endpoint.',
+        variant: 'destructive',
+      });
+      setIsCancelModalOpen(false);
+      setPaymentToCancel(null);
+      return;
+    }
+
+    try {
+      await deleteOrderMutation.mutateAsync(orderId);
+    } finally {
+      setIsCancelModalOpen(false);
+      setPaymentToCancel(null);
     }
   };
 
@@ -860,19 +923,37 @@ export default function PaymentVerification() {
                              </Badge>
                            </TableCell> */}
                            <TableCell>
-                             <Button
-                               variant="default"
-                               size="sm"
-                               disabled={updatingPaymentId === payment.id}
-                               onClick={() => handleVerifyClick(payment)}
-                             >
-                               {updatingPaymentId === payment.id ? (
-                                 <Loader2 className="animate-spin mr-2" size={16} />
-                               ) : (
-                                 <DollarSign className="mr-1" size={14} />
-                               )}
-                               Confirm Payment
-                             </Button>
+                             <div className="flex items-center gap-2">
+                               <Button
+                                 variant="default"
+                                 size="sm"
+                                 disabled={updatingPaymentId === payment.id}
+                                 onClick={() => handleVerifyClick(payment)}
+                                 className="whitespace-nowrap"
+                               >
+                                 {updatingPaymentId === payment.id ? (
+                                   <Loader2 className="h-6 w-6 animate-spin" />
+                                 ) : (
+                                   <CheckCheck className="h-6 w-6" />
+                                 )}
+                                 Confirm Payment
+                               </Button>
+
+                               <Button
+                                 variant="destructive"
+                                 size="sm"
+                                 disabled={cancelingOrderId === Number(payment.order_id)}
+                                 onClick={() => handleCancelClick(payment)}
+                                 className="whitespace-nowrap"
+                               >
+                                 {cancelingOrderId === Number(payment.order_id) ? (
+                                   <Loader2 className="h-6 w-6 animate-spin" />
+                                 ) : (
+                                   <XCircle className="h-6 w-6" />
+                                 )}
+                                 Cancel Order
+                               </Button>
+                             </div>
                            </TableCell>
                          </TableRow>
                        );
@@ -892,6 +973,50 @@ export default function PaymentVerification() {
               payment={selectedPayment}
               bankAccounts={bankAccounts}
             />
+
+            {/* Cancel/Delete confirmation modal */}
+            <Dialog open={isCancelModalOpen} onOpenChange={(v) => (v ? null : (setIsCancelModalOpen(false), setPaymentToCancel(null)))}>
+              <DialogContent className="sm:max-w-[520px]">
+                <DialogHeader>
+                  <DialogTitle className="text-slate-950">Cancel order</DialogTitle>
+                  <DialogDescription className="text-slate-600">
+                    This will permanently delete the order from the system. This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                  <div className="font-medium">You are about to delete:</div>
+                  <div className="mt-1">
+                    <span className="text-red-900/80">Order Ref:</span>{' '}
+                    <span className="font-semibold">{paymentToCancel ? (getOrderReference(paymentToCancel) || String(paymentToCancel.order_id)) : '—'}</span>
+                  </div>
+                  <div className="mt-1">
+                    <span className="text-red-900/80">Amount:</span>{' '}
+                    <span className="font-semibold">{paymentToCancel ? `₦${parseFloat(paymentToCancel.amount || '0').toLocaleString()}` : '—'}</span>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => { setIsCancelModalOpen(false); setPaymentToCancel(null); }}>
+                    Close
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={confirmCancelOrder}
+                    disabled={!!cancelingOrderId}
+                  >
+                    {cancelingOrderId ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Deleting...
+                      </span>
+                    ) : (
+                      'Delete order'
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </div>
