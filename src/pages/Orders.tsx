@@ -147,7 +147,7 @@ const Orders = () => {
 
   // Keep the Orders table fast on initial load.
   // Export still uses the full (backend-paginated) dataset.
-  const PAGE_SIZE = 200;
+  const PAGE_SIZE = 10000;
   const [page, setPage] = useState(1);
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
@@ -498,9 +498,9 @@ const Orders = () => {
       ['Location', locationLabel],
       ['PFI', pfiLabelForExport],
       ['Product', productLabel],
+      ['Total Orders', String(ordersCountAll)],
       ['Quantity Sold', `${totalQtyAll.toLocaleString()} Litres`],
-      ['Number of Trucks Sold', String(ordersCountAll)],
-      ['Total Amount', `N ${totalAmountAll.toLocaleString()}`],
+      ['Total Amount', `N${totalAmountAll.toLocaleString()}`],
       [],
     ];
 
@@ -777,7 +777,7 @@ const Orders = () => {
 
               {/* Totals (unchanged) */}
               <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-1">
-                {/* Released (Paid) */}
+                {/* Released */}
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
@@ -792,7 +792,7 @@ const Orders = () => {
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                     <div className="rounded-md bg-white p-3 border border-slate-200">
                       <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-500">Trucks Sold</div>
+                        <div className="text-xs text-slate-500">Orders</div>
                         <CheckCircle className="text-blue-600" size={16} />
                       </div>
                       <div className="mt-1 text-lg font-semibold text-slate-900">{releasedTotals.totalOrders}</div>

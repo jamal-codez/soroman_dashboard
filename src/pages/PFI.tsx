@@ -473,12 +473,12 @@ export default function PFIPage() {
                           <div className="text-sm font-semibold">{fmt(starting)} Litres</div>
                         </div>
                         <div className="rounded-md border border-slate-200 p-2">
-                          <div className="text-[11px] text-slate-600">Total Sold</div>
+                          <div className="text-[11px] text-slate-600">Qty Sold</div>
                           <div className="text-sm font-semibold">{fmt(sold)} Litres</div>
                         </div>
 
                         <div className="rounded-md border border-slate-200 p-2">
-                          <div className="text-[11px] text-slate-600">Trucks Sold</div>
+                          <div className="text-[11px] text-slate-600">Orders</div>
                           <div className="text-sm font-semibold">{fmt(Number(p.orders_count ?? 0))}</div>
                         </div>
 
@@ -636,7 +636,7 @@ export default function PFIPage() {
                     ) : null}
                   </div>
 
-                  <div>
+                  {/* <div>
                     <Label htmlFor="notes">Notes (optional)</Label>
                     <Input
                       id="notes"
@@ -647,7 +647,7 @@ export default function PFIPage() {
                     {createErrors.fields?.notes?.length ? (
                       <div className="mt-1 text-xs text-red-600">{createErrors.fields.notes.join(' ')}</div>
                     ) : null}
-                  </div>
+                  </div> */}
                 </div>
 
                 <DialogFooter>
