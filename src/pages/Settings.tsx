@@ -553,7 +553,7 @@ const Settings = () => {
                       <SelectLabel>Available Roles</SelectLabel>
                       <SelectItem value="1">General Admin</SelectItem>
                       <SelectItem value="2">Finance Officer</SelectItem>
-                      {/* <SelectItem value="3">Sales/Marketing</SelectItem> */}
+                      <SelectItem value="3">Sales</SelectItem>
                       <SelectItem value="4">Release Officer</SelectItem>
                       <SelectItem value="5">Security</SelectItem>
                     </SelectGroup>
