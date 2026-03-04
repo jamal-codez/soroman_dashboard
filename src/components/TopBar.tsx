@@ -1,6 +1,7 @@
+import React from 'react';
 import { Bell, Search } from 'lucide-react';
 
-export const TopBar = () => {
+export const TopBar = React.memo(function TopBar() {
   const fullName = (localStorage.getItem('fullname') || '').trim();
 
   const hour = new Date().getHours();
@@ -34,4 +35,4 @@ export const TopBar = () => {
       </div>
     </div>
   );
-};
+});

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, Download, SearchIcon } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { format, isThisMonth, isThisWeek, isThisYear, isToday } from 'date-fns';
+import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday } from 'date-fns';
 import { getOrderReference } from '@/lib/orderReference';
 import { SummaryCards } from '@/components/SummaryCards';
 import { ShoppingCart, Droplets, Banknote, Coins } from 'lucide-react';
@@ -182,14 +182,14 @@ const extractPaidQtyNumber = (p: PaymentOrder): number => {
 
 export default function ConfirmedPayments() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'today' | 'week' | 'month' | 'year' | null>(null);
+  const [filterType, setFilterType] = useState<'today' | 'yesterday' | 'week' | 'month' | 'year' | null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [pfiFilter, setPfiFilter] = useState<string | null>(null);
 
   const PAGE_SIZE = 500;
 
   const listQuery = useQuery<OrderResponse>({
-    queryKey: ['all-orders', 'confirmed-payments', { searchQuery }],
+    queryKey: ['all-orders', 'confirmed-payments'],
     queryFn: async () => {
       let page = 1;
       const results: PaymentOrder[] = [];
@@ -211,6 +211,7 @@ export default function ConfirmedPayments() {
 
       return { count, results };
     },
+    staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
 
@@ -264,6 +265,7 @@ export default function ConfirmedPayments() {
         if (!filterType) return true;
         const d = getPaymentDate(p);
         if (filterType === 'today') return isToday(d);
+        if (filterType === 'yesterday') return isYesterday(d);
         if (filterType === 'week') return isThisWeek(d);
         if (filterType === 'month') return isThisMonth(d);
         if (filterType === 'year') return isThisYear(d);
@@ -402,16 +404,45 @@ export default function ConfirmedPayments() {
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
               <div className="flex flex-col gap-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3 items-center">
-                  <div className="relative">
-                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <Input
-                      placeholder="Search by company, location, PFI…"
-                      className="pl-10 h-11"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                  </div>
+                <div className="relative">
+                  <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input
+                    placeholder="Search by company, location, PFI…"
+                    className="pl-10 h-11"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-center">
+                  <select
+                    aria-label="Timeframe filter"
+                    className="h-11 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                    value={filterType ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value as '' | 'today' | 'yesterday' | 'week' | 'month' | 'year';
+                      setFilterType(v === '' ? null : v);
+                    }}
+                  >
+                    <option value="">Select Timeframe</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="year">This Year</option>
+                  </select>
+
+                  <select
+                    aria-label="Location filter"
+                    className="h-11 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                    value={locationFilter ?? ''}
+                    onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">All Locations</option>
+                    {uniqueLocations.map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
 
                   <select
                     aria-label="PFI filter"

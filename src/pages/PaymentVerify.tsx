@@ -20,7 +20,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { format, isThisMonth, isThisWeek, isThisYear, isToday } from 'date-fns';
+import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday } from 'date-fns';
 import { PageHeader } from '@/components/PageHeader';
 import { getOrderReference } from '@/lib/orderReference';
 
@@ -497,7 +497,7 @@ const extractCompanyName = (p: PaymentOrder): string => {
 export default function PaymentVerification() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
+  const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentOrder | null>(null);
@@ -512,14 +512,35 @@ export default function PaymentVerification() {
   const { data: apiResponse, isLoading } = useQuery<OrderResponse>({
     queryKey: ['verify-orders', 'all'],
     queryFn: async () => {
-      const response = await apiClient.admin.getVerifyOrders({
-        search: '',
-        page: 1,
-        page_size: 10000,
-      });
-      return response;
+      // Backend now uses OrderPagination2 (page_size=1000, max=1_000_000).
+      // Paginate through all pages to ensure every pending payment is included.
+      const PAGE_SIZE = 1000;
+      const MAX_PAGES = 1000;
+      let page = 1;
+      let totalCount = 0;
+      const all: PaymentOrder[] = [];
+
+      while (page <= MAX_PAGES) {
+        const response = await apiClient.admin.getVerifyOrders({
+          status: 'pending',
+          page,
+          page_size: PAGE_SIZE,
+        });
+
+        const results = (response?.results ?? []) as PaymentOrder[];
+        totalCount = Number(response?.count ?? totalCount ?? 0);
+        all.push(...results);
+
+        if (results.length < PAGE_SIZE) break;
+        if (totalCount && all.length >= totalCount) break;
+        page += 1;
+      }
+
+      return { count: totalCount || all.length, results: all };
     },
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 
   const allPayments = useMemo(() => apiResponse?.results || [], [apiResponse?.results]);
@@ -532,7 +553,7 @@ export default function PaymentVerification() {
       return res;
     },
     staleTime: 60_000,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
   });
 
   const bankAccounts: BankAccount[] = useMemo(() => {
@@ -558,14 +579,27 @@ export default function PaymentVerification() {
       .filter(p => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return true;
+        const orderRef = String(getOrderReference(p) || '').toLowerCase();
+        const orderId = String(p.order_id || '').toLowerCase();
+        const { name: customerName, phone: customerPhone } = extractCustomerDisplay(p);
+        const companyName = extractCompanyName(p);
+        const location = extractLocation(p);
+        const amount = String(p.amount || '');
         return (
-          String(getOrderReference(p) || '').toLowerCase().includes(q)
+          orderRef.includes(q) ||
+          orderId.includes(q) ||
+          customerName.toLowerCase().includes(q) ||
+          customerPhone.toLowerCase().includes(q) ||
+          companyName.toLowerCase().includes(q) ||
+          location.toLowerCase().includes(q) ||
+          amount.includes(q)
         );
       })
       .filter(p => {
         if (!filterType) return true;
         const d = new Date(p.created_at);
         if (filterType === 'today') return isToday(d);
+        if (filterType === 'yesterday') return isYesterday(d);
         if (filterType === 'week') return isThisWeek(d);
         if (filterType === 'month') return isThisMonth(d);
         if (filterType === 'year') return isThisYear(d);
@@ -792,12 +826,13 @@ export default function PaymentVerification() {
                     className="border border-gray-300 rounded px-3 py-2 h-11"
                     value={filterType ?? ''}
                     onChange={(e) => {
-                      const v = e.target.value as ''|'today'|'week'|'month'|'year';
+                      const v = e.target.value as ''|'today'|'yesterday'|'week'|'month'|'year';
                       setFilterType(v === '' ? null : v);
                     }}
                   >
-                    <option value="">All Time</option>
+                    <option value="">Select Timeframe</option>
                     <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
                     <option value="week">This Week</option>
                     <option value="month">This Month</option>
                     <option value="year">This Year</option>

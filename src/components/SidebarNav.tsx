@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from "@/lib/utils";
@@ -75,7 +75,7 @@ const navItems = [
   // { title: "Manage Marketers", icon: Users, path: "/agents", allowedRoles: [0, 1] },
 ];
 
-export const SidebarNav = () => {
+export const SidebarNav = React.memo(function SidebarNav() {
   const [expanded, setExpanded] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
@@ -91,9 +91,10 @@ export const SidebarNav = () => {
 
   const { data: pendingVerifyResponse } = useQuery({
     queryKey: ['sidebar', 'verify-orders-count'],
-    queryFn: () => apiClient.admin.getVerifyOrders({ search: '', page: 1, page_size: 1 }),
+    queryFn: () => apiClient.admin.getVerifyOrders({ status: 'pending', page: 1, page_size: 1 }),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
+    staleTime: 30_000,
   });
 
   const pendingPaymentsCount = useMemo(() => {
@@ -101,17 +102,24 @@ export const SidebarNav = () => {
     return typeof c === 'number' ? c : 0;
   }, [pendingVerifyResponse]);
 
+  // Only fetch count + minimal results to derive badge counts.
+  // Previously fetched page_size=10000 which transferred ~2MB of JSON on every poll.
   const { data: allOrdersResponse } = useQuery({
     queryKey: ['sidebar', 'paid-orders-count'],
-    queryFn: () => apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 }),
+    queryFn: async () => {
+      // Fetch page_size=1 with status=paid to get count of paid (released) orders.
+      // The backend returns { count, results } — we only need `count`.
+      const res = await apiClient.admin.getAllAdminOrders({ page: 1, page_size: 1, status: 'paid' });
+      return res;
+    },
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
+    staleTime: 30_000,
   });
 
   const paidAwaitingReleaseCount = useMemo(() => {
-    const results = (allOrdersResponse as OrdersResults | undefined)?.results;
-    if (!Array.isArray(results)) return 0;
-    return results.filter((o) => (o?.status || '').toLowerCase() === 'paid').length;
+    const c = (allOrdersResponse as PagedCount | undefined)?.count;
+    return typeof c === 'number' ? c : 0;
   }, [allOrdersResponse]);
 
   const getBadgeCount = (path: string) => {
@@ -274,4 +282,4 @@ export const SidebarNav = () => {
       </div>
     </aside>
   );
-};
+});

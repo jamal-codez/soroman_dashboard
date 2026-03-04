@@ -192,7 +192,7 @@ export default function Release (){
                       setFilterType(v === '' ? null : v);
                     }}
                   >
-                    <option value="">All Time</option>
+                    <option value="">Select Timeframe</option>
                     <option value="today">Today</option>
                     <option value="week">This Week</option>
                     <option value="month">This Month</option>

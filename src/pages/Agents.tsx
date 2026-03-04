@@ -165,8 +165,25 @@ export default function Agents() {
   // --- Released orders stats (best-effort; uses all-orders endpoint) ---
   const { data: ordersRaw } = useQuery<unknown>({
     queryKey: ["all-orders", "agents-stats"],
-    queryFn: () => apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 }),
+    queryFn: async () => {
+      const PAGE = 200;
+      let page = 1;
+      let count = 0;
+      const all: OrderLike[] = [];
+
+      while (page <= 500) {
+        const res = await apiClient.admin.getAllAdminOrders({ page, page_size: PAGE });
+        const results = (res?.results ?? []) as OrderLike[];
+        count = Number(res?.count ?? count);
+        all.push(...results);
+        if (results.length < PAGE || all.length >= count) break;
+        page++;
+      }
+
+      return { count, results: all };
+    },
     retry: 2,
+    staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
 
@@ -376,7 +393,7 @@ export default function Agents() {
                       setAgentStatsFilterType(v === '' ? null : v);
                     }}
                   >
-                    <option value="">All Time</option>
+                    <option value="">Select Timeframe</option>
                     <option value="today">Today</option>
                     <option value="week">This Week</option>
                     <option value="month">This Month</option>

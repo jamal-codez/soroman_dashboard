@@ -114,9 +114,25 @@ const Dashboard: React.FC = () => {
   const { data: allOrdersResp } = useQuery<{ count: number; results: OrderLite[] }>({
     queryKey: ['all-orders', 'counts'],
     queryFn: async () => {
-      const res = await apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 });
-      return { count: res.count || 0, results: (res.results || []) as OrderLite[] };
+      // Paginate in chunks of 200 instead of a single 10k request.
+      // Dramatically reduces time-to-first-byte and avoids backend timeouts.
+      const PAGE = 200;
+      let page = 1;
+      let count = 0;
+      const all: OrderLite[] = [];
+
+      while (page <= 500) {
+        const res = await apiClient.admin.getAllAdminOrders({ page, page_size: PAGE });
+        const results = (res?.results ?? []) as OrderLite[];
+        count = Number(res?.count ?? count);
+        all.push(...results);
+        if (results.length < PAGE || all.length >= count) break;
+        page++;
+      }
+
+      return { count, results: all };
     },
+    staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
 

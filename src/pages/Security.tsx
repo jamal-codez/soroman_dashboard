@@ -201,10 +201,24 @@ export default function SecurityPage() {
   const { data, isLoading, isError, error, refetch } = useQuery<PagedResponse<OrderLike>>({
     queryKey: ["all-orders", "security"],
     queryFn: async () => {
-      const res = await apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 });
-      return { count: res.count || 0, results: res.results || [] };
+      const PAGE = 200;
+      let page = 1;
+      let count = 0;
+      const all: OrderLike[] = [];
+
+      while (page <= 500) {
+        const res = await apiClient.admin.getAllAdminOrders({ page, page_size: PAGE });
+        const results = (res?.results ?? []) as OrderLike[];
+        count = Number(res?.count ?? count);
+        all.push(...results);
+        if (results.length < PAGE || all.length >= count) break;
+        page++;
+      }
+
+      return { count, results: all };
     },
     retry: 2,
+    staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
 

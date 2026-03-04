@@ -27,7 +27,10 @@ import {
   TruckIcon,
   File,
   Calendar1Icon,
-  CalendarDays
+  CalendarDays,
+  ShoppingCart,
+  Droplets,
+  Banknote,
 } from 'lucide-react';
 import {
   Dialog,
@@ -41,7 +44,7 @@ import {
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
 import { MobileNav } from "@/components/MobileNav";
-import { format, isThisMonth, isThisWeek, isThisYear, isToday, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
+import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
 import { apiClient } from '@/api/client';
 import { useReactToPrint } from 'react-to-print';
 import { TicketPrint, type ReleaseTicketData } from '@/components/TicketPrint';
@@ -50,6 +53,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { PageHeader } from '@/components/PageHeader';
 import { SummaryCards } from '@/components/SummaryCards';
+import { Skeleton } from '@/components/ui/skeleton';
 import { getOrderReference } from '@/lib/orderReference';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -441,7 +445,7 @@ export const PickupProcessing = () => {
   const { toast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
+  const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [productFilter, setProductFilter] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
@@ -640,33 +644,27 @@ export const PickupProcessing = () => {
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
     queryKey: ['all-orders', 'release-processing'],
     queryFn: async () => {
-      const response = await apiClient.admin.getAllAdminOrders({
-        page: 1,
-        page_size: 1_000_000,
-      });
+      // Paginate in chunks instead of a single 1M request
+      const PAGE = 200;
+      let page = 1;
+      let count = 0;
+      const all: Order[] = [];
 
-      if (!response.results) throw new Error('Invalid response format');
-      return {
-        count: response.count || 0,
-        results: response.results || [],
-      };
+      while (page <= 500) {
+        const res = await apiClient.admin.getAllAdminOrders({ page, page_size: PAGE });
+        const results = (res?.results ?? []) as Order[];
+        count = Number(res?.count ?? count);
+        all.push(...results);
+        if (results.length < PAGE || all.length >= count) break;
+        page++;
+      }
+
+      return { count, results: all };
     },
     retry: 2,
+    staleTime: 30_000,
     refetchOnWindowFocus: true
   });
-
-  const summary = useMemo(() => {
-    const list = apiResponse?.results || [];
-    const total = apiResponse?.count ?? list.length;
-
-    const norm = (s: unknown) => String(s || '').toLowerCase();
-    const paid = list.filter((o) => norm(o.status) === 'paid').length;
-    const pending = list.filter((o) => norm(o.status) === 'pending').length;
-    const released = list.filter((o) => norm(o.status) === 'released').length;
-    const canceled = list.filter((o) => norm(o.status) === 'canceled').length;
-
-    return { total, paid, pending, released, canceled };
-  }, [apiResponse?.results, apiResponse?.count]);
 
   const ticketRef = useRef<HTMLDivElement>(null);
   const printTicket = useReactToPrint({
@@ -913,6 +911,7 @@ export const PickupProcessing = () => {
         if (!filterType) return true;
         const d = new Date(order.created_at);
         if (filterType === 'today') return isToday(d);
+        if (filterType === 'yesterday') return isYesterday(d);
         if (filterType === 'week') return isThisWeek(d);
         if (filterType === 'month') return isThisMonth(d);
         if (filterType === 'year') return isThisYear(d);
@@ -936,46 +935,29 @@ export const PickupProcessing = () => {
       });
   }, [apiResponse?.results, searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, pfiFilter, releaseDetailsByOrder]);
 
+  // Summary computed from filteredOrders so stat cards update when filters change
+  const summary = useMemo(() => {
+    const list = filteredOrders;
+    const total = list.length;
+
+    const norm = (s: unknown) => String(s || '').toLowerCase();
+    const paid = list.filter((o) => norm(o.status) === 'paid').length;
+    const pending = list.filter((o) => norm(o.status) === 'pending').length;
+    const released = list.filter((o) => norm(o.status) === 'released').length;
+    const canceled = list.filter((o) => norm(o.status) === 'canceled').length;
+
+    const totalQty = list.reduce((sum, o) => sum + (Number(o.quantity) || 0), 0);
+    const totalAmount = list.reduce((sum, o) => {
+      const v = String(o.total_price ?? '0').replace(/,/g, '');
+      return sum + (Number(v) || 0);
+    }, 0);
+
+    return { total, paid, pending, released, canceled, totalQty, totalAmount };
+  }, [filteredOrders]);
+
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value.toLowerCase());
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex h-screen bg-slate-100">
-        <SidebarNav />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <MobileNav />
-          <TopBar />
-          <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
-            <div className="text-center">
-              <Loader2 className='animate-spin' color='green' size={54} />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="flex h-screen bg-slate-100">
-        <SidebarNav />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <MobileNav />
-          <TopBar />
-          <div className="flex-1 overflow-auto p-6 flex items-center justify-center">
-            <div className="text-center text-red-500">
-              <p>Error: {(error as Error)?.message || 'Failed to load pickups'}</p>
-              <Button onClick={() => refetch()} className="mt-4">
-                Retry
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -1002,6 +984,56 @@ export const PickupProcessing = () => {
               }
             />
 
+            <SummaryCards
+              cards={[
+                {
+                  title: 'Total Orders',
+                  value: isLoading ? '…' : summary.total.toLocaleString(),
+                  icon: <ShoppingCart className="h-4 w-4" />,
+                  tone: 'neutral',
+                },
+                {
+                  title: 'Quantity Sold',
+                  value: isLoading ? '…' : `${summary.totalQty.toLocaleString()} L`,
+                  icon: <Droplets className="h-4 w-4" />,
+                  tone: 'neutral',
+                },
+                {
+                  title: 'Total Amount',
+                  value: isLoading ? '…' : `₦${summary.totalAmount.toLocaleString()}`,
+                  icon: <Banknote className="h-4 w-4" />,
+                  tone: 'neutral',
+                },
+                {
+                  title: 'Paid Not Loaded',
+                  value: isLoading ? '…' : summary.paid.toLocaleString(),
+                  icon: <FuelIcon className="h-4 w-4" />,
+                  tone: 'green',
+                },
+                {
+                  title: 'Loaded Orders',
+                  value: isLoading ? '…' : summary.released.toLocaleString(),
+                  icon: <TruckIcon className="h-4 w-4" />,
+                  tone: 'neutral',
+                },
+                {
+                  title: 'Pending Payments',
+                  value: isLoading ? '…' : summary.pending.toLocaleString(),
+                  icon: <Hourglass className="h-4 w-4" />,
+                  tone: 'amber',
+                },
+              ]}
+            />
+
+            {isError && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900 flex items-center justify-between">
+                <p>Error: {(error as Error)?.message || 'Failed to load orders'}</p>
+                <Button size="sm" variant="outline" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
+            )}
+
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col gap-3">
                 <div className="flex flex-col lg:flex-row gap-3">
@@ -1017,7 +1049,26 @@ export const PickupProcessing = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <select
+                    aria-label="Timeframe filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={filterType ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value as ''|'today'|'yesterday'|'week'|'month'|'year';
+                      setFilterType(v === '' ? null : v);
+                      // Clear date range when using quick filter
+                      if (v !== '') setDateRange({ from: null, to: null });
+                    }}
+                  >
+                    <option value="">Select Timeframe</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    {/* <option value="year">This Year</option> */}
+                  </select>
+
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full justify-between h-11">
@@ -1035,11 +1086,28 @@ export const PickupProcessing = () => {
                       <Calendar
                         mode="range"
                         selected={dateRange}
-                        onSelect={(range) => setDateRange({ from: range?.from ?? null, to: range?.to ?? null })}
+                        onSelect={(range) => {
+                          setDateRange({ from: range?.from ?? null, to: range?.to ?? null });
+                          // Clear quick filter when using date range
+                          if (range?.from) setFilterType(null);
+                        }}
                         numberOfMonths={2}
                       />
                     </PopoverContent>
                   </Popover>
+
+                  <select
+                    aria-label="Status filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={statusFilter ?? ''}
+                    onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">Select Order Status</option>
+                    <option value="pending">Pending Orders</option>
+                    <option value="paid">Paid Not Loaded</option>
+                    {/* <option value="canceled">Canceled</option> */}
+                    <option value="released">Loaded Orders</option>
+                  </select>
 
                   <select
                     aria-label="Product filter"
@@ -1064,19 +1132,6 @@ export const PickupProcessing = () => {
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
-
-                  {/* <select
-                    aria-label="Status filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={statusFilter ?? ''}
-                    onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">All Statuses</option>
-                    <option value="pending">Pending</option>
-                    <option value="paid">Released</option>
-                    <option value="canceled">Canceled</option>
-                    <option value="released">Loaded</option>
-                  </select> */}
 
                   <select
                     aria-label="PFI filter"
@@ -1118,13 +1173,36 @@ export const PickupProcessing = () => {
                     <TableHead>Qty (L)</TableHead>
                     <TableHead>Truck No.</TableHead>
                     <TableHead>Driver Details</TableHead>
-                    {/* <TableHead>PFI</TableHead> */}
+                    <TableHead>PFI</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-center">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredOrders.map((order, index) => {
+                  {isLoading ? (
+                    [...Array(8)].map((_, i) => (
+                      <TableRow key={`skel-${i}`}>
+                        <TableCell><Skeleton className="h-4 w-8" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-8 w-28" /></TableCell>
+                      </TableRow>
+                    ))
+                  ) : filteredOrders.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={14} className="text-center text-slate-500 py-10">
+                        No orders found for the selected filters.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                  filteredOrders.map((order, index) => {
                     const sn = filteredOrders.length - index;
                     const ticket = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
 
@@ -1170,7 +1248,7 @@ export const PickupProcessing = () => {
                             '-'
                           )}
                         </TableCell>
-                        {/* <TableCell>{order.pfi_number ? String(order.pfi_number) : '-'}</TableCell> */}
+                        <TableCell>{order.pfi_number ? String(order.pfi_number) : '-'}</TableCell>
                         <TableCell>
                           <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
                             {getStatusIcon(order.status)}
@@ -1309,14 +1387,7 @@ export const PickupProcessing = () => {
                         </TableCell>
                       </TableRow>
                     );
-                  })}
-
-                  {filteredOrders.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={14} className="text-center text-slate-500 py-10">
-                        No orders found for the selected filters.
-                      </TableCell>
-                    </TableRow>
+                  })
                   )}
                 </TableBody>
               </Table>

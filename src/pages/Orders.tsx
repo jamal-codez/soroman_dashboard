@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { format, isThisWeek, isThisMonth, isThisYear, isToday, addDays, isAfter, isBefore, isSameDay, parseISO } from 'date-fns';
+import { format, isThisWeek, isThisMonth, isThisYear, isToday, isYesterday, addDays, isAfter, isBefore, isSameDay, parseISO } from 'date-fns';
 import {
   Table,
   TableBody,
@@ -133,7 +133,7 @@ const extractUnitPrice = (order: Order): string => {
 
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
+  const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
   const [productFilter, setProductFilter] = useState<string|null>(null);
   const [locationFilter, setLocationFilter] = useState<string|null>(null);
   const [statusFilter, setStatusFilter] = useState<string|null>(null);
@@ -182,6 +182,7 @@ const Orders = () => {
       return { count: count || all.length, results: all };
     },
     retry: 2,
+    staleTime: 30_000,
     refetchOnWindowFocus: true,
     // If there are pending orders, poll so backend auto-cancel is reflected quickly.
     refetchInterval: (q) => {
@@ -293,6 +294,16 @@ const Orders = () => {
         return true;
       })
       .filter(order => {
+        if (!filterType) return true;
+        const d = new Date(order.created_at);
+        if (filterType === 'today') return isToday(d);
+        if (filterType === 'yesterday') return isYesterday(d);
+        if (filterType === 'week') return isThisWeek(d);
+        if (filterType === 'month') return isThisMonth(d);
+        if (filterType === 'year') return isThisYear(d);
+        return true;
+      })
+      .filter(order => {
         if (!productFilter) return true;
         return order.products.some(p => p.name === productFilter);
       })
@@ -308,7 +319,7 @@ const Orders = () => {
         if (!pfiFilter) return true;
         return pfiLabel(order) === pfiFilter;
       });
-  }, [apiResponse?.results, searchQuery, dateRange, productFilter, locationFilter, statusFilter, pfiFilter]);
+  }, [apiResponse?.results, searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, pfiFilter]);
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
@@ -323,7 +334,7 @@ const Orders = () => {
   // Reset to first page whenever filters/search change (avoids landing on an out-of-range page)
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, dateRange, productFilter, locationFilter, statusFilter, pfiFilter]);
+  }, [searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, pfiFilter]);
 
   // Keep page clamped when totalPages changes (e.g., after filtering)
   useEffect(() => {
@@ -619,7 +630,26 @@ const Orders = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <select
+                    aria-label="Timeframe filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={filterType ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value as ''|'today'|'yesterday'|'week'|'month'|'year';
+                      setFilterType(v === '' ? null : v);
+                      // Clear date range when using quick filter
+                      if (v !== '') setDateRange({ from: null, to: null });
+                    }}
+                  >
+                    <option value="">Select Timeframe</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="year">This Year</option>
+                  </select>
+
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-full justify-between h-11">
@@ -637,14 +667,18 @@ const Orders = () => {
                       <Calendar
                         mode="range"
                         selected={dateRange}
-                        onSelect={(range) => setDateRange(range as { from: Date | null; to: Date | null })}
+                        onSelect={(range) => {
+                          setDateRange(range as { from: Date | null; to: Date | null });
+                          // Clear quick filter when using date range
+                          if (range?.from) setFilterType(null);
+                        }}
                         numberOfMonths={2}
                         initialFocus
                       />
                     </PopoverContent>
                   </Popover>
 
-                  {/* <select
+                  <select
                     aria-label="Status filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
                     value={statusFilter ?? ''}
@@ -655,7 +689,7 @@ const Orders = () => {
                     <option value="paid">Released</option>
                     <option value="canceled">Canceled</option>
                     <option value="released">Loaded</option>
-                  </select> */}
+                  </select>
 
                   <select
                     aria-label="Product filter"

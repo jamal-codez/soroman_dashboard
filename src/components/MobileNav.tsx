@@ -49,17 +49,18 @@ const navItems: NavItem[] = [
   { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [1] }
 ];
 
-export function MobileNav() {
+export const MobileNav = React.memo(function MobileNav() {
   const navigate = useNavigate();
   const location = useLocation();
   const role = parseInt(localStorage.getItem('role') || '10');
   const [open, setOpen] = useState(false);
 
   const { data: pendingVerifyResponse } = useQuery({
-    queryKey: ['mobile-nav', 'verify-orders-count'],
-    queryFn: () => apiClient.admin.getVerifyOrders({ search: '', page: 1, page_size: 1 }),
+    queryKey: ['sidebar', 'verify-orders-count'],
+    queryFn: () => apiClient.admin.getVerifyOrders({ status: 'pending', page: 1, page_size: 1 }),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
+    staleTime: 30_000,
   });
 
   const pendingPaymentsCount = useMemo(() => {
@@ -68,16 +69,16 @@ export function MobileNav() {
   }, [pendingVerifyResponse]);
 
   const { data: allOrdersResponse } = useQuery({
-    queryKey: ['mobile-nav', 'paid-orders-count'],
-    queryFn: () => apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 }),
+    queryKey: ['sidebar', 'paid-orders-count'],
+    queryFn: () => apiClient.admin.getAllAdminOrders({ page: 1, page_size: 1, status: 'paid' }),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
+    staleTime: 30_000,
   });
 
   const paidAwaitingReleaseCount = useMemo(() => {
-    const results = (allOrdersResponse as OrdersResults | undefined)?.results;
-    if (!Array.isArray(results)) return 0;
-    return results.filter((o) => (o?.status || '').toLowerCase() === 'paid').length;
+    const c = (allOrdersResponse as PagedCount | undefined)?.count;
+    return typeof c === 'number' ? c : 0;
   }, [allOrdersResponse]);
 
   const getBadgeCount = (path: string) => {
@@ -174,6 +175,6 @@ export function MobileNav() {
       </div>
     </div>
   );
-}
+});
 
 export default MobileNav;
