@@ -31,6 +31,8 @@ import {
   ShoppingCart,
   Droplets,
   Banknote,
+  ClockAlert,
+  FileClockIcon,
 } from 'lucide-react';
 import {
   Dialog,
@@ -1290,13 +1292,31 @@ export const PickupProcessing = () => {
                                     <Label htmlFor="loadingDateTime">
                                       Loading Date &amp; Time
                                     </Label>
-                                    <Input
-                                      id="loadingDateTime"
-                                      type="datetime-local"
-                                      required
-                                      value={releaseForm.loadingDateTime}
-                                      onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
-                                    />
+                                    <div className="flex gap-2">
+                                      <Input
+                                        id="loadingDateTime"
+                                        type="datetime-local"
+                                        required
+                                        className="flex-1"
+                                        value={releaseForm.loadingDateTime}
+                                        onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="default"
+                                        className="shrink-0 h-10 px-3 text-sm font-medium"
+                                        onClick={() => {
+                                          // Format current date/time as yyyy-MM-ddTHH:mm for datetime-local input
+                                          const now = new Date();
+                                          const pad = (n: number) => String(n).padStart(2, '0');
+                                          const val = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+                                          setReleaseForm({ ...releaseForm, loadingDateTime: val });
+                                        }}
+                                      >
+                                        <FileClockIcon className="h-3.5 w-3.5" />
+                                        Just Now
+                                      </Button>
+                                    </div>
                                   </div>
 
                                   <div>
