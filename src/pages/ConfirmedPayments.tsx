@@ -331,7 +331,9 @@ export default function ConfirmedPayments() {
     ];
 
     const headers = ['S/N', 'Date', 'Reference', 'Company', 'Truck No.', 'Location', 'Product', 'Qty (L)', 'Price', 'Amount', 'Remarks'];
-    const rows = filtered.map((p, idx) => {
+    // Sort oldest → newest for the exported file
+    const exportSorted = [...filtered].sort((a, b) => getPaymentDate(a).getTime() - getPaymentDate(b).getTime());
+    const rows = exportSorted.map((p, idx) => {
       const d = getPaymentDate(p);
       const date = Number.isNaN(d.getTime()) ? '' : format(d, 'dd/MM/yyyy HH:mm');
       const ref = getOrderReference(p) || p.reference || p.id;
@@ -351,7 +353,7 @@ export default function ConfirmedPayments() {
     const blob = new Blob([csvLines], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.setAttribute('download', `confirmed_payments_${new Date().toISOString()}.csv`);
+    link.setAttribute('download', `Report ${format(new Date(), 'dd-MM-yy')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -541,7 +543,7 @@ export default function ConfirmedPayments() {
 
                       return (
                         <TableRow key={p.id}>
-                          <TableCell className="text-slate-700">{idx + 1}</TableCell>
+                          <TableCell className="text-slate-700">{filtered.length - idx}</TableCell>
                           <TableCell>{createdText}</TableCell>
                           <TableCell className="font-semibold text-slate-950">{ref}</TableCell>
                           <TableCell className="max-w-[240px] truncate" title={company || undefined}>
