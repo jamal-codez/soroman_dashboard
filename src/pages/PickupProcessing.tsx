@@ -948,8 +948,13 @@ export const PickupProcessing = () => {
     const released = list.filter((o) => norm(o.status) === 'released').length;
     const canceled = list.filter((o) => norm(o.status) === 'canceled').length;
 
-    const totalQty = list.reduce((sum, o) => sum + (Number(o.quantity) || 0), 0);
-    const totalAmount = list.reduce((sum, o) => {
+    // Quantity & Amount should only reflect paid + released orders (confirmed sales)
+    const paidOrReleased = list.filter((o) => {
+      const st = norm(o.status);
+      return st === 'paid' || st === 'released';
+    });
+    const totalQty = paidOrReleased.reduce((sum, o) => sum + (Number(o.quantity) || 0), 0);
+    const totalAmount = paidOrReleased.reduce((sum, o) => {
       const v = String(o.total_price ?? '0').replace(/,/g, '');
       return sum + (Number(v) || 0);
     }, 0);
