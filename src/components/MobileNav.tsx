@@ -18,6 +18,7 @@ import {
   X,
   LogOut,
   ActivityIcon,
+  Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -46,6 +47,7 @@ const navItems: NavItem[] = [
   { title: 'Payments Report', icon: FileBarChart2Icon, path: '/confirmed-payments', allowedRoles: [0, 1, 2] },
   { title: 'Manage Staff', icon: Users2Icon, path: '/users-management', allowedRoles: [0, 1] },
   { title: 'Security Clearance', icon: ShieldCheck, path: '/security', allowedRoles: [0, 1, 5] },
+  { title: 'Our Customers', icon: Users, path: '/customers', allowedRoles: [0, 1, 3] },
   { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [1] }
 ];
 

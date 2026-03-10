@@ -919,10 +919,10 @@ const Orders = () => {
 
                         <TableCell>
                           <div className="leading-tight">
-                            <div className="font-bold text-slate-950 capitalize break-words whitespace-normal">
+                            <div className="font-bold text-slate-950 break-words uppercase whitespace-normal">
                               {getCompanyName(order) || '-'}
                             </div>
-                            <div className="mt-1 inline-flex items-center gap-1 text-slate-700 break-words whitespace-normal">
+                            <div className="mt-1 inline-flex items-center gap-1 text-slate-700 break-words uppercase whitespace-normal">
                               <User2 size={12} className="text-green-700" />
                               <span>{getCustomerFullName(order) || '-'}</span>
                             </div>

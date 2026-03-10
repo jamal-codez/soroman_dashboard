@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -5,244 +6,469 @@ import { MobileNav } from '@/components/MobileNav';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
+import {
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
-  TableRow 
+  TableRow,
 } from '@/components/ui/table';
 import {
   Download,
-  Filter,
   Search,
-  Plus,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  MoreHorizontal
+  Users,
+  Mail,
+  Phone,
+  Building2,
+  Loader2,
+  PhoneOutgoingIcon,
+  MapPin,
+  ShoppingCart,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { format } from 'date-fns';
 
-type Customer = {
+// ── Order type (mirrors Orders.tsx) ────────────────────────────────────────
+
+interface Order {
   id: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone_number?: string;
-  company_name?: string;
+  user: Record<string, unknown>;
+  status: string;
   created_at: string;
-};
-
-interface ApiResponse {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: Customer[];
+  state?: string;
+  customer_details?: Record<string, unknown>;
+  products: Array<{ name?: string }>;
+  quantity?: number | string;
+  total_price?: string | number;
 }
 
-const pageSize = 10; // Add page size constant
+interface OrderResponse {
+  count: number;
+  results: Order[];
+}
+
+// ── Derived contact type ───────────────────────────────────────────────────
+
+interface Contact {
+  /** Dedup key – email or phone (lowered/trimmed) */
+  key: string;
+  name: string;
+  company: string;
+  email: string;
+  phone: string;
+  location: string;
+  totalOrders: number;
+  lastOrderDate: string;
+}
+
+// ── Helpers (same logic as Orders.tsx) ─────────────────────────────────────
+
+const extractName = (o: Order): string => {
+  const cd = o.customer_details as Record<string, unknown> | undefined;
+  const user = o.user as Record<string, unknown> | undefined;
+  const cdName = cd && typeof cd.name === 'string' ? cd.name : '';
+  if (cdName) return cdName;
+  const first = user && typeof user.first_name === 'string' ? user.first_name : '';
+  const last = user && typeof user.last_name === 'string' ? user.last_name : '';
+  return [first, last].filter(Boolean).join(' ').trim();
+};
+
+const extractCompany = (o: Order): string => {
+  const cd = o.customer_details as Record<string, unknown> | undefined;
+  const user = o.user as Record<string, unknown> | undefined;
+  return (
+    (cd && typeof cd.companyName === 'string' ? cd.companyName : '') ||
+    (user && typeof user.companyName === 'string' ? user.companyName : '') ||
+    (user && typeof user.company_name === 'string' ? user.company_name : '') ||
+    ''
+  );
+};
+
+const extractPhone = (o: Order): string => {
+  const cd = o.customer_details as Record<string, unknown> | undefined;
+  const user = o.user as Record<string, unknown> | undefined;
+  return (
+    (cd && typeof cd.phone === 'string' ? cd.phone : '') ||
+    (user && typeof user.phone_number === 'string' ? user.phone_number : '') ||
+    (user && typeof user.phone === 'string' ? user.phone : '') ||
+    ''
+  ).trim();
+};
+
+const extractEmail = (o: Order): string => {
+  const cd = o.customer_details as Record<string, unknown> | undefined;
+  const user = o.user as Record<string, unknown> | undefined;
+  return (
+    (cd && typeof cd.email === 'string' ? cd.email : '') ||
+    (user && typeof user.email === 'string' ? user.email : '') ||
+    ''
+  ).trim();
+};
+
+const extractLocation = (o: Order): string => (o.state ?? '').trim();
+
+// ── Build deduplicated contacts from orders ────────────────────────────────
+
+function buildContacts(orders: Order[]): Contact[] {
+  const map = new Map<string, Contact>();
+
+  for (const o of orders) {
+    const email = extractEmail(o);
+    const phone = extractPhone(o);
+
+    // Skip orders with no identifiable contact info
+    if (!email && !phone) continue;
+
+    // Dedup key: prefer email, fallback to phone
+    const key = (email || phone).toLowerCase();
+
+    const existing = map.get(key);
+    if (existing) {
+      existing.totalOrders += 1;
+      // Keep the most recent order date
+      if (o.created_at > existing.lastOrderDate) {
+        existing.lastOrderDate = o.created_at;
+      }
+      // Fill in blanks from later orders
+      if (!existing.name) existing.name = extractName(o);
+      if (!existing.company) existing.company = extractCompany(o);
+      if (!existing.phone) existing.phone = phone;
+      if (!existing.email) existing.email = email;
+      if (!existing.location) existing.location = extractLocation(o);
+    } else {
+      map.set(key, {
+        key,
+        name: extractName(o),
+        company: extractCompany(o),
+        email,
+        phone,
+        location: extractLocation(o),
+        totalOrders: 1,
+        lastOrderDate: o.created_at || '',
+      });
+    }
+  }
+
+  // Sort alphabetically by name, then by email
+  return Array.from(map.values()).sort((a, b) =>
+    (a.name || a.email || a.phone).localeCompare(b.name || b.email || b.phone, undefined, { sensitivity: 'base' }),
+  );
+}
+
+// ── Component ──────────────────────────────────────────────────────────────
 
 const Customers = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1); // Add pagination state
-  
-  const { data: response, isLoading, isError, error, refetch } = useQuery<ApiResponse>({
-    queryKey: ['customers', currentPage], // Include current page in query key
+  const [exporting, setExporting] = useState(false);
+
+  // Fetch ALL orders via paginated loop (same pattern as Orders.tsx)
+  const {
+    data: contacts,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery<Contact[]>({
+    queryKey: ['customers', 'from-orders'],
     queryFn: async () => {
-      const response = await apiClient.admin.adminGetAllCustomers({
-        page: currentPage,
-        page_size: pageSize
-      });
-      return {
-        count: response.count || 0,
-        next: response.next || null,
-        previous: response.previous || null,
-        results: Array.isArray(response.results) ? response.results : []
-      };
+      const PAGE_SIZE = 200;
+      const MAX_PAGES = 5000;
+      let page = 1;
+      let totalCount = 0;
+      const all: Order[] = [];
+
+      while (page <= MAX_PAGES) {
+        const res: OrderResponse = await apiClient.admin.getAllAdminOrders({
+          page,
+          page_size: PAGE_SIZE,
+        });
+
+        const results = Array.isArray(res?.results) ? res.results : [];
+        totalCount = Number(res?.count ?? totalCount);
+        all.push(...results);
+
+        if (results.length < PAGE_SIZE) break;
+        if (totalCount && all.length >= totalCount) break;
+        page++;
+      }
+
+      return buildContacts(all);
     },
-    retry: 2,
-    refetchOnWindowFocus: false
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
 
-  const totalPages = Math.ceil((response?.count || 0) / pageSize); // Calculate total pages
+  const allContacts = contacts || [];
 
-  const handlePreviousPage = () => {
-    if (currentPage > 1) setCurrentPage(prev => prev - 1);
-  };
+  // ── Search ──────────────────────────────────────────────────────────────
 
-  const handleNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage(prev => prev + 1);
-  };
-
-  const customers = response?.results || [];
-  const filteredCustomers = customers.filter(customer => {
-    const searchLower = searchQuery.toLowerCase();
-    return (
-      customer.id.toString().includes(searchLower) ||
-      `${customer.first_name} ${customer.last_name}`.toLowerCase().includes(searchLower) ||
-      customer.email.toLowerCase().includes(searchLower) ||
-      (customer.company_name && customer.company_name.toLowerCase().includes(searchLower))
+  const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allContacts;
+    return allContacts.filter((c) =>
+      c.name.toLowerCase().includes(q) ||
+      c.email.toLowerCase().includes(q) ||
+      c.phone.toLowerCase().includes(q) ||
+      c.company.toLowerCase().includes(q) ||
+      c.location.toLowerCase().includes(q),
     );
-  });
+  }, [allContacts, searchQuery]);
 
-  const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(event.target.value.toLowerCase());
+  // ── Stats ───────────────────────────────────────────────────────────────
+
+  const stats = useMemo(() => {
+    const total = filtered.length;
+    const withEmail = filtered.filter((c) => c.email).length;
+    const withPhone = filtered.filter((c) => c.phone).length;
+    const withCompany = filtered.filter((c) => c.company).length;
+    return { total, withEmail, withPhone, withCompany };
+  }, [filtered]);
+
+  // ── CSV Export ──────────────────────────────────────────────────────────
+
+  const exportCSV = () => {
+    if (!filtered.length) return;
+    setExporting(true);
+
+    try {
+      const headers = [
+        'S/N',
+        'Name',
+        'Company',
+        'Email',
+        'Phone Number',
+        'Location',
+        'Total Orders',
+        'Last Order',
+      ];
+
+      const rows = filtered.map((c, idx) => [
+        idx + 1,
+        c.name || '-',
+        c.company || '-',
+        c.email || '-',
+        c.phone || '-',
+        c.location || '-',
+        c.totalOrders,
+        c.lastOrderDate ? format(new Date(c.lastOrderDate), 'dd/MM/yyyy') : '-',
+      ]);
+
+      const csvContent = [headers, ...rows]
+        .map((r) => r.map((x) => `"${String(x ?? '').replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Customer_Contacts_${format(new Date(), 'dd-MM-yyyy')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
   };
+
+  // ── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
-      
+
       <div className="flex-1 flex flex-col overflow-hidden">
         <MobileNav />
         <TopBar />
-        
+
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="Customers"
-              description="Browse customer profiles and quickly search by name, email, or company."
+              title="Customer Contacts"
+              description="Contacts extracted from all orders — deduplicated by email / phone. Search and download as CSV."
+              actions={
+                <Button onClick={exportCSV} disabled={exporting || filtered.length === 0}>
+                  {exporting ? (
+                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-1" size={16} />
+                  )}
+                  Download Contacts
+                </Button>
+              }
             />
 
-            {/* Search and Filters */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <div className="flex flex-col sm:flex-row gap-4">
+            {/* ── Stat cards ──────────────────────────────────────────── */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <StatMini icon={Users} label="Total Contacts" value={stats.total} color="blue" loading={isLoading} />
+              <StatMini icon={Mail} label="With Email" value={stats.withEmail} color="green" loading={isLoading} />
+              <StatMini icon={Phone} label="With Phone" value={stats.withPhone} color="amber" loading={isLoading} />
+              <StatMini icon={Building2} label="With Company" value={stats.withCompany} color="violet" loading={isLoading} />
+            </div>
+
+            {/* ── Search ──────────────────────────────────────────────── */}
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
                   <Input
                     type="text"
-                    placeholder="Search customers..."
+                    placeholder="Search by name, email, phone, company, or location..."
                     className="pl-10"
                     value={searchQuery}
-                    onChange={handleSearch}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                   />
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex items-center">
-                    <Filter className="mr-1" size={16} />
-                    Filter
-                  </Button>
-                  <Button variant="outline" className="flex items-center">
-                    <Download className="mr-1" size={16} />
-                    Export
-                  </Button>
+                <div className="text-sm text-slate-500 self-center whitespace-nowrap">
+                  {isLoading ? '...' : `${filtered.length} contact${filtered.length !== 1 ? 's' : ''}`}
                 </div>
               </div>
             </div>
-            
-            {/* Customers Table */}
+
+            {/* ── Table ───────────────────────────────────────────────── */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-              <Table>
+              <Table className="text-sm">
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>NAME</TableHead>
-                    <TableHead>COMPANY</TableHead>
-                    <TableHead>EMAIL</TableHead>
-                    <TableHead>PHONE</TableHead>
-                    <TableHead>JOINED</TableHead>
-                    {/* <TableHead className="text-right">ACTIONS</TableHead> */}
+                  <TableRow className="[&>th]:py-2.5 [&>th]:px-3">
+                    <TableHead className="w-[48px]">S/N</TableHead>
+                    <TableHead className="w-[190px]">Name</TableHead>
+                    <TableHead className="w-[150px]">Company</TableHead>
+                    <TableHead className="w-[230px]">Email</TableHead>
+                    <TableHead className="w-[150px]">Phone</TableHead>
+                    <TableHead className="w-[110px]">Location</TableHead>
+                    <TableHead className="w-[72px] text-center">Orders</TableHead>
+                    <TableHead className="w-[100px]">Last Order</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
+                <TableBody className="[&>tr>td]:py-2.5 [&>tr>td]:px-3">
                   {isLoading ? (
-                    // Loading state
-                    Array.from({ length: 5 }).map((_, index) => (
-                      <TableRow key={index}>
-                        <TableCell><Skeleton className="h-4 w-12" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell><Skeleton className="h-4 w-8" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        {/* <TableCell className="text-right">
-                          <Skeleton className="h-8 w-8 mx-auto" />
-                        </TableCell> */}
+                        <TableCell><Skeleton className="h-4 w-44" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-10 mx-auto" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       </TableRow>
                     ))
                   ) : isError ? (
-                    // Error state
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8">
+                      <TableCell colSpan={8} className="text-center py-12">
                         <div className="text-red-500 space-y-2">
-                          <p>{(error as Error)?.message || 'Failed to load customers'}</p>
-                          <Button 
-                            onClick={() => refetch()}
-                            size="sm"
-                            variant="outline"
-                          >
+                          <p>{(error as Error)?.message || 'Failed to load orders'}</p>
+                          <Button onClick={() => refetch()} size="sm" variant="outline">
                             Retry
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
-                  ) : filteredCustomers.length === 0 ? (
-                    // Empty state
+                  ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8">
-                        <p className="text-slate-500">
-                          {searchQuery.trim() ? 
-                            'No customers found matching your search' : 
-                            'No customers available'
-                          }
-                        </p>
+                      <TableCell colSpan={8} className="text-center py-12 text-slate-500">
+                        {searchQuery.trim()
+                          ? 'No contacts match your search'
+                          : 'No contacts found'}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    // Customer data
-                    filteredCustomers.map((customer) => (
-                      <TableRow key={customer.id}>
-                        <TableCell className="font-medium">#{customer.id}</TableCell>
+                    filtered.map((c, idx) => (
+                      <TableRow key={c.key}>
+                        <TableCell className="text-slate-500">{idx + 1}</TableCell>
+
                         <TableCell>
-                          {customer.first_name} {customer.last_name}
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
+                              {(c.name.split(' ')[0]?.[0] || '').toUpperCase()}
+                              {(c.name.split(' ')[1]?.[0] || '').toUpperCase()}
+                            </div>
+                            <span className="font-medium text-slate-900 capitalize">
+                              {c.name || '—'}
+                            </span>
+                          </div>
                         </TableCell>
+
+                        <TableCell className="text-slate-700">
+                          {c.company ? (
+                            <div className="inline-flex items-center gap-1.5">
+                              <Building2 size={12} className="text-slate-400" />
+                              <span className="truncate max-w-[130px]">{c.company}</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </TableCell>
+
                         <TableCell>
-                          {customer.company_name || 'N/A'}
+                          {c.email ? (
+                            <a
+                              href={`mailto:${c.email}`}
+                              className="inline-flex items-center gap-1.5 text-blue-700 hover:underline underline-offset-2 text-sm truncate max-w-[220px]"
+                              title={c.email}
+                            >
+                              <Mail size={12} className="text-blue-500 shrink-0" />
+                              {c.email}
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
                         </TableCell>
-                        <TableCell>{customer.email}</TableCell>
-                        <TableCell>{customer.phone_number || 'N/A'}</TableCell>
+
                         <TableCell>
-                          {new Date(customer.created_at).toLocaleDateString()}
+                          {c.phone ? (
+                            <a
+                              href={`tel:${c.phone}`}
+                              className="inline-flex items-center gap-1.5 font-medium text-slate-900 hover:underline"
+                              title="Call"
+                            >
+                              <PhoneOutgoingIcon size={12} className="text-green-600 shrink-0" />
+                              {c.phone}
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
                         </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal size={16} />
-                          </Button>
+
+                        <TableCell className="text-slate-600">
+                          {c.location ? (
+                            <div className="inline-flex items-center gap-1.5">
+                              <MapPin size={12} className="text-slate-400 shrink-0" />
+                              <span className="truncate max-w-[90px] capitalize">{c.location}</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </TableCell>
+
+                        <TableCell className="text-center">
+                          <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
+                            <ShoppingCart size={12} className="text-slate-400" />
+                            {c.totalOrders}
+                          </span>
+                        </TableCell>
+
+                        <TableCell className="text-slate-600 whitespace-nowrap text-xs">
+                          {c.lastOrderDate
+                            ? format(new Date(c.lastOrderDate), 'dd/MM/yyyy')
+                            : '—'}
                         </TableCell>
                       </TableRow>
                     ))
                   )}
                 </TableBody>
               </Table>
-              
-              {/* Pagination Controls */}
-              <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
-                <div className="text-sm text-slate-600">
-                  Showing {(currentPage - 1) * pageSize + 1} -{' '}
-                  {Math.min(currentPage * pageSize, response?.count || 0)} of{' '}
-                  {response?.count || 0} results
+
+              {/* Footer count */}
+              {!isLoading && filtered.length > 0 && (
+                <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  Showing <span className="font-medium text-slate-900">{filtered.length}</span> of{' '}
+                  <span className="font-medium text-slate-900">{allContacts.length}</span> contacts
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={handlePreviousPage}
-                    disabled={currentPage === 1}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleNextPage}
-                    disabled={currentPage === totalPages}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -250,5 +476,48 @@ const Customers = () => {
     </div>
   );
 };
+
+// ── Small stat card ────────────────────────────────────────────────────────
+
+function StatMini({
+  icon: Icon,
+  label,
+  value,
+  color,
+  loading,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: number;
+  color: 'blue' | 'green' | 'amber' | 'violet';
+  loading?: boolean;
+}) {
+  const colorMap = {
+    blue: 'bg-blue-50 text-blue-700 border-blue-200',
+    green: 'bg-green-50 text-green-700 border-green-200',
+    amber: 'bg-amber-50 text-amber-700 border-amber-200',
+    violet: 'bg-violet-50 text-violet-700 border-violet-200',
+  };
+  const iconColorMap = {
+    blue: 'bg-blue-100 text-blue-600',
+    green: 'bg-green-100 text-green-600',
+    amber: 'bg-amber-100 text-amber-600',
+    violet: 'bg-violet-100 text-violet-600',
+  };
+
+  return (
+    <div className={`rounded-lg border p-3 ${colorMap[color]}`}>
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium opacity-80">{label}</div>
+        <span className={`inline-flex h-7 w-7 items-center justify-center rounded-md ${iconColorMap[color]}`}>
+          <Icon size={14} />
+        </span>
+      </div>
+      <div className="mt-1 text-xl font-bold">
+        {loading ? <Skeleton className="h-6 w-12" /> : value.toLocaleString()}
+      </div>
+    </div>
+  );
+}
 
 export default Customers;
