@@ -802,6 +802,15 @@ export const PickupProcessing = () => {
       return;
     }
 
+    if (trucks.some((t) => t.quantity_litres > 60000)) {
+      toast({
+        title: 'Quantity too high',
+        description: 'Each truck can carry a maximum of 60,000 litres.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const totalAllocated = trucks.reduce((s, t) => s + t.quantity_litres, 0);
     if (orderQty > 0 && totalAllocated !== orderQty) {
       toast({
@@ -1370,7 +1379,7 @@ export const PickupProcessing = () => {
                                       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
                                         <div className="flex items-center justify-between">
                                           <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Order Summary</span>
-                                          <span className="text-xs text-slate-400 font-mono">{getOrderReference(selectedOrder)}</span>
+                                          <span className="text-xs text-green-600 font-semibold">{getOrderReference(selectedOrder)}</span>
                                         </div>
                                         <div className="grid grid-cols-3 gap-3">
                                           <div>
@@ -1532,10 +1541,16 @@ export const PickupProcessing = () => {
                                               <Input
                                                 type="number"
                                                 min="1"
+                                                max="60000"
                                                 // placeholder="e.g. 33,000"
                                                 className="h-11 text-base font-semibold"
                                                 value={row.quantity_litres}
-                                                onChange={(e) => updateTruckRow(row.key, 'quantity_litres', e.target.value)}
+                                                onChange={(e) => {
+                                                  const val = e.target.value;
+                                                  if (val === '' || Number(val) <= 60000) {
+                                                    updateTruckRow(row.key, 'quantity_litres', val);
+                                                  }
+                                                }}
                                               />
                                             </div>
                                             {/* Other fields — 3 columns */}
@@ -1552,7 +1567,7 @@ export const PickupProcessing = () => {
                                               <div className="space-y-1.5">
                                                 <Label className="text-xs font-medium text-slate-600">Driver's Name</Label>
                                                 <Input
-                                                  placeholder="Enter driver name"
+                                                  // placeholder="Enter driver name"
                                                   className="h-10"
                                                   value={row.driver_name}
                                                   onChange={(e) => updateTruckRow(row.key, 'driver_name', e.target.value)}
@@ -1561,7 +1576,7 @@ export const PickupProcessing = () => {
                                               <div className="space-y-1.5">
                                                 <Label className="text-xs font-medium text-slate-600">Driver's Phone Number</Label>
                                                 <Input
-                                                  placeholder="08012345678"
+                                                  // placeholder="08012345678"
                                                   className="h-10"
                                                   value={row.driver_phone}
                                                   onChange={(e) => updateTruckRow(row.key, 'driver_phone', e.target.value)}

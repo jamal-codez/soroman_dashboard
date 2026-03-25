@@ -153,7 +153,9 @@ export function TruckTickets({
   } = useQuery({
     queryKey: ['order-tickets', orderId],
     queryFn: () => apiClient.admin.getOrderTickets(orderId),
-    staleTime: 30_000,
+    staleTime: 60_000,
+    // Keep previous data visible while refetching (no flash-of-loading)
+    placeholderData: (prev) => prev,
   });
 
   const orderQty = orderQuantity ?? 0;
@@ -195,21 +197,19 @@ export function TruckTickets({
     documentTitle: `tickets-order-${orderId}`,
   });
 
-  /** Mark ticket(s) as "printed" silently. Failures are swallowed. */
-  const markAsPrinted = async (ticketIds: number[]) => {
+  /** Mark ticket(s) as "printed" silently. Best-effort, non-blocking. */
+  const markAsPrinted = (ticketIds: number[]) => {
     const toPatch = ticketIds.filter((id) => {
       const t = tickets?.find((tk) => tk.id === id);
       return t && !isPrinted(t.ticket_status);
     });
     if (!toPatch.length) return;
-    try {
-      await Promise.all(
-        toPatch.map((id) => apiClient.admin.updateTicket(id, { ticket_status: 'printed' }))
-      );
-      await queryClient.invalidateQueries({ queryKey: ['order-tickets', orderId] });
-    } catch {
-      // Silent — status update is best-effort
-    }
+    // Fire-and-forget — don't block the UI
+    Promise.allSettled(
+      toPatch.map((id) => apiClient.admin.updateTicket(id, { ticket_status: 'printed' }))
+    ).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['order-tickets', orderId] });
+    });
   };
 
   const printSingleTicket = async (ticketId: number) => {
@@ -217,11 +217,12 @@ export function TruckTickets({
     try {
       const data = await apiClient.admin.getTicketPrintData(ticketId);
       setPrintData([data]);
-      setTimeout(async () => {
+      // Use requestAnimationFrame for faster paint, then print
+      requestAnimationFrame(() => {
         handlePrint();
-        await markAsPrinted([ticketId]);
+        markAsPrinted([ticketId]);
         setPrintBusy(false);
-      }, 200);
+      });
     } catch (e) {
       toast({ title: 'Print error', description: (e as Error).message, variant: 'destructive' });
       setPrintBusy(false);
@@ -232,15 +233,16 @@ export function TruckTickets({
     if (!tickets?.length) return;
     setPrintBusy(true);
     try {
+      // Fetch all print data in parallel
       const all = await Promise.all(
         tickets.map((t) => apiClient.admin.getTicketPrintData(t.id))
       );
       setPrintData(all);
-      setTimeout(async () => {
+      requestAnimationFrame(() => {
         handlePrint();
-        await markAsPrinted(tickets.map((t) => t.id));
+        markAsPrinted(tickets.map((t) => t.id));
         setPrintBusy(false);
-      }, 200);
+      });
     } catch (e) {
       toast({ title: 'Print error', description: (e as Error).message, variant: 'destructive' });
       setPrintBusy(false);
