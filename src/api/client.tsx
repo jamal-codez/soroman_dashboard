@@ -948,5 +948,102 @@ export const apiClient = {
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
+
+    // ── Truck Tickets ──────────────────────────────────────────────────
+
+    /** GET /api/admin/orders/<id>/truck-tickets/ — list all tickets for an order */
+    getOrderTickets: async (orderId: number) => {
+      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/truck-tickets/`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<
+        Array<{
+          id: number;
+          order: number;
+          truck_number: number;
+          quantity_litres: string;
+          driver_name: string | null;
+          driver_phone: string | null;
+          plate_number: string | null;
+          ticket_status: string;
+          created_at: string;
+          updated_at: string;
+        }>
+      >;
+    },
+
+    /**
+     * POST /api/admin/orders/<id>/generate-tickets/
+     * Accepts an array of truck allocations. The backend creates one ticket
+     * per entry. All quantities must sum to the order total.
+     *
+     * Body: { trucks: [{ quantity_litres, driver_name?, driver_phone?, plate_number? }, …] }
+     */
+    generateOrderTickets: async (
+      orderId: number,
+      trucks: Array<{
+        quantity_litres: number;
+        driver_name?: string;
+        driver_phone?: string;
+        plate_number?: string;
+      }>
+    ) => {
+      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/generate-tickets/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ trucks }),
+      });
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(msg);
+      }
+      return response.json();
+    },
+
+    /** PATCH /api/admin/truck-tickets/<id>/ — update a single ticket */
+    updateTicket: async (
+      ticketId: number,
+      payload: {
+        driver_name?: string;
+        driver_phone?: string;
+        plate_number?: string;
+        ticket_status?: string;
+        quantity_litres?: number;
+      }
+    ) => {
+      const response = await fetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** GET /api/admin/truck-tickets/<id>/print/ — full print-ready data */
+    getTicketPrintData: async (ticketId: number) => {
+      const response = await fetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/print/`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        ticket_id: number;
+        order_reference: string;
+        company_name: string;
+        customer_name: string;
+        customer_phone: string;
+        product_name: string;
+        truck_number: number;
+        quantity_litres: string;
+        driver_name: string | null;
+        driver_phone: string | null;
+        plate_number: string | null;
+        ticket_status: string;
+        location: string;
+        total_trucks: number;
+        loading_datetime: string | null;
+      }>;
+    },
   },
 };

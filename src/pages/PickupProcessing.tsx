@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,8 @@ import {
   Droplets,
   Banknote,
   ClockAlert,
-  FileClockIcon,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import {
   Dialog,
@@ -48,8 +49,6 @@ import { TopBar } from "@/components/TopBar";
 import { MobileNav } from "@/components/MobileNav";
 import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
 import { apiClient } from '@/api/client';
-import { useReactToPrint } from 'react-to-print';
-import { TicketPrint, type ReleaseTicketData } from '@/components/TicketPrint';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
@@ -59,6 +58,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { getOrderReference } from '@/lib/orderReference';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { TruckTickets } from '@/components/TruckTickets';
 
 interface Order {
   id: number;
@@ -138,6 +138,24 @@ interface ReleaseDetails {
   pfi: string;
   pfiId?: number;
 }
+
+/** One truck row in the multi-truck release form */
+interface TruckRow {
+  key: number;
+  quantity_litres: string;
+  plate_number: string;
+  driver_name: string;
+  driver_phone: string;
+}
+
+let _truckKey = 1;
+const freshTruckRow = (): TruckRow => ({
+  key: _truckKey++,
+  quantity_litres: '',
+  plate_number: '',
+  driver_name: '',
+  driver_phone: '',
+});
 
 const getCompanyInitials = (name: string, max: number = 2): string => {
   const cleaned = String(name ?? "")
@@ -501,6 +519,40 @@ export const PickupProcessing = () => {
     pfiId: undefined,
   });
 
+  // ── Multi-truck release state ──────────────────────────────────────────
+  const [truckRows, setTruckRows] = useState<TruckRow[]>([freshTruckRow()]);
+  const [releaseBusy, setReleaseBusy] = useState(false);
+
+  const addTruckRow = useCallback(() => {
+    setTruckRows((prev) => [...prev, freshTruckRow()]);
+  }, []);
+
+  const removeTruckRow = useCallback((key: number) => {
+    setTruckRows((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.key !== key)));
+  }, []);
+
+  const updateTruckRow = useCallback(
+    (key: number, field: keyof Omit<TruckRow, 'key'>, value: string) => {
+      setTruckRows((prev) =>
+        prev.map((r) => (r.key === key ? { ...r, [field]: value } : r))
+      );
+    },
+    []
+  );
+
+  // ── Ticket counts per order (for showing truck badge in table) ─────────
+  const [ticketCounts, setTicketCounts] = useState<Record<number, number>>({});
+
+  // Fetch ticket counts for all visible orders (lightweight)
+  const fetchTicketCount = useCallback(async (orderId: number) => {
+    try {
+      const tickets = await apiClient.admin.getOrderTickets(orderId);
+      setTicketCounts((prev) => ({ ...prev, [orderId]: tickets.length }));
+    } catch {
+      // Silently fail — no count shown
+    }
+  }, []);
+
   // --- export/reporting helpers (need component state access) ---
   const formatDateOnly = (raw: string): string => {
     const v = String(raw || '').trim();
@@ -668,62 +720,17 @@ export const PickupProcessing = () => {
     refetchOnWindowFocus: true
   });
 
-  const ticketRef = useRef<HTMLDivElement>(null);
-  const printTicket = useReactToPrint({
-    contentRef: ticketRef,
-    documentTitle: selectedOrder ? `ticket-${getOrderReference(selectedOrder) || selectedOrder.id}` : 'release-ticket'
-  });
-
-  const buildTicketData = useMemo(() => {
-    if (!selectedOrder) return null;
-
-    const local = releaseDetailsByOrder[selectedOrder.id];
-    const resolved = getOrderTicketDetails(selectedOrder, local);
-    const compartmentDetailsText = resolved ? buildCompartmentDetailsText(resolved) : '';
-    const unitPrice = extractUnitPrice(selectedOrder);
-
-    const companyName = extractCompanyName(selectedOrder) || '';
-    const userRec = selectedOrder.user as unknown as Record<string, unknown>;
-    const phone =
-      (typeof userRec.phone_number === 'string' ? userRec.phone_number : undefined) ||
-      (typeof userRec.phone === 'string' ? userRec.phone : undefined) ||
-      '';
-
-    return {
-      orderReference: getOrderReference(selectedOrder),
-      location: extractLocation(selectedOrder),
-      customerName: `${selectedOrder.user.first_name} ${selectedOrder.user.last_name}`,
-      companyName,
-      customerPhone: String(phone),
-      nmdrpaNumber: resolved?.nmdrpaNumber || '',
-      product: selectedOrder.products.map((p) => p.name).join(', '),
-      qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
-      unitPrice,
-      truckNumber: resolved?.truckNumber || '',
-      driverName: resolved?.driverName || '',
-      driverPhone: resolved?.driverPhone || '',
-      deliveryAddress: resolved?.deliveryAddress || '',
-      compartmentDetails: compartmentDetailsText || '',
-      loaderName: resolved?.loaderName || '',
-      loaderPhone: resolved?.loaderPhone || '',
-      loadingDateTime: resolved?.loadingDateTime ? formatTicketLoadingDateTime(resolved.loadingDateTime) : '',
-    } satisfies ReleaseTicketData;
-  }, [selectedOrder, releaseDetailsByOrder]);
-
-  const canPrintTicket = useMemo(() => {
-    if (!selectedOrder) return false;
-
-    const local = releaseDetailsByOrder[selectedOrder.id];
-    const resolved = getOrderTicketDetails(selectedOrder, local);
-    if (!resolved) return false;
-
-    return Boolean(
-      resolved.truckNumber?.trim() &&
-        resolved.driverName?.trim() &&
-        resolved.driverPhone?.trim() &&
-        resolved.loadingDateTime?.trim()
-    );
-  }, [selectedOrder, releaseDetailsByOrder]);
+  // Auto-fetch ticket counts for released orders so the Trucks column shows the badge
+  useEffect(() => {
+    const orders = apiResponse?.results || [];
+    const released = orders.filter((o) => o.status === 'released');
+    released.forEach((o) => {
+      if (ticketCounts[o.id] === undefined) {
+        fetchTicketCount(o.id);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiResponse?.results, fetchTicketCount]);
 
   const openRelease = (order: Order) => {
     setSelectedOrder(order);
@@ -758,6 +765,10 @@ export const PickupProcessing = () => {
             })
     );
 
+    // Initialise truck rows — default to 1 truck with the full order qty
+    const orderQty = Number(order.quantity) || 0;
+    setTruckRows([{ ...freshTruckRow(), quantity_litres: orderQty > 0 ? String(orderQty) : '' }]);
+
     setReleaseOpen(true);
   };
 
@@ -772,9 +783,53 @@ export const PickupProcessing = () => {
   const handleReleaseWithDetails = async () => {
     if (!selectedOrder) return;
 
+    const orderQty = Number(selectedOrder.quantity) || 0;
+
+    // ── Validate truck rows ──────────────────────────────────────────────
+    const trucks = truckRows.map((r) => ({
+      quantity_litres: Number(r.quantity_litres) || 0,
+      plate_number: r.plate_number.trim() || undefined,
+      driver_name: r.driver_name.trim() || undefined,
+      driver_phone: r.driver_phone.trim() || undefined,
+    }));
+
+    if (trucks.some((t) => t.quantity_litres <= 0)) {
+      toast({
+        title: 'Invalid quantity',
+        description: 'Every truck must have a quantity greater than 0.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const totalAllocated = trucks.reduce((s, t) => s + t.quantity_litres, 0);
+    if (orderQty > 0 && totalAllocated !== orderQty) {
+      toast({
+        title: 'Quantity mismatch',
+        description: `Total allocated (${totalAllocated.toLocaleString()} L) must equal the order quantity (${orderQty.toLocaleString()} L).`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!releaseForm.loadingDateTime?.trim()) {
+      toast({
+        title: 'Missing loading date/time',
+        description: 'Please set the loading date and time.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Use the first truck for the legacy release endpoint
+    const firstTruck = trucks[0];
+
     // These fields should be left blank (no manual input)
     const sanitized: ReleaseDetails = {
       ...releaseForm,
+      truckNumber: firstTruck.plate_number || '',
+      driverName: firstTruck.driver_name || '',
+      driverPhone: firstTruck.driver_phone || '',
       comp1Qty: '',
       comp1Ullage: '',
       comp2Qty: '',
@@ -789,47 +844,39 @@ export const PickupProcessing = () => {
       loaderPhone: '',
     };
 
+    setReleaseBusy(true);
     try {
       setReleaseForm(sanitized);
-      if (selectedOrder) {
-        setReleaseDetailsByOrder((prev) => ({
-          ...prev,
-          [selectedOrder.id]: sanitized,
-        }));
-      }
+      setReleaseDetailsByOrder((prev) => ({
+        ...prev,
+        [selectedOrder.id]: sanitized,
+      }));
 
-      // Persist release details in backend
+      // 1. Release the order (transitions status) using first truck
       await apiClient.admin.releaseOrder(selectedOrder.id, {
-        truck_number: sanitized.truckNumber?.trim() ? sanitized.truckNumber : undefined,
-        driver_name: sanitized.driverName?.trim() ? sanitized.driverName : undefined,
-        driver_phone: sanitized.driverPhone?.trim() ? sanitized.driverPhone : undefined,
-        // Optional fields (may be blank)
-        delivery_address: sanitized.deliveryAddress?.trim() ? sanitized.deliveryAddress : undefined,
-        nmdrpa_number: sanitized.nmdrpaNumber?.trim() ? sanitized.nmdrpaNumber : undefined,
-        // compartments + loader must remain blank
-        compartment_details: undefined,
-        comp1_qty: undefined,
-        comp1_ullage: undefined,
-        comp2_qty: undefined,
-        comp2_ullage: undefined,
-        comp3_qty: undefined,
-        comp3_ullage: undefined,
-        comp4_qty: undefined,
-        comp4_ullage: undefined,
-        comp5_qty: undefined,
-        comp5_ullage: undefined,
-        loader_name: undefined,
-        loader_phone: undefined,
-        loading_datetime: sanitized.loadingDateTime?.trim() ? sanitized.loadingDateTime : undefined,
+        truck_number: firstTruck.plate_number || '-',
+        driver_name: firstTruck.driver_name || '-',
+        driver_phone: firstTruck.driver_phone || '-',
+        loading_datetime: sanitized.loadingDateTime?.trim() || undefined,
         pfi_id: sanitized.pfiId,
       });
+
+      // 2. Generate individual truck tickets for ALL trucks
+      await apiClient.admin.generateOrderTickets(selectedOrder.id, trucks);
+
+      // Update local ticket count
+      setTicketCounts((prev) => ({ ...prev, [selectedOrder.id]: trucks.length }));
 
       setReleaseOpen(false);
 
       // Refresh the list used by this page
       await queryClient.invalidateQueries({ queryKey: ['all-orders', 'release-processing'] });
+      await queryClient.invalidateQueries({ queryKey: ['order-tickets', selectedOrder.id] });
 
-      toast({ title: 'Success ✅', description: 'Loading ticket successfully generated and available for printing' });
+      toast({
+        title: 'Success ✅',
+        description: `${trucks.length} loading ticket${trucks.length > 1 ? 's' : ''} generated and available for printing.`,
+      });
 
       // Open ticket modal immediately after release
       setTicketOpen(true);
@@ -843,6 +890,8 @@ export const PickupProcessing = () => {
         description: message,
         variant: 'destructive'
       });
+    } finally {
+      setReleaseBusy(false);
     }
   };
 
@@ -1177,9 +1226,10 @@ export const PickupProcessing = () => {
                     {/* <TableHead>Assigned Agent</TableHead> */}
                     <TableHead>Location</TableHead>
                     <TableHead>Product</TableHead>
-                    <TableHead>Qty (L)</TableHead>
-                    <TableHead>Truck No.</TableHead>
-                    <TableHead>Driver Details</TableHead>
+                    <TableHead>Total Quantity</TableHead>
+                    {/* <TableHead className="w-[70px]">Trucks</TableHead> */}
+                    {/* <TableHead>Truck No.</TableHead> */}
+                    {/* <TableHead>Driver Details</TableHead> */}
                     <TableHead>PFI</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-center">Action</TableHead>
@@ -1198,13 +1248,12 @@ export const PickupProcessing = () => {
                         <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-8 w-28" /></TableCell>
                       </TableRow>
                     ))
                   ) : filteredOrders.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={14} className="text-center text-slate-500 py-10">
+                      <TableCell colSpan={10} className="text-center text-slate-500 py-10">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
@@ -1231,7 +1280,7 @@ export const PickupProcessing = () => {
                         <TableCell>
                           <div>
                             <div className="font-bold text-sm">
-                              <span className="font-medium text-sm block max-w-[220px] truncate" title={companyName || undefined}>
+                              <span className="font-medium text-sm block max-w-[150px] truncate" title={companyName || undefined}>
                               {companyName || '-'}
                               </span>
                               {order.user.first_name} {order.user.last_name}
@@ -1243,9 +1292,21 @@ export const PickupProcessing = () => {
                           <div className="max-w-[135px] truncate">{extractLocation(order) || '-'}</div>
                         </TableCell>
                         <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
-                        <TableCell>{order.quantity.toLocaleString()}</TableCell>
-                        <TableCell>{truckNumber || '-'}</TableCell>
-                        <TableCell>
+                        <TableCell>{order.quantity.toLocaleString()} Litres</TableCell>
+                        {/* <TableCell>
+                          {(() => {
+                            const count = ticketCounts[order.id];
+                            if (count === undefined || count === 0) return <span className="text-slate-400">—</span>;
+                            return (
+                              <Badge variant="outline" className="gap-1 text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                <TruckIcon className="h-3 w-3" />
+                                {count}
+                              </Badge>
+                            );
+                          })()}
+                        </TableCell> */}
+                        {/* <TableCell>{truckNumber || '-'}</TableCell> */}
+                        {/* <TableCell>
                           {driverName || driverPhone ? (
                             <div>
                               <div className="font-medium">{driverName || '-'}</div>
@@ -1254,8 +1315,8 @@ export const PickupProcessing = () => {
                           ) : (
                             '-'
                           )}
-                        </TableCell>
-                        <TableCell>{order.pfi_number ? String(order.pfi_number) : '-'}</TableCell>
+                        </TableCell> */}
+                        <TableCell className="max-w-[180px] truncate">{order.pfi_number ? String(order.pfi_number) : '-'}</TableCell>
                         <TableCell>
                           <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
                             {getStatusIcon(order.status)}
@@ -1284,129 +1345,280 @@ export const PickupProcessing = () => {
                                   <span>Generate Ticket</span>
                                 </Button>
                               </DialogTrigger>
-                              <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-lg sm:w-full flex flex-col max-h-[90vh]">
-                                <DialogHeader>
-                                  <DialogTitle>Generate Loading Ticket</DialogTitle>
-                                  <DialogDescription>
-                                    Enter truck details to generate the loading ticket.
-                                  </DialogDescription>
-                                </DialogHeader>
+                              <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-2xl sm:w-auto flex flex-col max-h-[90vh] gap-0 p-0">
+                                {/* ─── 1. Header ─────────────────────────────────────── */}
+                                <div className="px-6 pt-6 pb-4">
+                                  <DialogHeader className="space-y-1">
+                                    <DialogTitle className="text-lg font-semibold tracking-tight">
+                                      Generate Loading Ticket{truckRows.length > 1 ? 's' : ''}
+                                    </DialogTitle>
+                                    <DialogDescription className="text-sm text-slate-500">
+                                      Split the order across one or more trucks. Each truck gets its own ticket.
+                                    </DialogDescription>
+                                  </DialogHeader>
 
-                                <div className="space-y-4 overflow-y-auto pr-1 flex-1">
-                                  <div>
-                                    <Label htmlFor="loadingDateTime">
-                                      Loading Date &amp; Time
-                                    </Label>
-                                    <div className="flex gap-2">
-                                      <Input
-                                        id="loadingDateTime"
-                                        type="datetime-local"
-                                        required
-                                        className="flex-1"
-                                        value={releaseForm.loadingDateTime}
-                                        onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="default"
-                                        className="shrink-0 h-10 px-3 text-sm font-medium"
-                                        onClick={() => {
-                                          // Format current date/time as yyyy-MM-ddTHH:mm for datetime-local input
-                                          const now = new Date();
-                                          const pad = (n: number) => String(n).padStart(2, '0');
-                                          const val = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
-                                          setReleaseForm({ ...releaseForm, loadingDateTime: val });
-                                        }}
-                                      >
-                                        <FileClockIcon className="h-3.5 w-3.5" />
-                                        Just Now
-                                      </Button>
+                                  {/* ─── Order summary card ──────────── */}
+                                  {selectedOrder && (() => {
+                                    const orderQty = Number(selectedOrder.quantity) || 0;
+                                    const totalAlloc = truckRows.reduce((s, r) => s + (Number(r.quantity_litres) || 0), 0);
+                                    const rem = orderQty - totalAlloc;
+                                    const pct = orderQty > 0 ? Math.min(100, Math.round((totalAlloc / orderQty) * 100)) : 0;
+                                    const isComplete = rem === 0;
+                                    const isOver = rem < 0;
+
+                                    return (
+                                      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Order Summary</span>
+                                          <span className="text-xs text-slate-400 font-mono">{getOrderReference(selectedOrder)}</span>
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-3">
+                                          <div>
+                                            <div className="text-[11px] text-slate-400 uppercase tracking-wide">Total Volume</div>
+                                            <div className="text-base font-bold text-slate-900">{orderQty.toLocaleString()} L</div>
+                                          </div>
+                                          <div>
+                                            <div className="text-[11px] text-slate-400 uppercase tracking-wide">Allocated</div>
+                                            <div className={`text-base font-bold ${isOver ? 'text-red-600' : isComplete ? 'text-green-600' : 'text-slate-900'}`}>
+                                              {totalAlloc.toLocaleString()} L
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-[11px] text-slate-400 uppercase tracking-wide">Remaining</div>
+                                            <div className={`text-base font-bold ${isOver ? 'text-red-600' : isComplete ? 'text-green-600' : 'text-amber-600'}`}>
+                                              {rem.toLocaleString()} L
+                                            </div>
+                                          </div>
+                                        </div>
+                                        {/* Progress bar */}
+                                        {orderQty > 0 && (
+                                          <div className="space-y-1">
+                                            <div className="h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+                                              <div
+                                                className={`h-full rounded-full transition-all duration-300 ${isOver ? 'bg-red-500' : isComplete ? 'bg-green-500' : 'bg-amber-500'}`}
+                                                style={{ width: `${Math.min(pct, 100)}%` }}
+                                              />
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                              <span className={`text-[11px] font-medium ${isOver ? 'text-red-600' : isComplete ? 'text-green-600' : 'text-amber-600'}`}>
+                                                {isOver ? `Over-allocated by ${Math.abs(rem).toLocaleString()} L` : isComplete ? 'Fully allocated' : `${rem.toLocaleString()} L remaining`}
+                                              </span>
+                                              {/* {rem > 0 && (
+                                                // <button
+                                                //   type="button"
+                                                //   className="text-[11px] font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                                                //   onClick={() => {
+                                                //     setTruckRows((prev) => {
+                                                //       const copy = [...prev];
+                                                //       let idx = copy.findIndex((r) => !r.quantity_litres || Number(r.quantity_litres) === 0);
+                                                //       if (idx === -1) { copy.push(freshTruckRow()); idx = copy.length - 1; }
+                                                //       copy[idx] = { ...copy[idx], quantity_litres: String(rem) };
+                                                //       return copy;
+                                                //     });
+                                                //   }}
+                                                // >
+                                                //   Fill remaining →
+                                                // </button>
+                                              )} */}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+
+                                {/* ─── 2. Scrollable body ────────────────────────────── */}
+                                <div className="flex-1 overflow-y-auto px-6 pb-4 space-y-5">
+
+                                  {/* ─── Loading Details section ─────── */}
+                                  <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-px flex-1 bg-slate-200" />
+                                      <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Loading Details</span>
+                                      <div className="h-px flex-1 bg-slate-200" />
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                      <div className="space-y-1.5">
+                                        <Label htmlFor="loadingDateTime" className="text-xs font-medium text-slate-600">Loading Date &amp; Time</Label>
+                                        <div className="flex gap-2">
+                                          <Input
+                                            id="loadingDateTime"
+                                            type="datetime-local"
+                                            required
+                                            className="flex-1 h-10"
+                                            value={releaseForm.loadingDateTime}
+                                            onChange={(e) => setReleaseForm({ ...releaseForm, loadingDateTime: e.target.value })}
+                                          />
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="shrink-0 h-10 px-3 text-xs font-medium gap-1.5"
+                                            onClick={() => {
+                                              const now = new Date();
+                                              const pad = (n: number) => String(n).padStart(2, '0');
+                                              const val = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+                                              setReleaseForm({ ...releaseForm, loadingDateTime: val });
+                                            }}
+                                          >
+                                            <Clock className="h-3.5 w-3.5" />
+                                            Now
+                                          </Button>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-1.5">
+                                        <Label htmlFor="pfi" className="text-xs font-medium text-slate-600">PFI</Label>
+                                        <select
+                                          id="pfi"
+                                          required
+                                          aria-label="PFI"
+                                          title="PFI"
+                                          value={releaseForm.pfiId ?? ''}
+                                          onChange={(e) => {
+                                            const selectedId = e.target.value ? Number(e.target.value) : undefined;
+                                            const selectedLabel = pfiOptions.find((p) => p.id === selectedId)?.label || '';
+                                            setReleaseForm({ ...releaseForm, pfiId: selectedId, pfi: selectedLabel });
+                                          }}
+                                          className="border border-slate-200 rounded-md px-3 py-2 h-10 w-full text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1"
+                                        >
+                                          <option value="">Select PFI</option>
+                                          {pfiOptions.map((pfi) => (
+                                            <option key={pfi.id} value={pfi.id}>{pfi.label}</option>
+                                          ))}
+                                        </select>
+                                      </div>
                                     </div>
                                   </div>
 
-                                  <div>
-                                    <Label htmlFor="truckNumber">
-                                      Truck Number
-                                    </Label>
-                                    <Input
-                                      id="truckNumber"
-                                      required
-                                      value={releaseForm.truckNumber}
-                                      onChange={(e) => setReleaseForm({ ...releaseForm, truckNumber: e.target.value })}
-                                    />
-                                  </div>
-
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div>
-                                      <Label htmlFor="driverName">
-                                        Driver's Name
-                                      </Label>
-                                      <Input
-                                        id="driverName"
-                                        required
-                                        value={releaseForm.driverName}
-                                        onChange={(e) => setReleaseForm({ ...releaseForm, driverName: e.target.value })}
-                                      />
+                                  {/* ─── Truck Allocation section ────── */}
+                                  <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-px flex-1 bg-slate-200" />
+                                      <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Truck Allocation</span>
+                                      <div className="h-px flex-1 bg-slate-200" />
                                     </div>
-                                    <div>
-                                      <Label htmlFor="driverPhone">
-                                        Driver's Phone
-                                      </Label>
-                                      <Input
-                                        id="driverPhone"
-                                        required
-                                        value={releaseForm.driverPhone}
-                                        onChange={(e) => setReleaseForm({ ...releaseForm, driverPhone: e.target.value })}
-                                      />
-                                    </div>
-                                  </div>
 
-                                  <div>
-                                    <Label htmlFor="pfi">
-                                      PFI
-                                    </Label>
-                                    <select
-                                      id="pfi"
-                                      required
-                                      aria-label="PFI"
-                                      title="PFI"
-                                      value={releaseForm.pfiId ?? ''}
-                                      onChange={(e) => {
-                                        const selectedId = e.target.value ? Number(e.target.value) : undefined;
-                                        const selectedLabel = pfiOptions.find((p) => p.id === selectedId)?.label || '';
-                                        setReleaseForm({ ...releaseForm, pfiId: selectedId, pfi: selectedLabel });
-                                      }}
-                                      className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
-                                    >
-                                      <option value="">Select PFI</option>
-                                      {pfiOptions.map((pfi) => (
-                                        <option key={pfi.id} value={pfi.id}>
-                                          {pfi.label}
-                                        </option>
+                                    {/* Truck cards */}
+                                    <div className="space-y-3">
+                                      {truckRows.map((row, idx) => (
+                                        <div
+                                          key={row.key}
+                                          className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+                                        >
+                                          {/* Card header */}
+                                          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/80 border-b border-slate-100">
+                                            <div className="flex items-center gap-2">
+                                              <div className="flex items-center justify-center h-6 w-6 rounded-full bg-slate-900 text-white text-[11px] font-bold">
+                                                {idx + 1}
+                                              </div>
+                                              <span className="text-sm font-semibold text-slate-700">Truck {idx + 1}</span>
+                                            </div>
+                                            {truckRows.length > 1 && (
+                                              <button
+                                                type="button"
+                                                className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                                                onClick={() => removeTruckRow(row.key)}
+                                              >
+                                                <Trash2 className="h-3 w-3" />
+                                                Remove
+                                              </button>
+                                            )}
+                                          </div>
+                                          {/* Card body */}
+                                          <div className="p-4 space-y-3">
+                                            {/* Quantity — full width, prominent */}
+                                            <div className="space-y-1.5">
+                                              <Label className="text-xs font-medium text-slate-600">Quantity (Litres) <span className="text-red-500">*</span></Label>
+                                              <Input
+                                                type="number"
+                                                min="1"
+                                                // placeholder="e.g. 33,000"
+                                                className="h-11 text-base font-semibold"
+                                                value={row.quantity_litres}
+                                                onChange={(e) => updateTruckRow(row.key, 'quantity_litres', e.target.value)}
+                                              />
+                                            </div>
+                                            {/* Other fields — 3 columns */}
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                              <div className="space-y-1.5">
+                                                <Label className="text-xs font-medium text-slate-600">Truck Number</Label>
+                                                <Input
+                                                  // placeholder="ABC-123-XY"
+                                                  className="h-10"
+                                                  value={row.plate_number}
+                                                  onChange={(e) => updateTruckRow(row.key, 'plate_number', e.target.value)}
+                                                />
+                                              </div>
+                                              <div className="space-y-1.5">
+                                                <Label className="text-xs font-medium text-slate-600">Driver's Name</Label>
+                                                <Input
+                                                  placeholder="Enter driver name"
+                                                  className="h-10"
+                                                  value={row.driver_name}
+                                                  onChange={(e) => updateTruckRow(row.key, 'driver_name', e.target.value)}
+                                                />
+                                              </div>
+                                              <div className="space-y-1.5">
+                                                <Label className="text-xs font-medium text-slate-600">Driver's Phone Number</Label>
+                                                <Input
+                                                  placeholder="08012345678"
+                                                  className="h-10"
+                                                  value={row.driver_phone}
+                                                  onChange={(e) => updateTruckRow(row.key, 'driver_phone', e.target.value)}
+                                                />
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
                                       ))}
-                                    </select>
+                                    </div>
+
+                                    {/* Add truck button */}
+                                    <button
+                                      type="button"
+                                      className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 hover:bg-slate-100/80 hover:border-slate-300 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 transition-all"
+                                      onClick={addTruckRow}
+                                    >
+                                      <Plus className="h-4 w-4" />
+                                      Add Another Truck
+                                    </button>
                                   </div>
                                 </div>
 
-                                <DialogFooter className="pt-3 border-t border-slate-200 bg-white">
-                                  <Button variant="outline" onClick={() => setReleaseOpen(false)}>
+                                {/* ─── 3. Sticky action bar ──────────────────────────── */}
+                                <div className="border-t border-slate-200 bg-white px-6 py-4 flex items-center justify-between">
+                                  <Button variant="ghost" className="text-slate-500" onClick={() => setReleaseOpen(false)}>
                                     Cancel
                                   </Button>
-                                  <Button onClick={handleReleaseWithDetails}>
-                                    Generate Ticket
+                                  <Button
+                                    className="min-w-[180px] h-10 font-semibold gap-2"
+                                    onClick={handleReleaseWithDetails}
+                                    disabled={releaseBusy}
+                                  >
+                                    {releaseBusy ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <File className="h-4 w-4" />
+                                    )}
+                                    Generate {truckRows.length} Ticket{truckRows.length > 1 ? 's' : ''}
                                   </Button>
-                                </DialogFooter>
+                                </div>
                               </DialogContent>
                             </Dialog>
 
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-8 gap-1"
+                              className="h-8 gap-1 relative"
                               onClick={() => openTicket(order)}
                             >
                               <Printer className="h-4 w-4" />
                               <span>Ticket</span>
+                              {(ticketCounts[order.id] ?? 0) > 0 && (
+                                <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
+                                  {ticketCounts[order.id]}
+                                </span>
+                              )}
                             </Button>
                           </div>
                         </TableCell>
@@ -1427,83 +1639,17 @@ export const PickupProcessing = () => {
                 if (!open) setTicketOpen(false);
               }}
             >
-              <DialogContent className="sm:max-w-[860px] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:w-auto flex flex-col max-h-[90vh]">
-                <DialogHeader>
-                  <DialogTitle>Release Ticket</DialogTitle>
-                </DialogHeader>
-
-                {/* Scrollable content; footer stays at the bottom */}
-                <div className="space-y-3 overflow-y-auto pr-1 flex-1">
-                  {!selectedOrder ? (
-                    <div className="text-sm text-slate-600">Select an order to view the ticket.</div>
-                  ) : (
-                    <>
-                      {!canPrintTicket && (
-                        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                          Ticket cannot be printed yet. Please fill in the required details.
-                        </div>
-                      )}
-
-                      <div className="rounded-lg border border-slate-200 overflow-hidden">
-                        <TicketPrint
-                          ref={ticketRef}
-                          data={
-                            buildTicketData || {
-                              orderReference: getOrderReference(selectedOrder),
-                              location: extractLocation(selectedOrder),
-                              customerName: `${selectedOrder.user.first_name} ${selectedOrder.user.last_name}`,
-                              companyName: extractCompanyName(selectedOrder) || '',
-                              customerPhone: (() => {
-                                const userRec = selectedOrder.user as unknown as Record<string, unknown>;
-                                const phone =
-                                  (typeof userRec.phone_number === 'string' ? userRec.phone_number : undefined) ||
-                                  (typeof userRec.phone === 'string' ? userRec.phone : undefined) ||
-                                  '';
-                                return String(phone);
-                              })(),
-                              nmdrpaNumber: '',
-                              product: selectedOrder.products.map((p) => p.name).join(', '),
-                              qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
-                              unitPrice: '', 
-                              truckNumber: '',
-                              driverName: '',
-                              driverPhone: '',
-                              deliveryAddress: '',
-                              compartmentDetails: '',
-                              loaderName: '',
-                              loaderPhone: '',
-                              loadingDateTime: '',
-                            }
-                          }
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Footer stays at the bottom; not sticky in the middle of content */}
-                <DialogFooter className="pt-3 border-t border-slate-200 bg-white">
-                  <Button variant="outline" onClick={() => setTicketOpen(false)}>
-                    Close
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      if (!canPrintTicket) {
-                        toast({
-                          title: 'Missing release details',
-                          description: "Fill missing details before printing the ticket.",
-                          variant: 'destructive',
-                        });
-                        return;
-                      }
-                      printTicket();
-                    }}
-                    disabled={!selectedOrder || !canPrintTicket}
-                  >
-                    <Printer className="mr-1 h-4 w-4" />
-                    Print Ticket
-                  </Button>
-                </DialogFooter>
+              <DialogContent className="sm:max-w-[860px] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:w-auto flex flex-col max-h-[90vh] gap-0 p-0 overflow-hidden">
+                {/* TruckTickets owns the full dialog body — header, table, actions */}
+                {selectedOrder ? (
+                  <TruckTickets
+                    orderId={selectedOrder.id}
+                    orderQuantity={Number(selectedOrder.quantity) || undefined}
+                    onClose={() => setTicketOpen(false)}
+                  />
+                ) : (
+                  <div className="p-6 text-sm text-slate-500">Select an order to view tickets.</div>
+                )}
               </DialogContent>
             </Dialog>
 
