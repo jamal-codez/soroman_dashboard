@@ -542,12 +542,16 @@ export const PickupProcessing = () => {
 
   // ── Ticket counts per order (for showing truck badge in table) ─────────
   const [ticketCounts, setTicketCounts] = useState<Record<number, number>>({});
+  /** Already-generated litres per order (sum of existing ticket quantities) */
+  const [ticketAllocated, setTicketAllocated] = useState<Record<number, number>>({});
 
   // Fetch ticket counts for all visible orders (lightweight)
   const fetchTicketCount = useCallback(async (orderId: number) => {
     try {
       const tickets = await apiClient.admin.getOrderTickets(orderId);
       setTicketCounts((prev) => ({ ...prev, [orderId]: tickets.length }));
+      const allocated = tickets.reduce((s: number, t: { quantity_litres: string }) => s + (Number(t.quantity_litres) || 0), 0);
+      setTicketAllocated((prev) => ({ ...prev, [orderId]: allocated }));
     } catch {
       // Silently fail — no count shown
     }
@@ -765,9 +769,11 @@ export const PickupProcessing = () => {
             })
     );
 
-    // Initialise truck rows — default to 1 truck with the full order qty
+    // Initialise truck rows — default to 1 truck with the remaining (unallocated) qty
     const orderQty = Number(order.quantity) || 0;
-    setTruckRows([{ ...freshTruckRow(), quantity_litres: orderQty > 0 ? String(orderQty) : '' }]);
+    const alreadyAllocated = ticketAllocated[order.id] || 0;
+    const remaining = Math.max(0, orderQty - alreadyAllocated);
+    setTruckRows([{ ...freshTruckRow(), quantity_litres: remaining > 0 ? String(remaining) : '' }]);
 
     setReleaseOpen(true);
   };
@@ -785,46 +791,67 @@ export const PickupProcessing = () => {
 
     const orderQty = Number(selectedOrder.quantity) || 0;
 
-    // ── Validate truck rows ──────────────────────────────────────────────
-    const trucks = truckRows.map((r) => ({
-      quantity_litres: Number(r.quantity_litres) || 0,
-      plate_number: r.plate_number.trim() || undefined,
-      driver_name: r.driver_name.trim() || undefined,
-      driver_phone: r.driver_phone.trim() || undefined,
-    }));
-
-    if (trucks.some((t) => t.quantity_litres <= 0)) {
-      toast({
-        title: 'Invalid quantity',
-        description: 'Every truck must have a quantity greater than 0.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (trucks.some((t) => t.quantity_litres > 60000)) {
-      toast({
-        title: 'Quantity too high',
-        description: 'Each truck can carry a maximum of 60,000 litres.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    const totalAllocated = trucks.reduce((s, t) => s + t.quantity_litres, 0);
-    if (orderQty > 0 && totalAllocated !== orderQty) {
-      toast({
-        title: 'Quantity mismatch',
-        description: `Total allocated (${totalAllocated.toLocaleString()} L) must equal the order quantity (${orderQty.toLocaleString()} L).`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
+    // ── Validate required loading details ────────────────────────────────
     if (!releaseForm.loadingDateTime?.trim()) {
       toast({
-        title: 'Missing loading date/time',
-        description: 'Please set the loading date and time.',
+        title: 'Missing Loading Date/Time',
+        description: 'Please set the loading date and time before generating tickets.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!releaseForm.pfiId) {
+      toast({
+        title: 'PFI not selected',
+        description: 'Please select a PFI before generating tickets.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // ── Validate truck rows ──────────────────────────────────────────────
+    for (let i = 0; i < truckRows.length; i++) {
+      const r = truckRows[i];
+      const label = truckRows.length > 1 ? `Truck ${i + 1}` : 'Truck';
+      const qty = Number(r.quantity_litres) || 0;
+
+      if (qty <= 0) {
+        toast({ title: `${label}: Missing Quantity`, description: `Please enter the quantity for ${label}.`, variant: 'destructive' });
+        return;
+      }
+      if (qty > 60000) {
+        toast({ title: `${label}: Quantity too high`, description: `Each truck can carry a maximum of 60,000 litres.`, variant: 'destructive' });
+        return;
+      }
+      if (!r.plate_number.trim()) {
+        toast({ title: `${label}: Missing Truck Number`, description: `Please enter the truck number (plate) for ${label}.`, variant: 'destructive' });
+        return;
+      }
+      if (!r.driver_name.trim()) {
+        toast({ title: `${label}: Missing Driver Name`, description: `Please enter the driver's name for ${label}.`, variant: 'destructive' });
+        return;
+      }
+      if (!r.driver_phone.trim()) {
+        toast({ title: `${label}: Missing Driver Phone`, description: `Please enter the driver's phone number for ${label}.`, variant: 'destructive' });
+        return;
+      }
+    }
+
+    const trucks = truckRows.map((r) => ({
+      quantity_litres: Number(r.quantity_litres) || 0,
+      plate_number: r.plate_number.trim(),
+      driver_name: r.driver_name.trim(),
+      driver_phone: r.driver_phone.trim(),
+    }));
+
+    const totalAllocated = trucks.reduce((s, t) => s + t.quantity_litres, 0);
+    const alreadyAllocated = ticketAllocated[selectedOrder.id] || 0;
+    const grandTotal = totalAllocated + alreadyAllocated;
+    if (orderQty > 0 && grandTotal > orderQty) {
+      toast({
+        title: 'Quantity exceeded',
+        description: `Total (${grandTotal.toLocaleString()} L) exceeds the order quantity (${orderQty.toLocaleString()} L). Previously allocated: ${alreadyAllocated.toLocaleString()} L.`,
         variant: 'destructive',
       });
       return;
@@ -861,20 +888,23 @@ export const PickupProcessing = () => {
         [selectedOrder.id]: sanitized,
       }));
 
-      // 1. Release the order (transitions status) using first truck
-      await apiClient.admin.releaseOrder(selectedOrder.id, {
-        truck_number: firstTruck.plate_number || '-',
-        driver_name: firstTruck.driver_name || '-',
-        driver_phone: firstTruck.driver_phone || '-',
-        loading_datetime: sanitized.loadingDateTime?.trim() || undefined,
-        pfi_id: sanitized.pfiId,
-      });
+      // 1. Release the order (transitions status) — only needed for first-time release
+      if (selectedOrder.status !== 'released') {
+        await apiClient.admin.releaseOrder(selectedOrder.id, {
+          truck_number: firstTruck.plate_number || '-',
+          driver_name: firstTruck.driver_name || '-',
+          driver_phone: firstTruck.driver_phone || '-',
+          loading_datetime: sanitized.loadingDateTime?.trim() || undefined,
+          pfi_id: sanitized.pfiId,
+        });
+      }
 
       // 2. Generate individual truck tickets for ALL trucks
       await apiClient.admin.generateOrderTickets(selectedOrder.id, trucks);
 
-      // Update local ticket count
-      setTicketCounts((prev) => ({ ...prev, [selectedOrder.id]: trucks.length }));
+      // Update local ticket count and allocated qty
+      setTicketCounts((prev) => ({ ...prev, [selectedOrder.id]: (prev[selectedOrder.id] || 0) + trucks.length }));
+      setTicketAllocated((prev) => ({ ...prev, [selectedOrder.id]: (prev[selectedOrder.id] || 0) + totalAllocated }));
 
       setReleaseOpen(false);
 
@@ -1334,6 +1364,29 @@ export const PickupProcessing = () => {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                            {/* Determine if this released order is fully allocated */}
+                            {(() => {
+                              const orderQty = Number(order.quantity) || 0;
+                              const allocated = ticketAllocated[order.id] || 0;
+                              const fullyAllocated = order.status === 'released' && orderQty > 0 && allocated >= orderQty;
+
+                              // Fully allocated → show "Edit Ticket" that opens the TruckTickets modal
+                              if (fullyAllocated) {
+                                return (
+                                  <Button
+                                    size="sm"
+                                    className="h-8 gap-1"
+                                    variant="outline"
+                                    onClick={() => openTicket(order)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                    <span>Edit Ticket</span>
+                                  </Button>
+                                );
+                              }
+
+                              // Not fully allocated → show Generate / Add Ticket dialog
+                              return (
                             <Dialog
                               open={releaseOpen && selectedOrder?.id === order.id}
                               onOpenChange={(isOpen) => {
@@ -1348,10 +1401,10 @@ export const PickupProcessing = () => {
                                   size="sm"
                                   className="h-8 gap-1"
                                   onClick={() => openRelease(order)}
-                                  disabled={order.status !== 'paid'}
+                                  disabled={order.status !== 'paid' && order.status !== 'released'}
                                 >
                                   <File className="h-4 w-4" />
-                                  <span>Generate Ticket</span>
+                                  <span>{order.status === 'released' ? 'Add Ticket' : 'Generate Ticket'}</span>
                                 </Button>
                               </DialogTrigger>
                               <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-2xl sm:w-auto flex flex-col max-h-[90vh] gap-0 p-0">
@@ -1369,7 +1422,9 @@ export const PickupProcessing = () => {
                                   {/* ─── Order summary card ──────────── */}
                                   {selectedOrder && (() => {
                                     const orderQty = Number(selectedOrder.quantity) || 0;
-                                    const totalAlloc = truckRows.reduce((s, r) => s + (Number(r.quantity_litres) || 0), 0);
+                                    const prevAllocated = ticketAllocated[selectedOrder.id] || 0;
+                                    const newAlloc = truckRows.reduce((s, r) => s + (Number(r.quantity_litres) || 0), 0);
+                                    const totalAlloc = prevAllocated + newAlloc;
                                     const rem = orderQty - totalAlloc;
                                     const pct = orderQty > 0 ? Math.min(100, Math.round((totalAlloc / orderQty) * 100)) : 0;
                                     const isComplete = rem === 0;
@@ -1381,15 +1436,21 @@ export const PickupProcessing = () => {
                                           <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Order Summary</span>
                                           <span className="text-xs text-green-600 font-semibold">{getOrderReference(selectedOrder)}</span>
                                         </div>
-                                        <div className="grid grid-cols-3 gap-3">
+                                        <div className={`grid gap-3 ${prevAllocated > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
                                           <div>
                                             <div className="text-[11px] text-slate-400 uppercase tracking-wide">Total Volume</div>
                                             <div className="text-base font-bold text-slate-900">{orderQty.toLocaleString()} L</div>
                                           </div>
+                                          {prevAllocated > 0 && (
+                                            <div>
+                                              <div className="text-[11px] text-slate-400 uppercase tracking-wide">Previous</div>
+                                              <div className="text-base font-bold text-blue-600">{prevAllocated.toLocaleString()} L</div>
+                                            </div>
+                                          )}
                                           <div>
-                                            <div className="text-[11px] text-slate-400 uppercase tracking-wide">Allocated</div>
+                                            <div className="text-[11px] text-slate-400 uppercase tracking-wide">{prevAllocated > 0 ? 'New' : 'Allocated'}</div>
                                             <div className={`text-base font-bold ${isOver ? 'text-red-600' : isComplete ? 'text-green-600' : 'text-slate-900'}`}>
-                                              {totalAlloc.toLocaleString()} L
+                                              {newAlloc.toLocaleString()} L
                                             </div>
                                           </div>
                                           <div>
@@ -1449,7 +1510,7 @@ export const PickupProcessing = () => {
                                     </div>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                       <div className="space-y-1.5">
-                                        <Label htmlFor="loadingDateTime" className="text-xs font-medium text-slate-600">Loading Date &amp; Time</Label>
+                                        <Label htmlFor="loadingDateTime" className="text-xs font-medium text-slate-600">Loading Date &amp; Time <span className="text-red-500">*</span></Label>
                                         <div className="flex gap-2">
                                           <Input
                                             id="loadingDateTime"
@@ -1476,7 +1537,7 @@ export const PickupProcessing = () => {
                                         </div>
                                       </div>
                                       <div className="space-y-1.5">
-                                        <Label htmlFor="pfi" className="text-xs font-medium text-slate-600">PFI</Label>
+                                        <Label htmlFor="pfi" className="text-xs font-medium text-slate-600">PFI <span className="text-red-500">*</span></Label>
                                         <select
                                           id="pfi"
                                           required
@@ -1556,7 +1617,7 @@ export const PickupProcessing = () => {
                                             {/* Other fields — 3 columns */}
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                               <div className="space-y-1.5">
-                                                <Label className="text-xs font-medium text-slate-600">Truck Number</Label>
+                                                <Label className="text-xs font-medium text-slate-600">Truck Number <span className="text-red-500">*</span></Label>
                                                 <Input
                                                   // placeholder="ABC-123-XY"
                                                   className="h-10"
@@ -1565,7 +1626,7 @@ export const PickupProcessing = () => {
                                                 />
                                               </div>
                                               <div className="space-y-1.5">
-                                                <Label className="text-xs font-medium text-slate-600">Driver's Name</Label>
+                                                <Label className="text-xs font-medium text-slate-600">Driver's Name <span className="text-red-500">*</span></Label>
                                                 <Input
                                                   // placeholder="Enter driver name"
                                                   className="h-10"
@@ -1574,7 +1635,7 @@ export const PickupProcessing = () => {
                                                 />
                                               </div>
                                               <div className="space-y-1.5">
-                                                <Label className="text-xs font-medium text-slate-600">Driver's Phone Number</Label>
+                                                <Label className="text-xs font-medium text-slate-600">Driver's Phone Number <span className="text-red-500">*</span></Label>
                                                 <Input
                                                   // placeholder="08012345678"
                                                   className="h-10"
@@ -1620,6 +1681,8 @@ export const PickupProcessing = () => {
                                 </div>
                               </DialogContent>
                             </Dialog>
+                              );
+                            })()}
 
                             <Button
                               size="sm"

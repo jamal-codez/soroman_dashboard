@@ -118,6 +118,18 @@ const formatLoadingDateTime = (raw: string | null): string => {
   }
 };
 
+/** Convert a 1-based truck number to a letter suffix: 1→A, 2→B, … 26→Z, 27→AA */
+const truckSuffix = (n: number): string => {
+  let s = '';
+  let num = n;
+  while (num > 0) {
+    num--;
+    s = String.fromCharCode(65 + (num % 26)) + s;
+    num = Math.floor(num / 26);
+  }
+  return s;
+};
+
 // ── Main component ───────────────────────────────────────────────────────
 
 export function TruckTickets({
@@ -516,10 +528,11 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
         </div>
         <div className="text-right">
           <div className="text-xs text-slate-500">Order Reference</div>
-          <div className="text-sm font-semibold">{d.order_reference}</div>
-          {/* <div className="text-xs text-slate-500 mt-1">
-            Truck {d.truck_number} of {d.total_trucks}
-          </div> */}
+          <div className="text-sm font-semibold">
+            {d.total_trucks > 1
+              ? `${d.order_reference} (Truck ${truckSuffix(d.truck_number)})`
+              : d.order_reference}
+          </div>
         </div>
       </div>
 
