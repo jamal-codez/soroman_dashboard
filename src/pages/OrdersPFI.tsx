@@ -40,6 +40,16 @@ import {
 import { apiClient } from '@/api/client';
 import { shouldAutoCancel } from '@/lib/orderTimers';
 import { getOrderReference } from '@/lib/orderReference';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { PageHeader } from '@/components/PageHeader';
 
 interface Order {
@@ -122,7 +132,7 @@ const extractUnitPrice = (order: Order): string => {
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
-const Orders = () => {
+const OrdersPFI = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
   const [productFilter, setProductFilter] = useState<string|null>(null);
@@ -130,6 +140,11 @@ const Orders = () => {
   const [statusFilter, setStatusFilter] = useState<string|null>(null);
   const [pfiFilter, setPfiFilter] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
+  // const [agentFilter, setAgentFilter] = useState<string|null>(null);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignPfiId, setAssignPfiId] = useState<number | ''>('');
+  const [assignBusy, setAssignBusy] = useState(false);
 
   // Keep the Orders table fast on initial load.
   // Export still uses the full (backend-paginated) dataset.
@@ -519,6 +534,70 @@ const Orders = () => {
     XLSX.writeFile(wb, `${fileName}.xlsx`);
   };
 
+  const pfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number: string }> } & Record<string, unknown>>({
+    queryKey: ['pfis', 'active'],
+    queryFn: async () => apiClient.admin.getPfis({ status: 'active', page: 1, page_size: 500 }),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const pfiOptions = useMemo(() => {
+    const rec = (pfiQuery.data && typeof pfiQuery.data === 'object') ? (pfiQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
+    const list = (raw || []) as Array<{ id: number; pfi_number: string }>;
+    return list
+      .filter((p) => p && typeof p.id === 'number' && typeof p.pfi_number === 'string')
+      .map((p) => ({ id: p.id, label: p.pfi_number }));
+  }, [pfiQuery.data]);
+
+  const visibleOrderIds = useMemo(() => pagedOrders.map((o) => o.id), [pagedOrders]);
+  const allVisibleSelected = useMemo(() => {
+    if (visibleOrderIds.length === 0) return false;
+    return visibleOrderIds.every((id) => selectedOrderIds.has(id));
+  }, [visibleOrderIds, selectedOrderIds]);
+
+  const someVisibleSelected = useMemo(() => {
+    return visibleOrderIds.some((id) => selectedOrderIds.has(id));
+  }, [visibleOrderIds, selectedOrderIds]);
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        visibleOrderIds.forEach((id) => next.add(id));
+      } else {
+        visibleOrderIds.forEach((id) => next.delete(id));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectOne = (orderId: number, checked: boolean) => {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(orderId);
+      else next.delete(orderId);
+      return next;
+    });
+  };
+
+  const handleBulkAssign = async () => {
+    if (assignPfiId === '' || typeof assignPfiId !== 'number') return;
+    const order_ids = Array.from(selectedOrderIds);
+    if (order_ids.length === 0) return;
+
+    setAssignBusy(true);
+    try {
+      await apiClient.admin.assignOrdersToPfi({ order_ids, pfi_id: assignPfiId });
+      setAssignOpen(false);
+      setAssignPfiId('');
+      setSelectedOrderIds(new Set());
+      await queryClient.invalidateQueries({ queryKey: ['all-orders'] });
+    } finally {
+      setAssignBusy(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
@@ -529,8 +608,8 @@ const Orders = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="All Orders"
-              description="Search, filter and manage all customer orders from creation to release."
+              title="Assign PFI"
+              description="Select orders and assign them to a PFI."
               actions={
                 <Button onClick={exportToExcel}>
                   <Download className="mr-1" size={16} /> Download Report
@@ -662,6 +741,78 @@ const Orders = () => {
                 </div>
               </div>
 
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm text-slate-600">
+                  Selected: <span className="font-medium text-slate-900">{selectedOrderIds.size}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-10"
+                    onClick={() => setSelectedOrderIds(new Set())}
+                    disabled={selectedOrderIds.size === 0}
+                  >
+                    Clear selection
+                  </Button>
+
+                  <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+                    <DialogTrigger asChild>
+                      <Button
+                        className="h-10"
+                        disabled={selectedOrderIds.size === 0}
+                        onClick={() => setAssignOpen(true)}
+                      >
+                        Assign to PFI
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle>Assign orders to PFI</DialogTitle>
+                        <DialogDescription>
+                          Assign <span className="font-medium">{selectedOrderIds.size}</span> selected order(s) to an active PFI.
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700">PFI</label>
+                        <select
+                          aria-label="Select PFI"
+                          className="w-full border border-gray-300 rounded px-3 py-2 h-11"
+                          value={assignPfiId === '' ? '' : String(assignPfiId)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setAssignPfiId(v === '' ? '' : Number(v));
+                          }}
+                        >
+                          <option value="">Select PFI</option>
+                          {pfiOptions.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                        {pfiQuery.isError ? (
+                          <div className="text-sm text-red-600">Failed to load PFIs</div>
+                        ) : null}
+                      </div>
+
+                      <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setAssignOpen(false)} disabled={assignBusy}>
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleBulkAssign}
+                          disabled={assignBusy || assignPfiId === '' || selectedOrderIds.size === 0}
+                        >
+                          {assignBusy ? 'Assigning…' : 'Assign'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </div>
+
               {/* Totals (unchanged) */}
               <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-1">
                 {/* Released */}
@@ -711,6 +862,15 @@ const Orders = () => {
               <Table className="text-sm">
                 <TableHeader>
                   <TableRow className="[&>th]:py-2 [&>th]:px-2">
+                    <TableHead className="w-[44px]">
+                      <div className="flex items-center justify-center">
+                        <Checkbox
+                          checked={allVisibleSelected}
+                          onCheckedChange={(v) => toggleSelectAllVisible(Boolean(v))}
+                          aria-label="Select all visible orders"
+                        />
+                      </div>
+                    </TableHead>
                     <TableHead className="w-[52px]">S/N</TableHead>
                     <TableHead className="w-[120px]">Date</TableHead>
                     <TableHead className="w-[120px]">Reference</TableHead>
@@ -735,6 +895,15 @@ const Orders = () => {
 
                     return (
                       <TableRow key={order.id}>
+                        <TableCell>
+                          <div className="flex items-center justify-center">
+                            <Checkbox
+                              checked={selectedOrderIds.has(order.id)}
+                              onCheckedChange={(v) => toggleSelectOne(order.id, Boolean(v))}
+                              aria-label={`Select order ${order.id}`}
+                            />
+                          </div>
+                        </TableCell>
                         <TableCell className="text-slate-600">{serial}</TableCell>
 
                         <TableCell className="text-slate-700 whitespace-nowrap">
@@ -838,7 +1007,7 @@ const Orders = () => {
                   })}
                   {filteredOrders.length === 0 && !isLoading && (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center text-slate-500 py-10">
+                      <TableCell colSpan={13} className="text-center text-slate-500 py-10">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
@@ -899,4 +1068,4 @@ const Orders = () => {
   );
 };
 
-export default Orders;
+export default OrdersPFI;

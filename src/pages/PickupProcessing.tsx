@@ -48,6 +48,7 @@ import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
 import { MobileNav } from "@/components/MobileNav";
 import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
+import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -621,7 +622,7 @@ export const PickupProcessing = () => {
     return formatDateOnly(hit.timestamp);
   };
 
-  const exportToCSV = async (orders: Order[]) => {
+  const exportToExcel = async (orders: Order[]) => {
     const headers = [
       'S/N',
       'REFERENCE',
@@ -633,6 +634,7 @@ export const PickupProcessing = () => {
       'DATE OF PAYMENT',
       'TRUCK NUMBER',
       'DRIVER (NAME & PHONE)',
+      'PFI',
     ];
 
     const MAX_AUDIT_LOOKUPS = 250;
@@ -682,21 +684,23 @@ export const PickupProcessing = () => {
         financeConfirmedDate,
         truckNumber,
         [driverName, driverPhone].filter(Boolean).join(' / '),
+        order.pfi_number ? String(order.pfi_number) : '-',
       ];
     });
 
-    const csvContent = [headers, ...rows]
-      .map((r) => r.map((x) => `"${String(x ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n');
+    const sheetData = [headers, ...rows];
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Loading Tickets');
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'Report.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Build filename — include PFI if filtered
+    let fileName = 'LOADING_TICKETS_REPORT';
+    if (pfiFilter) {
+      const sanitized = String(pfiFilter).replace(/[^A-Za-z0-9_-]/g, '_').toUpperCase();
+      fileName = `LOADING_TICKETS_REPORT_${sanitized}`;
+    }
+
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
   };
 
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
@@ -1070,7 +1074,7 @@ export const PickupProcessing = () => {
                   <Button
                     variant="outline"
                     className="flex items-center"
-                    onClick={() => exportToCSV(filteredOrders)}
+                    onClick={() => exportToExcel(filteredOrders)}
                   >
                     <Download className="mr-1" size={16} />
                     Download Report

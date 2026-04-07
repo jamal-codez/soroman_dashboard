@@ -34,6 +34,7 @@ const Agents = lazy(() => import("./pages/Agents"));
 const SecurityPage = lazy(() => import("./pages/Security"));
 const OrderAudit = lazy(() => import("./pages/OrderAudit"));
 const PFIPage = lazy(() => import("./pages/PFI"));
+const OrdersPFI = lazy(() => import("./pages/OrdersPFI"));
 
 // ---------------------------------------------------------------------------
 // QueryClient with sane global defaults
@@ -93,6 +94,7 @@ const App = () => (
               <Route path="/" element={<Login />} />
               <Route path="/dashboard" element={<Index />} />
               <Route path="/orders" element={<Orders />} />
+              <Route path="/orders-pfi" element={<OrdersPFI />} />
               <Route path="/inventory" element={<Inventory />} />
               <Route
                 path="/pfi"
