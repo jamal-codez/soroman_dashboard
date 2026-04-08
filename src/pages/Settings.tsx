@@ -32,15 +32,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -71,12 +62,13 @@ type UserType = {
   label: string;
 };
 
-const roleMap = {
+const roleMap: Record<number, string> = {
   1: 'ADMIN',
-  2: 'FINANCE',
+  2: 'ACCOUNTS',
   3: 'SALES',
-  4: 'RELEASE',
+  4: 'TICKETING',
   5: 'SECURITY',
+  6: 'TRANSPORT',
 };
 
 const Settings = () => {
@@ -546,19 +538,21 @@ const Settings = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="role">Role</Label>
-                <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
-                  <SelectTrigger><SelectValue placeholder="Select a role" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>Available Roles</SelectLabel>
-                      <SelectItem value="1">General Admin</SelectItem>
-                      <SelectItem value="2">Finance Officer</SelectItem>
-                      <SelectItem value="3">Sales</SelectItem>
-                      <SelectItem value="4">Release Officer</SelectItem>
-                      <SelectItem value="5">Security</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <select
+                  value={formData.role}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select a role</option>
+                  <optgroup label="Available Roles">
+                    <option value="1">General Admin</option>
+                    <option value="2">Accounts</option>
+                    <option value="3">Sales</option>
+                    <option value="4">Ticketing Officer</option>
+                    <option value="5">Security</option>
+                    <option value="6">Transport Officer</option>
+                  </optgroup>
+                </select>
               </div>
             </div>
 

@@ -11,7 +11,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Download, Plus, Search } from 'lucide-react';
 import { apiClient } from '@/api/client';
@@ -391,27 +390,17 @@ export default function PFIPage() {
                   />
                 </div>
 
-                <Select value={status} onValueChange={(v: 'all' | PfiStatus) => setStatus(v)}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="finished">Finished</SelectItem>
-                  </SelectContent>
-                </Select>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as 'all' | PfiStatus)}
+                  className="h-11 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <option value="finished">Finished</option>
+                </select>
 
-                {/* <Select value={metric} onValueChange={(v: PfiMetric) => setMetric(v)}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Metric" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todaySold">Today's Sales</SelectItem>
-                    <SelectItem value="totalSold">Total Sales</SelectItem>
-                    <SelectItem value="remaining">Remaining</SelectItem>
-                  </SelectContent>
-                </Select> */}
+                {/* commented-out metric select removed */}
               </div>
             </div>
 

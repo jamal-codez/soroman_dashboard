@@ -7,13 +7,6 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem
-} from '@/components/ui/select';
-import {
   Table,
   TableBody,
   TableCell,
@@ -248,11 +241,6 @@ const Inventory = () => {
       </div>
     );
   }
-<style>{`
-  [data-state="checked"] > [data-radix-select-item-indicator] {
-    display: none !important;
-  }
-`}</style>
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -292,28 +280,18 @@ const Inventory = () => {
                     </span>
                   </Label>
                   <div className="mt-2 flex flex-col sm:flex-row gap-4">
-                    <Select
+                    <select
                       value={formData.state.toString()}
-                      onValueChange={v => setFormData({ ...formData, state: Number(v) })}
+                      onChange={e => setFormData({ ...formData, state: Number(e.target.value) })}
+                      className="w-full h-11 rounded-lg border border-slate-200 bg-background px-3 py-2 text-sm hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
                     >
-                      <SelectTrigger className="w-full h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
-                        <SelectValue placeholder="Select state" />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-lg shadow-lg border border-slate-200 max-h-60">
-                        {states.map(state => (
-                          <SelectItem
-                            key={state.id}
-                            value={state.id.toString()}
-                            className={`px-4 py-2 relative ${
-                              formData.state === state.id ? 'bg-green-100 text-green-900' : 'hover:bg-slate-50'
-                            }`}
-                          >
-                            <span className="pointer-events-none select-none">{state.name}</span>
-                            <span className="hidden" data-radix-select-item-indicator />
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <option value="0">Select state</option>
+                      {states.map(state => (
+                        <option key={state.id} value={state.id.toString()}>
+                          {state.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>

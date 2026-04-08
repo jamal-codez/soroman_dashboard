@@ -22,13 +22,6 @@ import {
   FileText
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
 
 type Period = 'day' | 'week' | 'month';
 
@@ -112,17 +105,15 @@ const Reports = () => {
 
                 {/* Row 2: Filters */}
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-                  <Select value={selectedPeriod} onValueChange={(v: Period) => setSelectedPeriod(v)}>
-                    <SelectTrigger className="w-full sm:w-[220px] h-11">
-                      <Calendar className="mr-2 h-4 w-4" />
-                      <SelectValue placeholder="Select period" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="day">Daily</SelectItem>
-                      <SelectItem value="week">Weekly</SelectItem>
-                      <SelectItem value="month">Monthly</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <select
+                    value={selectedPeriod}
+                    onChange={(e) => setSelectedPeriod(e.target.value as Period)}
+                    className="w-full sm:w-[220px] h-11 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="day">Daily</option>
+                    <option value="week">Weekly</option>
+                    <option value="month">Monthly</option>
+                  </select>
                 </div>
               </div>
             </div>

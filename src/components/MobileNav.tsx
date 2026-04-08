@@ -19,6 +19,9 @@ import {
   LogOut,
   ActivityIcon,
   Users,
+  Truck,
+  Banknote,
+  TicketPlusIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -35,20 +38,39 @@ type NavItem = {
   allowedRoles: number[];
 };
 
-const navItems: NavItem[] = [
-  { title: 'Overview', icon: GaugeIcon, path: '/dashboard', allowedRoles: [0, 1, 2, 4] },
-  { title: 'Orders', icon: ClipboardCheck, path: '/orders', allowedRoles: [0, 1, 2, 3, 4] },
-  { title: 'Loading Tickets', icon: FileBadge2Icon, path: '/pickup-processing', allowedRoles: [0, 1, 4] },
-  { title: 'Pending Payments', icon: HourglassIcon, path: '/payment-verify', allowedRoles: [0, 1, 2] },
-  { title: 'Payments Report', icon: FileBarChart2Icon, path: '/confirmed-payments', allowedRoles: [0, 1, 2] },
-  { title: 'Stock Management', icon: DropletIcon, path: '/inventory', allowedRoles: [0, 1] },
-  { title: 'Manage Prices', icon: Tag, path: '/pricing', allowedRoles: [0, 1] },
-  { title: 'PFI Tracking', icon: FileSearch2, path: '/pfi', allowedRoles: [1, 2] },
-  { title: 'Our Customers', icon: Users, path: '/customers', allowedRoles: [0, 1, 3] },
-  { title: 'Track Actions', icon: ActivityIcon, path: '/order-audit', allowedRoles: [0, 1] },
-  { title: 'Finance', icon: LandmarkIcon, path: '/finance', allowedRoles: [0, 1, 2] },
-  { title: 'Manage Staff', icon: Users2Icon, path: '/users-management', allowedRoles: [0, 1] },
-  { title: 'Security Clearance', icon: ShieldCheck, path: '/security', allowedRoles: [0, 1, 5] },
+const navItems = [
+  // OVERVIEW
+  { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0,1,2,3,4,5,6] },
+
+  // SALES & CUSTOMERS
+  { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,3,4] },
+  { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
+
+  // OPERATIONS (TICKETING / LOADING)
+  { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
+  { title: "In-House Orders", icon: Truck, path: "/in-house-orders", allowedRoles: [0,1,4] },
+
+  // TRANSPORT / FLEET
+  { title: "Fleet Trucks", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
+  { title: "Fleet Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,1,6] },
+
+  // FINANCE
+  { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
+  { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2] },
+  { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2] },
+
+  // INVENTORY & PRICING
+  { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0,1] },
+  { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1] },
+
+  // ADMIN & MONITORING
+  { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0,1] },
+  { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2] },
+  { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1] },
+  { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
+
+  // SECURITY
+  { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5] },
 ];
 
 export const MobileNav = React.memo(function MobileNav() {

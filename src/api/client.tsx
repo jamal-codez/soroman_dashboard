@@ -1045,5 +1045,253 @@ export const apiClient = {
         loading_datetime: string | null;
       }>;
     },
+
+    // ── In-House Orders (Consignment / Dispatch) ────────────────────────
+
+    /**
+     * POST /api/admin/orders/in-house/
+     * Creates an in-house (consignment) order with amount=0, status=paid so it
+     * bypasses payment confirmation and goes straight to pickup processing.
+     */
+    createInHouseOrder: async (data: {
+      product_id: number;
+      quantity: number;
+      state_id: number;
+      driver_name: string;
+      driver_phone?: string;
+      truck_number: string;
+      supervised_by?: string;
+      loading_date?: string;
+      customer_name?: string;
+      customer_phone?: string;
+      notes?: string;
+    }) => {
+      const response = await fetch(`${ADMIN_BASE}/orders/in-house/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(msg);
+      }
+      return response.json();
+    },
+
+    /**
+     * GET /api/admin/orders/in-house/
+     * Lists all in-house orders. Supports pagination and filtering.
+     */
+    getInHouseOrders: async (params?: {
+      page?: number;
+      page_size?: number;
+      search?: string;
+      status?: string;
+    }) => {
+      const url = new URL(`${ADMIN_BASE}/orders/in-house/`);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value === undefined || value === null) return;
+          const s = String(value);
+          if (!s.trim()) return;
+          url.searchParams.set(key, s);
+        });
+      }
+      const response = await fetch(url.toString(), {
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(msg);
+      }
+      return response.json();
+    },
+
+    /**
+     * PATCH /api/admin/orders/<id>/update-price/
+     * Updates the unit price and total amount for an in-house order after
+     * the agent has sold the product.
+     */
+    updateInHouseOrderPrice: async (
+      orderId: number,
+      data: { unit_price: number; total_price?: number }
+    ) => {
+      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/update-price/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(msg);
+      }
+      return response.json();
+    },
+
+    /**
+     * PATCH /api/admin/orders/<id>/record-sale/
+     * Records the sale of an in-house order — buyer details, delivery address,
+     * unit price, and marks the order as "sold".
+     */
+    recordInHouseOrderSale: async (
+      orderId: number,
+      data: {
+        sold_to_name: string;
+        sold_to_phone: string;
+        delivery_address: string;
+        unit_price: number;
+        total_price?: number;
+      }
+    ) => {
+      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/record-sale/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(msg);
+      }
+      return response.json();
+    },
+
+    // ── Fleet Ledger (Trucks + Expenses / Income) ───────────────────
+
+    /** GET /api/admin/fleet/trucks/ */
+    getFleetTrucks: async (params?: { search?: string; page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/fleet/trucks/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          const s = String(v); if (!s.trim()) return;
+          url.searchParams.set(k, s);
+        });
+      }
+      const response = await fetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/fleet/trucks/ */
+    createFleetTruck: async (data: {
+      plate_number: string;
+      driver_name: string;
+      driver_phone?: string;
+      notes?: string;
+    }) => {
+      const response = await fetch(`${ADMIN_BASE}/fleet/trucks/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PATCH /api/admin/fleet/trucks/<id>/ */
+    updateFleetTruck: async (
+      id: number,
+      data: Partial<{ plate_number: string; driver_name: string; driver_phone: string; notes: string; is_active: boolean }>
+    ) => {
+      const response = await fetch(`${ADMIN_BASE}/fleet/trucks/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** DELETE /api/admin/fleet/trucks/<id>/ */
+    deleteFleetTruck: async (id: number) => {
+      const response = await fetch(`${ADMIN_BASE}/fleet/trucks/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (response.status === 204) return true;
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
+    },
+
+    /** GET /api/admin/fleet/ledger/ */
+    getFleetLedger: async (params?: {
+      truck_id?: number;
+      entry_type?: 'expense' | 'income';
+      category?: string;
+      from?: string;
+      to?: string;
+      search?: string;
+      page?: number;
+      page_size?: number;
+    }) => {
+      const url = new URL(`${ADMIN_BASE}/fleet/ledger/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          const s = String(v); if (!s.trim()) return;
+          url.searchParams.set(k, s);
+        });
+      }
+      const response = await fetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/fleet/ledger/ */
+    createFleetLedgerEntry: async (data: {
+      truck_id: number;
+      entry_type: 'expense' | 'income';
+      category: string;
+      amount: number;
+      date: string;
+      description?: string;
+      entered_by?: string;
+    }) => {
+      // Backend serializer expects `truck` (FK), not `truck_id`
+      const { truck_id, ...rest } = data;
+      const response = await fetch(`${ADMIN_BASE}/fleet/ledger/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ truck: truck_id, ...rest }),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PATCH /api/admin/fleet/ledger/<id>/ */
+    updateFleetLedgerEntry: async (
+      id: number,
+      data: Partial<{
+        truck_id: number;
+        entry_type: 'expense' | 'income';
+        category: string;
+        amount: number;
+        date: string;
+        description: string;
+        entered_by: string;
+      }>
+    ) => {
+      // Backend serializer expects `truck` (FK), not `truck_id`
+      const { truck_id, ...rest } = data;
+      const payload = truck_id !== undefined ? { truck: truck_id, ...rest } : rest;
+      const response = await fetch(`${ADMIN_BASE}/fleet/ledger/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** DELETE /api/admin/fleet/ledger/<id>/ */
+    deleteFleetLedgerEntry: async (id: number) => {
+      const response = await fetch(`${ADMIN_BASE}/fleet/ledger/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (response.status === 204) return true;
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
+    },
   },
 };
