@@ -1177,8 +1177,9 @@ export const apiClient = {
       plate_number: string;
       driver_name: string;
       driver_phone?: string;
-      max_capacity?: number;
+      max_capacity?: number | null;
       notes?: string;
+      [key: string]: unknown;
     }) => {
       const response = await fetch(`${ADMIN_BASE}/fleet/trucks/`, {
         method: 'POST',
@@ -1192,7 +1193,7 @@ export const apiClient = {
     /** PATCH /api/admin/fleet/trucks/<id>/ */
     updateFleetTruck: async (
       id: number,
-      data: Partial<{ plate_number: string; driver_name: string; driver_phone: string; max_capacity: number; notes: string; is_active: boolean }>
+      data: Partial<{ plate_number: string; driver_name: string; driver_phone: string; max_capacity: number | null; notes: string; is_active: boolean; [key: string]: unknown }>
     ) => {
       const response = await fetch(`${ADMIN_BASE}/fleet/trucks/${id}/`, {
         method: 'PATCH',

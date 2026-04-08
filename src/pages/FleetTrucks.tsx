@@ -363,9 +363,9 @@ export default function FleetTrucks() {
       const payload = {
         plate_number: truckForm.plate_number.trim().toUpperCase(),
         driver_name: truckForm.driver_name.trim(),
-        driver_phone: truckForm.driver_phone.trim() || undefined,
-        max_capacity: capacityRaw > 0 ? capacityRaw : undefined,
-        notes: truckForm.notes.trim() || undefined,
+        driver_phone: truckForm.driver_phone.trim() || '',
+        max_capacity: capacityRaw > 0 ? capacityRaw : null,
+        notes: truckForm.notes.trim() || '',
       };
       if (truckEditing) {
         await apiClient.admin.updateFleetTruck(truckEditing.id, payload);
@@ -675,11 +675,11 @@ export default function FleetTrucks() {
         <DialogContent className="sm:max-w-[900px] max-h-[92vh] overflow-hidden flex flex-col">
           <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-3">
-              <div className="bg-blue-100 p-2 rounded-lg"><Truck className="w-5 h-5 text-blue-600" /></div>
+              <div className="bg-green-100 p-2 rounded-lg"><Truck className="w-5 h-5 text-green-700" /></div>
               <div className="min-w-0">
-                <h2 className="text-lg font-bold font-mono">{selectedTruck?.plate_number}</h2>
-                <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  {selectedTruck?.driver_name}{selectedTruck?.driver_phone ? ` · ${selectedTruck.driver_phone}` : ''}{selectedTruck?.max_capacity ? ` · ${selectedTruck.max_capacity.toLocaleString()} L` : ''} · {periodLabel}
+                <h2 className="text-lg text-green-700 font-bold">{selectedTruck?.plate_number}</h2>
+                <p className="text-sm font-normal text-black mt-0.5">
+                  Quantity: <span className="font-semibold uppercase">{selectedTruck?.max_capacity ? `${selectedTruck.max_capacity.toLocaleString()} L` : '—'}</span>
                 </p>
               </div>
             </DialogTitle>
