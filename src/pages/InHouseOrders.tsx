@@ -150,7 +150,7 @@ const getStatusIcon = (status: string) => {
 const getStatusClass = (status: string) => {
   switch (status.toLowerCase()) {
     case 'paid':
-      return 'text-amber-700';
+      return 'text-green-700';
     case 'pending':
       return 'text-orange-700';
     case 'canceled':
@@ -158,7 +158,7 @@ const getStatusClass = (status: string) => {
     case 'released':
       return 'text-blue-700';
     case 'sold':
-      return 'text-green-700';
+      return 'text-purple-700';
     default:
       return 'text-slate-700';
   }
