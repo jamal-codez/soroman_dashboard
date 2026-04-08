@@ -35,6 +35,7 @@ import { useToast } from '@/hooks/use-toast';
 interface FleetTruck {
   id: number;
   plate_number: string;
+  max_capacity?: number;
   driver_name: string;
   driver_phone?: string;
 }

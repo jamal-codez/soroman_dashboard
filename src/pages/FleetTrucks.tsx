@@ -21,7 +21,7 @@ import {
 import {
   Plus, Search, Download, Loader2, Truck, Pencil, Trash2,
   Phone, User, Hash, FileText, TrendingDown, TrendingUp, Wallet,
-  ArrowUpDown, Eye, Calendar as CalendarIcon,
+  ArrowUpDown, Eye, Calendar as CalendarIcon, Fuel,
 } from 'lucide-react';
 import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfDay, endOfDay, subDays, isWithinInterval } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -35,6 +35,7 @@ import { useToast } from '@/hooks/use-toast';
 interface FleetTruck {
   id: number;
   plate_number: string;
+  max_capacity?: number;
   driver_name: string;
   driver_phone?: string;
   notes?: string;
@@ -77,6 +78,16 @@ const toNum = (v: string | number | undefined | null): number => {
   const n = Number(String(v).replace(/,/g, ''));
   return Number.isFinite(n) ? n : 0;
 };
+
+/** Format a raw string with thousand separators for display in input */
+const formatWithCommas = (v: string): string => {
+  const cleaned = v.replace(/[^0-9]/g, '');
+  const intPart = cleaned.replace(/^0+(?=\d)/, '');
+  return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+};
+
+/** Strip commas to get a raw number string */
+const stripCommas = (v: string): string => v.replace(/,/g, '');
 
 const safePaged = <T,>(raw: unknown): PagedResponse<T> => {
   if (raw && typeof raw === 'object') {
@@ -135,7 +146,7 @@ export default function FleetTrucks() {
   // ── Truck CRUD dialog ──────────────────────────────────────────────
   const [truckDialogOpen, setTruckDialogOpen] = useState(false);
   const [truckEditing, setTruckEditing] = useState<FleetTruck | null>(null);
-  const [truckForm, setTruckForm] = useState({ plate_number: '', driver_name: '', driver_phone: '', notes: '' });
+  const [truckForm, setTruckForm] = useState({ plate_number: '', driver_name: '', driver_phone: '', max_capacity: '', notes: '' });
   const [truckSaving, setTruckSaving] = useState(false);
 
   // ── Delete confirm ─────────────────────────────────────────────────
@@ -323,7 +334,7 @@ export default function FleetTrucks() {
 
   const openAddTruck = () => {
     setTruckEditing(null);
-    setTruckForm({ plate_number: '', driver_name: '', driver_phone: '', notes: '' });
+    setTruckForm({ plate_number: '', driver_name: '', driver_phone: '', max_capacity: '', notes: '' });
     setTruckDialogOpen(true);
   };
 
@@ -333,6 +344,7 @@ export default function FleetTrucks() {
       plate_number: t.plate_number,
       driver_name: t.driver_name,
       driver_phone: t.driver_phone || '',
+      max_capacity: t.max_capacity ? t.max_capacity.toLocaleString() : '',
       notes: t.notes || '',
     });
     setTruckDialogOpen(true);
@@ -347,21 +359,19 @@ export default function FleetTrucks() {
     }
     setTruckSaving(true);
     try {
+      const capacityRaw = Number(stripCommas(truckForm.max_capacity));
+      const payload = {
+        plate_number: truckForm.plate_number.trim().toUpperCase(),
+        driver_name: truckForm.driver_name.trim(),
+        driver_phone: truckForm.driver_phone.trim() || undefined,
+        max_capacity: capacityRaw > 0 ? capacityRaw : undefined,
+        notes: truckForm.notes.trim() || undefined,
+      };
       if (truckEditing) {
-        await apiClient.admin.updateFleetTruck(truckEditing.id, {
-          plate_number: truckForm.plate_number.trim().toUpperCase(),
-          driver_name: truckForm.driver_name.trim(),
-          driver_phone: truckForm.driver_phone.trim() || undefined,
-          notes: truckForm.notes.trim() || undefined,
-        });
+        await apiClient.admin.updateFleetTruck(truckEditing.id, payload);
         toast({ title: 'Truck updated' });
       } else {
-        await apiClient.admin.createFleetTruck({
-          plate_number: truckForm.plate_number.trim().toUpperCase(),
-          driver_name: truckForm.driver_name.trim(),
-          driver_phone: truckForm.driver_phone.trim() || undefined,
-          notes: truckForm.notes.trim() || undefined,
-        });
+        await apiClient.admin.createFleetTruck(payload);
         toast({ title: 'Truck added' });
       }
       setTruckDialogOpen(false);
@@ -393,6 +403,7 @@ export default function FleetTrucks() {
       'Plate Number': t.plate_number,
       'Driver': t.driver_name,
       'Phone': t.driver_phone || '',
+      'Max Capacity (L)': t.max_capacity || '',
       'Debits (₦)': t.debits,
       'Credits (₦)': t.credits,
       'Balance (₦)': t.balance,
@@ -401,6 +412,7 @@ export default function FleetTrucks() {
       'Plate Number': 'TOTAL',
       'Driver': '',
       'Phone': '',
+      'Max Capacity (L)': '' as any,
       'Debits (₦)': totals.debits,
       'Credits (₦)': totals.credits,
       'Balance (₦)': totals.balance,
@@ -562,6 +574,7 @@ export default function FleetTrucks() {
                         <TableHead className="font-semibold text-slate-700 cursor-pointer select-none" onClick={() => toggleSort('plate')}>
                           Truck Number <SortIcon field="plate" />
                         </TableHead>
+                        <TableHead className="font-semibold text-slate-700 hidden md:table-cell">Capacity (L)</TableHead>
                         <TableHead className="font-semibold text-slate-700 hidden md:table-cell">Truck Driver</TableHead>
                         <TableHead className="font-semibold text-red-700 text-left cursor-pointer select-none" onClick={() => toggleSort('debits')}>
                           Debits <SortIcon field="debits" />
@@ -593,6 +606,9 @@ export default function FleetTrucks() {
                                   <p className="text-sm font-bold text-slate-900">{t.plate_number}</p>
                                 </div>
                               </div>
+                            </TableCell>
+                            <TableCell className="text-sm font-semibold text-slate-700 hidden md:table-cell">
+                              {t.max_capacity ? `${t.max_capacity.toLocaleString()} L` : '—'}
                             </TableCell>
                             <TableCell className="text-sm text-slate-500 hidden md:table-cell">
                                 <p className="text-sm font-bold uppercase text-slate-900">{t.driver_name}</p> 
@@ -663,7 +679,7 @@ export default function FleetTrucks() {
               <div className="min-w-0">
                 <h2 className="text-lg font-bold font-mono">{selectedTruck?.plate_number}</h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  {selectedTruck?.driver_name}{selectedTruck?.driver_phone ? ` · ${selectedTruck.driver_phone}` : ''} · {periodLabel}
+                  {selectedTruck?.driver_name}{selectedTruck?.driver_phone ? ` · ${selectedTruck.driver_phone}` : ''}{selectedTruck?.max_capacity ? ` · ${selectedTruck.max_capacity.toLocaleString()} L` : ''} · {periodLabel}
                 </p>
               </div>
             </DialogTitle>
@@ -804,6 +820,14 @@ export default function FleetTrucks() {
               </Label>
               <Input placeholder="e.g. 08012345678" value={truckForm.driver_phone}
                 onChange={e => setTruckForm(f => ({ ...f, driver_phone: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                <Fuel size={15} className="text-slate-500" /> Max Capacity (Litres)
+              </Label>
+              <Input type="text" inputMode="numeric" placeholder="e.g. 45,000" value={truckForm.max_capacity}
+                onChange={e => setTruckForm(f => ({ ...f, max_capacity: formatWithCommas(e.target.value) }))} />
+              <p className="text-xs text-slate-400">The maximum volume this truck can carry</p>
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
