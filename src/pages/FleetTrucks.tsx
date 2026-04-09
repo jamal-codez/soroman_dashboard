@@ -272,17 +272,18 @@ export default function FleetTrucks() {
     return entries.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   }, [selectedTruck, allEntries, dateRange, detailTypeFilter, detailSearch]);
 
-  // Running balance for the detail view (oldest first)
+  // Running balance: oldest first, accumulating top-down (classic ledger)
   const detailWithBalance = useMemo(() => {
-    const sorted = [...detailEntries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    const sorted = [...detailEntries].sort((a, b) =>
+      (a.date || '').localeCompare(b.date || '') || a.id - b.id
+    );
     let running = 0;
-    const result = sorted.map(e => {
+    return sorted.map(e => {
       const a = toNum(e.amount);
       if (e.entry_type === 'income') running += a;
       else running -= a;
       return { ...e, runningBalance: running };
     });
-    return result.reverse();
   }, [detailEntries]);
 
   const detailTotals = useMemo(() => {
@@ -430,7 +431,10 @@ export default function FleetTrucks() {
       ? `${customFrom || '?'}_TO_${customTo || '?'}`
       : timePreset.toUpperCase();
     let running = 0;
-    const sorted = [...detailEntries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    // Oldest first (classic ledger order) — use id as tiebreaker for same-date entries
+    const sorted = [...detailEntries].sort((a, b) =>
+      (a.date || '').localeCompare(b.date || '') || a.id - b.id
+    );
     const rows = sorted.map(e => {
       const a = toNum(e.amount);
       const debit = e.entry_type === 'expense' ? a : 0;
@@ -768,7 +772,7 @@ export default function FleetTrucks() {
                   })}
                   {/* Totals row */}
                   <TableRow className="bg-slate-50 border-t-2 border-slate-300 sticky bottom-0">
-                    <TableCell className="font-bold text-slate-700 text-xs">TOTAL</TableCell>
+                    <TableCell className="font-bold text-slate-700 text-xs">Total</TableCell>
                     <TableCell className="text-xs text-slate-500">{detailWithBalance.length} entries</TableCell>
                     <TableCell className="text-right font-bold text-red-700 text-sm">{fmt(detailTotals.debits)}</TableCell>
                     <TableCell className="text-right font-bold text-emerald-700 text-sm">{fmt(detailTotals.credits)}</TableCell>
