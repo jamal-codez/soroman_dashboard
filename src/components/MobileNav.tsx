@@ -51,8 +51,8 @@ const navItems = [
   { title: "In-House Orders", icon: Truck, path: "/in-house-orders", allowedRoles: [0,1,4] },
 
   // TRANSPORT / FLEET
-  { title: "Fleet Trucks", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
-  { title: "Fleet Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,1,6] },
+  { title: "Our Trucks", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
+  { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,1,6] },
 
   // FINANCE
   { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
