@@ -91,6 +91,8 @@ interface InHouseOrder {
   truck_number?: string;
   supervised_by?: string;
   loading_date?: string;
+  destination_state?: string;
+  destination_town?: string;
   // Sale accountability fields
   sold_to_name?: string;
   sold_to_phone?: string;
@@ -106,6 +108,7 @@ interface InHouseOrderResponse {
 interface State {
   id: number;
   name: string;
+  classifier?: string;
 }
 
 interface Product {
@@ -114,6 +117,15 @@ interface Product {
   abbreviation?: string;
   unit_price?: number;
 }
+
+// 36 Nigerian states + FCT — fixed list, separate from depot/pricing states
+const NIGERIAN_STATES = [
+  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue',
+  'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu',
+  'FCT Abuja', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina',
+  'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo',
+  'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara',
+] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -209,6 +221,8 @@ export default function InHouseOrders() {
     product_id: '',
     quantity: '',
     state_id: '',
+    destination_state: '',
+    destination_town: '',
     driver_name: '',
     driver_phone: '',
     truck_number: '',
@@ -242,6 +256,7 @@ export default function InHouseOrders() {
     staleTime: 5 * 60_000,
   });
   const states = useMemo(() => (statesRaw || []) as State[], [statesRaw]);
+  const depots = useMemo(() => states.filter((s) => s.classifier?.toLowerCase() === 'depot'), [states]);
 
   const { data: productsRaw } = useQuery<Product[]>({
     queryKey: ['products'],
@@ -293,6 +308,7 @@ export default function InHouseOrders() {
           `${o.user?.first_name || ''} ${o.user?.last_name || ''}`
         ).toLowerCase();
         const state = (o.state || '').toLowerCase();
+        const destination = (`${o.destination_state || ''} ${o.destination_town || ''}`).toLowerCase();
         const buyer = (o.sold_to_name || '').toLowerCase();
         const address = (o.delivery_address || '').toLowerCase();
         const driver = (o.driver_name || '').toLowerCase();
@@ -303,6 +319,7 @@ export default function InHouseOrders() {
           product.includes(q) ||
           customer.includes(q) ||
           state.includes(q) ||
+          destination.includes(q) ||
           buyer.includes(q) ||
           address.includes(q) ||
           driver.includes(q) ||
@@ -378,7 +395,11 @@ export default function InHouseOrders() {
       return;
     }
     if (!form.state_id) {
-      toast({ title: 'Destination state is required', description: 'Select the destination state.', variant: 'destructive' });
+      toast({ title: 'Loading depot is required', description: 'Select the loading depot.', variant: 'destructive' });
+      return;
+    }
+    if (!form.destination_state) {
+      toast({ title: 'Destination is required', description: 'Select the destination state.', variant: 'destructive' });
       return;
     }
     const rawQty = Number(stripCommas(form.quantity));
@@ -409,6 +430,8 @@ export default function InHouseOrders() {
         product_id: Number(form.product_id),
         quantity: rawQty,
         state_id: Number(form.state_id),
+        destination_state: form.destination_state,
+        destination_town: form.destination_town.trim() || undefined,
         driver_name: form.driver_name.trim(),
         driver_phone: form.driver_phone.trim() || undefined,
         truck_number: form.truck_number.trim().toUpperCase(),
@@ -421,7 +444,7 @@ export default function InHouseOrders() {
 
       // Reset form & close
       setForm({
-        product_id: '', quantity: '', state_id: '',
+        product_id: '', quantity: '', state_id: '', destination_state: '', destination_town: '',
         driver_name: '', driver_phone: '', truck_number: '',
         supervised_by: '', loading_date: format(new Date(), 'yyyy-MM-dd'), notes: '',
       });
@@ -505,7 +528,9 @@ export default function InHouseOrders() {
       Reference: getOrderReference(o) || String(o.id),
       Product: o.products?.[0]?.name || '',
       'Quantity (L)': Number(o.quantity || 0),
-      'Destination State': o.state || '',
+      'Loading Depot': o.state || '',
+      'Destination State': o.destination_state || '',
+      'Destination Town': o.destination_town || '',
       'Driver Name': o.driver_name || '',
       'Driver Phone': o.driver_phone || '',
       'Truck Number': o.truck_number || '',
@@ -540,15 +565,15 @@ export default function InHouseOrders() {
           <div className="max-w-7xl mx-auto space-y-5">
             {/* Header */}
             <PageHeader
-              title="In-House Orders"
-              description="Create and manage consignment and dispatch orders."
+              title="Create Delivery Order"
+              description="Generate and assign order to sales representative for customer delivery and accountability."
               actions={
                 <>
                   <Button
                     className="gap-2"
                     onClick={() => {
                       setForm({
-                        product_id: '', quantity: '', state_id: '',
+                        product_id: '', quantity: '', state_id: '', destination_state: '', destination_town: '',
                         driver_name: '', driver_phone: '', truck_number: '',
                         supervised_by: '', loading_date: format(new Date(), 'yyyy-MM-dd'), notes: '',
                       });
@@ -588,6 +613,7 @@ export default function InHouseOrders() {
                   value={statusFilter || 'all'}
                   onChange={(e) => setStatusFilter(e.target.value === 'all' ? null : e.target.value)}
                   className="h-10 w-full sm:w-[180px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  aria-label="Status filter"
                 >
                   <option value="all">All Statuses</option>
                   <option value="paid">Awaiting Ticket</option>
@@ -635,10 +661,11 @@ export default function InHouseOrders() {
                         <TableHead className="font-semibold text-slate-700">Reference</TableHead>
                         <TableHead className="font-semibold text-slate-700">Product</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-right">Qty (L)</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Location</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Depot</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Destination</TableHead>
                         <TableHead className="font-semibold text-slate-700">Truck No.</TableHead>
                         <TableHead className="font-semibold text-slate-700">Driver</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Supervisor</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Sales Rep</TableHead>
                         <TableHead className="font-semibold text-slate-700">Status</TableHead>
                         <TableHead className="font-semibold text-slate-700">Buyer</TableHead>
                         <TableHead className="font-semibold text-slate-700">Total</TableHead>
@@ -667,6 +694,11 @@ export default function InHouseOrders() {
                             <TableCell className="text-sm">{productName}</TableCell>
                             <TableCell className="text-sm text-right font-semibold">{qty}</TableCell>
                             <TableCell className="text-sm">{state}</TableCell>
+                            <TableCell className="text-sm">
+                              {order.destination_state
+                                ? `${order.destination_state}${order.destination_town ? `, ${order.destination_town}` : ''}`
+                                : '—'}
+                            </TableCell>
                             {/* Driver / Truck */}
                             <TableCell className="text-sm">
                                 <span className="font-semibold text-green-800">{order.truck_number}</span>
@@ -777,6 +809,7 @@ export default function InHouseOrders() {
                 value={form.product_id}
                 onChange={(e) => setForm((f) => ({ ...f, product_id: e.target.value }))}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                aria-label="Product"
               >
                 <option value="">Select product</option>
                 {products.map((p) => (
@@ -813,24 +846,61 @@ export default function InHouseOrders() {
               </p>
             </div>
 
-            {/* Destination State */}
+            {/* Loading Depot */}
             <div className="space-y-2">
               <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                 <MapPin size={15} className="text-slate-500" />
-                Location <span className="text-red-500">*</span>
+                Loading Depot <span className="text-red-500">*</span>
               </Label>
               <select
                 value={form.state_id}
                 onChange={(e) => setForm((f) => ({ ...f, state_id: e.target.value }))}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                aria-label="Loading Depot"
               >
-                <option value="">Select location</option>
-                {states.map((s) => (
+                <option value="">Select depot</option>
+                {depots.map((s) => (
                   <option key={s.id} value={String(s.id)}>
                     {s.name}
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* Destination (State + Town) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                  <Truck size={15} className="text-slate-500" />
+                  Destination State <span className="text-red-500">*</span>
+                </Label>
+                <select
+                  value={form.destination_state}
+                  onChange={(e) => setForm((f) => ({ ...f, destination_state: e.target.value }))}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  aria-label="Destination State"
+                >
+                  <option value="">Select state</option>
+                  {NIGERIAN_STATES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                  <MapPin size={15} className="text-slate-500" />
+                  Destination Town
+                </Label>
+                <Input
+                  placeholder="e.g. Ikeja, Lekki, Aba"
+                  value={form.destination_town}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, destination_town: e.target.value }))
+                  }
+                />
+              </div>
             </div>
 
             {/* Driver's Name + Driver's Phone */}
@@ -883,7 +953,7 @@ export default function InHouseOrders() {
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                   <ShieldCheck size={15} className="text-slate-500" />
-                  Supervised By
+                  Sales Representative
                 </Label>
                 <Input
                   placeholder="e.g. Ahmed Bello"

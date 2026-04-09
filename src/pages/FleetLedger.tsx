@@ -511,7 +511,7 @@ export default function FleetLedger() {
                               {e.date ? format(parseISO(e.date), 'dd MMM yyyy') : '—'}
                             </TableCell>
                             <TableCell className="text-sm font-semibold text-slate-800">{plate}</TableCell>
-                            <TableCell className="text-sm text-slate-700 max-w-[200px] truncate">{e.description || '—'}</TableCell>
+                            <TableCell className="text-sm text-slate-700 max-w-[200px]">{e.description || '—'}</TableCell>
                             <TableCell>
                               <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${isExp ? 'text-red-700' : 'text-emerald-700'}`}>
                                 {isExp ? <TrendingDown size={12} /> : <TrendingUp size={12} />}
@@ -527,13 +527,14 @@ export default function FleetLedger() {
                             <TableCell className="text-sm text-black">{e.entered_by || '—'}</TableCell>
                             <TableCell className="text-center">
                               <div className="flex justify-center gap-1">
-                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEditEntry(e)} title="Edit entry">
+                                <Button size="sm" variant="outline" className="gap-1.5 text-sm text-green-700 border-green-200 hover:bg-green-50 hover:text-green-800" onClick={() => openEditEntry(e)} title="Edit entry">
                                   <Pencil size={14} />
+                                  Edit Entry
                                 </Button>
-                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" title="Delete entry"
+                                {/* <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" title="Delete entry"
                                   onClick={() => setDeleteTarget({ id: e.id, label: `${e.category} — ${fmt(a)}` })}>
                                   <Trash2 size={14} />
-                                </Button>
+                                </Button> */}
                               </div>
                             </TableCell>
                           </TableRow>

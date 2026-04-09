@@ -495,7 +495,7 @@ export default function FleetTrucks() {
 
             {/* Header */}
             <PageHeader
-              title="Our Trucks"
+              title="Fleet"
               description="At-a-glance truck performance — debits, credits, and balance per truck for any period."
               actions={
                 <div className="flex gap-2">
@@ -623,19 +623,21 @@ export default function FleetTrucks() {
                             <TableCell className={`text-sm text-left font-bold ${balColor}`}>
                               {t.debits === 0 && t.credits === 0 ? '—' : fmt(t.balance)}
                             </TableCell>
-                            <TableCell className="text-left" onClick={e => e.stopPropagation()}>
+                            <TableCell className="text-center" onClick={e => e.stopPropagation()}>
                               <div className="flex justify-center gap-1">
-                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-blue-600 hover:text-blue-800" title="View ledger"
+                                <Button size="sm" variant="outline"
+                                  className="gap-1.5 px-3 py-1 text-sm font-medium text-green-600 border-green-300 bg-green-50/40 hover:bg-green-100 hover:text-green-800 hover:border-green-400 transition-all shadow-sm"
                                   onClick={() => { setSelectedTruck(t); setDetailSearch(''); setDetailTypeFilter('all'); }}>
-                                  <Eye size={14} />
+                                  <Eye size={16} />
+                                  View Details
                                 </Button>
-                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEditTruck(t)} title="Edit truck">
+                                {/* <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEditTruck(t)} title="Edit truck">
                                   <Pencil size={14} />
                                 </Button>
                                 <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" title="Delete truck"
                                   onClick={() => setDeleteTarget({ id: t.id, label: t.plate_number })}>
                                   <Trash2 size={14} />
-                                </Button>
+                                </Button> */}
                               </div>
                             </TableCell>
                           </TableRow>

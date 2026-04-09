@@ -57,19 +57,19 @@ type OrdersResults = { results?: Array<{ status?: string | null }> };
 // TRANSPORT=6,"Transport Officer"
 
 const navItems = [
-  // OVERVIEW
+  /// OVERVIEW
   { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0,1,2,3,4,5,6] },
 
   // SALES & CUSTOMERS
   { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,3,4] },
-  { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
+  { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
 
   // OPERATIONS (TICKETING / LOADING)
   { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
-  { title: "In-House Orders", icon: Truck, path: "/in-house-orders", allowedRoles: [0,1,4] },
+  { title: "Delivery Orders", icon: Truck, path: "/in-house-orders", allowedRoles: [0,1,4] },
 
   // TRANSPORT / FLEET
-  { title: "Our Trucks", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
+  { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
   { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,1,6] },
 
   // FINANCE

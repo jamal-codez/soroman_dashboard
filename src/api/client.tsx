@@ -1057,6 +1057,8 @@ export const apiClient = {
       product_id: number;
       quantity: number;
       state_id: number;
+      destination_state?: string;
+      destination_town?: string;
       driver_name: string;
       driver_phone?: string;
       truck_number: string;

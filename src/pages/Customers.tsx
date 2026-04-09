@@ -286,8 +286,8 @@ const Customers = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="Customer Contacts"
-              description="Contacts extracted from all orders — deduplicated by email / phone. Search and download as CSV."
+              title="Pickup Customers"
+              description="All contacts extracted from online pickup orders"
               actions={
                 <Button onClick={exportCSV} disabled={exporting || filtered.length === 0}>
                   {exporting ? (
