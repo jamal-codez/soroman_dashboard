@@ -631,9 +631,9 @@ export default function FleetTrucks() {
                                   <Eye size={16} />
                                   View Details
                                 </Button>
-                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEditTruck(t)} title="Edit truck">
+                                {/* <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEditTruck(t)} title="Edit truck">
                                   <Pencil size={14} />
-                                </Button>
+                                </Button> */}
                                 {/* <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" title="Delete truck"
                                   onClick={() => setDeleteTarget({ id: t.id, label: t.plate_number })}>
                                   <Trash2 size={14} />

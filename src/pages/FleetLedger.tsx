@@ -63,13 +63,13 @@ type TimePreset = 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'c
 
 const EXPENSE_CATEGORIES = [
   'Brake Pads', 'Tyres', 'Engine Oil', 'Fuel/Diesel',
-  'Repairs & Maintenance', 'Insurance', 'Licence/Registration',
+  'Truck Servicing', 'Repairs & Maintenance', 'Insurance', 'Licence/Registration',
   'Spare Parts', 'Battery', 'Electrical', 'Body Work', 'Towing', 'Driver Salary', 'Driver Allowance',
-  'Loading/Offloading', 'Other',
+  'Loading', 'Other', 
 ] as const;
 
 const INCOME_CATEGORIES = [
-  'Delivery Trip', 'Freight Charges', 'Hire/Charter', 'Refund', 'Other',
+  'Delivery', 'Freight Charges', 'Hire/Charter', 'Refund', 'Other',
 ] as const;
 
 const ALL_CATEGORIES = [...new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])];
@@ -443,7 +443,7 @@ export default function FleetLedger() {
             </div>
 
             {/* ── Summary Cards ─────────────────────────────────────── */}
-            <SummaryCards cards={summaryCards} />
+            {/* <SummaryCards cards={summaryCards} /> */}
 
             {/* ── Filters / Toolbar ─────────────────────────────────── */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
