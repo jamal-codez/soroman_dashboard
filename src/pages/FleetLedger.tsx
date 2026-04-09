@@ -396,7 +396,7 @@ export default function FleetLedger() {
 
             {/* Header */}
             <PageHeader
-              title="Fleet Ledger"
+              title="Trucks Ledger"
               description="Add, edit, and manage all truck expense and income entries."
               actions={
                 <>

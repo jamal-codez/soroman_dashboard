@@ -495,7 +495,7 @@ export default function FleetTrucks() {
 
             {/* Header */}
             <PageHeader
-              title="Fleet Trucks"
+              title="Our Trucks"
               description="At-a-glance truck performance — debits, credits, and balance per truck for any period."
               actions={
                 <div className="flex gap-2">
