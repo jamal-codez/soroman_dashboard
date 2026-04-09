@@ -38,6 +38,7 @@ const OrdersPFI = lazy(() => import("./pages/OrdersPFI"));
 const InHouseOrders = lazy(() => import("./pages/InHouseOrders"));
 const FleetTrucks = lazy(() => import("./pages/FleetTrucks"));
 const FleetLedger = lazy(() => import("./pages/FleetLedger"));
+const BuyersList = lazy(() => import("./pages/BuyersList"));
 
 // ---------------------------------------------------------------------------
 // QueryClient with sane global defaults
@@ -120,6 +121,7 @@ const App = () => (
               <Route path="/in-house-orders" element={<InHouseOrders />} />
               <Route path="/fleet-trucks" element={<FleetTrucks />} />
               <Route path="/fleet-ledger" element={<FleetLedger />} />
+              <Route path="/buyers-list" element={<BuyersList />} />
               <Route path="/offline-sales" element={<OfflineSales />} />
               <Route path="/report" element={<Report />} />
               <Route path="/pricing" element={<Pricing />} />

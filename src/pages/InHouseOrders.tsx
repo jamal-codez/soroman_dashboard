@@ -725,7 +725,7 @@ export default function InHouseOrders() {
                                   {order.delivery_address && (
                                     <div className="flex items-center gap-1 text-slate-500 text-xs">
                                       <MapPin size={11} className="text-slate-400 shrink-0" />
-                                      <span className="truncate">{order.delivery_address}</span>
+                                      <span className>{order.delivery_address}</span>
                                     </div>
                                   )}
                                 </div>

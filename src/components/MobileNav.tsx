@@ -22,6 +22,7 @@ import {
   Truck,
   Banknote,
   TicketPlusIcon,
+  UserCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -45,6 +46,7 @@ const navItems = [
   // SALES & CUSTOMERS
   { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,3,4] },
   { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
+  { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3,4] },
 
   // OPERATIONS (TICKETING / LOADING)
   { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },

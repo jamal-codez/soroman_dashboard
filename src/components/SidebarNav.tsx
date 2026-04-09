@@ -40,7 +40,8 @@ import {
   FileBadge2Icon,
   ChevronsLeft,
   ChevronsRight,
-  LogOutIcon
+  LogOutIcon,
+  UserCheck,
 } from "lucide-react";
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
@@ -63,6 +64,7 @@ const navItems = [
   // SALES & CUSTOMERS
   { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,3,4] },
   { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
+  { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
 
   // OPERATIONS (TICKETING / LOADING)
   { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
@@ -70,7 +72,7 @@ const navItems = [
 
   // TRANSPORT / FLEET
   { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
-  { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,1,6] },
+  { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,6] },
 
   // FINANCE
   { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2] },

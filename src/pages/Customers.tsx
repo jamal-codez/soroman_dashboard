@@ -301,11 +301,11 @@ const Customers = () => {
             />
 
             {/* ── Stat cards ──────────────────────────────────────────── */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-2 gap-3">
               <StatMini icon={Users} label="Total Contacts" value={stats.total} color="blue" loading={isLoading} />
-              <StatMini icon={Mail} label="With Email" value={stats.withEmail} color="green" loading={isLoading} />
-              <StatMini icon={Phone} label="With Phone" value={stats.withPhone} color="amber" loading={isLoading} />
-              <StatMini icon={Building2} label="With Company" value={stats.withCompany} color="violet" loading={isLoading} />
+              {/* <StatMini icon={Mail} label="With Email" value={stats.withEmail} color="green" loading={isLoading} /> */}
+              <StatMini icon={Phone} label="Active Phone" value={stats.withPhone} color="amber" loading={isLoading} />
+              {/* <StatMini icon={Building2} label="With Company" value={stats.withCompany} color="violet" loading={isLoading} /> */}
             </div>
 
             {/* ── Search ──────────────────────────────────────────────── */}
@@ -335,8 +335,8 @@ const Customers = () => {
                     <TableHead className="w-[48px]">S/N</TableHead>
                     <TableHead className="w-[190px]">Name</TableHead>
                     <TableHead className="w-[150px]">Company</TableHead>
-                    <TableHead className="w-[230px]">Email</TableHead>
                     <TableHead className="w-[150px]">Phone</TableHead>
+                    <TableHead className="w-[230px]">Email</TableHead>
                     <TableHead className="w-[110px]">Location</TableHead>
                     <TableHead className="w-[72px] text-center">Orders</TableHead>
                     <TableHead className="w-[100px]">Last Order</TableHead>
@@ -349,8 +349,8 @@ const Customers = () => {
                         <TableCell><Skeleton className="h-4 w-8" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-44" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-44" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-10 mx-auto" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
@@ -378,15 +378,15 @@ const Customers = () => {
                   ) : (
                     filtered.map((c, idx) => (
                       <TableRow key={c.key}>
-                        <TableCell className="text-slate-500">{idx + 1}</TableCell>
+                        <TableCell className="text-center text-slate-500">{idx + 1}</TableCell>
 
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
+                            {/* <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
                               {(c.name.split(' ')[0]?.[0] || '').toUpperCase()}
                               {(c.name.split(' ')[1]?.[0] || '').toUpperCase()}
-                            </div>
-                            <span className="font-medium text-slate-900 capitalize">
+                            </div> */}
+                            <span className="font-medium text-slate-900 uppercase">
                               {c.name || '—'}
                             </span>
                           </div>
@@ -396,23 +396,8 @@ const Customers = () => {
                           {c.company ? (
                             <div className="inline-flex items-center gap-1.5">
                               <Building2 size={12} className="text-slate-400" />
-                              <span className="truncate max-w-[130px]">{c.company}</span>
+                              <span className="max-w-[130px]">{c.company}</span>
                             </div>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </TableCell>
-
-                        <TableCell>
-                          {c.email ? (
-                            <a
-                              href={`mailto:${c.email}`}
-                              className="inline-flex items-center gap-1.5 text-blue-700 hover:underline underline-offset-2 text-sm truncate max-w-[220px]"
-                              title={c.email}
-                            >
-                              <Mail size={12} className="text-blue-500 shrink-0" />
-                              {c.email}
-                            </a>
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}
@@ -433,11 +418,26 @@ const Customers = () => {
                           )}
                         </TableCell>
 
+                        <TableCell>
+                          {c.email ? (
+                            <a
+                              href={`mailto:${c.email}`}
+                              className="inline-flex items-center gap-1.5 text-blue-700 hover:underline underline-offset-2 text-sm truncate max-w-[220px]"
+                              title={c.email}
+                            >
+                              <Mail size={12} className="text-blue-500 shrink-0" />
+                              {c.email}
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </TableCell>
+
                         <TableCell className="text-slate-600">
                           {c.location ? (
                             <div className="inline-flex items-center gap-1.5">
-                              <MapPin size={12} className="text-slate-400 shrink-0" />
-                              <span className="truncate max-w-[90px] capitalize">{c.location}</span>
+                              {/* <MapPin size={12} className="text-slate-400 shrink-0" /> */}
+                              <span className="capitalize">{c.location}</span>
                             </div>
                           ) : (
                             <span className="text-slate-400">—</span>
@@ -451,7 +451,7 @@ const Customers = () => {
                           </span>
                         </TableCell>
 
-                        <TableCell className="text-slate-600 whitespace-nowrap text-xs">
+                        <TableCell className="text-slate-600 whitespace-nowrap text-sm">
                           {c.lastOrderDate
                             ? format(new Date(c.lastOrderDate), 'dd/MM/yyyy')
                             : '—'}
