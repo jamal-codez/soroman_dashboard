@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useCallback } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -33,6 +33,9 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Search,
@@ -44,10 +47,19 @@ import {
   Users2,
   Ban,
   CheckCircle2,
+  MapPin,
+  Globe,
+  X,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { SummaryCards } from '@/components/SummaryCards';
+
+type LocationInfo = {
+  id: number;
+  name: string;
+  abbreviation?: string;
+};
 
 type UserType = {
   id: number;
@@ -60,6 +72,8 @@ type UserType = {
   last_login_ip?: string | null;
   last_login_user_agent?: string | null;
   label: string;
+  can_view_all_locations?: boolean;
+  locations?: LocationInfo[];
 };
 
 const roleMap: Record<number, string> = {
@@ -83,6 +97,8 @@ const Settings = () => {
     phone_number: '',
     role: '1',
     suspended: false,
+    location_ids: [] as number[],
+    can_view_all_locations: false,
   });
   const [errors, setErrors] = useState({
     full_name: '',
@@ -95,6 +111,27 @@ const Settings = () => {
   const [showPassword, setShowPassword] = useState(false);
 
   const { toast } = useToast();
+
+  // Fetch available locations (states) for the location picker
+  const [allLocations, setAllLocations] = useState<LocationInfo[]>([]);
+  useEffect(() => {
+    apiClient.admin.getStates()
+      .then((res) => {
+        const list = (res?.results ?? res) as Array<{ id: number; name: string; abbreviation?: string }>;
+        setAllLocations(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {/* silently fail — locations picker will just be empty */});
+  }, []);
+
+  // Location search within the dropdown
+  const [locationSearch, setLocationSearch] = useState('');
+  const filteredLocations = useMemo(() => {
+    if (!locationSearch.trim()) return allLocations;
+    const q = locationSearch.toLowerCase();
+    return allLocations.filter(
+      (l) => l.name.toLowerCase().includes(q) || (l.abbreviation || '').toLowerCase().includes(q)
+    );
+  }, [allLocations, locationSearch]);
 
   const formatLastLogin = (value?: string | null) => {
     if (!value) return 'N/A';
@@ -151,6 +188,8 @@ const Settings = () => {
         phone_number: user.phone_number,
         role: String(user.role),
         suspended: user.suspended,
+        location_ids: (user.locations || []).map((l) => l.id),
+        can_view_all_locations: user.can_view_all_locations ?? false,
       });
     } else {
       setEditingUser(null);
@@ -161,8 +200,11 @@ const Settings = () => {
         phone_number: '',
         role: '1',
         suspended: false,
+        location_ids: [],
+        can_view_all_locations: false,
       });
     }
+    setLocationSearch('');
     setIsDialogOpen(true);
   };
 
@@ -176,7 +218,10 @@ const Settings = () => {
       phone_number: '',
       role: '1',
       suspended: false,
+      location_ids: [],
+      can_view_all_locations: false,
     });
+    setLocationSearch('');
     setErrors({
       full_name: '',
       email: '',
@@ -198,6 +243,8 @@ const Settings = () => {
           phone_number: formData.phone_number,
           role: parseInt(formData.role),
           suspended: formData.suspended,
+          location_ids: formData.location_ids,
+          can_view_all_locations: formData.can_view_all_locations,
         };
 
         if (formData.password && formData.password !== "********") {
@@ -223,6 +270,8 @@ const Settings = () => {
           full_name: formData.full_name,
           phone_number: formData.phone_number,
           role: parseInt(formData.role),
+          location_ids: formData.location_ids,
+          can_view_all_locations: formData.can_view_all_locations,
         });
 
         toast({
@@ -391,10 +440,9 @@ const Settings = () => {
                   <TableRow>
                     <TableHead>Staff</TableHead>
                     <TableHead>Role</TableHead>
+                    <TableHead>Locations</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Last Login</TableHead>
-                    {/* <TableHead>Device Used</TableHead> */}
-                    {/* <TableHead>IP</TableHead> */}
                     <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -419,6 +467,29 @@ const Settings = () => {
                         </div>
                       </TableCell>
                       <TableCell>
+                        {user.can_view_all_locations || user.role === 0 ? (
+                          <Badge variant="secondary" className="gap-1 bg-blue-50 text-blue-700 border-blue-200">
+                            <Globe size={12} />
+                            All Locations
+                          </Badge>
+                        ) : (user.locations && user.locations.length > 0) ? (
+                          <div className="flex flex-wrap gap-1 max-w-[200px]">
+                            {user.locations.slice(0, 3).map((loc) => (
+                              <Badge key={loc.id} variant="outline" className="text-xs font-normal">
+                                {loc.abbreviation || loc.name}
+                              </Badge>
+                            ))}
+                            {user.locations.length > 3 && (
+                              <Badge variant="outline" className="text-xs font-normal text-slate-500">
+                                +{user.locations.length - 3}
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">None</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                           !user.suspended ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
                         }`}>
@@ -426,10 +497,6 @@ const Settings = () => {
                         </span>
                       </TableCell>
                       <TableCell>{formatLastLogin(user.last_login)}</TableCell>
-                      {/* <TableCell className="max-w-[280px] truncate" title={user.last_login_user_agent || undefined}>
-                        {user.last_login_user_agent || '—'}
-                      </TableCell> */}
-                      {/* <TableCell>{user.last_login_ip || '—'}</TableCell> */}
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button variant="outline" size="sm" onClick={() => handleOpenDialog(user)}>
@@ -471,7 +538,7 @@ const Settings = () => {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingUser ? 'Edit Staff' : 'Add New Staff'}</DialogTitle>
             <DialogDescription>
@@ -553,6 +620,117 @@ const Settings = () => {
                     <option value="6">Transport Officer</option>
                   </optgroup>
                 </select>
+              </div>
+
+              {/* ── Location Access ──────────────────────────── */}
+              <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm font-semibold">Location Access</Label>
+                    <p className="text-xs text-slate-500 mt-0.5">Control which depot locations this staff can access.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Globe size={16} className="text-blue-600" />
+                    <div>
+                      <Label htmlFor="can_view_all" className="text-sm font-medium cursor-pointer">Can view all locations</Label>
+                      <p className="text-xs text-slate-500">Grant access to every location</p>
+                    </div>
+                  </div>
+                  <Switch
+                    id="can_view_all"
+                    checked={formData.can_view_all_locations}
+                    onCheckedChange={(checked) =>
+                      setFormData({ ...formData, can_view_all_locations: checked })
+                    }
+                  />
+                </div>
+
+                {!formData.can_view_all_locations && (
+                  <div className="space-y-2">
+                    <Label className="text-sm">Assigned Locations</Label>
+
+                    {/* Selected locations as removable badges */}
+                    {formData.location_ids.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {formData.location_ids.map((id) => {
+                          const loc = allLocations.find((l) => l.id === id);
+                          return (
+                            <Badge
+                              key={id}
+                              variant="secondary"
+                              className="gap-1 pr-1 cursor-pointer hover:bg-red-50 hover:text-red-700 transition-colors"
+                              onClick={() =>
+                                setFormData({
+                                  ...formData,
+                                  location_ids: formData.location_ids.filter((lid) => lid !== id),
+                                })
+                              }
+                            >
+                              {loc?.name || `ID ${id}`}
+                              <X size={12} />
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Location search */}
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                      <Input
+                        placeholder="Search locations…"
+                        value={locationSearch}
+                        onChange={(e) => setLocationSearch(e.target.value)}
+                        className="pl-8 h-9 text-sm"
+                      />
+                    </div>
+
+                    {/* Scrollable checkbox list */}
+                    <div className="max-h-[180px] overflow-y-auto rounded-md border border-slate-200 bg-white divide-y divide-slate-100">
+                      {filteredLocations.length === 0 ? (
+                        <div className="px-3 py-4 text-center text-xs text-slate-400">No locations found</div>
+                      ) : (
+                        filteredLocations.map((loc) => {
+                          const isSelected = formData.location_ids.includes(loc.id);
+                          return (
+                            <label
+                              key={loc.id}
+                              className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors"
+                            >
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={(checked) => {
+                                  setFormData({
+                                    ...formData,
+                                    location_ids: checked
+                                      ? [...formData.location_ids, loc.id]
+                                      : formData.location_ids.filter((lid) => lid !== loc.id),
+                                  });
+                                }}
+                              />
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <MapPin size={13} className="text-slate-400 shrink-0" />
+                                <span className="text-sm truncate">{loc.name}</span>
+                                {loc.abbreviation && (
+                                  <span className="text-xs text-slate-400">({loc.abbreviation})</span>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {formData.location_ids.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        ⚠ No locations selected — this user won't see any location-specific data.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

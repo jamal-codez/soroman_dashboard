@@ -31,6 +31,8 @@ const handleSessionExpired = () => {
   localStorage.removeItem('role');
   localStorage.removeItem('fullname');
   localStorage.removeItem('label');
+  localStorage.removeItem('locations');
+  localStorage.removeItem('can_view_all_locations');
   window.location.href = '/login';
 };
 /** Reset the one-shot guard after a fresh login */
@@ -77,6 +79,8 @@ export const apiClient = {
       phone_number: string;
       role?: number;
       suspended?: boolean;
+      location_ids?: number[];
+      can_view_all_locations?: boolean;
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/users/register/`, {
         method: 'POST',

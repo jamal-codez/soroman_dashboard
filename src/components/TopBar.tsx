@@ -12,6 +12,8 @@ export const TopBar = React.memo(function TopBar() {
     localStorage.removeItem('role');
     localStorage.removeItem('fullname');
     localStorage.removeItem('label');
+    localStorage.removeItem('locations');
+    localStorage.removeItem('can_view_all_locations');
     window.location.href = '/login';
   };
 
