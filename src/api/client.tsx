@@ -1,5 +1,4 @@
-const ADMIN_BASE = 'https://api.ordersoroman.com/api/admin';
-// const ADMIN_BASE = 'http://127.0.0.1:8000/api/admin';
+const ADMIN_BASE = import.meta.env.VITE_API_BASE_URL || 'https://api.ordersoroman.com/api/admin';
 
 // Utility function to generate headers
 const getHeaders = (additionalHeaders = {}) => {
@@ -18,6 +17,35 @@ const getHeadersfree = (additionalHeaders = {}) => ({
   'Content-Type': 'application/json',
   ...additionalHeaders,
 });
+
+// ---------------------------------------------------------------------------
+// Session-expired handler — fires once per session to avoid redirect loops.
+// When any API call returns 401/403 while the user has a token, the session
+// is expired: clear storage and kick back to login.
+// ---------------------------------------------------------------------------
+let _sessionExpiredFired = false;
+const handleSessionExpired = () => {
+  if (_sessionExpiredFired) return;
+  _sessionExpiredFired = true;
+  localStorage.removeItem('token');
+  localStorage.removeItem('role');
+  localStorage.removeItem('fullname');
+  localStorage.removeItem('label');
+  window.location.href = '/login';
+};
+/** Reset the one-shot guard after a fresh login */
+export const resetSessionExpiredGuard = () => { _sessionExpiredFired = false; };
+
+// ---------------------------------------------------------------------------
+// safeFetch — drop-in wrapper around `fetch` that auto-detects expired tokens
+// ---------------------------------------------------------------------------
+const safeFetch: typeof fetch = async (input, init) => {
+  const response = await fetch(input, init);
+  if ((response.status === 401 || response.status === 403) && localStorage.getItem('token')) {
+    handleSessionExpired();
+  }
+  return response;
+};
 
 // Read backend error responses safely (JSON or text)
 const safeReadError = async (response: Response): Promise<string> => {
@@ -47,7 +75,7 @@ export const apiClient = {
       role?: number;
       suspended?: boolean;
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/users/register/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/users/register/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -56,6 +84,8 @@ export const apiClient = {
       return response.json();
     },
 
+    // Login intentionally uses raw `fetch` — unauthenticated calls should
+    // never trigger the 401 auto-logout flow.
     loginUser: async (data: { email: string; password: string }) => {
       const response = await fetch(`${ADMIN_BASE}/users/login/`, {
         method: 'POST',
@@ -68,64 +98,71 @@ export const apiClient = {
     
 
     toggleBankSuspend: async (bankid: number) => {
-      const response = await fetch(`${ADMIN_BASE}/banktoggle/${bankid}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/banktoggle/${bankid}/`, {
         method: 'GET',
         headers: getHeaders(),
       });
-      return response.ok ? true : response.json();
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
     },
 
     
 
     // Analytics
     getAnalytics: async () => {
-      const response = await fetch(`${ADMIN_BASE}/analytics/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/analytics/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     // Product Inventory
     getProductInventory: async () => {
-      const response = await fetch(`${ADMIN_BASE}/product-inventory/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/product-inventory/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     // Sales Overview
     getSalesOverview: async () => {
-      const response = await fetch(`${ADMIN_BASE}/sales-overview/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/sales-overview/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     // Recent Orders
     getRecentOrders: async () => {
-      const response = await fetch(`${ADMIN_BASE}/recent-orders/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/recent-orders/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     // States
     getStates: async () => {
-      const response = await fetch(`${ADMIN_BASE}/states/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/states/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     getStatesPricing: async () => {
-      const response = await fetch(`${ADMIN_BASE}/productprice/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/productprice/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     postBankAccount: async (data: { name: string; acct_no: string; bank_name: string }) => {
-      const response = await fetch(`${ADMIN_BASE}/bank-accounts/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -140,7 +177,7 @@ export const apiClient = {
     },
 
     patchStatePrice: async (id: number, data: { price: number }) => {
-      const response = await fetch(`${ADMIN_BASE}/states/${id}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/states/${id}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -158,7 +195,7 @@ export const apiClient = {
       id: number,
       data: Partial<{ name: string; acct_no: string; bank_name: string; location_id?: number | null; is_active?: boolean; suspended?: boolean }>
     ) => {
-      const response = await fetch(`${ADMIN_BASE}/banks/${id}/edit/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/banks/${id}/edit/`, {
         method: 'PATCH',
         headers: getHeaders(), // assumes it returns Content-Type and Authorization headers
         body: JSON.stringify(data),
@@ -188,14 +225,14 @@ export const apiClient = {
           url.searchParams.append(key, String(value));
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders(),
       });
       return response.json();
     },
 
     updateProductPrice: async (productId: number, data: { unit_price: number }) => {
-      const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/products/${productId}/`, {
         method: 'PATCH',
         headers:getHeaders(),
         body: JSON.stringify(data),
@@ -210,7 +247,7 @@ export const apiClient = {
     },
 
     createBankAccount: async (data: { name: string; acct_no: string; bank_name: string }) => {
-      const response = await fetch(`${ADMIN_BASE}/bank-accounts/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -223,19 +260,21 @@ export const apiClient = {
     },
 
     deleteBankAccount: async (bankAccountId: number) => {
-      const response = await fetch(`${ADMIN_BASE}/bank-accounts/${bankAccountId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/${bankAccountId}/`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
-      return response.ok ? true : response.json();
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
     },
 
     cancleOrder: async (orderID: number) => {
-      const response = await fetch(`${ADMIN_BASE}/cancleorder/${orderID}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/cancleorder/${orderID}/`, {
         method: 'GET',
         headers: getHeaders(),
       });
-      return response.ok ? true : response.json();
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
     },
 
     releaseOrder: async (
@@ -267,7 +306,7 @@ export const apiClient = {
       // POST /api/admin/orders/<id>/release/
       const url = `${ADMIN_BASE}/orders/${id}/release/`;
 
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(payload || {}),
@@ -286,7 +325,7 @@ export const apiClient = {
     },
 
     confirmTruckExit: async (orderId: string | number) => {
-      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/exit-truck/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/exit-truck/`, {
         method: 'POST',
         headers: getHeaders(),
       });
@@ -299,7 +338,7 @@ export const apiClient = {
 
     // Confirm payment & release order (requires CanConfirmPayments permission)
     confirmPayment: async (orderId: number | string, payload?: { narration?: string }) => {
-      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/confirm-payment/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/confirm-payment/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(payload || {}),
@@ -342,7 +381,7 @@ export const apiClient = {
         });
       }
 
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         method: 'GET',
         headers: getHeaders(),
       });
@@ -357,9 +396,10 @@ export const apiClient = {
 
     // Top Customers
     getTopCustomers: async () => {
-      const response = await fetch(`${ADMIN_BASE}/top-customers/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/top-customers/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
@@ -371,9 +411,10 @@ export const apiClient = {
           url.searchParams.append(key, value.toString());
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
@@ -387,7 +428,7 @@ export const apiClient = {
           url.searchParams.append(key, String(value));
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders(),
       });
       if (!response.ok) {
@@ -403,7 +444,7 @@ export const apiClient = {
 
     // Permanently delete an order (irreversible)
     deleteOrder: async (orderId: number | string) => {
-      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
@@ -427,7 +468,7 @@ export const apiClient = {
           url.searchParams.append(key, String(value));
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders(),
       });
       if (!response.ok) {
@@ -442,7 +483,7 @@ export const apiClient = {
     },
 
     adminCreateAgent: async (data: { name: string; phone: string; type: 'general' | 'location'; location?: number | null; is_active: boolean }) => {
-      const response = await fetch(`${ADMIN_BASE}/agents/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/agents/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -459,7 +500,7 @@ export const apiClient = {
     },
 
     adminUpdateAgent: async (id: number, data: Partial<{ name: string; phone: string; type: 'general' | 'location'; location: number | null; is_active: boolean }>) => {
-      const response = await fetch(`${ADMIN_BASE}/agents/${id}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/agents/${id}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -477,7 +518,7 @@ export const apiClient = {
 
     // Soft-delete on backend (sets is_active=false, returns 204)
     adminDeactivateAgent: async (id: number) => {
-      const response = await fetch(`${ADMIN_BASE}/agents/${id}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/agents/${id}/`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
@@ -500,9 +541,10 @@ export const apiClient = {
           url.searchParams.append(key, value.toString());
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
@@ -517,9 +559,10 @@ export const apiClient = {
           url.searchParams.append(key, value.toString());
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
@@ -534,10 +577,10 @@ export const apiClient = {
         });
       }
 
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders(),
       });
-      
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
@@ -549,7 +592,7 @@ export const apiClient = {
       unit_price: number;
       stock_quantity: number;
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/products/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/products/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -568,9 +611,10 @@ export const apiClient = {
           url.searchParams.append(key, value.toString());
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders()
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
@@ -578,7 +622,7 @@ export const apiClient = {
       id: number;
       products: { id: number; price: number }[];
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/states/${updatedState.id}/update-prices/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/states/${updatedState.id}/update-prices/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(updatedState),
@@ -593,16 +637,18 @@ export const apiClient = {
     },
     
     toggleStateStatus: async (StatetId: string) => {
-      const response = await fetch(`${ADMIN_BASE}/state/${StatetId}/togglestatus/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/state/${StatetId}/togglestatus/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     getProductById: async (productId: number) => {
-      const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/products/${productId}/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
@@ -614,7 +660,7 @@ export const apiClient = {
     //   stock_quantity: number;
     //   initial_stock_quantity: number;
     // }) => {
-    //   const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+    //   const response = await safeFetch(`${ADMIN_BASE}/products/${productId}/`, {
     //     method: 'PUT',
     //     headers: getHeaders(),
     //     body: JSON.stringify(data),
@@ -637,21 +683,23 @@ export const apiClient = {
       const url = new URL(`${ADMIN_BASE}/products/${productId}/`);
       url.searchParams.append('state_id', state_id.toString());
 
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         method: 'PUT',
         headers: getHeaders(),
         body: JSON.stringify(data),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
 
     deleteProduct: async (productId: number) => {
-      const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/products/${productId}/`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
-      return response.ok ? true : response.json();
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
     },
 
     // Customers
@@ -662,44 +710,49 @@ export const apiClient = {
           url.searchParams.append(key, value.toString());
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     getCustomerById: async (customerId: number) => {
-      const response = await fetch(`${ADMIN_BASE}/customers/${customerId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/customers/${customerId}/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     getFullCustomerDetails: async () => {
-      const response = await fetch(`${ADMIN_BASE}/customers/full-details/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/customers/full-details/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     // Payment Orders
     getPaymentOrders: async () => {
-      const response = await fetch(`${ADMIN_BASE}/payment-orders/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/payment-orders/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     getBanks: async () => {
-      const response = await fetch(`${ADMIN_BASE}/bank-accounts/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     // Order Status
     updateOrderStatus: async (data: { id: number; status: string }) => {
-      const response = await fetch(`${ADMIN_BASE}/update-order-status/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/update-order-status/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -730,7 +783,7 @@ export const apiClient = {
         });
       }
 
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         method: 'GET',
         headers: getHeaders(),
       });
@@ -745,9 +798,10 @@ export const apiClient = {
 
     // Finance Overview
     getFinanceOverview: async () => {
-      const response = await fetch(`${ADMIN_BASE}/finance-overview/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/finance-overview/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
@@ -757,7 +811,7 @@ export const apiClient = {
       type: string;
       project: { name: string };
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/send-notification/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/send-notification/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -771,13 +825,13 @@ export const apiClient = {
 
     // User Management
     getUsers: async () => {
-      const response = await fetch(`${ADMIN_BASE}/users/`, { headers: getHeaders() });
+      const response = await safeFetch(`${ADMIN_BASE}/users/`, { headers: getHeaders() });
       if (!response.ok) throw new Error('Failed to fetch users');
       return response.json();
     },
 
     updateUser: async (userId: number, data: Record<string, unknown>) => {
-      const response = await fetch(`${ADMIN_BASE}/users/${userId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/users/${userId}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -787,16 +841,17 @@ export const apiClient = {
     },
 
     adminUpdateProduct: async (productId: number, data: Record<string, unknown>) => {
-      const response = await fetch(`${ADMIN_BASE}/products/${productId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/products/${productId}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
 
     deleteUser: async (userId: number) => {
-      const response = await fetch(`${ADMIN_BASE}/users/${userId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/users/${userId}/`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
@@ -814,7 +869,7 @@ export const apiClient = {
       items: Array<{ product: number; quantity: number }>;
       notes?: string;
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/offline-sales/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/offline-sales/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -829,18 +884,20 @@ export const apiClient = {
     },
   
     getOfflineSales: async () => {
-      const response = await fetch(`${ADMIN_BASE}/offline-sales/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/offline-sales/`, {
         headers: getHeaders(),
       });
+      if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
     
     deleteOfflineSale: async (id: string) => {
-      const response = await fetch(`${ADMIN_BASE}/offline-sales/${id}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/offline-sales/${id}/`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
-      return response.ok ? true : response.json();
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
     },
 
     getOrderAudit: async (params?: {
@@ -861,7 +918,7 @@ export const apiClient = {
           url.searchParams.append(k, s);
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         method: 'GET',
         headers: getHeaders(),
       });
@@ -882,7 +939,7 @@ export const apiClient = {
           url.searchParams.append(k, s);
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         method: 'GET',
         headers: getHeaders(),
       });
@@ -902,7 +959,7 @@ export const apiClient = {
           url.searchParams.append(key, String(value));
         });
       }
-      const response = await fetch(url.toString(), { headers: getHeaders() });
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
@@ -914,7 +971,7 @@ export const apiClient = {
       starting_qty_litres: string;
       notes?: string;
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/pfis/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/pfis/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
@@ -931,7 +988,7 @@ export const apiClient = {
     },
 
     finishPfi: async (id: number | string) => {
-      const response = await fetch(`${ADMIN_BASE}/pfis/${id}/finish/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/pfis/${id}/finish/`, {
         method: 'POST',
         headers: getHeaders(),
       });
@@ -940,7 +997,7 @@ export const apiClient = {
     },
 
     assignOrdersToPfi: async (data: { order_ids: number[]; pfi_id: number }) => {
-      const response = await fetch(`${ADMIN_BASE}/orders/assign-pfi/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/assign-pfi/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -953,7 +1010,7 @@ export const apiClient = {
 
     /** GET /api/admin/orders/<id>/truck-tickets/ — list all tickets for an order */
     getOrderTickets: async (orderId: number) => {
-      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/truck-tickets/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/truck-tickets/`, {
         headers: getHeaders(),
       });
       if (!response.ok) throw new Error(await safeReadError(response));
@@ -989,7 +1046,7 @@ export const apiClient = {
         plate_number?: string;
       }>
     ) => {
-      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/generate-tickets/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/generate-tickets/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({ trucks }),
@@ -1012,7 +1069,7 @@ export const apiClient = {
         quantity_litres?: number;
       }
     ) => {
-      const response = await fetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(payload),
@@ -1023,7 +1080,7 @@ export const apiClient = {
 
     /** GET /api/admin/truck-tickets/<id>/print/ — full print-ready data */
     getTicketPrintData: async (ticketId: number) => {
-      const response = await fetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/print/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/print/`, {
         headers: getHeaders(),
       });
       if (!response.ok) throw new Error(await safeReadError(response));
@@ -1068,7 +1125,7 @@ export const apiClient = {
       customer_phone?: string;
       notes?: string;
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/orders/in-house/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/in-house/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -1099,7 +1156,7 @@ export const apiClient = {
           url.searchParams.set(key, s);
         });
       }
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: getHeaders(),
       });
       if (!response.ok) {
@@ -1118,7 +1175,7 @@ export const apiClient = {
       orderId: number,
       data: { unit_price: number; total_price?: number }
     ) => {
-      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/update-price/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/update-price/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -1145,7 +1202,7 @@ export const apiClient = {
         total_price?: number;
       }
     ) => {
-      const response = await fetch(`${ADMIN_BASE}/orders/${orderId}/record-sale/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/record-sale/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -1169,7 +1226,7 @@ export const apiClient = {
           url.searchParams.set(k, s);
         });
       }
-      const response = await fetch(url.toString(), { headers: getHeaders() });
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
@@ -1183,7 +1240,7 @@ export const apiClient = {
       notes?: string;
       [key: string]: unknown;
     }) => {
-      const response = await fetch(`${ADMIN_BASE}/fleet/trucks/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/fleet/trucks/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -1197,7 +1254,7 @@ export const apiClient = {
       id: number,
       data: Partial<{ plate_number: string; driver_name: string; driver_phone: string; max_capacity: number | null; notes: string; is_active: boolean; [key: string]: unknown }>
     ) => {
-      const response = await fetch(`${ADMIN_BASE}/fleet/trucks/${id}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/fleet/trucks/${id}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
@@ -1208,7 +1265,7 @@ export const apiClient = {
 
     /** DELETE /api/admin/fleet/trucks/<id>/ */
     deleteFleetTruck: async (id: number) => {
-      const response = await fetch(`${ADMIN_BASE}/fleet/trucks/${id}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/fleet/trucks/${id}/`, {
         method: 'DELETE',
         headers: getHeaders(),
       });
@@ -1236,7 +1293,7 @@ export const apiClient = {
           url.searchParams.set(k, s);
         });
       }
-      const response = await fetch(url.toString(), { headers: getHeaders() });
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
@@ -1253,7 +1310,7 @@ export const apiClient = {
     }) => {
       // Backend serializer expects `truck` (FK), not `truck_id`
       const { truck_id, ...rest } = data;
-      const response = await fetch(`${ADMIN_BASE}/fleet/ledger/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/fleet/ledger/`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({ truck: truck_id, ...rest }),
@@ -1278,7 +1335,7 @@ export const apiClient = {
       // Backend serializer expects `truck` (FK), not `truck_id`
       const { truck_id, ...rest } = data;
       const payload = truck_id !== undefined ? { truck: truck_id, ...rest } : rest;
-      const response = await fetch(`${ADMIN_BASE}/fleet/ledger/${id}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/fleet/ledger/${id}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(payload),
@@ -1289,7 +1346,7 @@ export const apiClient = {
 
     /** DELETE /api/admin/fleet/ledger/<id>/ */
     deleteFleetLedgerEntry: async (id: number) => {
-      const response = await fetch(`${ADMIN_BASE}/fleet/ledger/${id}/`, {
+      const response = await safeFetch(`${ADMIN_BASE}/fleet/ledger/${id}/`, {
         method: 'DELETE',
         headers: getHeaders(),
       });

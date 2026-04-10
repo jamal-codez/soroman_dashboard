@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
-import { apiClient } from '@/api/client';
+import { apiClient, resetSessionExpiredGuard } from '@/api/client';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -43,9 +43,9 @@ const Login = () => {
         localStorage.setItem('label',  response.user.label);
         localStorage.setItem('fullname', response.user.full_name);
         setFullName(response.user.full_name);
-    
-        console.log(response.user.role)
-        
+
+        resetSessionExpiredGuard();
+
         toast({
           title: "Success",
           description: "Login successful",

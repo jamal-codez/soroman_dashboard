@@ -58,8 +58,7 @@ const Reports = () => {
   ];
 
   const handleCSVExport = (reportType: string) => {
-    // Implement CSV export logic
-    console.log(`Exporting ${reportType} as CSV`);
+    // TODO: Implement CSV export logic
     // Actual implementation would generate CSV data here
   };
 

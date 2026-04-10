@@ -3,8 +3,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { AuthGuard, RoleGuard } from "@/components/AuthGuard";
 import { Loader2 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -68,23 +69,22 @@ const PageLoader = () => (
   </div>
 );
 
-const isGeneralAdmin = () => {
-  const raw = localStorage.getItem('role');
-  const role = raw === null ? NaN : Number(raw);
-  return role === 1;
-};
-
-const canViewPfi = () => {
-  const raw = localStorage.getItem('role');
-  const role = raw === null ? NaN : Number(raw);
-  return role === 1 || role === 2;
-};
-
-const canViewConfirmedPayments = () => {
-  const raw = localStorage.getItem('role');
-  const role = raw === null ? NaN : Number(raw);
-  return role === 0 || role === 1 || role === 2;
-};
+// ---------------------------------------------------------------------------
+// Helper — wraps a page with AuthGuard (login required) and optionally
+// RoleGuard (only certain roles may access).  Both re-evaluate on every
+// render so they stay in sync with localStorage.
+// ---------------------------------------------------------------------------
+const Protected = ({
+  children,
+  roles,
+}: {
+  children: React.ReactNode;
+  roles?: number[];
+}) => (
+  <AuthGuard>
+    {roles ? <RoleGuard allowedRoles={roles}>{children}</RoleGuard> : children}
+  </AuthGuard>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -95,45 +95,39 @@ const App = () => (
         <ErrorBoundary>
           <Suspense fallback={<PageLoader />}>
             <Routes>
+              {/* Public routes */}
               <Route path="/" element={<Login />} />
-              <Route path="/dashboard" element={<Index />} />
-              <Route path="/orders" element={<Orders />} />
-              <Route path="/orders-pfi" element={<OrdersPFI />} />
-              <Route path="/inventory" element={<Inventory />} />
-              <Route
-                path="/pfi"
-                element={canViewPfi() ? <PFIPage /> : <Navigate to="/dashboard" replace />}
-              />
-              <Route path="/customers" element={<Customers />} />
-              <Route path="/finance" element={<Finance />} />
-              <Route path="/release" element={<Release />} />
-              <Route path="/payment-verify" element={<PaymentVerification />} />
-              <Route
-                path="/confirmed-payments"
-                element={canViewConfirmedPayments() ? <ConfirmedPayments /> : <Navigate to="/dashboard" replace />}
-              />
-              <Route path="/notifications" element={<Notify />} />
-              <Route path="/users-management" element={<Settings />} />
               <Route path="/login" element={<Login />} />
-              <Route path="/order-verification" element={<OrderVerification />} />
-              <Route path="/delivery-processing" element={<DeliveryProcessing />} />
-              <Route path="/pickup-processing" element={<PickupProcessing />} />
-              <Route path="/in-house-orders" element={<InHouseOrders />} />
-              <Route path="/fleet-trucks" element={<FleetTrucks />} />
-              <Route path="/fleet-ledger" element={<FleetLedger />} />
-              <Route path="/buyers-list" element={<BuyersList />} />
-              <Route path="/offline-sales" element={<OfflineSales />} />
-              <Route path="/report" element={<Report />} />
-              <Route path="/pricing" element={<Pricing />} />
-              <Route
-                path="/agents"
-                element={isGeneralAdmin() ? <Agents /> : <Navigate to="/dashboard" replace />}
-              />
-              <Route
-                path="/order-audit"
-                element={isGeneralAdmin() ? <OrderAudit /> : <Navigate to="/dashboard" replace />}
-              />
-              <Route path="/security" element={<SecurityPage />} />
+
+              {/* Authenticated routes — any logged-in role */}
+              <Route path="/dashboard" element={<Protected><Index /></Protected>} />
+              <Route path="/orders" element={<Protected><Orders /></Protected>} />
+              <Route path="/orders-pfi" element={<Protected><OrdersPFI /></Protected>} />
+              <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
+              <Route path="/customers" element={<Protected><Customers /></Protected>} />
+              <Route path="/finance" element={<Protected><Finance /></Protected>} />
+              <Route path="/release" element={<Protected><Release /></Protected>} />
+              <Route path="/payment-verify" element={<Protected><PaymentVerification /></Protected>} />
+              <Route path="/notifications" element={<Protected><Notify /></Protected>} />
+              <Route path="/order-verification" element={<Protected><OrderVerification /></Protected>} />
+              <Route path="/delivery-processing" element={<Protected><DeliveryProcessing /></Protected>} />
+              <Route path="/pickup-processing" element={<Protected><PickupProcessing /></Protected>} />
+              <Route path="/in-house-orders" element={<Protected><InHouseOrders /></Protected>} />
+              <Route path="/fleet-trucks" element={<Protected><FleetTrucks /></Protected>} />
+              <Route path="/fleet-ledger" element={<Protected><FleetLedger /></Protected>} />
+              <Route path="/buyers-list" element={<Protected><BuyersList /></Protected>} />
+              <Route path="/offline-sales" element={<Protected><OfflineSales /></Protected>} />
+              <Route path="/report" element={<Protected><Report /></Protected>} />
+              <Route path="/pricing" element={<Protected><Pricing /></Protected>} />
+              <Route path="/security" element={<Protected><SecurityPage /></Protected>} />
+
+              {/* Role-restricted routes */}
+              <Route path="/pfi" element={<Protected roles={[0, 1, 2]}><PFIPage /></Protected>} />
+              <Route path="/confirmed-payments" element={<Protected roles={[0, 1, 2]}><ConfirmedPayments /></Protected>} />
+              <Route path="/users-management" element={<Protected roles={[0, 1]}><Settings /></Protected>} />
+              <Route path="/agents" element={<Protected roles={[0, 1]}><Agents /></Protected>} />
+              <Route path="/order-audit" element={<Protected roles={[0, 1]}><OrderAudit /></Protected>} />
+
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
