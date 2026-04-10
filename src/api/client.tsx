@@ -41,7 +41,10 @@ export const resetSessionExpiredGuard = () => { _sessionExpiredFired = false; };
 // ---------------------------------------------------------------------------
 const safeFetch: typeof fetch = async (input, init) => {
   const response = await fetch(input, init);
-  if ((response.status === 401 || response.status === 403) && localStorage.getItem('token')) {
+  // Only 401 means the token is invalid / expired → kick to login.
+  // 403 means the user is authenticated but lacks permission for *this*
+  // endpoint, which is normal for restricted roles (e.g. Ticketing Officer).
+  if (response.status === 401 && localStorage.getItem('token')) {
     handleSessionExpired();
   }
   return response;

@@ -105,10 +105,19 @@ const safeParseNumber = (v: unknown) => {
 
 // ---------- Dashboard ----------
 const Dashboard: React.FC = () => {
-  // Analytics
+  // Current user role — used to skip API calls the backend would reject (403).
+  // Roles: 0=SuperAdmin, 1=Admin, 2=Finance, 3=Sales, 4=Ticketing, 5=Security, 6=Transport
+  const userRole = Number(localStorage.getItem('role') ?? NaN);
+  const isAdminLevel = [0, 1].includes(userRole);
+  const canViewFinance = [0, 1, 2].includes(userRole);
+  const canViewAllOrders = [0, 1, 2, 3, 4].includes(userRole);
+
+  // Analytics — only admin / finance roles
   const { data: analytics, isLoading: analyticsLoading } = useQuery<AnalyticsData>({
     queryKey: ['analytics'],
-    queryFn: () => apiClient.admin.getAnalytics()
+    queryFn: () => apiClient.admin.getAnalytics(),
+    enabled: isAdminLevel || canViewFinance,
+    retry: 1,
   });
 
   const { data: allOrdersResp } = useQuery<{ count: number; results: OrderLite[] }>({
@@ -134,6 +143,8 @@ const Dashboard: React.FC = () => {
     },
     staleTime: 30_000,
     refetchOnWindowFocus: true,
+    enabled: canViewAllOrders,
+    retry: 1,
   });
 
   const { data: pfisResp } = useQuery<{ results?: PfiLite[] } & Record<string, unknown>>({
@@ -141,11 +152,14 @@ const Dashboard: React.FC = () => {
     queryFn: async () => apiClient.admin.getPfis({ status: 'active', page: 1, page_size: 500 }),
     staleTime: 60_000,
     retry: 1,
+    enabled: isAdminLevel || canViewFinance,
   });
 
   const { data: customerData } = useQuery<CustomerResponse>({
     queryKey: ['customers'],
-    queryFn: () => apiClient.admin.adminGetAllCustomers()
+    queryFn: () => apiClient.admin.adminGetAllCustomers(),
+    enabled: isAdminLevel,
+    retry: 1,
   });
 
   const ordersAll = useMemo(() => allOrdersResp?.results || [], [allOrdersResp?.results]);

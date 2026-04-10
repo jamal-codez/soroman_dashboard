@@ -50,7 +50,7 @@ const navItems = [
 
   // OPERATIONS (TICKETING / LOADING)
   { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
-  { title: "Delivery Orders", icon: Truck, path: "/in-house-orders", allowedRoles: [0,1,4] },
+  { title: "Truck-Out & Delivery Orders", icon: Truck, path: "/in-house-orders", allowedRoles: [0,1,4] },
 
   // TRANSPORT / FLEET
   { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
@@ -81,12 +81,17 @@ export const MobileNav = React.memo(function MobileNav() {
   const role = parseInt(localStorage.getItem('role') || '10');
   const [open, setOpen] = useState(false);
 
+  // Only fetch badge counts for roles that can actually see those pages
+  const canViewPayments = [0, 1, 2].includes(role);
+  const canViewOrders = [0, 1, 2, 3, 4].includes(role);
+
   const { data: pendingVerifyResponse } = useQuery({
     queryKey: ['sidebar', 'verify-orders-count'],
     queryFn: () => apiClient.admin.getVerifyOrders({ status: 'pending', page: 1, page_size: 1 }),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
     staleTime: 30_000,
+    enabled: canViewPayments,
   });
 
   const pendingPaymentsCount = useMemo(() => {
@@ -100,6 +105,7 @@ export const MobileNav = React.memo(function MobileNav() {
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
     staleTime: 30_000,
+    enabled: canViewOrders,
   });
 
   const paidAwaitingReleaseCount = useMemo(() => {

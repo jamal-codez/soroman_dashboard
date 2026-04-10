@@ -68,7 +68,7 @@ const navItems = [
 
   // OPERATIONS (TICKETING / LOADING)
   { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
-  { title: "Delivery Orders", icon: Truck, path: "/in-house-orders", allowedRoles: [0,1,4] },
+  { title: "Truck-Out & Delivery Orders", icon: Truck, path: "/in-house-orders", allowedRoles: [0,1,4] },
 
   // TRANSPORT / FLEET
   { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
@@ -112,12 +112,15 @@ export const SidebarNav = React.memo(function SidebarNav() {
     navigate('/login');
   };
 
+  // Pending payments badge — only relevant for finance/admin roles (0,1,2)
+  const canViewPayments = [0, 1, 2].includes(role);
   const { data: pendingVerifyResponse } = useQuery({
     queryKey: ['sidebar', 'verify-orders-count'],
     queryFn: () => apiClient.admin.getVerifyOrders({ status: 'pending', page: 1, page_size: 1 }),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
     staleTime: 30_000,
+    enabled: canViewPayments,
   });
 
   const pendingPaymentsCount = useMemo(() => {
@@ -125,8 +128,8 @@ export const SidebarNav = React.memo(function SidebarNav() {
     return typeof c === 'number' ? c : 0;
   }, [pendingVerifyResponse]);
 
-  // Only fetch count + minimal results to derive badge counts.
-  // Previously fetched page_size=10000 which transferred ~2MB of JSON on every poll.
+  // Paid orders badge — relevant for roles that see Loading Tickets (0,1,4)
+  const canViewOrders = [0, 1, 2, 3, 4].includes(role);
   const { data: allOrdersResponse } = useQuery({
     queryKey: ['sidebar', 'paid-orders-count'],
     queryFn: async () => {
@@ -138,6 +141,7 @@ export const SidebarNav = React.memo(function SidebarNav() {
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
     staleTime: 30_000,
+    enabled: canViewOrders,
   });
 
   const paidAwaitingReleaseCount = useMemo(() => {

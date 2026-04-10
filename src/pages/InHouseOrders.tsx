@@ -565,8 +565,8 @@ export default function InHouseOrders() {
           <div className="max-w-7xl mx-auto space-y-5">
             {/* Header */}
             <PageHeader
-              title="Create Delivery Order"
-              description="Generate and assign order to sales representative for customer delivery and accountability."
+              title="Truck-Out & Delivery Orders"
+              description="Manage truck-out operations and related delivery orders, from product allocation and dispatch to final sales recording."
               actions={
                 <>
                   <Button
@@ -581,7 +581,7 @@ export default function InHouseOrders() {
                     }}
                   >
                     <Plus size={18} />
-                    Create Order
+                    Create Truck-Out Order
                   </Button>
                   <Button variant="outline" className="gap-2" onClick={exportToExcel}>
                     <Download size={16} />
@@ -741,7 +741,7 @@ export default function InHouseOrders() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="gap-1.5 text-xs text-emerald-700"
+                                  className="gap-1.5 text-sm text-emerald-700"
                                   onClick={() => openRecordSale(order)}
                                 >
                                   <FileBox size={14} />
@@ -751,7 +751,7 @@ export default function InHouseOrders() {
                                 <Button
                                   size="sm"
                                   variant="default"
-                                  className="gap-1.5 text-xs"
+                                  className="gap-1.5 text-sm"
                                   onClick={() => openRecordSale(order)}
                                 >
                                   <DollarSign size={14} />
@@ -787,9 +787,9 @@ export default function InHouseOrders() {
                 <Truck className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">New In-House Order</h2>
+                <h2 className="text-lg font-semibold">Create New Truck-Out Dispatch</h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  Allocate product to an agent for consignment / dispatch
+                  Create truck-out dispatch for Soroman Trucks and sales tracking.
                 </p>
               </div>
             </DialogTitle>
