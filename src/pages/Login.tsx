@@ -60,10 +60,10 @@ const Login = () => {
           variant: "default",
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "An error occurred during login",
+        description: error?.message || "An error occurred during login",
         variant: "destructive",
       });
     } finally {

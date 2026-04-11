@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAllowedLocations } from '@/hooks/use-allowed-locations';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -943,13 +944,15 @@ export const PickupProcessing = () => {
     setTicketOpen(true);
   };
 
-  const uniqueLocations = useMemo(() => {
+  const allLocations = useMemo(() => {
     const list = apiResponse?.results || [];
     const locs = list
       .map((o) => extractLocation(o))
       .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
     return Array.from(new Set(locs)).sort();
   }, [apiResponse?.results]);
+
+  const uniqueLocations = useAllowedLocations(allLocations);
 
   const uniqueProducts = useMemo(() => {
     const list = apiResponse?.results || [];

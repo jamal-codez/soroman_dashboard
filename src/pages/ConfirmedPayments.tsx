@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAllowedLocations } from '@/hooks/use-allowed-locations';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
@@ -227,12 +228,14 @@ export default function ConfirmedPayments() {
     });
   }, [allPayments]);
 
-  const uniqueLocations = useMemo(() => {
+  const allLocations = useMemo(() => {
     const locs = confirmedPayments
       .map((p) => extractLocation(p))
       .filter((v): v is string => typeof v === 'string' && v.length > 0);
     return Array.from(new Set(locs)).sort();
   }, [confirmedPayments]);
+
+  const uniqueLocations = useAllowedLocations(allLocations);
 
   const uniquePfis = useMemo(() => {
     const pfis = confirmedPayments

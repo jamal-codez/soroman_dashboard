@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAllowedLocations } from '@/hooks/use-allowed-locations';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
@@ -229,10 +230,12 @@ const Orders = () => {
     return Array.from(new Set(names)).sort();
   }, [apiResponse?.results]);
 
-  const uniqueLocations = useMemo(() => {
+  const allLocations = useMemo(() => {
     const states = (apiResponse?.results ?? []).map(o => o.state).filter(Boolean);
     return Array.from(new Set(states)).sort();
   }, [apiResponse?.results]);
+
+  const uniqueLocations = useAllowedLocations(allLocations);
 
   const pfiLabel = (order: Order): string => {
     if (order.pfi_number === undefined || order.pfi_number === null) return '';

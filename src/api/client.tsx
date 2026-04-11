@@ -94,11 +94,22 @@ export const apiClient = {
     // Login intentionally uses raw `fetch` — unauthenticated calls should
     // never trigger the 401 auto-logout flow.
     loginUser: async (data: { email: string; password: string }) => {
-      const response = await fetch(`${ADMIN_BASE}/users/login/`, {
-        method: 'POST',
-        headers: getHeadersfree(),
-        body: JSON.stringify(data),
-      });
+      let response: Response;
+      try {
+        response = await fetch(`${ADMIN_BASE}/users/login/`, {
+          method: 'POST',
+          headers: getHeadersfree(),
+          body: JSON.stringify(data),
+        });
+      } catch (networkError) {
+        throw new Error(
+          'Unable to reach the server. Please check your internet connection and try again.'
+        );
+      }
+      if (!response.ok) {
+        const errMsg = await safeReadError(response);
+        throw new Error(errMsg);
+      }
       return response.json();
     },
 
@@ -834,7 +845,9 @@ export const apiClient = {
     getUsers: async () => {
       const response = await safeFetch(`${ADMIN_BASE}/users/`, { headers: getHeaders() });
       if (!response.ok) throw new Error('Failed to fetch users');
-      return response.json();
+      const data = await response.json();
+      // Support both flat array and paginated { results: [...] } shapes
+      return Array.isArray(data) ? data : (data?.results ?? data);
     },
 
     updateUser: async (userId: number, data: Record<string, unknown>) => {

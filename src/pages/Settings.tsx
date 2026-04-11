@@ -253,7 +253,10 @@ const Settings = () => {
 
         const response = await apiClient.admin.updateUser(editingUser.id, updatedUser);
 
-        setUsers(users.map(user => user.id === editingUser.id ? { ...user, ...updatedUser } : user));
+        // Don't optimistically patch local state — the server response from
+        // fetchUsers() includes the full `locations` array that the table needs.
+        // Spreading `updatedUser` (which has `location_ids` not `locations`)
+        // would leave stale/missing location data in the table.
 
         toast({
           title: "User Updated",
@@ -365,13 +368,19 @@ const Settings = () => {
   const fetchUsers = useCallback(async () => {
     try {
       const response = await apiClient.admin.getUsers();
-      setUsers(response);
+      // Handle both paginated { results: [...] } and flat array responses
+      const list: UserType[] = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.results)
+          ? response.results
+          : [];
+      setUsers(list);
     } catch (error) {
       toast({
         title: 'Error',
         description: 'Failed to fetch users',
         variant: 'destructive',
-        duration: 1000, // Set toast duration to 1 second
+        duration: 1000,
       });
     }
   }, [toast]);

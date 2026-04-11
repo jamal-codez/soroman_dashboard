@@ -17,6 +17,7 @@ import { apiClient } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
+import { useAllowedLocations } from '@/hooks/use-allowed-locations';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -563,7 +564,7 @@ export default function PaymentVerification() {
       : (bankAccountsResponse.results || []);
   }, [bankAccountsResponse]);
 
-  const uniqueLocations = useMemo(() => {
+  const allLocations = useMemo(() => {
     const locs = allPayments
       .map((p) => {
         return extractLocation(p);
@@ -571,6 +572,8 @@ export default function PaymentVerification() {
       .filter((v): v is string => typeof v === 'string' && v.length > 0);
     return Array.from(new Set(locs)).sort();
   }, [allPayments]);
+
+  const uniqueLocations = useAllowedLocations(allLocations);
 
   const filteredPayments = useMemo(() => {
     return allPayments

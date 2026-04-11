@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useAllowedLocations } from '@/hooks/use-allowed-locations';
 import { 
   Table,
   TableBody,
@@ -69,10 +70,12 @@ export default function Release (){
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
-  const uniqueLocations = useMemo(() => {
+  const allLocations = useMemo(() => {
     const locs = releases.map(r => r.state).filter(Boolean) as string[];
     return Array.from(new Set(locs)).sort();
   }, [releases]);
+
+  const uniqueLocations = useAllowedLocations(allLocations);
 
   const filteredReleases = useMemo(() => {
     return releases
