@@ -125,10 +125,12 @@ const Settings = () => {
     setSearchQuery(event.target.value.toLowerCase());
   };
 
-  const filteredUsers = users.filter(user =>
-    user.full_name.toLowerCase().includes(searchQuery) ||
-    user.email.toLowerCase().includes(searchQuery)
-  );
+  const filteredUsers = users
+    .filter(user =>
+      user.full_name.toLowerCase().includes(searchQuery) ||
+      user.email.toLowerCase().includes(searchQuery)
+    )
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   const validateForm = () => {
     const newErrors = {

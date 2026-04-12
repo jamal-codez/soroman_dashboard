@@ -89,6 +89,10 @@ const navItems = [
   { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1] },
   { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
 
+  // RECORDS
+  { title: "Submit Record", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
+  { title: "View Records", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
+
   // SECURITY
   { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5] },
   // { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },

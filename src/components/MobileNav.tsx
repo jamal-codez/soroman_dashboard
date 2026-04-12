@@ -23,6 +23,7 @@ import {
   Banknote,
   TicketPlusIcon,
   UserCheck,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -70,6 +71,10 @@ const navItems = [
   { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2] },
   { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1] },
   { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
+
+  // RECORDS
+  { title: "Submit Record", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
+  { title: "View Records", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
 
   // SECURITY
   { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5] },

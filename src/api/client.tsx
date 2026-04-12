@@ -18,6 +18,13 @@ const getHeadersfree = (additionalHeaders = {}) => ({
   ...additionalHeaders,
 });
 
+/** Auth-only headers — no Content-Type (let the browser set multipart boundary) */
+const getMultipartHeaders = (additionalHeaders = {}) => {
+  const token = localStorage.getItem('token');
+  const authHeader = token ? { Authorization: `Token ${token}` } : {};
+  return { ...authHeader, ...additionalHeaders };
+};
+
 // ---------------------------------------------------------------------------
 // Session-expired handler — fires once per session to avoid redirect loops.
 // When any API call returns 401/403 while the user has a token, the session
@@ -1353,6 +1360,105 @@ export const apiClient = {
       if (response.status === 204) return true;
       if (!response.ok) throw new Error(await safeReadError(response));
       return true;
+    },
+
+    // =====================================================================
+    // Records  (POST multipart/form-data, GET / PATCH / DELETE JSON)
+    // =====================================================================
+
+    /** GET /api/admin/records/?category=&status= */
+    getRecords: async (params?: { category?: string; status?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.category) qs.set('category', params.category);
+      if (params?.status) qs.set('status', params.status);
+      const url = `${ADMIN_BASE}/records/${qs.toString() ? `?${qs}` : ''}`;
+      const response = await safeFetch(url, { method: 'GET', headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json(); // { results: [...], count, next, previous } or array
+    },
+
+    /** GET /api/admin/records/<id>/ */
+    getRecord: async (id: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/records/${id}/`, {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/records/ — multipart/form-data for file upload */
+    createRecord: async (data: {
+      category: string;
+      title: string;
+      description?: string;
+      amount?: string;
+      extra?: Record<string, unknown>;
+      pfi_id?: number;
+      pfi_number?: string;
+      file?: File | null;
+    }) => {
+      const fd = new FormData();
+      fd.append('category', data.category);
+      fd.append('title', data.title);
+      if (data.description) fd.append('description', data.description);
+      if (data.amount) fd.append('amount', data.amount);
+      if (data.extra) fd.append('extra', JSON.stringify(data.extra));
+      if (data.pfi_id) fd.append('pfi_id', String(data.pfi_id));
+      if (data.pfi_number) fd.append('pfi_number', data.pfi_number);
+      if (data.file) fd.append('file', data.file);
+
+      const response = await safeFetch(`${ADMIN_BASE}/records/`, {
+        method: 'POST',
+        headers: getMultipartHeaders(),
+        body: fd,
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PATCH /api/admin/records/<id>/ */
+    updateRecord: async (id: number | string, data: Record<string, unknown>) => {
+      const response = await safeFetch(`${ADMIN_BASE}/records/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** DELETE /api/admin/records/<id>/ */
+    deleteRecord: async (id: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/records/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (response.status === 204) return true;
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
+    },
+
+    /** PATCH /api/admin/records/<id>/approve/ */
+    approveRecord: async (id: number | string, note?: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/records/${id}/approve/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ status_note: note || '' }),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PATCH /api/admin/records/<id>/decline/ */
+    declineRecord: async (id: number | string, note?: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/records/${id}/decline/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ status_note: note || '' }),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
     },
   },
 };
