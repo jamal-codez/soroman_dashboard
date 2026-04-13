@@ -134,10 +134,10 @@ export default function InHouseCreate() {
 
     return [
       { title: 'Total Orders', value: String(total), icon: <Package size={20} />, tone: 'neutral' as const },
-      { title: 'Total Volume', value: `${totalQty.toLocaleString()} L`, icon: <Fuel size={20} />, tone: 'neutral' as const },
+      // { title: 'Total Volume', value: `${totalQty.toLocaleString()} L`, icon: <Fuel size={20} />, tone: 'neutral' as const },
       { title: 'Awaiting Ticket', value: String(awaiting), icon: <Clock size={20} />, tone: 'amber' as const },
       { title: 'Loaded & Dispatched', value: String(loaded), icon: <Truck size={20} />, tone: 'neutral' as const },
-      { title: 'Sold', value: String(sold), icon: <CheckCircle size={20} />, tone: 'green' as const },
+      // { title: 'Sold', value: String(sold), icon: <CheckCircle size={20} />, tone: 'green' as const },
     ];
   }, [orders]);
 
@@ -242,8 +242,8 @@ export default function InHouseCreate() {
           <div className="max-w-7xl mx-auto space-y-5">
             {/* Header */}
             <PageHeader
-              title="Create Delivery Order"
-              description="Create and dispatch truck-out / delivery orders to sales representatives."
+              title="Truck-Out & Delivery Orders"
+              description="Create and dispatch truck-out/delivery orders to sales representatives."
               actions={
                 <>
                   <Button

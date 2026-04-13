@@ -106,7 +106,7 @@ export default function InHouseSales() {
       .reduce((sum, o) => sum + Number(o.total_price || 0), 0);
 
     return [
-      { title: 'Total Orders', value: String(total), icon: <Package size={20} />, tone: 'neutral' as const },
+      // { title: 'Total Orders', value: String(total), icon: <Package size={20} />, tone: 'neutral' as const },
       { title: 'Pending Sale', value: String(pendingSale), icon: <Clock size={20} />, tone: 'amber' as const },
       { title: 'Sold', value: String(sold), icon: <CheckCircle size={20} />, tone: 'green' as const },
       {
@@ -212,7 +212,7 @@ export default function InHouseSales() {
             {/* Header */}
             <PageHeader
               title="Record Delivery Sales"
-              description="Record sale details for dispatched products — buyer info, delivery address, and pricing."
+              description="Record sale details for truck-out products with buyer info, delivery address and pricing."
               actions={
                 <Button variant="outline" className="gap-2" onClick={exportToExcel}>
                   <Download size={16} />

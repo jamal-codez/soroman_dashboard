@@ -151,7 +151,7 @@ export default function InHouseRecords() {
           <div className="max-w-7xl mx-auto space-y-5">
             {/* Header */}
             <PageHeader
-              title="Delivery Records"
+              title="Truck-Out & Delivery Orders"
               description="Overview of all truck-out and delivery orders — track dispatches, sales, and revenue."
               actions={
                 <Button variant="outline" className="gap-2" onClick={exportToExcel}>
