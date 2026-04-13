@@ -89,19 +89,32 @@ export default function OfflineSales() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [salesRes, statesRes, productsRes] = await Promise.all([
+        // Use Promise.allSettled so one failing endpoint doesn't block the others
+        const [salesRes, statesRes, productsRes] = await Promise.allSettled([
           apiClient.admin.getOfflineSales(),
           apiClient.admin.getStates(),
-          apiClient.admin.getProducts({ page_size: 100 }), // Ensure we get all products
+          apiClient.admin.getProducts({ page_size: 100 }),
         ]);
-        
-        // Handle potential paginated responses
-        const salesArr = Array.isArray(salesRes) ? salesRes : Array.isArray(salesRes?.results) ? salesRes.results : [];
-        const statesArr = Array.isArray(statesRes) ? statesRes : Array.isArray(statesRes?.results) ? statesRes.results : [];
-        const productsArr = Array.isArray(productsRes) ? productsRes : Array.isArray(productsRes?.results) ? productsRes.results : [];
-        setSales(salesArr);
-        setStates(statesArr);
-        setProducts(productsArr as Product[]);
+
+        const unwrap = (r: PromiseSettledResult<unknown>) => {
+          if (r.status !== 'fulfilled') return [];
+          const v = r.value as Record<string, unknown>;
+          return Array.isArray(v) ? v : Array.isArray(v?.results) ? v.results : [];
+        };
+
+        setSales(unwrap(salesRes) as typeof sales);
+        setStates(unwrap(statesRes) as typeof states);
+
+        let prodArr = unwrap(productsRes) as Product[];
+        // If products endpoint failed or returned empty, try inventory_products as fallback
+        if (prodArr.length === 0) {
+          try {
+            const fb = await apiClient.admin.getProductsInventory({ page_size: 100 });
+            const fbArr = Array.isArray(fb) ? fb : Array.isArray(fb?.results) ? fb.results : [];
+            if (fbArr.length > 0) prodArr = fbArr as Product[];
+          } catch { /* ignore fallback error */ }
+        }
+        setProducts(prodArr);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);

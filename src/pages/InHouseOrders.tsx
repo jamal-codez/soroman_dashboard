@@ -255,7 +255,7 @@ export default function InHouseOrders() {
       return arr as State[];
     },
     staleTime: 5 * 60_000,
-    retry: 3,
+    retry: 1,
   });
   const states = useMemo(() => (statesRaw || []) as State[], [statesRaw]);
   const depots = useMemo(() => states.filter((s) => s.classifier?.toLowerCase() === 'depot'), [states]);
@@ -263,12 +263,24 @@ export default function InHouseOrders() {
   const { data: productsRaw } = useQuery<Product[]>({
     queryKey: ['products'],
     queryFn: async () => {
-      const res = await apiClient.admin.getProducts({ page_size: 100 });
-      const arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
-      return arr as Product[];
+      let arr: Product[] = [];
+      try {
+        const res = await apiClient.admin.getProducts({ page_size: 100 });
+        arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
+      } catch { /* primary endpoint failed */ }
+
+      if (arr.length === 0) {
+        try {
+          const fb = await apiClient.admin.getProductsInventory({ page_size: 100 });
+          const fbArr = Array.isArray(fb) ? fb : Array.isArray(fb?.results) ? fb.results : [];
+          if (fbArr.length > 0) return fbArr as Product[];
+        } catch { /* fallback also failed */ }
+      }
+
+      return arr;
     },
     staleTime: 5 * 60_000,
-    retry: 3,
+    retry: 1,
   });
   const products = useMemo(() => (productsRaw || []) as Product[], [productsRaw]);
 

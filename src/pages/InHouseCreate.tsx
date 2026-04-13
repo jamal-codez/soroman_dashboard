@@ -63,7 +63,11 @@ export default function InHouseCreate() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
   // ── Reference data ─────────────────────────────────────────────────
-  const { data: statesRaw } = useQuery<State[]>({
+  const {
+    data: statesRaw,
+    isLoading: statesLoading,
+    isError: statesError,
+  } = useQuery<State[]>({
     queryKey: ['states'],
     queryFn: async () => {
       const res = await apiClient.admin.getStates();
@@ -76,12 +80,34 @@ export default function InHouseCreate() {
   const states = useMemo(() => (statesRaw || []) as State[], [statesRaw]);
   const depots = useMemo(() => states.filter((s) => s.classifier?.toLowerCase() === 'depot'), [states]);
 
-  const { data: productsRaw } = useQuery<Product[]>({
+  const {
+    data: productsRaw,
+    isLoading: productsLoading,
+    isError: productsError,
+  } = useQuery<Product[]>({
     queryKey: ['products'],
     queryFn: async () => {
-      const res = await apiClient.admin.getProducts({ page_size: 100 });
-      const arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
-      return arr as Product[];
+      // Try main products endpoint first; fall back to inventory_products
+      // if it fails (e.g. role-based 403) or returns empty.
+      let arr: Product[] = [];
+      try {
+        const res = await apiClient.admin.getProducts({ page_size: 100 });
+        arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
+      } catch {
+        // primary endpoint failed — will try fallback below
+      }
+
+      if (arr.length === 0) {
+        try {
+          const fb = await apiClient.admin.getProductsInventory({ page_size: 100 });
+          const fbArr = Array.isArray(fb) ? fb : Array.isArray(fb?.results) ? fb.results : [];
+          if (fbArr.length > 0) return fbArr as Product[];
+        } catch {
+          // fallback also failed
+        }
+      }
+
+      return arr;
     },
     staleTime: 5 * 60_000,
     retry: 1,
@@ -424,7 +450,13 @@ export default function InHouseCreate() {
                 aria-label="Product"
               >
                 <option value="">
-                  {products.length === 0 ? 'Loading products…' : 'Select product'}
+                  {productsLoading
+                    ? 'Loading products…'
+                    : productsError
+                      ? '⚠ Failed to load products'
+                      : products.length === 0
+                        ? 'No products available'
+                        : 'Select product'}
                 </option>
                 {products.map((p) => (
                   <option key={p.id} value={String(p.id)}>
@@ -473,7 +505,13 @@ export default function InHouseCreate() {
                 aria-label="Loading Depot"
               >
                 <option value="">
-                  {depots.length === 0 ? 'Loading depots…' : 'Select depot'}
+                  {statesLoading
+                    ? 'Loading depots…'
+                    : statesError
+                      ? '⚠ Failed to load depots'
+                      : depots.length === 0
+                        ? 'No depots available'
+                        : 'Select depot'}
                 </option>
                 {depots.map((s) => (
                   <option key={s.id} value={String(s.id)}>{s.name}</option>
