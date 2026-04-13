@@ -63,12 +63,7 @@ export default function InHouseCreate() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
   // ── Reference data ─────────────────────────────────────────────────
-  const {
-    data: statesRaw,
-    isLoading: statesLoading,
-    isError: statesError,
-    refetch: refetchStates,
-  } = useQuery<State[]>({
+  const { data: statesRaw } = useQuery<State[]>({
     queryKey: ['states'],
     queryFn: async () => {
       const res = await apiClient.admin.getStates();
@@ -76,17 +71,12 @@ export default function InHouseCreate() {
       return arr as State[];
     },
     staleTime: 5 * 60_000,
-    retry: 3,
+    retry: 1,
   });
   const states = useMemo(() => (statesRaw || []) as State[], [statesRaw]);
   const depots = useMemo(() => states.filter((s) => s.classifier?.toLowerCase() === 'depot'), [states]);
 
-  const {
-    data: productsRaw,
-    isLoading: productsLoading,
-    isError: productsError,
-    refetch: refetchProducts,
-  } = useQuery<Product[]>({
+  const { data: productsRaw } = useQuery<Product[]>({
     queryKey: ['products'],
     queryFn: async () => {
       const res = await apiClient.admin.getProducts({ page_size: 100 });
@@ -94,7 +84,7 @@ export default function InHouseCreate() {
       return arr as Product[];
     },
     staleTime: 5 * 60_000,
-    retry: 3,
+    retry: 1,
   });
   const products = useMemo(() => (productsRaw || []) as Product[], [productsRaw]);
 
@@ -427,28 +417,21 @@ export default function InHouseCreate() {
                 <Fuel size={15} className="text-slate-500" />
                 Product <span className="text-red-500">*</span>
               </Label>
-              {productsLoading ? (
-                <Skeleton className="h-10 w-full rounded-md" />
-              ) : productsError ? (
-                <div className="flex items-center gap-2">
-                  <p className="text-sm text-red-500">Failed to load products</p>
-                  <Button variant="ghost" size="sm" onClick={() => refetchProducts()}>Retry</Button>
-                </div>
-              ) : (
-                <select
-                  value={form.product_id}
-                  onChange={(e) => setForm((f) => ({ ...f, product_id: e.target.value }))}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  aria-label="Product"
-                >
-                  <option value="">Select product</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={String(p.id)}>
-                      {p.name}{p.abbreviation ? ` (${p.abbreviation})` : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
+              <select
+                value={form.product_id}
+                onChange={(e) => setForm((f) => ({ ...f, product_id: e.target.value }))}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                aria-label="Product"
+              >
+                <option value="">
+                  {products.length === 0 ? 'Loading products…' : 'Select product'}
+                </option>
+                {products.map((p) => (
+                  <option key={p.id} value={String(p.id)}>
+                    {p.name}{p.abbreviation ? ` (${p.abbreviation})` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Quantity */}
@@ -483,26 +466,19 @@ export default function InHouseCreate() {
                 <MapPin size={15} className="text-slate-500" />
                 Loading Depot <span className="text-red-500">*</span>
               </Label>
-              {statesLoading ? (
-                <Skeleton className="h-10 w-full rounded-md" />
-              ) : statesError ? (
-                <div className="flex items-center gap-2">
-                  <p className="text-sm text-red-500">Failed to load depots</p>
-                  <Button variant="ghost" size="sm" onClick={() => refetchStates()}>Retry</Button>
-                </div>
-              ) : (
-                <select
-                  value={form.state_id}
-                  onChange={(e) => setForm((f) => ({ ...f, state_id: e.target.value }))}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  aria-label="Loading Depot"
-                >
-                  <option value="">Select depot</option>
-                  {depots.map((s) => (
-                    <option key={s.id} value={String(s.id)}>{s.name}</option>
-                  ))}
-                </select>
-              )}
+              <select
+                value={form.state_id}
+                onChange={(e) => setForm((f) => ({ ...f, state_id: e.target.value }))}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                aria-label="Loading Depot"
+              >
+                <option value="">
+                  {depots.length === 0 ? 'Loading depots…' : 'Select depot'}
+                </option>
+                {depots.map((s) => (
+                  <option key={s.id} value={String(s.id)}>{s.name}</option>
+                ))}
+              </select>
             </div>
 
             {/* Destination (State + Town) */}
