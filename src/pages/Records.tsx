@@ -27,7 +27,7 @@ import {
   Search, FileText, FileSpreadsheet, FileImage, File, Download, Trash2,
   FolderOpen, X, Paperclip, FileArchive, CheckCircle2, XCircle, Clock,
   Eye, Loader2, Receipt, Banknote, TrendingDown,
-  Calendar as CalendarIcon, CircleDollarSign, AlertTriangle,
+  Calendar as CalendarIcon, CircleDollarSign, AlertTriangle, UserCheck,
 } from 'lucide-react';
 import {
   format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
@@ -54,6 +54,11 @@ type BackendRecord = {
   pfi_number: string;
   created_at: string;
   updated_at: string;
+  // Review tracking — populated after approve/decline
+  reviewed_by?: number | null;
+  reviewed_by_name?: string;
+  status_note?: string;
+  reviewed_at?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -574,6 +579,9 @@ export default function Records() {
         'Amount (₦)': amt || '',
         'Status': r.status.charAt(0).toUpperCase() + r.status.slice(1),
         'Submitted By': r.submitted_by_name,
+        'Reviewed By': r.status !== 'pending' && r.reviewed_by_name ? r.reviewed_by_name : '',
+        'Review Note': r.status_note || '',
+        'Reviewed At': r.reviewed_at ? fmtDate(r.reviewed_at) : '',
         'Has File': r.file ? 'Yes' : 'No',
         'Record ID': r.id,
       };
@@ -592,6 +600,8 @@ export default function Records() {
         'Amount (₦)': amt || '',
         'Status': r.status.charAt(0).toUpperCase() + r.status.slice(1),
         'Requested By': r.submitted_by_name,
+        'Reviewed By': r.status !== 'pending' && r.reviewed_by_name ? r.reviewed_by_name : '',
+        'Review Note': r.status_note || '',
         'PFI': r.pfi_number || (r.extra?.pfi_number ? String(r.extra.pfi_number) : ''),
       };
     });
@@ -959,6 +969,7 @@ export default function Records() {
                         <TableHead className="font-semibold text-slate-700 text-right">Amount</TableHead>
                         <TableHead className="font-semibold text-slate-700">Submitted By</TableHead>
                         <TableHead className="font-semibold text-slate-700">Status</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Reviewed By</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-center">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1022,6 +1033,18 @@ export default function Records() {
                                 {rec.status.charAt(0).toUpperCase() + rec.status.slice(1)}
                               </span>
                             </TableCell>
+                            <TableCell className="text-xs text-slate-600 whitespace-nowrap">
+                              {rec.status !== 'pending' && rec.reviewed_by_name ? (
+                                <span className="inline-flex items-center gap-1" title={rec.status_note ? `Note: ${rec.status_note}` : undefined}>
+                                  <UserCheck size={12} className={rec.status === 'approved' ? 'text-green-500' : 'text-red-500'} />
+                                  <span className="truncate max-w-[100px]">{rec.reviewed_by_name}</span>
+                                </span>
+                              ) : rec.status === 'pending' ? (
+                                <span className="text-slate-300">—</span>
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">Unknown</span>
+                              )}
+                            </TableCell>
                             <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                               <div className="flex justify-center gap-1">
                                 {rec.file && (
@@ -1058,7 +1081,7 @@ export default function Records() {
                           <TableCell className="text-right font-bold text-slate-800 text-sm whitespace-nowrap">
                             {fmtAmount(filteredTotals.total)}
                           </TableCell>
-                          <TableCell colSpan={3}>
+                          <TableCell colSpan={4}>
                             {filteredTotals.expenses > 0 && (
                               <span className="text-xs text-red-600 font-medium">
                                 Expenses: {fmtAmount(filteredTotals.expenses)}
@@ -1132,6 +1155,26 @@ export default function Records() {
                       {viewRecord.status === 'declined' && <XCircle size={11} />}
                       {viewRecord.status.charAt(0).toUpperCase() + viewRecord.status.slice(1)}
                     </span>
+
+                    {viewRecord.status !== 'pending' && viewRecord.reviewed_by_name && (
+                      <>
+                        <span className="text-slate-400 font-medium">{viewRecord.status === 'approved' ? 'Approved By' : 'Declined By'}</span>
+                        <span className="inline-flex items-center gap-1.5 text-slate-700">
+                          <UserCheck size={14} className={viewRecord.status === 'approved' ? 'text-green-500' : 'text-red-500'} />
+                          <span className="font-medium">{viewRecord.reviewed_by_name}</span>
+                          {viewRecord.reviewed_at && (
+                            <span className="text-[11px] text-slate-400 ml-1">· {fmtDateTime(viewRecord.reviewed_at)}</span>
+                          )}
+                        </span>
+                      </>
+                    )}
+
+                    {viewRecord.status_note && (
+                      <>
+                        <span className="text-slate-400 font-medium">Review Note</span>
+                        <span className="text-slate-600 italic">{viewRecord.status_note}</span>
+                      </>
+                    )}
 
                     <span className="text-slate-400 font-medium">Date</span>
                     <span className="text-slate-700">{fmtDateTime(viewRecord.created_at)}</span>
