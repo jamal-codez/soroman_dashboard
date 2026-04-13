@@ -199,6 +199,7 @@ export default function Records() {
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [submitterFilter, setSubmitterFilter] = useState<string | null>(null);
+  const [pfiFilter, setPfiFilter] = useState<string | null>(null);
 
   // ── Dialogs ────────────────────────────────────────────────────────
   const [viewRecord, setViewRecord] = useState<BackendRecord | null>(null);
@@ -253,6 +254,15 @@ export default function Records() {
     [timeFilteredRecords]
   );
 
+  const pfiNumbers = useMemo(() => {
+    const set = new Set<string>();
+    timeFilteredRecords.forEach((r) => {
+      const pfi = r.pfi_number || (r.extra?.pfi_number ? String(r.extra.pfi_number) : '');
+      if (pfi) set.add(pfi);
+    });
+    return Array.from(set).sort();
+  }, [timeFilteredRecords]);
+
   const typeCounts = useMemo(() => {
     const m: Record<string, number> = {};
     timeFilteredRecords.forEach((r) => (m[r.category] = (m[r.category] || 0) + 1));
@@ -284,8 +294,13 @@ export default function Records() {
       .filter((r) => !typeFilter || r.category === typeFilter)
       .filter((r) => !statusFilter || r.status === statusFilter)
       .filter((r) => !submitterFilter || r.submitted_by_name === submitterFilter)
+      .filter((r) => {
+        if (!pfiFilter) return true;
+        const pfi = r.pfi_number || (r.extra?.pfi_number ? String(r.extra.pfi_number) : '');
+        return pfi === pfiFilter;
+      })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [timeFilteredRecords, search, typeFilter, statusFilter, submitterFilter]);
+  }, [timeFilteredRecords, search, typeFilter, statusFilter, submitterFilter, pfiFilter]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Financial summaries
@@ -501,11 +516,12 @@ export default function Records() {
     deleteMut.mutate(deleteRecord.id);
   };
 
-  const hasFilters = !!(typeFilter || statusFilter || submitterFilter || search);
+  const hasFilters = !!(typeFilter || statusFilter || submitterFilter || pfiFilter || search);
   const clearFilters = () => {
     setTypeFilter(null);
     setStatusFilter(null);
     setSubmitterFilter(null);
+    setPfiFilter(null);
     setSearch('');
   };
 
@@ -799,37 +815,6 @@ export default function Records() {
             {/* ── Summary Cards ─────────────────────────────────── */}
             <SummaryCards cards={summaryCards} />
 
-            {/* ── Status chips ─────────────────────────────────── */}
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setStatusFilter(null)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                  !statusFilter
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                }`}
-              >
-                <FolderOpen size={12} /> All ({timeFilteredRecords.length})
-              </button>
-              {(['pending', 'approved', 'declined'] as const).map((s) => {
-                const icons = { pending: Clock, approved: CheckCircle2, declined: XCircle };
-                const Icon = icons[s];
-                return (
-                  <button
-                    key={s}
-                    onClick={() => setStatusFilter((prev) => (prev === s ? null : s))}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                      statusFilter === s
-                        ? STATUS_BG[s] + ' border'
-                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                    }`}
-                  >
-                    <Icon size={12} /> {s.charAt(0).toUpperCase() + s.slice(1)} ({statusCounts[s]})
-                  </button>
-                );
-              })}
-            </div>
-
             {/* ── Search + Filters ─────────────────────────────── */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-col sm:flex-row gap-3">
@@ -838,24 +823,46 @@ export default function Records() {
                   <Input placeholder="Search by title, description, staff, amount…" className="pl-10" value={search} onChange={(e) => setSearch(e.target.value)} />
                 </div>
               </div>
-              <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-3">
+                <select
+                  title="Filter by status"
+                  value={statusFilter ?? ''}
+                  onChange={(e) => setStatusFilter(e.target.value || null)}
+                  className="h-10 w-full sm:w-auto sm:min-w-[160px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">All Statuses ({timeFilteredRecords.length})</option>
+                  {(['pending', 'approved', 'declined'] as const).map((s) => (
+                    <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)} ({statusCounts[s]})</option>
+                  ))}
+                </select>
                 <select
                   title="Filter by type"
                   value={typeFilter ?? ''}
                   onChange={(e) => setTypeFilter(e.target.value || null)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="h-10 w-full sm:w-auto sm:min-w-[160px] rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
                   <option value="">All Types</option>
                   {Object.entries(TYPE_META).map(([k, v]) => (
                     <option key={k} value={k}>{v.label} ({typeCounts[k] || 0})</option>
                   ))}
                 </select>
+                {pfiNumbers.length > 0 && (
+                  <select
+                    title="Filter by PFI"
+                    value={pfiFilter ?? ''}
+                    onChange={(e) => setPfiFilter(e.target.value || null)}
+                    className="h-10 w-full sm:w-auto sm:min-w-[160px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">All PFIs</option>
+                    {pfiNumbers.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                )}
                 {submitters.length > 1 && (
                   <select
                     title="Filter by submitter"
                     value={submitterFilter ?? ''}
                     onChange={(e) => setSubmitterFilter(e.target.value || null)}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="h-10 w-full sm:w-auto sm:min-w-[160px] rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="">All Staff</option>
                     {submitters.map((s) => <option key={s} value={s}>{s}</option>)}
