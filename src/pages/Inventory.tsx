@@ -78,7 +78,7 @@ const Inventory = () => {
         const [statesRes] = await Promise.all([
           apiClient.admin.getStates()
         ]);
-        const statesData = statesRes.results || statesRes;
+        const statesData = Array.isArray(statesRes) ? statesRes : Array.isArray(statesRes?.results) ? statesRes.results : [];
         setStates(statesData);
       
       // ✅ Set default state to first item

@@ -170,7 +170,11 @@ export default function Finance() {
 
   const productsQuery = useQuery<Product[]>({
     queryKey: ['products'],
-    queryFn: () => apiClient.admin.adminGetProducts(),
+    queryFn: async () => {
+      const res = await apiClient.admin.getProducts({ page_size: 100 });
+      const arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
+      return arr as Product[];
+    },
     select: (data) => data.map(product => ({
       ...product,
       updated_at: new Date(product.updated_at).toLocaleDateString('en-US')
@@ -413,9 +417,9 @@ export default function Finance() {
               description="Monitor revenue, bank accounts, outstanding items, and finance performance trends."
             />
 
-            <div className="pt-1 pb-1">
+            {/* <div className="pt-1 pb-1">
               <SummaryCards cards={summaryCards} />
-            </div>
+            </div> */}
 
             {/* Bank Accounts */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">

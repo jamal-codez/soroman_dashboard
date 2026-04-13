@@ -251,9 +251,11 @@ export default function InHouseOrders() {
     queryKey: ['states'],
     queryFn: async () => {
       const res = await apiClient.admin.getStates();
-      return (res?.results ?? res) as State[];
+      const arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
+      return arr as State[];
     },
     staleTime: 5 * 60_000,
+    retry: 3,
   });
   const states = useMemo(() => (statesRaw || []) as State[], [statesRaw]);
   const depots = useMemo(() => states.filter((s) => s.classifier?.toLowerCase() === 'depot'), [states]);
@@ -262,9 +264,11 @@ export default function InHouseOrders() {
     queryKey: ['products'],
     queryFn: async () => {
       const res = await apiClient.admin.getProducts({ page_size: 100 });
-      return (res?.results ?? res) as Product[];
+      const arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
+      return arr as Product[];
     },
     staleTime: 5 * 60_000,
+    retry: 3,
   });
   const products = useMemo(() => (productsRaw || []) as Product[], [productsRaw]);
 

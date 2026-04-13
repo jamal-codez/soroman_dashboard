@@ -40,46 +40,79 @@ type NavItem = {
   allowedRoles: number[];
 };
 
-const navItems = [
-  // OVERVIEW
-  { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0,1,2,3,4,5,6] },
+type NavCategory = {
+  category: string;
+  items: NavItem[];
+};
 
-  // SALES & CUSTOMERS
-  { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,3,4] },
-  { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
-  { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3,4] },
-
-  // OPERATIONS (TICKETING / LOADING)
-  { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
-  { title: "Create Delivery Order", icon: Truck, path: "/in-house-create", allowedRoles: [0,1,4] },
-  { title: "Delivery Records", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0,1] },
-  { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0,1,3] },
-
-  // TRANSPORT / FLEET
-  { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
-  { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,6] },
-
-  // FINANCE
-  { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
-  { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2] },
-  { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2] },
-
-  // INVENTORY & PRICING
-  { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0,1] },
-  { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1] },
-
-  // ADMIN & MONITORING
-  { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0,1] },
-  { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2] },
-  { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1] },
-  { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
-
-  // RECORDS
-  { title: "Submit Record", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
-  { title: "View Records", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
-
-  // SECURITY
-  { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5] },
+const navCategories: NavCategory[] = [
+  {
+    category: '',
+    items: [
+      { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0,1,2,3,4,5,6] },
+    ],
+  },
+  {
+    category: 'Sales & Customers',
+    items: [
+      { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,3,4] },
+      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
+      { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3,4] },
+    ],
+  },
+  {
+    category: 'Operations',
+    items: [
+      { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
+      { title: "Create Delivery Order", icon: Truck, path: "/in-house-create", allowedRoles: [0,1,4] },
+      { title: "Delivery Records", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0,1] },
+      { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0,1,3] },
+    ],
+  },
+  {
+    category: 'Transport',
+    items: [
+      { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
+      { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,6] },
+    ],
+  },
+  {
+    category: 'Finance',
+    items: [
+      { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
+      { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2] },
+      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2] },
+    ],
+  },
+  {
+    category: 'Inventory & Pricing',
+    items: [
+      { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0,1] },
+      { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1] },
+    ],
+  },
+  {
+    category: 'Admin',
+    items: [
+      { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0,1] },
+      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2] },
+      { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1] },
+      { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
+    ],
+  },
+  {
+    category: 'Records',
+    items: [
+      { title: "Submit Record", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
+      { title: "View Records", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
+    ],
+  },
+  {
+    category: 'Security',
+    items: [
+      { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5] },
+    ],
+  },
 ];
 
 export const MobileNav = React.memo(function MobileNav() {
@@ -130,7 +163,15 @@ export const MobileNav = React.memo(function MobileNav() {
     );
   };
 
-  const visibleItems = useMemo(() => navItems.filter((i) => i.allowedRoles.includes(role)), [role]);
+  const visibleCategories = useMemo(() =>
+    navCategories
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((i) => i.allowedRoles.includes(role)),
+      }))
+      .filter((group) => group.items.length > 0),
+    [role]
+  );
 
   const handleLogout = async () => {
     try { await apiClient.admin.logoutUser(); } catch { /* ignore — clear locally regardless */ }
@@ -166,29 +207,38 @@ export const MobileNav = React.memo(function MobileNav() {
             </SheetHeader>
 
             <div className="p-2">
-              {visibleItems.map((item) => {
-                const isActive = location.pathname === item.path;
-                const badgeCount = getBadgeCount(item.path);
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.path}
-                    type="button"
-                    onClick={() => {
-                      navigate(item.path);
-                      setOpen(false);
-                    }}
-                    className={cn(
-                      'w-full flex items-center gap-3 rounded-md px-3 py-3 text-left text-sm transition-colors',
-                      isActive ? 'bg-slate-900 text-white' : 'hover:bg-slate-100 text-slate-900'
-                    )}
-                  >
-                    <Icon size={18} className={cn(isActive ? 'text-white' : 'text-slate-600')} />
-                    <span className="truncate">{item.title}</span>
-                    {renderBadge(badgeCount)}
-                  </button>
-                );
-              })}
+              {visibleCategories.map((group) => (
+                <div key={group.category || '__overview'}>
+                  {group.category && (
+                    <div className="pt-3 pb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 select-none">
+                      {group.category}
+                    </div>
+                  )}
+                  {group.items.map((item) => {
+                    const isActive = location.pathname === item.path;
+                    const badgeCount = getBadgeCount(item.path);
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.path}
+                        type="button"
+                        onClick={() => {
+                          navigate(item.path);
+                          setOpen(false);
+                        }}
+                        className={cn(
+                          'w-full flex items-center gap-3 rounded-md px-3 py-3 text-left text-sm transition-colors',
+                          isActive ? 'bg-slate-900 text-white' : 'hover:bg-slate-100 text-slate-900'
+                        )}
+                      >
+                        <Icon size={18} className={cn(isActive ? 'text-white' : 'text-slate-600')} />
+                        <span className="truncate">{item.title}</span>
+                        {renderBadge(badgeCount)}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
 
               <div className="mt-3 border-t border-slate-200 pt-3 px-2">
                 <Button variant="destructive" className="w-full justify-start gap-2" onClick={handleLogout}>

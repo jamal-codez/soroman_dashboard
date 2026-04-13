@@ -177,9 +177,11 @@ export default function SubmitRecord() {
     queryKey: ["states"],
     queryFn: async () => {
       const res = await apiClient.admin.getStates();
-      return ((res as { results?: DepotState[] })?.results ?? res) as DepotState[];
+      const arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
+      return arr as DepotState[];
     },
     staleTime: 5 * 60_000,
+    retry: 3,
   });
   const depots = useMemo(
     () => (statesRaw || []).filter((s) => s.classifier?.toLowerCase() === "depot"),

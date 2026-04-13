@@ -656,18 +656,10 @@ export const apiClient = {
       return response.json();
     },
 
+    /** @deprecated Use getProducts() instead — this alias is kept for backward compat. */
     adminGetProducts: async (params?: { page?: number; page_size?: number }) => {
-      const url = new URL(`${ADMIN_BASE}/products/`);
-      if (params) {
-        Object.entries(params).forEach(([key, value]) => {
-          url.searchParams.append(key, value.toString());
-        });
-      }
-      const response = await safeFetch(url.toString(), {
-        headers: getHeaders()
-      });
-      if (!response.ok) throw new Error(await safeReadError(response));
-      return response.json();
+      // Delegate to getProducts to avoid duplicated code
+      return apiClient.admin.getProducts(params);
     },
 
     updateStatePrice: async (updatedState: {

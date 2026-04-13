@@ -57,51 +57,77 @@ type OrdersResults = { results?: Array<{ status?: string | null }> };
 // SECURITY=5,"Security"
 // TRANSPORT=6,"Transport Officer"
 
-const navItems = [
-  /// OVERVIEW
-  { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0,1,2,3,4,5,6] },
+type NavItem = { title: string; icon: React.ComponentType<{ size?: number; className?: string }>; path: string; allowedRoles: number[] };
+type NavCategory = { category: string; items: NavItem[] };
 
-  // SALES & CUSTOMERS
-  { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,3,4] },
-  { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
-  { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
-
-  // OPERATIONS (TICKETING / LOADING)
-  { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
-  { title: "Create Delivery Order", icon: Truck, path: "/in-house-create", allowedRoles: [0,1,4] },
-  { title: "Delivery Records", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0,1] },
-  { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0,1,3] },
-
-  // TRANSPORT / FLEET
-  { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
-  { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,6] },
-
-  // FINANCE
-  { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
-  { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2] },
-  { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2] },
-
-  // INVENTORY & PRICING
-  { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0,1] },
-  { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1] },
-
-  // ADMIN & MONITORING
-  { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0,1] },
-  { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2] },
-  { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1] },
-  { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
-
-  // RECORDS
-  { title: "Submit Record", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
-  { title: "View Records", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
-
-  // SECURITY
-  { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5] },
-  // { title: "Reports", icon: BarChart2, path: "/report", allowedRoles: [0, 1,2,3,4] },
-  // { title: "Delivery Process", icon: Truck, path: "/delivery-processing", allowedRoles: [0, 1, 2, 4] },
-  // { title: "Offline Sales", icon: ClipboardList, path: "/offline-sales", allowedRoles: [0, 1,2,4] },
-  // { title: "Order Verification", icon: FileText, path: "/order-verification", allowedRoles: [0, 1, 2] },
-  // { title: "Manage Marketers", icon: Users, path: "/agents", allowedRoles: [0, 1] },
+const navCategories: NavCategory[] = [
+  {
+    category: '',
+    items: [
+      { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0,1,2,3,4,5,6] },
+    ],
+  },
+  {
+    category: 'Sales & Customers',
+    items: [
+      { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,3,4] },
+      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
+      { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
+    ],
+  },
+  {
+    category: 'Operations',
+    items: [
+      { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
+      { title: "Create Delivery Order", icon: Truck, path: "/in-house-create", allowedRoles: [0,1,4] },
+      { title: "Delivery Records", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0,1] },
+      { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0,1,3] },
+    ],
+  },
+  {
+    category: 'Transport',
+    items: [
+      { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
+      { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,6] },
+    ],
+  },
+  {
+    category: 'Finance',
+    items: [
+      { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
+      { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2] },
+      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2] },
+    ],
+  },
+  {
+    category: 'Inventory & Pricing',
+    items: [
+      { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0,1] },
+      { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1] },
+    ],
+  },
+  {
+    category: 'Admin',
+    items: [
+      { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0,1] },
+      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2] },
+      { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1] },
+      { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
+    ],
+  },
+  {
+    category: 'Records',
+    items: [
+      { title: "Submit Record", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
+      { title: "View Records", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
+    ],
+  },
+  {
+    category: 'Security',
+    items: [
+      { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5] },
+    ],
+  },
 ];
 
 export const SidebarNav = React.memo(function SidebarNav() {
@@ -229,45 +255,63 @@ export const SidebarNav = React.memo(function SidebarNav() {
         aria-label="Primary"
       >
         <div className={cn("space-y-1", expanded ? "px-2" : "px-1")}>
-          {navItems.map((item) => {
-            if (!item.allowedRoles.includes(role)) return null;
-
-            const isActive = location.pathname === item.path;
-            const badgeCount = getBadgeCount(item.path);
+          {navCategories.map((group) => {
+            // Only show the category if at least one item is visible to this role
+            const visibleItems = group.items.filter((item) => item.allowedRoles.includes(role));
+            if (visibleItems.length === 0) return null;
 
             return (
-              <a
-                key={item.title}
-                href={item.path}
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate(item.path);
-                }}
-                className={cn(
-                  "group flex items-center rounded-md text-sm",
-                  // identical height & visual rhythm in both states
-                  "h-11",
-                  expanded ? "gap-3 px-3" : "justify-center px-0",
-                  "transition-colors",
-                  isActive
-                    ? "bg-white/10 text-white"
-                    : "text-white/80 hover:bg-white/5 hover:text-white"
+              <div key={group.category || '__overview'}>
+                {/* Category label — tiny, uppercase, muted */}
+                {group.category && expanded && (
+                  <div className="pt-4 pb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-white/40 select-none">
+                    {group.category}
+                  </div>
                 )}
-                aria-current={isActive ? 'page' : undefined}
-                title={expanded ? undefined : item.title}
-              >
-                <item.icon
-                  size={18}
-                  className={cn(
-                    "shrink-0",
-                    isActive ? "text-white" : "text-white/70 group-hover:text-white"
-                  )}
-                />
+                {/* Thin separator when collapsed */}
+                {group.category && !expanded && (
+                  <div className="my-2 mx-3 border-t border-white/10" />
+                )}
 
-                {expanded ? <span className="min-w-0 flex-1 truncate">{item.title}</span> : null}
+                {visibleItems.map((item) => {
+                  const isActive = location.pathname === item.path;
+                  const badgeCount = getBadgeCount(item.path);
 
-                {expanded ? renderBadge(badgeCount) : null}
-              </a>
+                  return (
+                    <a
+                      key={item.title}
+                      href={item.path}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate(item.path);
+                      }}
+                      className={cn(
+                        "group flex items-center rounded-md text-sm",
+                        "h-11",
+                        expanded ? "gap-3 px-3" : "justify-center px-0",
+                        "transition-colors",
+                        isActive
+                          ? "bg-white/10 text-white"
+                          : "text-white/80 hover:bg-white/5 hover:text-white"
+                      )}
+                      aria-current={isActive ? 'page' : undefined}
+                      title={expanded ? undefined : item.title}
+                    >
+                      <item.icon
+                        size={18}
+                        className={cn(
+                          "shrink-0",
+                          isActive ? "text-white" : "text-white/70 group-hover:text-white"
+                        )}
+                      />
+
+                      {expanded ? <span className="min-w-0 flex-1 truncate">{item.title}</span> : null}
+
+                      {expanded ? renderBadge(badgeCount) : null}
+                    </a>
+                  );
+                })}
+              </div>
             );
           })}
         </div>

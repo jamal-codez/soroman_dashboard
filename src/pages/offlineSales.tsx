@@ -96,9 +96,12 @@ export default function OfflineSales() {
         ]);
         
         // Handle potential paginated responses
-        setSales(salesRes.results || salesRes);
-        setStates(statesRes.results || statesRes);
-        setProducts((productsRes.results || productsRes) as Product[]);
+        const salesArr = Array.isArray(salesRes) ? salesRes : Array.isArray(salesRes?.results) ? salesRes.results : [];
+        const statesArr = Array.isArray(statesRes) ? statesRes : Array.isArray(statesRes?.results) ? statesRes.results : [];
+        const productsArr = Array.isArray(productsRes) ? productsRes : Array.isArray(productsRes?.results) ? productsRes.results : [];
+        setSales(salesArr);
+        setStates(statesArr);
+        setProducts(productsArr as Product[]);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);
