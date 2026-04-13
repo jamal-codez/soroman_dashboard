@@ -263,21 +263,40 @@ export default function InHouseOrders() {
   const { data: productsRaw } = useQuery<Product[]>({
     queryKey: ['products'],
     queryFn: async () => {
-      let arr: Product[] = [];
-      try {
-        const res = await apiClient.admin.getProducts({ page_size: 100 });
-        arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
-      } catch { /* primary endpoint failed */ }
+      const toArr = (res: unknown): Product[] => {
+        if (Array.isArray(res)) return res;
+        const obj = res as Record<string, unknown> | null;
+        if (obj && Array.isArray(obj.results)) return obj.results;
+        return [];
+      };
 
-      if (arr.length === 0) {
+      const endpoints = [
+        () => apiClient.admin.getProducts({ page_size: 100 }),
+        () => apiClient.admin.getProductsInventory({ page_size: 100 }),
+        () => apiClient.admin.getProductInventory(),
+        () => apiClient.admin.getStatesPricing(),
+      ];
+
+      for (const fn of endpoints) {
         try {
-          const fb = await apiClient.admin.getProductsInventory({ page_size: 100 });
-          const fbArr = Array.isArray(fb) ? fb : Array.isArray(fb?.results) ? fb.results : [];
-          if (fbArr.length > 0) return fbArr as Product[];
-        } catch { /* fallback also failed */ }
+          const res = await fn();
+          const arr = toArr(res);
+          if (arr.length > 0) {
+            const first = arr[0] as Record<string, unknown>;
+            if (first && first.product && typeof first.product === 'object') {
+              const seen = new Set<number>();
+              return arr
+                .map((item: Record<string, unknown>) => {
+                  const p = item.product as Record<string, unknown>;
+                  return p ? { id: Number(p.id), name: String(p.name || ''), abbreviation: p.abbreviation ? String(p.abbreviation) : undefined } : null;
+                })
+                .filter((p): p is Product => p !== null && !seen.has(p.id) && (seen.add(p.id), true));
+            }
+            return arr as Product[];
+          }
+        } catch { /* try next endpoint */ }
       }
-
-      return arr;
+      return [];
     },
     staleTime: 5 * 60_000,
     retry: 1,

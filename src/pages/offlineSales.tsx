@@ -90,10 +90,9 @@ export default function OfflineSales() {
     const fetchData = async () => {
       try {
         // Use Promise.allSettled so one failing endpoint doesn't block the others
-        const [salesRes, statesRes, productsRes] = await Promise.allSettled([
+        const [salesRes, statesRes] = await Promise.allSettled([
           apiClient.admin.getOfflineSales(),
           apiClient.admin.getStates(),
-          apiClient.admin.getProducts({ page_size: 100 }),
         ]);
 
         const unwrap = (r: PromiseSettledResult<unknown>) => {
@@ -105,14 +104,20 @@ export default function OfflineSales() {
         setSales(unwrap(salesRes) as typeof sales);
         setStates(unwrap(statesRes) as typeof states);
 
-        let prodArr = unwrap(productsRes) as Product[];
-        // If products endpoint failed or returned empty, try inventory_products as fallback
-        if (prodArr.length === 0) {
+        // Try multiple product endpoints — some may be role-restricted
+        const productEndpoints = [
+          () => apiClient.admin.getProducts({ page_size: 100 }),
+          () => apiClient.admin.getProductsInventory({ page_size: 100 }),
+          () => apiClient.admin.getProductInventory(),
+        ];
+        let prodArr: Product[] = [];
+        for (const fn of productEndpoints) {
+          if (prodArr.length > 0) break;
           try {
-            const fb = await apiClient.admin.getProductsInventory({ page_size: 100 });
-            const fbArr = Array.isArray(fb) ? fb : Array.isArray(fb?.results) ? fb.results : [];
-            if (fbArr.length > 0) prodArr = fbArr as Product[];
-          } catch { /* ignore fallback error */ }
+            const res = await fn();
+            const arr = Array.isArray(res) ? res : Array.isArray((res as Record<string, unknown>)?.results) ? (res as Record<string, unknown>).results as Product[] : [];
+            if (arr.length > 0) prodArr = arr as Product[];
+          } catch { /* try next */ }
         }
         setProducts(prodArr);
         setLoading(false);
