@@ -37,6 +37,9 @@ const OrderAudit = lazy(() => import("./pages/OrderAudit"));
 const PFIPage = lazy(() => import("./pages/PFI"));
 const OrdersPFI = lazy(() => import("./pages/OrdersPFI"));
 const InHouseOrders = lazy(() => import("./pages/InHouseOrders"));
+const InHouseCreate = lazy(() => import("./pages/InHouseCreate"));
+const InHouseRecords = lazy(() => import("./pages/InHouseRecords"));
+const InHouseSales = lazy(() => import("./pages/InHouseSales"));
 const FleetTrucks = lazy(() => import("./pages/FleetTrucks"));
 const FleetLedger = lazy(() => import("./pages/FleetLedger"));
 const BuyersList = lazy(() => import("./pages/BuyersList"));
@@ -106,6 +109,9 @@ const App = () => (
               <Route path="/delivery-processing" element={<Protected><DeliveryProcessing /></Protected>} />
               <Route path="/pickup-processing" element={<Protected><PickupProcessing /></Protected>} />
               <Route path="/in-house-orders" element={<Protected><InHouseOrders /></Protected>} />
+              <Route path="/in-house-create" element={<Protected><InHouseCreate /></Protected>} />
+              <Route path="/in-house-records" element={<Protected><InHouseRecords /></Protected>} />
+              <Route path="/in-house-sales" element={<Protected><InHouseSales /></Protected>} />
               <Route path="/fleet-trucks" element={<Protected><FleetTrucks /></Protected>} />
               <Route path="/fleet-ledger" element={<Protected><FleetLedger /></Protected>} />
               <Route path="/buyers-list" element={<Protected><BuyersList /></Protected>} />

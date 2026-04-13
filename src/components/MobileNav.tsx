@@ -51,7 +51,9 @@ const navItems = [
 
   // OPERATIONS (TICKETING / LOADING)
   { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
-  { title: "Delivery Orders", icon: Truck, path: "/in-house-orders", allowedRoles: [0,1,4] },
+  { title: "Create Delivery Order", icon: Truck, path: "/in-house-create", allowedRoles: [0,1,4] },
+  { title: "Delivery Records", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0,1] },
+  { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0,1,3] },
 
   // TRANSPORT / FLEET
   { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
