@@ -565,8 +565,8 @@ export default function InHouseOrders() {
           <div className="max-w-7xl mx-auto space-y-5">
             {/* Header */}
             <PageHeader
-              title="Create Delivery Order"
-              description="Generate and assign order to sales representative for customer delivery and accountability."
+              title="Truck-Out & Delivery Orders"
+              description="Create and assign order to sales representative for customer delivery and accountability."
               actions={
                 <>
                   <Button
@@ -787,9 +787,9 @@ export default function InHouseOrders() {
                 <Truck className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">New In-House Order</h2>
+                <h2 className="text-lg font-semibold">New Truck-Out/Delivery Order</h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  Allocate product to an agent for consignment / dispatch
+                  Create and assign product to a sales rep for consignment/dispatch
                 </p>
               </div>
             </DialogTitle>
@@ -1086,7 +1086,7 @@ export default function InHouseOrders() {
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                   <User size={15} className="text-slate-500" />
-                  Buyer Name <span className="text-red-500">*</span>
+                  Buyer (Company/Individual) <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   placeholder="e.g. Chinedu Okafor"
@@ -1102,7 +1102,7 @@ export default function InHouseOrders() {
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                   <Phone size={15} className="text-slate-500" />
-                  Buyer Phone <span className="text-red-500">*</span>
+                  Buyer's Phone Number <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   placeholder="e.g. 08098765432"
@@ -1135,7 +1135,7 @@ export default function InHouseOrders() {
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                   <DollarSign size={15} className="text-slate-500" />
-                  Unit Price per Litre (₦) <span className="text-red-500">*</span>
+                  Price per Litre (₦) <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   type="text"

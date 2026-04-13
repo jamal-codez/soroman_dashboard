@@ -1,5 +1,6 @@
 import React from 'react';
 import { Bell, Search } from 'lucide-react';
+import { apiClient } from '@/api/client';
 
 export const TopBar = React.memo(function TopBar() {
   const fullName = (localStorage.getItem('fullname') || '').trim();
@@ -7,7 +8,8 @@ export const TopBar = React.memo(function TopBar() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try { await apiClient.admin.logoutUser(); } catch { /* ignore — clear locally regardless */ }
     localStorage.removeItem('token');
     localStorage.removeItem('role');
     localStorage.removeItem('fullname');

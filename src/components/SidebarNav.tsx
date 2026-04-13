@@ -108,7 +108,8 @@ export const SidebarNav = React.memo(function SidebarNav() {
   const location = useLocation();
   const role = parseInt(localStorage.getItem('role')||'10');
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try { await apiClient.admin.logoutUser(); } catch { /* ignore — clear locally regardless */ }
     localStorage.removeItem('token');
     localStorage.removeItem('role');
     localStorage.removeItem('fullname');

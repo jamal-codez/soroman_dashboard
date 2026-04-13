@@ -381,23 +381,18 @@ export default function SubmitRecord() {
     }
     setSubmitting(true);
     try {
-      let fileData = "", fileName = "", fileType = "", fileSize = 0;
-      if (file) {
-        fileData = await readFileAsBase64(file);
-        fileName = file.name;
-        fileType = file.type || "application/octet-stream";
-        fileSize = file.size;
-      }
-      const newRecord: RecordEntry = {
-        id: generateId(), type: selectedType,
-        title: built.title, description: built.description, amount: built.amount,
-        file_name: fileName, file_type: fileType, file_size: fileSize, file_data: fileData,
-        submitted_by: currentUser, submitted_by_role: ROLE_LABELS[currentRole] || "Staff",
-        status: "pending", status_note: "", status_changed_by: "", status_changed_at: "",
-        created_at: new Date().toISOString(), extra: built.extra,
-      };
-      const existing = loadRecords();
-      saveRecords([newRecord, ...existing]);
+      // Send record to the backend API
+      await apiClient.admin.createRecord({
+        category: selectedType,
+        title: built.title,
+        description: built.description || "",
+        amount: built.amount || undefined,
+        extra: built.extra,
+        pfi_id: built.extra?.pfi_id as number | undefined,
+        pfi_number: built.extra?.pfi_number as string | undefined,
+        file: file || undefined,
+      });
+
       setSubmitted(true);
       toast({ title: "Record submitted!", description: "Your submission has been recorded." });
     } catch (err) {

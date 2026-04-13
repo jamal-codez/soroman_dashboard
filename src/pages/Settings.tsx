@@ -318,7 +318,8 @@ const Settings = () => {
   const fetchUsers = useCallback(async () => {
     try {
       const response = await apiClient.admin.getUsers();
-      setUsers(response);
+      // Handle both plain array and paginated { results: [] } responses
+      setUsers(Array.isArray(response) ? response : (response?.results ?? []));
     } catch (error) {
       toast({
         title: 'Error',

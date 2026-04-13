@@ -130,7 +130,8 @@ export const MobileNav = React.memo(function MobileNav() {
 
   const visibleItems = useMemo(() => navItems.filter((i) => i.allowedRoles.includes(role)), [role]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try { await apiClient.admin.logoutUser(); } catch { /* ignore — clear locally regardless */ }
     localStorage.removeItem('token');
     localStorage.removeItem('role');
     localStorage.removeItem('fullname');

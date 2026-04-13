@@ -8,6 +8,27 @@ import { useToast } from '@/components/ui/use-toast';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { apiClient, resetSessionExpiredGuard } from '@/api/client';
 
+/** Map user role to their default landing page after login. */
+function landingPageForRole(role: number | string): string {
+  switch (Number(role)) {
+    case 0: // SUPERADMIN
+    case 1: // ADMIN
+      return '/dashboard';
+    case 2: // FINANCE / Accounts
+      return '/payment-verify';
+    case 3: // SALES / Marketing
+      return '/orders';
+    case 4: // RELEASE / Ticketing
+      return '/pickup-processing';
+    case 5: // SECURITY
+      return '/security';
+    case 6: // TRANSPORT
+      return '/fleet-ledger';
+    default:
+      return '/dashboard';
+  }
+}
+
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -50,7 +71,7 @@ const Login = () => {
           title: "Success",
           description: "Login successful",
         });
-        navigate('/dashboard');
+        navigate(landingPageForRole(response.user.role));
       } else {
         toast({
           title: "Authentication failed",

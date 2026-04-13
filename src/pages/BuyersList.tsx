@@ -413,12 +413,12 @@ const BuyersList = () => {
             />
 
             {/* ── Stat cards ──────────────────────────────────────────── */}
-            <div className="grid grid-cols-2 lg:grid-cols-2 gap-3">
+            {/* <div className="grid grid-cols-2 lg:grid-cols-2 gap-3">
               <StatMini icon={Users} label="Total Buyers" value={stats.total} color="blue" loading={isLoading} />
               <StatMini icon={Phone} label="Active Phone" value={stats.withPhone} color="amber" loading={isLoading} />
-              {/* <StatMini icon={Package} label="From In-House" value={stats.fromInHouse} color="violet" loading={isLoading} /> */}
-              {/* <StatMini icon={Truck} label="From Delivery" value={stats.fromDelivery} color="green" loading={isLoading} /> */}
-            </div>
+              <StatMini icon={Package} label="From In-House" value={stats.fromInHouse} color="violet" loading={isLoading} />
+              <StatMini icon={Truck} label="From Delivery" value={stats.fromDelivery} color="green" loading={isLoading} />
+            </div> */}
 
             {/* ── Search + Filter ─────────────────────────────────────── */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">

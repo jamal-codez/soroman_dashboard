@@ -48,7 +48,10 @@ export const resetSessionExpiredGuard = () => { _sessionExpiredFired = false; };
 // ---------------------------------------------------------------------------
 const safeFetch: typeof fetch = async (input, init) => {
   const response = await fetch(input, init);
-  if ((response.status === 401 || response.status === 403) && localStorage.getItem('token')) {
+  // Only auto-logout on 401 (token invalid/expired).
+  // 403 is not treated as session-expired since the backend has no
+  // per-role permission restrictions — any valid token grants full access.
+  if (response.status === 401 && localStorage.getItem('token')) {
     handleSessionExpired();
   }
   return response;
@@ -102,11 +105,53 @@ export const apiClient = {
       return response.json();
     },
 
-    
+    /** POST /api/admin/users/logout/ — deletes the auth token */
+    logoutUser: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/users/logout/`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** GET /api/admin/export-orders/?status=&from=&to= — returns CSV download */
+    exportOrders: async (params?: { status?: string; from?: string; to?: string }) => {
+      const url = new URL(`${ADMIN_BASE}/export-orders/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          const s = String(v); if (!s.trim()) return;
+          url.searchParams.set(k, s);
+        });
+      }
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.blob();
+    },
+
+    /** GET /api/admin/security/orders/<id>/ — security view of a released order */
+    getSecurityOrder: async (orderId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/security/orders/${orderId}/`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/orders/<id>/security-exit/ — mark security clearance */
+    securityExit: async (orderId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/security-exit/`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
 
     toggleBankSuspend: async (bankid: number) => {
       const response = await safeFetch(`${ADMIN_BASE}/banktoggle/${bankid}/`, {
-        method: 'GET',
+        method: 'POST',
         headers: getHeaders(),
       });
       if (!response.ok) throw new Error(await safeReadError(response));
@@ -277,7 +322,7 @@ export const apiClient = {
 
     cancleOrder: async (orderID: number) => {
       const response = await safeFetch(`${ADMIN_BASE}/cancleorder/${orderID}/`, {
-        method: 'GET',
+        method: 'POST',
         headers: getHeaders(),
       });
       if (!response.ok) throw new Error(await safeReadError(response));
@@ -645,6 +690,7 @@ export const apiClient = {
     
     toggleStateStatus: async (StatetId: string) => {
       const response = await safeFetch(`${ADMIN_BASE}/state/${StatetId}/togglestatus/`, {
+        method: 'POST',
         headers: getHeaders(),
       });
       if (!response.ok) throw new Error(await safeReadError(response));
@@ -757,19 +803,8 @@ export const apiClient = {
       return response.json();
     },
 
-    // Order Status
-    updateOrderStatus: async (data: { id: number; status: string }) => {
-      const response = await safeFetch(`${ADMIN_BASE}/update-order-status/`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) {
-        const msg = await safeReadError(response);
-        throw new Error(`Failed to update order status (${response.status}): ${msg}`);
-      }
-      return response.json();
-    },
+    // DEPRECATED: /api/admin/update-order-status/ returns 410 Gone.
+    // Use confirmPayment() or releaseOrder() instead.
 
     // Verify Orders
     getVerifyOrders: async (params?: {

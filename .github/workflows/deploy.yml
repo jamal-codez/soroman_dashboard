@@ -18,10 +18,10 @@ jobs:
         script: |
           echo "Deploying frontend..."
           cd soroman_dashboard || exit 1
-          # Ensure deploy target has a clean working tree so pull never fails
-          git reset --hard HEAD
+          # Fetch latest and force-reset to origin/master (avoids divergent branch errors)
+          git fetch origin master || exit 1
+          git reset --hard origin/master || exit 1
           git clean -fd
-          git pull origin master || exit 1
           npm install || exit 1
           npm run build || exit 1
           sudo rm -rf /var/www/react-dashboard/* || exit 1

@@ -267,8 +267,8 @@ const Dashboard: React.FC = () => {
         <div className="flex-1 overflow-auto p-4 sm:p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="Dashboard Overview"
-              description="Today’s performance at a glance, plus key operational metrics for orders, loading and revenue."
+              title="Today's Overview"
+              description="Have a glance at today's performance, including key operational metrics for orders, loading and revenue."
             />
 
             <SummaryCards

@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import { AuthGuard, RoleGuard } from "@/components/AuthGuard";
+import { AuthGuard } from "@/components/AuthGuard";
 import { Loader2 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -72,20 +72,11 @@ const PageLoader = () => (
 );
 
 // ---------------------------------------------------------------------------
-// Helper — wraps a page with AuthGuard (login required) and optionally
-// RoleGuard (only certain roles may access).  Both re-evaluate on every
-// render so they stay in sync with localStorage.
+// Helper — wraps a page with AuthGuard (login required).
+// Sidebar handles role-based visibility separately.
 // ---------------------------------------------------------------------------
-const Protected = ({
-  children,
-  roles,
-}: {
-  children: React.ReactNode;
-  roles?: number[];
-}) => (
-  <AuthGuard>
-    {roles ? <RoleGuard allowedRoles={roles}>{children}</RoleGuard> : children}
-  </AuthGuard>
+const Protected = ({ children }: { children: React.ReactNode }) => (
+  <AuthGuard>{children}</AuthGuard>
 );
 
 const App = () => (
@@ -125,12 +116,12 @@ const App = () => (
               <Route path="/pricing" element={<Protected><Pricing /></Protected>} />
               <Route path="/security" element={<Protected><SecurityPage /></Protected>} />
 
-              {/* Role-restricted routes */}
-              <Route path="/pfi" element={<Protected roles={[0, 1, 2]}><PFIPage /></Protected>} />
-              <Route path="/confirmed-payments" element={<Protected roles={[0, 1, 2]}><ConfirmedPayments /></Protected>} />
-              <Route path="/users-management" element={<Protected roles={[0, 1]}><Settings /></Protected>} />
-              <Route path="/agents" element={<Protected roles={[0, 1]}><Agents /></Protected>} />
-              <Route path="/order-audit" element={<Protected roles={[0, 1]}><OrderAudit /></Protected>} />
+              {/* All authenticated routes */}
+              <Route path="/pfi" element={<Protected><PFIPage /></Protected>} />
+              <Route path="/confirmed-payments" element={<Protected><ConfirmedPayments /></Protected>} />
+              <Route path="/users-management" element={<Protected><Settings /></Protected>} />
+              <Route path="/agents" element={<Protected><Agents /></Protected>} />
+              <Route path="/order-audit" element={<Protected><OrderAudit /></Protected>} />
 
               <Route path="*" element={<NotFound />} />
             </Routes>
