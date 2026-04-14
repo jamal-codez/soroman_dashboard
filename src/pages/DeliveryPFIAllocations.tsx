@@ -403,7 +403,7 @@ export default function DeliveryPFIAllocations() {
 
             {/* Header */}
             <PageHeader
-              title="Trucks Inventory"
+              title="Truck Deliveries Inventory"
               description="Add stock from PFIs into the truck-out deliveries."
               actions={
                 <>
