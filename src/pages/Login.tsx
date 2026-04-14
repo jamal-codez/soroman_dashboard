@@ -98,7 +98,7 @@ const Login = () => {
             <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-4">
               <img src="/logo.png" alt="logo" className='w-50 h-50' />
             </div>
-            <h1 className="text-2xl font-bold text-slate-800">Soroman Nigeria Limited</h1>
+            <h1 className="text-2xl font-bold text-slate-800">Soroman Energy</h1>
             <p className="text-slate-500 mt-2">Sign in to your account</p>
           </div>
 

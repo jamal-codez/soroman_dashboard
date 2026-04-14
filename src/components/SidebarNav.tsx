@@ -57,7 +57,7 @@ type OrdersResults = { results?: Array<{ status?: string | null }> };
 // SECURITY=5,"Security"
 // TRANSPORT=6,"Transport Officer"
 
-type NavItem = { title: string; icon: React.ComponentType<{ size?: number; className?: string }>; path: string; allowedRoles: number[] };
+type NavItem = { title: string; icon: React.ComponentType<{ size?: string | number; className?: string }>; path: string; allowedRoles: number[] };
 type NavCategory = { category: string; items: NavItem[] };
 
 const navCategories: NavCategory[] = [
@@ -72,16 +72,16 @@ const navCategories: NavCategory[] = [
     items: [
       { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,3] },
       { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
-      { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
+      // { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
     ],
   },
   {
     category: 'Dispatch & Waybill',
     items: [
       { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
-      { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
-      { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0,1] },
-      { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0,3] },
+      // { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0] },
+      // { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0] },
+      // { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0] },
     ],
   },
   {
@@ -92,6 +92,15 @@ const navCategories: NavCategory[] = [
     ],
   },
   {
+    category: 'Deliveries',
+    items: [
+      { title: "Inventory", icon: FileText, path: "/delivery-pfi-allocations", allowedRoles: [0,1,3] },
+      { title: "Truck Deliveries", icon: Truck, path: "/delivery-inventory", allowedRoles: [0,1,3] },
+      { title: "Delivery Customers", icon: UserCheck, path: "/delivery-customers-db", allowedRoles: [0,1,3] },
+      { title: "Sales Ledger", icon: ClipboardList, path: "/delivery-sales-ledger", allowedRoles: [0,1,3] },
+    ],
+  },
+  {
     category: 'Finance',
     items: [
       { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
@@ -99,29 +108,29 @@ const navCategories: NavCategory[] = [
       { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2] },
     ],
   },
-  {
-    category: 'Inventory & Pricing',
-    items: [
-      { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0,1] },
-      { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1] },
-      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2] },
-    ],
-  },
+  // {
+  //   category: 'Inventory & Pricing',
+  //   items: [
+  //     // { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0,1] },
+  //   ],
+  // },
   {
     category: 'Admin',
     items: [
-      { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0] },
+      // { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0] },
+      { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1] },
+      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2] },
       { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1] },
       { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
     ],
   },
-  {
-    category: 'Records',
-    items: [
-      { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
-      { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
-    ],
-  },
+  // {
+  //   category: 'Records',
+  //   items: [
+  //     { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
+  //     { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
+  //   ],
+  // },
   {
     category: 'Security',
     items: [

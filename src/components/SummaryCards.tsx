@@ -35,7 +35,7 @@ export function SummaryCards({ cards }: { cards: SummaryCard[] }) {
                   {c.title}
                 </div>
 
-                <div className="text-[28px] sm:text-[28px] font-bold text-slate-950 tracking-[-0.02em] leading-[1.05] truncate">
+                <div className="text-[28px] sm:text-[28px] font-bold text-slate-950 tracking-[-0.02em] leading-[1.05] break-all">
                   {c.value}
                 </div>
 

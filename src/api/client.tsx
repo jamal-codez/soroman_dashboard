@@ -1390,6 +1390,259 @@ export const apiClient = {
     },
 
     // =====================================================================
+    // Delivery Inventory (PFI Allocations to Delivery)
+    // =====================================================================
+
+    /** GET /api/admin/delivery/inventory/ */
+    getDeliveryInventory: async (params?: {
+      search?: string;
+      pfi?: number;
+      status?: string;
+      page?: number;
+      page_size?: number;
+      ordering?: string;
+    }) => {
+      const url = new URL(`${ADMIN_BASE}/delivery/inventory/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          const s = String(v); if (!s.trim()) return;
+          url.searchParams.set(k, s);
+        });
+      }
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/delivery/inventory/ */
+    createDeliveryInventory: async (data: {
+      pfi?: number | null;
+      depot?: string;
+      location?: string;
+      quantity_allocated: number;
+      date_allocated?: string;
+      notes?: string;
+      // Truck-loading fields (omitted for PFI-only allocations)
+      truck?: number | null;
+      truck_number?: string;
+      customer?: number | null;
+      customer_name?: string;
+      loading_status?: 'loaded' | 'offloaded' | 'empty' | string;
+    }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/inventory/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PATCH /api/admin/delivery/inventory/<id>/ */
+    updateDeliveryInventory: async (
+      id: number,
+      data: Partial<{
+        pfi: number | null;
+        depot: string;
+        location: string;
+        quantity_allocated: number;
+        date_allocated: string;
+        notes: string;
+        // Truck-loading fields
+        truck: number | null;
+        truck_number: string;
+        customer: number | null;
+        customer_name: string;
+        loading_status: string;
+        date_offloaded: string;
+      }>
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/inventory/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** DELETE /api/admin/delivery/inventory/<id>/ */
+    deleteDeliveryInventory: async (id: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/inventory/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (response.status === 204) return true;
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
+    },
+
+    // =====================================================================
+    // Delivery Customers Database
+    // =====================================================================
+
+    /** GET /api/admin/delivery/customers/ */
+    getDeliveryCustomers: async (params?: {
+      search?: string;
+      status?: string;
+      page?: number;
+      page_size?: number;
+      ordering?: string;
+    }) => {
+      const url = new URL(`${ADMIN_BASE}/delivery/customers/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          const s = String(v); if (!s.trim()) return;
+          url.searchParams.set(k, s);
+        });
+      }
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/delivery/customers/ */
+    createDeliveryCustomer: async (data: {
+      customer_name: string;
+      phone_number?: string;
+      status?: string;
+      assigned_trucks?: number[];
+    }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/customers/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PATCH /api/admin/delivery/customers/<id>/ */
+    updateDeliveryCustomer: async (
+      id: number,
+      data: Partial<{
+        customer_name: string;
+        phone_number: string;
+        status: string;
+        assigned_trucks: number[];
+      }>
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/customers/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** DELETE /api/admin/delivery/customers/<id>/ */
+    deleteDeliveryCustomer: async (id: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/customers/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (response.status === 204) return true;
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
+    },
+
+    // =====================================================================
+    // Delivery Sales Ledger
+    // =====================================================================
+
+    /** GET /api/admin/delivery/sales/ */
+    getDeliverySales: async (params?: {
+      search?: string;
+      customer?: number;
+      date_from?: string;
+      date_to?: string;
+      page?: number;
+      page_size?: number;
+      ordering?: string;
+    }) => {
+      const url = new URL(`${ADMIN_BASE}/delivery/sales/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          const s = String(v); if (!s.trim()) return;
+          url.searchParams.set(k, s);
+        });
+      }
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/delivery/sales/ */
+    createDeliverySale: async (data: {
+      truck_number: string;
+      date_loaded: string;
+      depot_loaded?: string;
+      customer: number;
+      location?: string;
+      quantity?: number;
+      rate?: number;
+      sales_value?: number;
+      payment_amount?: number;
+      payer_name?: string;
+      bank?: string;
+      date_of_payment?: string;
+      phone_number?: string;
+      remarks?: string;
+    }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/sales/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PATCH /api/admin/delivery/sales/<id>/ */
+    updateDeliverySale: async (
+      id: number,
+      data: Partial<{
+        truck_number: string;
+        date_loaded: string;
+        depot_loaded: string;
+        customer: number;
+        location: string;
+        quantity: number;
+        rate: number;
+        sales_value: number;
+        payment_amount: number;
+        payer_name: string;
+        bank: string;
+        date_of_payment: string;
+        phone_number: string;
+        remarks: string;
+      }>
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/sales/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** DELETE /api/admin/delivery/sales/<id>/ */
+    deleteDeliverySale: async (id: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/sales/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (response.status === 204) return true;
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
+    },
+
+    // =====================================================================
     // Records  (POST multipart/form-data, GET / PATCH / DELETE JSON)
     // =====================================================================
 
