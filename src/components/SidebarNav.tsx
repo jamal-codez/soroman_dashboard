@@ -38,6 +38,7 @@ import {
   Users2Icon,
   ActivityIcon,
   FileBadge2Icon,
+  Package,
   ChevronsLeft,
   ChevronsRight,
   LogOutIcon,
@@ -94,8 +95,7 @@ const navCategories: NavCategory[] = [
   {
     category: 'Deliveries',
     items: [
-      { title: "Inventory", icon: FileText, path: "/delivery-pfi-allocations", allowedRoles: [0,1,3] },
-      { title: "Truck Deliveries", icon: Truck, path: "/delivery-inventory", allowedRoles: [0,1,3] },
+      { title: "Inventory", icon: Package, path: "/delivery-inventory", allowedRoles: [0,1,3] },
       { title: "Delivery Customers", icon: UserCheck, path: "/delivery-customers-db", allowedRoles: [0,1,3] },
       { title: "Sales Ledger", icon: ClipboardList, path: "/delivery-sales-ledger", allowedRoles: [0,1,3] },
     ],

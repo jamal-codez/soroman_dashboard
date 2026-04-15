@@ -77,6 +77,7 @@ interface DeliverySale {
   date_of_payment: string | null;
   phone_number: string;
   remarks: string;
+  entered_by?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -195,6 +196,7 @@ export default function DeliverySalesLedger() {
     depot_loaded: '',
     customer: '',
     customer_name: '',
+    location: '',
     quantity: '',
     rate: '',
     sales_value: '',
@@ -322,6 +324,7 @@ export default function DeliverySalesLedger() {
       result = result.filter(s =>
         s.truck_number.toLowerCase().includes(q) ||
         (s.depot_loaded || '').toLowerCase().includes(q) ||
+        (s.location || '').toLowerCase().includes(q) ||
         (s.payer_name || '').toLowerCase().includes(q) ||
         (s.bank || '').toLowerCase().includes(q) ||
         (s.customer_name || customerMap.get(s.customer)?.customer_name || '').toLowerCase().includes(q) ||
@@ -406,7 +409,7 @@ export default function DeliverySalesLedger() {
 
   const summaryCards = useMemo((): SummaryCard[] => [
     // { title: 'Total Entries', value: String(totals.entries), icon: <FileText size={20} />, tone: 'neutral' },
-    { title: 'Trucks', value: String(totals.truckCount), icon: <Truck size={20} />, tone: 'neutral' },
+    // { title: 'Trucks Sold', value: String(totals.truckCount), icon: <Truck size={20} />, tone: 'neutral' },
     { title: 'Expected Revenue', value: fmt(totals.totalExpected), icon: <TrendingUp size={20} />, tone: 'neutral' },
     { title: 'Total Payments', value: fmt(totals.totalPaid), icon: <Banknote size={20} />, tone: 'green' },
     { title: 'Outstanding', value: fmt(totals.outstanding), icon: <Wallet size={20} />, tone: totals.outstanding > 0 ? 'red' : 'green' },
@@ -457,7 +460,7 @@ export default function DeliverySalesLedger() {
   const openPaymentDialog = () => {
     setForm({
       truck_loading_id: '', truck_number: '', date_loaded: '', depot_loaded: '',
-      customer: '', customer_name: '', quantity: '', rate: '', sales_value: '',
+      customer: '', customer_name: '', location: '', quantity: '', rate: '', sales_value: '',
       payment_amount: '', payer_name: '', bank_account_id: '',
       date_of_payment: format(new Date(), 'yyyy-MM-dd'), phone_number: '', remarks: '',
     });
@@ -474,6 +477,7 @@ export default function DeliverySalesLedger() {
     const custName = loading.customer_name || (loading.customer ? customerMap.get(loading.customer)?.customer_name : '') || '';
     const qty = toNum(loading.quantity_allocated);
     const depot = loading.depot || loading.pfi_location || loading.location || '';
+    const destination = loading.location || '';
 
     // Check if this truck already has a rate from previous entries
     const existing = truckPaymentSummary.get(loading.truck_number || '');
@@ -495,6 +499,7 @@ export default function DeliverySalesLedger() {
       depot_loaded: depot,
       customer: loading.customer ? String(loading.customer) : '',
       customer_name: custName,
+      location: destination,
       quantity: qty > 0 ? formatWithCommas(String(qty)) : '',
       rate: existingRate,
       sales_value: existingSalesValue,
@@ -522,12 +527,13 @@ export default function DeliverySalesLedger() {
         ? `${bankAcct.bank_name} — ${bankAcct.account_number} (${bankAcct.account_name})`
         : '';
 
+      const currentUser = localStorage.getItem('fullname') || 'Unknown';
       const payload = {
         truck_number: form.truck_number.trim(),
         date_loaded: form.date_loaded || format(new Date(), 'yyyy-MM-dd'),
         depot_loaded: form.depot_loaded.trim() || undefined,
         customer: form.customer ? Number(form.customer) : 0,
-        location: undefined as string | undefined,
+        location: form.location.trim() || undefined,
         quantity: Number(stripCommas(form.quantity)) || undefined,
         rate: rateNum || undefined,
         sales_value: Number(stripCommas(form.sales_value)) || undefined,
@@ -537,6 +543,7 @@ export default function DeliverySalesLedger() {
         date_of_payment: form.date_of_payment || undefined,
         phone_number: form.phone_number.trim() || undefined,
         remarks: form.remarks.trim() || undefined,
+        entered_by: currentUser,
       };
 
       await apiClient.admin.createDeliverySale(payload);
@@ -587,6 +594,7 @@ export default function DeliverySalesLedger() {
         'Truck': s.truck_number,
         'Date Loaded': s.date_loaded ? format(parseISO(s.date_loaded), 'dd/MM/yyyy') : '',
         'Depot': s.depot_loaded || '',
+        'Destination': s.location || '',
         'Customer': custName,
         'Qty (L)': toNum(s.quantity),
         'Rate (₦)': toNum(s.rate),
@@ -597,6 +605,7 @@ export default function DeliverySalesLedger() {
         'Bank / Account': s.bank || '',
         'Payment Date': s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '',
         'Remarks': s.remarks || '',
+        'Entered By': s.entered_by || '',
       };
     });
 
@@ -688,7 +697,7 @@ export default function DeliverySalesLedger() {
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <Input
-                    placeholder="Search by truck, depot, customer, payer, bank…"
+                    placeholder="Search by truck, depot, destination, customer, payer, bank…"
                     className="pl-10"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
@@ -735,6 +744,7 @@ export default function DeliverySalesLedger() {
                         <TableHead className="font-semibold text-slate-700">Truck</TableHead>
                         <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead>
                         <TableHead className="font-semibold text-slate-700">Depot</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Destination</TableHead>
                         <TableHead className="font-semibold text-slate-700">Customer</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-right">Qty (L)</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-right">Rate</TableHead>
@@ -742,10 +752,11 @@ export default function DeliverySalesLedger() {
                         <TableHead className="font-semibold text-emerald-700 text-right">Payment</TableHead>
                         <TableHead className="font-semibold text-red-700 text-right">Balance</TableHead>
                         <TableHead className="font-semibold text-slate-700">Payer</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Bank / Account</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Bank</TableHead>
                         <TableHead className="font-semibold text-slate-700">Paid On</TableHead>
                         <TableHead className="font-semibold text-slate-700">Remarks</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[60px]">Del</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Entered By</TableHead>
+                        {/* <TableHead className="font-semibold text-slate-700 w-[60px]">Del</TableHead> */}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -764,10 +775,10 @@ export default function DeliverySalesLedger() {
                               isPaymentRow ? 'bg-emerald-50/30' : ''
                             } ${isPaidOff ? 'bg-green-50/40' : ''}`}
                           >
-                            <TableCell className="text-slate-500">{idx + 1}</TableCell>
+                            <TableCell className="text-center text-slate-500">{idx + 1}</TableCell>
                             <TableCell className="font-semibold text-slate-800 whitespace-nowrap">
                               <div className="flex items-center gap-1.5">
-                                <Truck size={13} className="text-slate-400" />
+                                {/* <Truck size={13} className="text-slate-400" /> */}
                                 {s.truck_number}
                               </div>
                             </TableCell>
@@ -775,6 +786,7 @@ export default function DeliverySalesLedger() {
                               {s.date_loaded ? format(parseISO(s.date_loaded), 'dd MMM yyyy') : '—'}
                             </TableCell>
                             <TableCell className="text-slate-700">{s.depot_loaded || '—'}</TableCell>
+                            <TableCell className="text-slate-700 whitespace-nowrap">{s.location || '—'}</TableCell>
                             <TableCell className="font-medium text-slate-900 capitalize whitespace-nowrap">{custName}</TableCell>
                             <TableCell className="text-right text-slate-700">
                               {toNum(s.quantity) > 0 ? fmtQty(toNum(s.quantity)) : '—'}
@@ -791,18 +803,18 @@ export default function DeliverySalesLedger() {
                             <TableCell className={`text-right font-bold ${
                               balance > 0 ? 'text-red-600' : balance < 0 ? 'text-blue-600' : 'text-emerald-600'
                             }`}>
-                              {balance !== 0 ? fmt(balance) : (sv > 0 ? '✓ Paid' : '—')}
+                              {balance !== 0 ? fmt(balance) : (sv > 0 ? 'Fully Paid ✓' : '—')}
                             </TableCell>
                             <TableCell className="text-slate-700 whitespace-nowrap">{s.payer_name || '—'}</TableCell>
-                            <TableCell className="text-slate-600 text-xs max-w-[180px] truncate" title={s.bank || ''}>
+                            <TableCell className="text-slate-600 text-sm max-w-[180px]" title={s.bank || ''}>
                               {s.bank || '—'}
                             </TableCell>
-                            <TableCell className="text-slate-600 whitespace-nowrap text-xs">
+                            <TableCell className="text-slate-600 whitespace-nowrap text-sm">
                               {s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd MMM yyyy') : '—'}
                             </TableCell>
                             <TableCell>
                               {s.remarks ? (
-                                <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                                <span className={`inline-block px-2 py-0.5 rounded text-sm font-medium ${
                                   s.remarks.toLowerCase().includes('full') ? 'text-emerald-700 bg-emerald-50' :
                                   s.remarks.toLowerCase().includes('partial') ? 'text-amber-700 bg-amber-50' :
                                   'text-slate-600 bg-slate-50'
@@ -811,7 +823,10 @@ export default function DeliverySalesLedger() {
                                 </span>
                               ) : <span className="text-slate-400">—</span>}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="text-slate-600 whitespace-nowrap text-sm">
+                              {s.entered_by || '—'}
+                            </TableCell>
+                            {/* <TableCell>
                               <Button
                                 size="sm" variant="ghost"
                                 className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
@@ -820,7 +835,7 @@ export default function DeliverySalesLedger() {
                               >
                                 <Trash2 size={14} />
                               </Button>
-                            </TableCell>
+                            </TableCell> */}
                           </TableRow>
                         );
                       })}
@@ -900,6 +915,10 @@ export default function DeliverySalesLedger() {
                   <div>
                     <span className="text-slate-500 text-xs">Depot:</span>{' '}
                     <span className="font-medium text-slate-800">{form.depot_loaded || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 text-xs">Destination:</span>{' '}
+                    <span className="font-medium text-slate-800">{form.location || '—'}</span>
                   </div>
                   <div>
                     <span className="text-slate-500 text-xs">Qty:</span>{' '}

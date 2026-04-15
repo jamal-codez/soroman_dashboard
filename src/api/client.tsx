@@ -1429,6 +1429,7 @@ export const apiClient = {
       customer?: number | null;
       customer_name?: string;
       loading_status?: 'loaded' | 'offloaded' | 'empty' | string;
+      created_by?: string;
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/inventory/`, {
         method: 'POST',
@@ -1456,6 +1457,7 @@ export const apiClient = {
         customer_name: string;
         loading_status: string;
         date_offloaded: string;
+        offloaded_by: string;
       }>
     ) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/inventory/${id}/`, {
@@ -1509,6 +1511,7 @@ export const apiClient = {
       phone_number?: string;
       status?: string;
       assigned_trucks?: number[];
+      outstanding_limit?: number;
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/customers/`, {
         method: 'POST',
@@ -1527,6 +1530,7 @@ export const apiClient = {
         phone_number: string;
         status: string;
         assigned_trucks: number[];
+        outstanding_limit: number;
       }>
     ) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/customers/${id}/`, {
@@ -1592,6 +1596,7 @@ export const apiClient = {
       date_of_payment?: string;
       phone_number?: string;
       remarks?: string;
+      entered_by?: string;
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/sales/`, {
         method: 'POST',

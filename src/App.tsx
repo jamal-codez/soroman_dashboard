@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { AuthGuard } from "@/components/AuthGuard";
 import { Loader2 } from "lucide-react";
@@ -48,7 +48,6 @@ const Records = lazy(() => import("./pages/Records"));
 const DeliveryCustomersDB = lazy(() => import("./pages/DeliveryCustomersDB"));
 const DeliverySalesLedger = lazy(() => import("./pages/DeliverySalesLedger"));
 const DeliveryInventory = lazy(() => import("./pages/DeliveryInventory"));
-const DeliveryPFIAllocations = lazy(() => import("./pages/DeliveryPFIAllocations"));
 
 // ---------------------------------------------------------------------------
 // QueryClient with sane global defaults
@@ -124,7 +123,7 @@ const App = () => (
               <Route path="/delivery-customers-db" element={<Protected><DeliveryCustomersDB /></Protected>} />
               <Route path="/delivery-sales-ledger" element={<Protected><DeliverySalesLedger /></Protected>} />
               <Route path="/delivery-inventory" element={<Protected><DeliveryInventory /></Protected>} />
-              <Route path="/delivery-pfi-allocations" element={<Protected><DeliveryPFIAllocations /></Protected>} />
+              <Route path="/delivery-pfi-allocations" element={<Navigate to="/delivery-inventory" replace />} />
               <Route path="/offline-sales" element={<Protected><OfflineSales /></Protected>} />
               <Route path="/report" element={<Protected><Report /></Protected>} />
               <Route path="/pricing" element={<Protected><Pricing /></Protected>} />

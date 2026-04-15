@@ -17,8 +17,11 @@ const toneStyles: Record<NonNullable<SummaryCard["tone"]>, { wrap: string; icon:
 };
 
 export function SummaryCards({ cards }: { cards: SummaryCard[] }) {
+  const gridCols = cards.length >= 4
+    ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+    : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+    <div className={`grid ${gridCols} gap-3 sm:gap-4`}>
       {cards.map((c, idx) => {
         const t = toneStyles[c.tone || "neutral"];
         return (

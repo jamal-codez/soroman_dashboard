@@ -19,7 +19,7 @@ import {
 import {
   Plus, Search, Download, Loader2, Pencil, Trash2,
   Users, Phone, Wallet, UserCheck, UserX, UserMinus,
-  Truck,
+  Truck, AlertTriangle, ShieldAlert,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -35,6 +35,7 @@ interface DeliveryCustomer {
   customer_name: string;
   phone_number: string;
   status: 'active' | 'dormant' | 'suspended';
+  outstanding_limit: string | number | null;
   total_value_given: string | number;
   total_payments_received: string | number;
   current_balance: string | number;
@@ -73,6 +74,20 @@ const toNum = (v: string | number | undefined | null): number => {
 const fmtQty = (n: number) =>
   n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
+const formatWithCommas = (v: string): string => {
+  const cleaned = v.replace(/[^0-9.]/g, '');
+  const parts = cleaned.split('.');
+  const intPart = (parts[0] || '').replace(/^0+(?=\d)/, '');
+  const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (parts.length > 1) return `${formatted}.${parts[1]}`;
+  return formatted;
+};
+
+const stripCommas = (v: string): string => v.replace(/,/g, '');
+
+const fmtMoney = (n: number) =>
+  n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const safePaged = <T,>(raw: unknown): PagedResponse<T> => {
   if (raw && typeof raw === 'object') {
     const r = raw as Record<string, unknown>;
@@ -107,6 +122,7 @@ export default function DeliveryCustomersDB() {
     customer_name: '',
     phone_number: '',
     status: 'active' as 'active' | 'dormant' | 'suspended',
+    outstanding_limit: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -149,6 +165,10 @@ export default function DeliveryCustomersDB() {
   const customerStats = useMemo(() => {
     const map = new Map<number, { trucksUsed: Set<string>; totalQty: number; totalSalesValue: number; totalPayments: number }>();
 
+    // First pass: group sales by customer + truck to avoid double-counting
+    // quantity and sales_value across multiple payment rows for the same delivery
+    const custTruckSeen = new Map<string, { qty: number; salesValue: number }>();
+
     allSales.forEach(s => {
       const existing = map.get(s.customer) || {
         trucksUsed: new Set<string>(),
@@ -157,9 +177,34 @@ export default function DeliveryCustomersDB() {
         totalPayments: 0,
       };
       if (s.truck_number) existing.trucksUsed.add(s.truck_number);
-      existing.totalQty += toNum(s.quantity);
-      existing.totalSalesValue += toNum(s.sales_value);
+
+      // Payments are always summed — each row is a unique payment entry
       existing.totalPayments += toNum(s.payment_amount);
+
+      // Quantity and sales_value: only count once per customer+truck combination
+      // (multiple payment rows for the same truck carry the same qty/sales_value)
+      const key = `${s.customer}::${s.truck_number}`;
+      if (!custTruckSeen.has(key)) {
+        const qty = toNum(s.quantity);
+        const sv = toNum(s.sales_value);
+        custTruckSeen.set(key, { qty, salesValue: sv });
+        existing.totalQty += qty;
+        existing.totalSalesValue += sv;
+      } else {
+        // Update to the max values in case a later row has corrected data
+        const prev = custTruckSeen.get(key)!;
+        const qty = toNum(s.quantity);
+        const sv = toNum(s.sales_value);
+        if (sv > prev.salesValue) {
+          existing.totalSalesValue += sv - prev.salesValue;
+          prev.salesValue = sv;
+        }
+        if (qty > prev.qty) {
+          existing.totalQty += qty - prev.qty;
+          prev.qty = qty;
+        }
+      }
+
       map.set(s.customer, existing);
     });
 
@@ -217,8 +262,8 @@ export default function DeliveryCustomersDB() {
   const summaryCards = useMemo((): SummaryCard[] => [
     { title: 'Total Customers', value: String(totals.total), icon: <Users size={20} />, tone: 'neutral' },
     // { title: 'Active', value: String(totals.active), icon: <UserCheck size={20} />, tone: 'green' },
-    { title: 'Trucks Sold', value: String(totals.totalTrucksUsed), icon: <Truck size={20} />, tone: 'neutral' },
-    { title: 'Total Qty Delivered', value: `${fmtQty(totals.totalQtyFromLedger)} L`, icon: <Wallet size={20} />, tone: 'green' },
+    { title: 'Total Trucks Sold', value: String(totals.totalTrucksUsed), icon: <Truck size={20} />, tone: 'neutral' },
+    { title: 'Total Qty Sold', value: `${fmtQty(totals.totalQtyFromLedger)} L`, icon: <Wallet size={20} />, tone: 'green' },
     // { title: 'Dormant / Suspended', value: `${totals.dormant} / ${totals.suspended}`, icon: <UserMinus size={20} />, tone: totals.dormant + totals.suspended > 0 ? 'amber' : 'neutral' },
   ], [totals]);
 
@@ -237,6 +282,7 @@ export default function DeliveryCustomersDB() {
       customer_name: '',
       phone_number: '',
       status: 'active',
+      outstanding_limit: '',
     });
     setDialogOpen(true);
   };
@@ -247,6 +293,9 @@ export default function DeliveryCustomersDB() {
       customer_name: c.customer_name,
       phone_number: c.phone_number || '',
       status: c.status,
+      outstanding_limit: toNum(c.outstanding_limit) > 0
+        ? formatWithCommas(String(toNum(c.outstanding_limit)))
+        : '',
     });
     setDialogOpen(true);
   };
@@ -258,10 +307,12 @@ export default function DeliveryCustomersDB() {
     }
     setSaving(true);
     try {
+      const limitVal = Number(stripCommas(form.outstanding_limit));
       const payload: Record<string, unknown> = {
         customer_name: form.customer_name.trim(),
         phone_number: form.phone_number.trim() || undefined,
         status: form.status,
+        outstanding_limit: limitVal > 0 ? limitVal : 0,
       };
       if (editing) {
         await apiClient.admin.updateDeliveryCustomer(editing.id, payload as Parameters<typeof apiClient.admin.updateDeliveryCustomer>[1]);
@@ -307,11 +358,15 @@ export default function DeliveryCustomersDB() {
     const rows = filtered.map((c, idx) => {
       const stats = customerStats.get(c.id);
       const trucksUsed = stats ? Array.from(stats.trucksUsed).join(', ') : '';
+      const outstanding = (stats?.totalSalesValue || 0) - (stats?.totalPayments || 0);
+      const limit = toNum(c.outstanding_limit);
       return {
         'S/N': idx + 1,
         'Customer Name': c.customer_name,
         'Phone Number': c.phone_number || '—',
         'Status': c.status.charAt(0).toUpperCase() + c.status.slice(1),
+        'Credit Limit': limit > 0 ? limit : '—',
+        'Outstanding': outstanding > 0 ? outstanding : 0,
         'Trucks Used': trucksUsed || '—',
         'Qty Sold (L)': stats?.totalQty || 0,
         'Last Transaction': c.last_transaction_date
@@ -384,9 +439,9 @@ export default function DeliveryCustomersDB() {
                   <option value="dormant">Dormant</option>
                   <option value="suspended">Suspended</option>
                 </select>
-                <div className="text-sm text-slate-500 self-center whitespace-nowrap">
+                {/* <div className="text-sm text-slate-500 self-center whitespace-nowrap">
                   {isLoading ? '…' : `${filtered.length} customer${filtered.length !== 1 ? 's' : ''}`}
-                </div>
+                </div> */}
               </div>
             </div>
 
@@ -416,11 +471,13 @@ export default function DeliveryCustomersDB() {
                         <TableHead className="font-semibold text-slate-700 w-[48px]">S/N</TableHead>
                         <TableHead className="font-semibold text-slate-700">Customer Name</TableHead>
                         <TableHead className="font-semibold text-slate-700">Phone Number</TableHead>
-                        {/* <TableHead className="font-semibold text-slate-700">Status</TableHead> */}
+                        <TableHead className="font-semibold text-slate-700">Status</TableHead>
                         {/* <TableHead className="font-semibold text-slate-700">Trucks Used</TableHead> */}
-                        <TableHead className="font-semibold text-slate-700">Quantity Sold (L)</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Last Transaction</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Actions</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Credit Limit</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Outstanding</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Quantity Sold</TableHead>
+                        {/* <TableHead className="font-semibold text-slate-700">Last Transaction</TableHead> */}
+                        {/* <TableHead className="font-semibold text-slate-700">Actions</TableHead> */}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -431,6 +488,13 @@ export default function DeliveryCustomersDB() {
 
                         // Truck plates from ledger stats
                         const truckPlates = stats ? Array.from(stats.trucksUsed) : [];
+
+                        // Credit limit & outstanding
+                        const creditLimit = toNum(c.outstanding_limit);
+                        const outstanding = (stats?.totalSalesValue || 0) - (stats?.totalPayments || 0);
+                        const hasLimit = creditLimit > 0;
+                        const isOverLimit = hasLimit && outstanding > creditLimit;
+                        const isNearLimit = hasLimit && !isOverLimit && outstanding >= creditLimit * 0.8;
 
                         return (
                           <TableRow key={c.id} className="hover:bg-slate-50/60 transition-colors">
@@ -458,12 +522,12 @@ export default function DeliveryCustomersDB() {
                               )}
                             </TableCell>
 
-                            {/* <TableCell>
+                            <TableCell>
                               <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium border ${sc.cls}`}>
                                 <StatusIcon size={12} />
                                 {sc.label}
                               </span>
-                            </TableCell> */}
+                            </TableCell>
 
                             {/* Trucks Used (from ledger) */}
                             {/* <TableCell>
@@ -489,17 +553,53 @@ export default function DeliveryCustomersDB() {
                               )}
                             </TableCell> */}
 
-                            <TableCell className="text-sm font-medium text-slate-700">
-                              {stats?.totalQty ? fmtQty(stats.totalQty) : '—'}
+                            {/* Credit Limit */}
+                            <TableCell className="text-sm whitespace-nowrap">
+                              {hasLimit ? (
+                                <span className="font-medium text-slate-700">
+                                  ₦{fmtMoney(creditLimit)}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
                             </TableCell>
 
-                            <TableCell className="text-sm text-slate-600 whitespace-nowrap">
+                            {/* Outstanding */}
+                            <TableCell className="text-sm whitespace-nowrap">
+                              {outstanding > 0 ? (
+                                <div className="flex items-center gap-1.5">
+                                  {isOverLimit && (
+                                    <ShieldAlert size={14} className="text-red-500 shrink-0" />
+                                  )}
+                                  {isNearLimit && (
+                                    <AlertTriangle size={13} className="text-amber-500 shrink-0" />
+                                  )}
+                                  <span className={`font-semibold ${
+                                    isOverLimit
+                                      ? 'text-red-600'
+                                      : isNearLimit
+                                        ? 'text-amber-600'
+                                        : 'text-slate-700'
+                                  }`}>
+                                    ₦{fmtMoney(outstanding)}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-emerald-600 font-medium">₦0.00</span>
+                              )}
+                            </TableCell>
+
+                            <TableCell className="text-sm font-medium text-slate-700">
+                              {stats?.totalQty ? fmtQty(stats.totalQty) : '—'} Litres
+                            </TableCell>
+
+                            {/* <TableCell className="text-sm text-slate-600 whitespace-nowrap">
                               {c.last_transaction_date
                                 ? format(new Date(c.last_transaction_date), 'dd MMM yyyy')
                                 : '—'}
-                            </TableCell>
+                            </TableCell> */}
 
-                            <TableCell>
+                            {/* <TableCell>
                               <div className="flex gap-1">
                                 <Button
                                   size="sm"
@@ -523,7 +623,7 @@ export default function DeliveryCustomersDB() {
                                   <Trash2 size={14} />
                                 </Button>
                               </div>
-                            </TableCell>
+                            </TableCell> */}
                           </TableRow>
                         );
                       })}
@@ -533,11 +633,11 @@ export default function DeliveryCustomersDB() {
               )}
             </div>
 
-            {!isLoading && filtered.length > 0 && (
+            {/* {!isLoading && filtered.length > 0 && (
               <p className="text-xs text-slate-400 text-right">
                 Showing {filtered.length} of {allCustomers.length} customers
               </p>
-            )}
+            )} */}
           </div>
         </div>
       </div>
@@ -589,6 +689,25 @@ export default function DeliveryCustomersDB() {
                 value={form.phone_number}
                 onChange={e => setForm(f => ({ ...f, phone_number: e.target.value }))}
               />
+            </div>
+
+            {/* Credit Limit */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                <Wallet size={15} className="text-slate-500" /> Credit Limit (₦)
+              </Label>
+              <Input
+                type="text"
+                inputMode="decimal"
+                placeholder="e.g. 5,000,000"
+                value={form.outstanding_limit}
+                onChange={e =>
+                  setForm(f => ({ ...f, outstanding_limit: formatWithCommas(e.target.value) }))
+                }
+              />
+              <p className="text-xs text-slate-400">
+                Maximum outstanding balance allowed before flagging.
+              </p>
             </div>
 
             {/* Status */}
