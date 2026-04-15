@@ -578,7 +578,7 @@ export default function FleetTrucks() {
                         <TableHead className="font-semibold text-slate-700 cursor-pointer select-none" onClick={() => toggleSort('plate')}>
                           Truck Number <SortIcon field="plate" />
                         </TableHead>
-                        <TableHead className="font-semibold text-slate-700 hidden md:table-cell">Capacity (L)</TableHead>
+                        <TableHead className="font-semibold text-slate-700 hidden md:table-cell">Capacity</TableHead>
                         <TableHead className="font-semibold text-slate-700 hidden md:table-cell">Truck Driver</TableHead>
                         <TableHead className="font-semibold text-red-700 text-left cursor-pointer select-none" onClick={() => toggleSort('debits')}>
                           Debits <SortIcon field="debits" />
@@ -612,7 +612,7 @@ export default function FleetTrucks() {
                               </div>
                             </TableCell>
                             <TableCell className="text-sm font-semibold text-slate-700 hidden md:table-cell">
-                              {t.max_capacity ? `${t.max_capacity.toLocaleString()} L` : '—'}
+                              {t.max_capacity ? `${t.max_capacity.toLocaleString()} Litres` : '—'}
                             </TableCell>
                             <TableCell className="text-sm text-slate-500 hidden md:table-cell">
                                 <p className="text-sm font-bold uppercase text-slate-900">{t.driver_name}</p> 
