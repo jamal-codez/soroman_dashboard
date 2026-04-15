@@ -437,7 +437,7 @@ export default function DeliveryInventory() {
       tone: totals.activeCount > 0 ? 'amber' : 'neutral',
     },
     {
-      title: 'Volume Allocated',
+      title: 'Current Volume Allocated',
       value: `${fmtQty(totals.totalInTransit)} L`,
       // description: totals.activeCount > 0
       //   ? `Across ${totals.activeCount} truck${totals.activeCount !== 1 ? 's' : ''} in transit`
@@ -702,7 +702,7 @@ export default function DeliveryInventory() {
                     <Download size={16} /> Export
                   </Button>
                   <Button className="gap-2" onClick={openLoadDialog}>
-                    <Plus size={16} /> Load Trucks
+                    <Plus size={16} /> Allocate Trucks
                   </Button>
                 </div>
               }
