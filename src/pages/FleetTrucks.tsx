@@ -923,7 +923,7 @@ export default function FleetTrucks() {
               <div className="min-w-0 flex-1">
                 <h2 className="text-lg text-green-700 font-bold">{selectedTruck?.plate_number}</h2>
                 <p className="text-sm font-normal text-black mt-0.5">
-                  {selectedTruck?.max_capacity ? `${selectedTruck.max_capacity.toLocaleString()} L` : '—'}
+                  {selectedTruck?.max_capacity ? `${selectedTruck.max_capacity.toLocaleString()} Litres` : '—'}
                   {selectedTruck?.truck_make && <> · <span className="font-semibold">{selectedTruck.truck_make}</span></>}
                 </p>
               </div>
@@ -1612,6 +1612,50 @@ export default function FleetTrucks() {
                     onChange={e => setTruckForm(f => ({ ...f, driver_alt_phone: e.target.value }))} />
                 </div>
               </div>
+              <div className="mt-2.5">
+                  <Label className="text-sm font-medium text-slate-700 flex items-center mb-1.5 gap-1.5">
+                    <Camera size={14} className="text-slate-500" /> Passport Photograph
+                  </Label>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    className="cursor-pointer"
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 2 * 1024 * 1024) {
+                        toast({ title: 'File too large', description: 'Please select an image under 2MB', variant: 'destructive' });
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        setTruckForm(f => ({ ...f, passport_photo: reader.result as string }));
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                  <p className="text-xs text-slate-400">Upload driver's passport photograph</p>
+                </div>
+                {truckForm.passport_photo && (
+                  <div className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                    <img
+                      src={truckForm.passport_photo}
+                      alt="Passport preview"
+                      className="h-20 w-20 rounded-lg object-cover border border-slate-300"
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <p className="text-xs text-slate-500">Photo preview</p>
+                      <button
+                        type="button"
+                        className="text-xs text-red-500 hover:text-red-700 underline text-left"
+                        onClick={() => setTruckForm(f => ({ ...f, passport_photo: '' }))}
+                      >
+                        Remove photo
+                      </button>
+                    </div>
+                  </div>
+                )}
             </div>
 
             {/* ── Section: Motor Boy ─────────────────────────── */}
@@ -1670,7 +1714,7 @@ export default function FleetTrucks() {
             {/* ── Section: Status & Photo ────────────────────── */}
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
-                <AlertTriangle size={13} /> Status & Photo
+                <AlertTriangle size={13} /> Truck Status
               </h3>
               <div className="space-y-3">
                 <div className="space-y-1.5">
@@ -1708,7 +1752,7 @@ export default function FleetTrucks() {
                 {(truckForm.truck_status_rating === 'Fair' || truckForm.truck_status_rating === 'Bad') && (
                   <div className="space-y-1.5">
                     <Label className="text-sm font-medium text-slate-700">
-                      Reason / Issue Details
+                      Reason/Issue Details
                     </Label>
                     <Input
                       placeholder="e.g. No tyres, leaking tank, engine fault…"
@@ -1716,50 +1760,6 @@ export default function FleetTrucks() {
                       onChange={e => setTruckForm(f => ({ ...f, truck_status_reason: e.target.value }))}
                     />
                     <p className="text-xs text-slate-400">Describe what's wrong with the truck</p>
-                  </div>
-                )}
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                    <Camera size={14} className="text-slate-500" /> Passport Photograph
-                  </Label>
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    className="cursor-pointer"
-                    onChange={e => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      if (file.size > 2 * 1024 * 1024) {
-                        toast({ title: 'File too large', description: 'Please select an image under 2MB', variant: 'destructive' });
-                        return;
-                      }
-                      const reader = new FileReader();
-                      reader.onload = () => {
-                        setTruckForm(f => ({ ...f, passport_photo: reader.result as string }));
-                      };
-                      reader.readAsDataURL(file);
-                    }}
-                  />
-                  <p className="text-xs text-slate-400">Upload driver's passport photograph</p>
-                </div>
-                {truckForm.passport_photo && (
-                  <div className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200">
-                    <img
-                      src={truckForm.passport_photo}
-                      alt="Passport preview"
-                      className="h-20 w-20 rounded-lg object-cover border border-slate-300"
-                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                    <div className="flex flex-col gap-1">
-                      <p className="text-xs text-slate-500">Photo preview</p>
-                      <button
-                        type="button"
-                        className="text-xs text-red-500 hover:text-red-700 underline text-left"
-                        onClick={() => setTruckForm(f => ({ ...f, passport_photo: '' }))}
-                      >
-                        Remove photo
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
