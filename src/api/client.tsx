@@ -1509,9 +1509,18 @@ export const apiClient = {
     createDeliveryCustomer: async (data: {
       customer_name: string;
       phone_number?: string;
+      alt_phone_number?: string;
+      email?: string;
+      home_address?: string;
+      office_address?: string;
+      contact_person?: string;
+      bank_name?: string;
+      account_number?: string;
+      account_name?: string;
       status?: string;
       assigned_trucks?: number[];
       outstanding_limit?: number;
+      notes?: string;
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/customers/`, {
         method: 'POST',
@@ -1528,15 +1537,46 @@ export const apiClient = {
       data: Partial<{
         customer_name: string;
         phone_number: string;
+        alt_phone_number: string;
+        email: string;
+        home_address: string;
+        office_address: string;
+        contact_person: string;
+        bank_name: string;
+        account_number: string;
+        account_name: string;
         status: string;
         assigned_trucks: number[];
         outstanding_limit: number;
+        notes: string;
       }>
     ) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/customers/${id}/`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/delivery/customers/ — multipart (for file upload) */
+    createDeliveryCustomerFormData: async (data: FormData) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/customers/`, {
+        method: 'POST',
+        headers: getMultipartHeaders(),
+        body: data,
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PATCH /api/admin/delivery/customers/<id>/ — multipart (for file upload) */
+    updateDeliveryCustomerFormData: async (id: number, data: FormData) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/customers/${id}/`, {
+        method: 'PATCH',
+        headers: getMultipartHeaders(),
+        body: data,
       });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
