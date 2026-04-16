@@ -5,7 +5,8 @@ import { TopBar } from '@/components/TopBar';
 import { PageHeader } from '@/components/PageHeader';
 import { SummaryCards } from '@/components/SummaryCards';
 import { MobileNav } from '@/components/MobileNav';
-import { apiClient } from '@/api/client';
+import { apiClient, fetchAllPages } from '@/api/client';
+import { usePrefetchAll } from '@/hooks/usePrefetchAll';
 import { format, isToday, parseISO } from 'date-fns';
 import {
   ShoppingCart,
@@ -105,6 +106,9 @@ const safeParseNumber = (v: unknown) => {
 
 // ---------- Dashboard ----------
 const Dashboard: React.FC = () => {
+  // Prefetch ALL app data in parallel on dashboard load
+  usePrefetchAll();
+
   // Analytics
   const { data: analytics, isLoading: analyticsLoading } = useQuery<AnalyticsData>({
     queryKey: ['analytics'],
@@ -114,23 +118,9 @@ const Dashboard: React.FC = () => {
   const { data: allOrdersResp } = useQuery<{ count: number; results: OrderLite[] }>({
     queryKey: ['all-orders', 'counts'],
     queryFn: async () => {
-      // Paginate in chunks of 200 instead of a single 10k request.
-      // Dramatically reduces time-to-first-byte and avoids backend timeouts.
-      const PAGE = 200;
-      let page = 1;
-      let count = 0;
-      const all: OrderLite[] = [];
-
-      while (page <= 500) {
-        const res = await apiClient.admin.getAllAdminOrders({ page, page_size: PAGE });
-        const results = (res?.results ?? []) as OrderLite[];
-        count = Number(res?.count ?? count);
-        all.push(...results);
-        if (results.length < PAGE || all.length >= count) break;
-        page++;
-      }
-
-      return { count, results: all };
+      return fetchAllPages<OrderLite>(
+        (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size }),
+      );
     },
     staleTime: 30_000,
     refetchOnWindowFocus: true,

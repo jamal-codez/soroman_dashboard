@@ -48,6 +48,7 @@ const Records = lazy(() => import("./pages/Records"));
 const DeliveryCustomersDB = lazy(() => import("./pages/DeliveryCustomersDB"));
 const DeliverySalesLedger = lazy(() => import("./pages/DeliverySalesLedger"));
 const DeliveryInventory = lazy(() => import("./pages/DeliveryInventory"));
+const ConfirmRelease = lazy(() => import("./pages/ConfirmRelease"));
 
 // ---------------------------------------------------------------------------
 // QueryClient with sane global defaults
@@ -123,6 +124,7 @@ const App = () => (
               <Route path="/delivery-customers-db" element={<Protected><DeliveryCustomersDB /></Protected>} />
               <Route path="/delivery-sales-ledger" element={<Protected><DeliverySalesLedger /></Protected>} />
               <Route path="/delivery-inventory" element={<Protected><DeliveryInventory /></Protected>} />
+              <Route path="/confirm-release" element={<Protected><ConfirmRelease /></Protected>} />
               <Route path="/delivery-pfi-allocations" element={<Navigate to="/delivery-inventory" replace />} />
               <Route path="/offline-sales" element={<Protected><OfflineSales /></Protected>} />
               <Route path="/report" element={<Protected><Report /></Protected>} />

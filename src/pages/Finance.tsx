@@ -37,6 +37,7 @@ import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
 import { apiClient } from '@/api/client';
+import { isCurrentUserReadOnly } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
@@ -86,6 +87,7 @@ interface BankAccount {
 }
 
 export default function Finance() {
+  const readOnly = isCurrentUserReadOnly();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
@@ -495,6 +497,7 @@ export default function Finance() {
                           {/* <TableCell className="font-medium">{new Date(bank.created_at).toISOString().slice(0, 10)}</TableCell> */}
                           <TableCell>
                             <div className="flex items-center gap-4">
+                              {!readOnly && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -505,11 +508,14 @@ export default function Finance() {
                               >
                                 <Pencil size={16} />
                               </Button>
+                              )}
+                              {!readOnly && (
                               <Switch
                                 checked={isActive}
                                 onCheckedChange={() => handleToggle(bank.id)}
                                 className={`data-[state=unchecked]:bg-red-500 data-[state=checked]:bg-green-500`}
                               />
+                              )}
                               
                             </div>
                           </TableCell>
@@ -520,9 +526,11 @@ export default function Finance() {
                 </Table>
               )}
               <div className="flex justify-end mt-4">
+                {!readOnly && (
                 <Button onClick={() => setIsModalOpen(true)}>
                   Add Bank Account
                 </Button>
+                )}
               </div>
             </div>
           </div>

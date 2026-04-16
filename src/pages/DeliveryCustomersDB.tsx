@@ -27,6 +27,7 @@ import { format, parseISO, differenceInDays } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
+import { isCurrentUserReadOnly } from '@/roles';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -42,6 +43,7 @@ interface DeliveryCustomer {
   office_address?: string;
   passport_photo?: string;
   contact_person?: string;
+  contact_person_phone?: string;
   bank_name?: string;
   account_number?: string;
   account_name?: string;
@@ -53,6 +55,7 @@ interface DeliveryCustomer {
   assigned_trucks?: number[];
   assigned_truck_plates?: string[];
   last_transaction_date: string | null;
+  last_order_date?: string | null;
   notes?: string;
   created_at?: string;
   updated_at?: string;
@@ -154,8 +157,7 @@ const statusConfig = {
 export default function DeliveryCustomersDB() {
   const qc = useQueryClient();
   const { toast } = useToast();
-
-  // ── Filters ────────────────────────────────────────────────────────
+  const readOnly = isCurrentUserReadOnly();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
@@ -175,6 +177,7 @@ export default function DeliveryCustomersDB() {
     passport_photo: null as File | null,
     passport_photo_preview: '',
     contact_person: '',
+    contact_person_phone: '',
     bank_name: '',
     account_number: '',
     account_name: '',
@@ -361,7 +364,7 @@ export default function DeliveryCustomersDB() {
       customer_name: '', phone_number: '', alt_phone_number: '',
       email: '', home_address: '', office_address: '',
       passport_photo: null, passport_photo_preview: '',
-      contact_person: '',
+      contact_person: '', contact_person_phone: '',
       bank_name: '', account_number: '', account_name: '',
       status: 'active', outstanding_limit: '', notes: '',
     });
@@ -380,6 +383,7 @@ export default function DeliveryCustomersDB() {
       passport_photo: null,
       passport_photo_preview: c.passport_photo || '',
       contact_person: c.contact_person || '',
+      contact_person_phone: c.contact_person_phone || '',
       bank_name: c.bank_name || '',
       account_number: c.account_number || '',
       account_name: c.account_name || '',
@@ -408,6 +412,7 @@ export default function DeliveryCustomersDB() {
         home_address: form.home_address.trim() || '',
         office_address: form.office_address.trim() || '',
         contact_person: form.contact_person.trim() || '',
+        contact_person_phone: form.contact_person_phone.trim() || '',
         bank_name: form.bank_name.trim() || '',
         account_number: form.account_number.trim() || '',
         account_name: form.account_name.trim() || '',
@@ -493,6 +498,7 @@ export default function DeliveryCustomersDB() {
         'Home Address': c.home_address || '—',
         'Office Address': c.office_address || '—',
         'Contact Person': c.contact_person || '—',
+        'Contact Person Phone': c.contact_person_phone || '—',
         'Bank Name': c.bank_name || '—',
         'Account Number': c.account_number || '—',
         'Account Name': c.account_name || '—',
@@ -541,9 +547,11 @@ export default function DeliveryCustomersDB() {
                   <Button variant="outline" className="gap-2" onClick={exportExcel} disabled={filtered.length === 0}>
                     <Download size={16} /> Export
                   </Button>
-                  <Button className="gap-2" onClick={openAdd}>
-                    <Plus size={16} /> Add Customer
-                  </Button>
+                  {!readOnly && (
+                    <Button className="gap-2" onClick={openAdd}>
+                      <Plus size={16} /> Add Customer
+                    </Button>
+                  )}
                 </>
               }
             />
@@ -738,24 +746,28 @@ export default function DeliveryCustomersDB() {
                                 >
                                   <Eye size={15} />
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 text-green-600 hover:text-green-800 hover:bg-green-50"
-                                  title="Edit customer"
-                                  onClick={() => openEdit(c)}
-                                >
-                                  <Pencil size={14} />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                  title="Delete customer"
-                                  onClick={() => setDeleteTarget({ id: c.id, label: c.customer_name })}
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
+                                {!readOnly && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-8 w-8 p-0 text-green-600 hover:text-green-800 hover:bg-green-50"
+                                      title="Edit customer"
+                                      onClick={() => openEdit(c)}
+                                    >
+                                      <Pencil size={14} />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                      title="Delete customer"
+                                      onClick={() => setDeleteTarget({ id: c.id, label: c.customer_name })}
+                                    >
+                                      <Trash2 size={14} />
+                                    </Button>
+                                  </>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -872,6 +884,22 @@ export default function DeliveryCustomersDB() {
                             </div>
                           )} */}
                         </div>
+                        {(selectedCustomer.contact_person || selectedCustomer.contact_person_phone) && (
+                          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-1">
+                            {selectedCustomer.contact_person && (
+                              <div>
+                                <span className="text-[11px] font-medium text-slate-400">Contact Person</span>
+                                <p className="text-sm font-medium text-slate-800">{selectedCustomer.contact_person}</p>
+                              </div>
+                            )}
+                            {selectedCustomer.contact_person_phone && (
+                              <div>
+                                <span className="text-[11px] font-medium text-slate-400">Contact Phone</span>
+                                <p className="text-sm font-bold underline"><PhoneLink phone={selectedCustomer.contact_person_phone} /></p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1046,25 +1074,22 @@ export default function DeliveryCustomersDB() {
                     onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
                   />
                 </div>
-                {/* <div className="space-y-1.5">
+                <div className="space-y-1.5">
                   <Label className="text-sm font-medium text-slate-700">Contact Person</Label>
                   <Input
                     placeholder="Main contact name"
                     value={form.contact_person}
                     onChange={e => setForm(f => ({ ...f, contact_person: e.target.value }))}
                   />
-                </div> */}
-                {/* <div className="space-y-1.5 sm:col-span-2">
-                  <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                    <Mail size={13} className="text-slate-500" /> Email
-                  </Label>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-700">Contact Person Phone</Label>
                   <Input
-                    type="email"
-                    placeholder="customer@example.com"
-                    value={form.email}
-                    onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                    placeholder="08012345678"
+                    value={form.contact_person_phone}
+                    onChange={e => setForm(f => ({ ...f, contact_person_phone: e.target.value }))}
                   />
-                </div> */}
+                </div>
               </div>
             </div>
 

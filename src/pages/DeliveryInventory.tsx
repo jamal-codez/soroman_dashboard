@@ -28,9 +28,7 @@ import {
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Types
+import { isCurrentUserReadOnly } from '@/roles';
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface FleetTruck {
@@ -165,6 +163,7 @@ const statusBadge = {
 export default function DeliveryInventory() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const readOnly = isCurrentUserReadOnly();
 
   // ── Filters & Search ────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
@@ -689,9 +688,11 @@ export default function DeliveryInventory() {
                   <Button variant="outline" className="gap-2" onClick={exportExcel} disabled={filtered.length === 0}>
                     <Download size={16} /> Export
                   </Button>
-                  <Button className="gap-2" onClick={openLoadDialog}>
-                    <Plus size={16} /> Allocate Trucks
-                  </Button>
+                  {!readOnly && (
+                    <Button className="gap-2" onClick={openLoadDialog}>
+                      <Plus size={16} /> Allocate Trucks
+                    </Button>
+                  )}
                 </div>
               }
             />
@@ -1016,7 +1017,7 @@ export default function DeliveryInventory() {
                             {/* Actions */}
                             <TableCell>
                               <div className="flex gap-1">
-                                {r.status === 'loaded' && (
+                                {r.status === 'loaded' && !readOnly && (
                                   <Button
                                     size="sm" variant="outline"
                                     className="gap-1.5 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"

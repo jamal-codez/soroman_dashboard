@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, Download, SearchIcon } from 'lucide-react';
-import { apiClient } from '@/api/client';
+import { apiClient, fetchAllPages } from '@/api/client';
 import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday } from 'date-fns';
 import { getOrderReference } from '@/lib/orderReference';
 import { SummaryCards } from '@/components/SummaryCards';
@@ -189,27 +189,11 @@ export default function ConfirmedPayments() {
   const PAGE_SIZE = 500;
 
   const listQuery = useQuery<OrderResponse>({
-    queryKey: ['all-orders', 'confirmed-payments'],
+    queryKey: ['all-orders', 'shared'],
     queryFn: async () => {
-      let page = 1;
-      const results: PaymentOrder[] = [];
-      let count = 0;
-
-      while (true) {
-        const response = (await apiClient.admin.getAllAdminOrders({
-          page,
-          page_size: PAGE_SIZE,
-        })) as OrderResponse;
-
-        const pageResults = Array.isArray(response.results) ? response.results : [];
-        results.push(...pageResults);
-
-        count = typeof response.count === 'number' ? response.count : results.length;
-        if (results.length >= count || pageResults.length === 0) break;
-        page += 1;
-      }
-
-      return { count, results };
+      return fetchAllPages<PaymentOrder>(
+        (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size }),
+      );
     },
     staleTime: 30_000,
     refetchOnWindowFocus: true,
@@ -223,7 +207,7 @@ export default function ConfirmedPayments() {
     const s = (v: unknown) => String(v || '').toLowerCase();
     return allPayments.filter((p) => {
       const st = s(p.status);
-      return st === 'paid' || st === 'released';
+      return st === 'paid' || st === 'released' || st === 'loaded';
     });
   }, [allPayments]);
 

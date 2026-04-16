@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, Plus, Edit, Power, Info } from 'lucide-react';
 import { apiClient } from '@/api/client'; // Assuming your API clients are here
+import { isCurrentUserReadOnly } from '@/roles';
 
 interface Product {
   id: string;
@@ -24,6 +25,7 @@ interface State {
 }
 
 const Pricing = () => {
+  const readOnly = isCurrentUserReadOnly();
   const queryClient = useQueryClient();
 
   const { data: states = [], isLoading, refetch } = useQuery<State[]>({
@@ -161,6 +163,7 @@ const Pricing = () => {
                           {state.status}
                         </span>
                       </div>
+                      {!readOnly && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -172,6 +175,7 @@ const Pricing = () => {
                         <Power className="mr-2 h-4 w-4" />
                         {state.status === 'Active' ? 'Suspend' : 'Activate'}
                       </Button>
+                      )}
                     </div>
 
                     <div className="p-4 space-y-4">
@@ -183,6 +187,7 @@ const Pricing = () => {
                               <h4 className="font-medium text-slate-800">{product.name}</h4>
                             </div>
                             <div className="flex items-center">
+                              {!readOnly && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -194,6 +199,10 @@ const Pricing = () => {
                               >
                                 <Edit className="mr-2 h-4 w-4" />₦{product.price.toLocaleString()}
                               </Button>
+                              )}
+                              {readOnly && (
+                                <span className="text-sm text-slate-600 px-3 py-1.5">₦{product.price.toLocaleString()}</span>
+                              )}
                               {/* <Button
                                 variant="ghost"
                                 size="sm"

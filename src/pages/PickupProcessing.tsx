@@ -1,10 +1,11 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useToast } from '@/hooks/use-toast';
+import { isCurrentUserReadOnly } from '@/roles';
 import {
   Download,
   Filter,
@@ -49,7 +50,7 @@ import { TopBar } from "@/components/TopBar";
 import { MobileNav } from "@/components/MobileNav";
 import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
 import * as XLSX from 'xlsx';
-import { apiClient } from '@/api/client';
+import { apiClient, fetchAllPages } from '@/api/client';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
@@ -89,7 +90,7 @@ interface Order {
   };
   trucks: string[];
   total_price: string;
-  status: 'pending' | 'paid' | 'canceled' | 'released';
+  status: 'pending' | 'paid' | 'canceled' | 'released' | 'loaded';
   created_at: string;
   products: Array<{ name: string; unit_price?: number | string; unitPrice?: number | string; price?: number | string }>;
   quantity: number;
@@ -213,15 +214,17 @@ const getStatusClass = (status: string) => {
     case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
     case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
     case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'loaded': return 'bg-purple-50 text-purple-700 border-purple-200';
     default: return 'bg-blue-50 text-blue-700 border-blue-200';
   }
 };
 
 const statusDisplayMap = {
   pending: 'Pending',
-  paid: 'Released',
+  paid: 'Paid',
   canceled: 'Canceled',
-  released: 'Loaded',
+  released: 'Released',
+  loaded: 'Loaded',
 };
 
 const getStatusIcon = (status: Order['status']) => {
@@ -229,7 +232,8 @@ const getStatusIcon = (status: Order['status']) => {
     case 'paid': return <FuelIcon className="text-green-500" size={14} />;
     case 'pending': return <Hourglass className="text-orange-500" size={14} />;
     case 'canceled': return <AlertCircle className="text-red-500" size={14} />;
-    case 'released': return <TruckIcon className="text-blue-500" size={14} />;
+    case 'released': return <CheckCircle className="text-blue-500" size={14} />;
+    case 'loaded': return <TruckIcon className="text-purple-500" size={14} />;
     default: return <FuelIcon className="text-orange-500" size={14} />;
   }
 };
@@ -464,6 +468,7 @@ const extractUnitPrice = (order: Order): string => {
 export const PickupProcessing = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const readOnly = isCurrentUserReadOnly();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
@@ -473,6 +478,7 @@ export const PickupProcessing = () => {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [pfiFilter, setPfiFilter] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(100);
 
   const pfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number: string }>; id?: number } & Record<string, unknown>>({
     queryKey: ['pfis', 'active'],
@@ -703,36 +709,37 @@ export const PickupProcessing = () => {
     XLSX.writeFile(wb, `${fileName}.xlsx`);
   };
 
+  // Fetch released orders — fast first 100 for instant display, then ALL in background
   const { data: apiResponse, isLoading, isError, error, refetch } = useQuery<OrderResponse>({
-    queryKey: ['all-orders', 'release-processing'],
+    queryKey: ['all-orders', 'released'],
     queryFn: async () => {
-      // Paginate in chunks instead of a single 1M request
-      const PAGE = 200;
-      let page = 1;
-      let count = 0;
-      const all: Order[] = [];
-
-      while (page <= 500) {
-        const res = await apiClient.admin.getAllAdminOrders({ page, page_size: PAGE });
-        const results = (res?.results ?? []) as Order[];
-        count = Number(res?.count ?? count);
-        all.push(...results);
-        if (results.length < PAGE || all.length >= count) break;
-        page++;
-      }
-
-      return { count, results: all };
+      // Fetch both released AND loaded orders so tickets/loaded status remain visible
+      const [relData, loadedData] = await Promise.all([
+        fetchAllPages<Order>(
+          (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size, status: 'released' }),
+        ),
+        fetchAllPages<Order>(
+          (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size, status: 'loaded' }),
+        ),
+      ]);
+      const allResults = [...(relData.results || []), ...(loadedData.results || [])];
+      return { count: allResults.length, results: allResults };
     },
     retry: 2,
     staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
     refetchOnWindowFocus: true
   });
 
   // Auto-fetch ticket counts for released orders so the Trucks column shows the badge
   useEffect(() => {
     const orders = apiResponse?.results || [];
-    const released = orders.filter((o) => o.status === 'released');
-    released.forEach((o) => {
+    const relevant = orders.filter((o) => {
+      const s = (o.status || '').toLowerCase();
+      return s === 'released' || s === 'loaded';
+    });
+    relevant.forEach((o) => {
       if (ticketCounts[o.id] === undefined) {
         fetchTicketCount(o.id);
       }
@@ -913,7 +920,7 @@ export const PickupProcessing = () => {
       setReleaseOpen(false);
 
       // Refresh the list used by this page
-      await queryClient.invalidateQueries({ queryKey: ['all-orders', 'release-processing'] });
+      await queryClient.invalidateQueries({ queryKey: ['all-orders', 'released'] });
       await queryClient.invalidateQueries({ queryKey: ['order-tickets', selectedOrder.id] });
 
       toast({
@@ -973,7 +980,11 @@ export const PickupProcessing = () => {
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base
-      // Show ALL orders here (pickup + delivery)
+      // Show both released and loaded orders (Loading Tickets page)
+      .filter(order => {
+        const s = (order.status || '').toLowerCase();
+        return s === 'released' || s === 'loaded';
+      })
       .filter(order => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return true;
@@ -1035,23 +1046,16 @@ export const PickupProcessing = () => {
     const total = list.length;
 
     const norm = (s: unknown) => String(s || '').toLowerCase();
-    const paid = list.filter((o) => norm(o.status) === 'paid').length;
-    const pending = list.filter((o) => norm(o.status) === 'pending').length;
     const released = list.filter((o) => norm(o.status) === 'released').length;
-    const canceled = list.filter((o) => norm(o.status) === 'canceled').length;
+    const loaded = list.filter((o) => norm(o.status) === 'loaded').length;
 
-    // Quantity & Amount should only reflect paid + released orders (confirmed sales)
-    const paidOrReleased = list.filter((o) => {
-      const st = norm(o.status);
-      return st === 'paid' || st === 'released';
-    });
-    const totalQty = paidOrReleased.reduce((sum, o) => sum + (Number(o.quantity) || 0), 0);
-    const totalAmount = paidOrReleased.reduce((sum, o) => {
+    const totalQty = list.reduce((sum, o) => sum + (Number(o.quantity) || 0), 0);
+    const totalAmount = list.reduce((sum, o) => {
       const v = String(o.total_price ?? '0').replace(/,/g, '');
       return sum + (Number(v) || 0);
     }, 0);
 
-    return { total, paid, pending, released, canceled, totalQty, totalAmount };
+    return { total, released, loaded, totalQty, totalAmount };
   }, [filteredOrders]);
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1104,22 +1108,16 @@ export const PickupProcessing = () => {
                   tone: 'neutral',
                 },
                 {
-                  title: 'Paid Not Loaded',
-                  value: isLoading ? '…' : summary.paid.toLocaleString(),
-                  icon: <FuelIcon className="h-4 w-4" />,
-                  tone: 'green',
-                },
-                {
-                  title: 'Loaded Orders',
+                  title: 'Released (Awaiting Tickets)',
                   value: isLoading ? '…' : summary.released.toLocaleString(),
-                  icon: <TruckIcon className="h-4 w-4" />,
-                  tone: 'neutral',
+                  icon: <CheckCircle className="h-4 w-4" />,
+                  tone: 'amber',
                 },
                 {
-                  title: 'Pending Payments',
-                  value: isLoading ? '…' : summary.pending.toLocaleString(),
-                  icon: <Hourglass className="h-4 w-4" />,
-                  tone: 'amber',
+                  title: 'Loaded',
+                  value: isLoading ? '…' : summary.loaded.toLocaleString(),
+                  icon: <TruckIcon className="h-4 w-4" />,
+                  tone: 'green',
                 },
               ]}
             />
@@ -1301,7 +1299,7 @@ export const PickupProcessing = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                  filteredOrders.map((order, index) => {
+                  filteredOrders.slice(0, visibleCount).map((order, index) => {
                     const sn = filteredOrders.length - index;
                     const ticket = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
 
@@ -1372,10 +1370,11 @@ export const PickupProcessing = () => {
                             {(() => {
                               const orderQty = Number(order.quantity) || 0;
                               const allocated = ticketAllocated[order.id] || 0;
-                              const fullyAllocated = order.status === 'released' && orderQty > 0 && allocated >= orderQty;
+                              const isLoaded = (order.status || '').toLowerCase() === 'loaded';
+                              const fullyAllocated = (order.status === 'released' || isLoaded) && orderQty > 0 && allocated >= orderQty;
 
-                              // Fully allocated → show "Edit Ticket" that opens the TruckTickets modal
-                              if (fullyAllocated) {
+                              // Loaded orders or fully allocated → show "View/Edit Ticket"
+                              if (isLoaded || fullyAllocated) {
                                 return (
                                   <Button
                                     size="sm"
@@ -1384,7 +1383,7 @@ export const PickupProcessing = () => {
                                     onClick={() => openTicket(order)}
                                   >
                                     <Pencil className="h-4 w-4" />
-                                    <span>Edit Ticket</span>
+                                    <span>{isLoaded ? 'View Ticket' : 'Edit Ticket'}</span>
                                   </Button>
                                 );
                               }
@@ -1405,10 +1404,10 @@ export const PickupProcessing = () => {
                                   size="sm"
                                   className="h-8 gap-1"
                                   onClick={() => openRelease(order)}
-                                  disabled={order.status !== 'paid' && order.status !== 'released'}
+                                  disabled={readOnly || order.status !== 'released'}
                                 >
                                   <File className="h-4 w-4" />
-                                  <span>{order.status === 'released' ? 'Add Ticket' : 'Generate Ticket'}</span>
+                                  <span>Generate Ticket</span>
                                 </Button>
                               </DialogTrigger>
                               <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-2xl sm:w-auto flex flex-col max-h-[90vh] gap-0 p-0">
@@ -1713,6 +1712,26 @@ export const PickupProcessing = () => {
             </div>
 
             {/* pagination removed */}
+
+            {/* Load More */}
+            {filteredOrders.length > visibleCount && (
+              <div className="flex items-center justify-center py-4">
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => setVisibleCount(prev => prev + 100)}
+                >
+                  Show More ({filteredOrders.length - visibleCount} remaining)
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="ml-2 gap-2 text-slate-500"
+                  onClick={() => setVisibleCount(filteredOrders.length)}
+                >
+                  Show All
+                </Button>
+              </div>
+            )}
             
             {/* Ticket modal + print area */}
             <Dialog
@@ -1722,6 +1741,8 @@ export const PickupProcessing = () => {
               }}
             >
               <DialogContent className="sm:max-w-[860px] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:w-auto flex flex-col max-h-[90vh] gap-0 p-0 overflow-hidden">
+                <DialogTitle className="sr-only">Loading Tickets</DialogTitle>
+                <DialogDescription className="sr-only">View and print loading tickets for this order</DialogDescription>
                 {/* TruckTickets owns the full dialog body — header, table, actions */}
                 {selectedOrder ? (
                   <TruckTickets

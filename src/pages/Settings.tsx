@@ -69,6 +69,8 @@ const roleMap: Record<number, string> = {
   4: 'TICKETING',
   5: 'SECURITY',
   6: 'TRANSPORT',
+  7: 'RELEASE OFFICER',
+  8: 'AUDITOR',
 };
 
 const Settings = () => {
@@ -554,6 +556,8 @@ const Settings = () => {
                     <option value="4">Ticketing Officer</option>
                     <option value="5">Security</option>
                     <option value="6">Transport Officer</option>
+                    <option value="7">Release Officer</option>
+                    <option value="8">Auditor (Read-Only)</option>
                   </optgroup>
                 </select>
               </div>

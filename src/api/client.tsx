@@ -74,6 +74,40 @@ const safeReadError = async (response: Response): Promise<string> => {
   return text?.trim() ? text.trim() : `Request failed (${response.status})`;
 };
 
+// ---------------------------------------------------------------------------
+// fetchAllPages — generic paginator that fetches ALL pages from a DRF endpoint.
+// Backend may cap page_size (e.g. 500). We keep requesting until we have all
+// results or hit a non-200 / empty page. Safe against 404 on page>1.
+// ---------------------------------------------------------------------------
+export async function fetchAllPages<T = unknown>(
+  fetcher: (params: { page: number; page_size: number }) => Promise<{ count?: number; results?: T[] }>,
+  pageSize = 500,
+): Promise<{ count: number; results: T[] }> {
+  const first = await fetcher({ page: 1, page_size: pageSize });
+  const results: T[] = [...(first?.results ?? [])];
+  const total = Number(first?.count ?? results.length);
+
+  if (results.length >= total) return { count: total, results };
+
+  // Fetch remaining pages in parallel (we know total, so calculate page count)
+  const totalPages = Math.ceil(total / pageSize);
+  const pageNums = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+
+  const settled = await Promise.allSettled(
+    pageNums.map((p) =>
+      fetcher({ page: p, page_size: pageSize }).catch(() => ({ results: [] as T[] }))
+    )
+  );
+
+  for (const r of settled) {
+    if (r.status === 'fulfilled' && r.value?.results) {
+      results.push(...r.value.results);
+    }
+  }
+
+  return { count: total, results };
+}
+
 export const apiClient = {
   admin: {
     // Authentication
@@ -327,6 +361,24 @@ export const apiClient = {
       });
       if (!response.ok) throw new Error(await safeReadError(response));
       return true;
+    },
+
+    /** POST /api/admin/orders/<id>/confirm-release/ — confirm release (paid → released) */
+    confirmReleaseOrder: async (orderId: number | string, payload?: { notes?: string }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/confirm-release/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(payload || {}),
+      });
+      if (!response.ok) {
+        const error = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const message =
+          (typeof error.error === 'string' && error.error) ||
+          (typeof error.detail === 'string' && error.detail) ||
+          `Confirm release failed (${response.status})`;
+        throw new Error(message);
+      }
+      return response.json();
     },
 
     releaseOrder: async (
@@ -1781,6 +1833,58 @@ export const apiClient = {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify({ status_note: note || '' }),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    // =====================================================================
+    // Confirm Release
+    // =====================================================================
+
+    /** GET /api/admin/delivery/confirm-release/ */
+    getConfirmReleaseList: async (params?: {
+      source_type?: string;
+      status?: string;
+      page?: number;
+      page_size?: number;
+    }) => {
+      const url = new URL(`${ADMIN_BASE}/delivery/confirm-release/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          const s = String(v); if (!s.trim()) return;
+          url.searchParams.set(k, s);
+        });
+      }
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/delivery/confirm-release/<id>/action/ — confirm or reject */
+    confirmReleaseAction: async (
+      id: number,
+      data: { action: 'confirm' | 'reject'; notes?: string; rejection_reason?: string },
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/confirm-release/${id}/action/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/delivery/confirm-release/<id>/release/ — final release + ticket */
+    confirmReleaseFinal: async (
+      id: number,
+      data?: { ticket_number?: string },
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/delivery/confirm-release/${id}/release/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data || {}),
       });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();

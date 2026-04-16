@@ -31,6 +31,7 @@ import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, sta
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
+import { isCurrentUserReadOnly } from '@/roles';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -213,6 +214,7 @@ const getPresetRange = (preset: TimePreset): { from: Date | null; to: Date | nul
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function FleetTrucks() {
+  const readOnly = isCurrentUserReadOnly();
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -727,9 +729,11 @@ export default function FleetTrucks() {
               description="At-a-glance truck performance — debits, credits, and balance per truck for any period."
               actions={
                 <div className="flex gap-2">
+                  {!readOnly && (
                   <Button className="gap-2" onClick={openAddTruck}>
                     <Plus size={16} /> Add Truck
                   </Button>
+                  )}
                   <Button variant="outline" className="gap-2" onClick={exportSummary}>
                     <Download size={16} /> Download Report
                   </Button>
@@ -1416,9 +1420,11 @@ export default function FleetTrucks() {
 
                 {/* ── EDIT BUTTON ── */}
                 <div className="border-t-2 border-slate-200 pt-4">
+                  {!readOnly && (
                   <Button size="sm" variant="outline" className="gap-1.5 font-semibold" onClick={() => { openEditTruck(selectedTruck); }}>
                     <Pencil size={14} /> Edit Truck Details
                   </Button>
+                  )}
                 </div>
               </div>
             </div>

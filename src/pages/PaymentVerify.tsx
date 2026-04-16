@@ -13,7 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
-import { apiClient } from '@/api/client';
+import { apiClient, fetchAllPages } from '@/api/client';
+import { isCurrentUserReadOnly } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
@@ -496,6 +497,7 @@ const extractCompanyName = (p: PaymentOrder): string => {
 
 export default function PaymentVerification() {
   const queryClient = useQueryClient();
+  const readOnly = isCurrentUserReadOnly();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
@@ -512,31 +514,9 @@ export default function PaymentVerification() {
   const { data: apiResponse, isLoading } = useQuery<OrderResponse>({
     queryKey: ['verify-orders', 'all'],
     queryFn: async () => {
-      // Backend now uses OrderPagination2 (page_size=1000, max=1_000_000).
-      // Paginate through all pages to ensure every pending payment is included.
-      const PAGE_SIZE = 1000;
-      const MAX_PAGES = 1000;
-      let page = 1;
-      let totalCount = 0;
-      const all: PaymentOrder[] = [];
-
-      while (page <= MAX_PAGES) {
-        const response = await apiClient.admin.getVerifyOrders({
-          status: 'pending',
-          page,
-          page_size: PAGE_SIZE,
-        });
-
-        const results = (response?.results ?? []) as PaymentOrder[];
-        totalCount = Number(response?.count ?? totalCount ?? 0);
-        all.push(...results);
-
-        if (results.length < PAGE_SIZE) break;
-        if (totalCount && all.length >= totalCount) break;
-        page += 1;
-      }
-
-      return { count: totalCount || all.length, results: all };
+      return fetchAllPages<PaymentOrder>(
+        (p) => apiClient.admin.getVerifyOrders({ status: 'pending', page: p.page, page_size: p.page_size }),
+      );
     },
     refetchOnWindowFocus: true,
     refetchInterval: 30_000,
@@ -624,6 +604,9 @@ export default function PaymentVerification() {
       // Refresh verify-orders list so the confirmed item disappears.
       await queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
       await queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
+
+      // Refresh shared all-orders cache so Confirm Release, Loading Tickets, Payments Report update.
+      queryClient.invalidateQueries({ queryKey: ['all-orders'] });
 
       // Also refresh audit-related caches so the action timeline updates immediately if open elsewhere.
       queryClient.invalidateQueries({ queryKey: ['order-audit'] });
@@ -958,6 +941,7 @@ export default function PaymentVerification() {
                              </Badge>
                            </TableCell> */}
                            <TableCell>
+                             {!readOnly && (
                              <div className="flex items-center gap-2">
                                <Button
                                  variant="default"
@@ -989,6 +973,7 @@ export default function PaymentVerification() {
                                  Cancel Order
                                </Button>
                              </div>
+                             )}
                            </TableCell>
                          </TableRow>
                        );

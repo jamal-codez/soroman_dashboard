@@ -6,7 +6,8 @@ import { MobileNav } from "@/components/MobileNav";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { apiClient } from "@/api/client";
+import { apiClient, fetchAllPages } from "@/api/client";
+import { isCurrentUserReadOnly } from '@/roles';
 import { Search, CheckCircle, CheckIcon, TruckIcon, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -192,6 +193,7 @@ function getLoadingDateTime(o: OrderLike) {
 const isReleased = (status: unknown) => normLower(status) === "released";
 
 export default function SecurityPage() {
+  const readOnly = isCurrentUserReadOnly();
   const [query, setQuery] = useState("");
   const [exiting, setExiting] = useState(false);
   const [exitedOrderId, setExitedOrderId] = useState<string | number | null>(null);
@@ -201,21 +203,9 @@ export default function SecurityPage() {
   const { data, isLoading, isError, error, refetch } = useQuery<PagedResponse<OrderLike>>({
     queryKey: ["all-orders", "security"],
     queryFn: async () => {
-      const PAGE = 200;
-      let page = 1;
-      let count = 0;
-      const all: OrderLike[] = [];
-
-      while (page <= 500) {
-        const res = await apiClient.admin.getAllAdminOrders({ page, page_size: PAGE });
-        const results = (res?.results ?? []) as OrderLike[];
-        count = Number(res?.count ?? count);
-        all.push(...results);
-        if (results.length < PAGE || all.length >= count) break;
-        page++;
-      }
-
-      return { count, results: all };
+      return fetchAllPages<OrderLike>(
+        (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size }),
+      );
     },
     retry: 2,
     staleTime: 30_000,
@@ -322,6 +312,7 @@ export default function SecurityPage() {
                             This truck has been exited!
                           </div>
                         ) : (
+                          !readOnly && (
                           <button
                             className="px-6 py-4 rounded bg-red-700 text-white hover:bg-red-800 mt-2 flex items-center gap-2 disabled:opacity-60"
                             onClick={() => confirmTruckExit(match.id)}
@@ -330,6 +321,7 @@ export default function SecurityPage() {
                             <TruckIcon className="w-4 h-4" />
                             {exiting ? "Exiting..." : "Confirm Truck Exit"}
                           </button>
+                          )
                         )}
                       </div>
                     </>

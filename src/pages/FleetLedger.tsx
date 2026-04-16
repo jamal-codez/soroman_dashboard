@@ -27,6 +27,7 @@ import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, sta
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
+import { isCurrentUserReadOnly } from '@/roles';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -140,6 +141,7 @@ const getPresetRange = (preset: TimePreset): { from: Date | null; to: Date | nul
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function FleetLedger() {
+  const readOnly = isCurrentUserReadOnly();
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -401,9 +403,11 @@ export default function FleetLedger() {
               actions={
                 <>
                   <Button variant="outline" className="gap-2" onClick={exportLedger}><Download size={16} /> Download Report</Button>
+                  {!readOnly && (
                   <Button className="gap-2" onClick={openAddEntry}>
                     <Plus size={16} /> Add Entry
                   </Button>
+                  )}
                 </>
               }
             />
@@ -527,10 +531,12 @@ export default function FleetLedger() {
                             <TableCell className="text-sm text-black">{e.entered_by || '—'}</TableCell>
                             <TableCell className="text-center">
                               <div className="flex justify-center gap-1">
+                                {!readOnly && (
                                 <Button size="sm" variant="outline" className="gap-1.5 text-sm text-green-700 border-green-200 hover:bg-green-50 hover:text-green-800" onClick={() => openEditEntry(e)} title="Edit entry">
                                   <Pencil size={14} />
                                   Edit Entry
                                 </Button>
+                                )}
                                 {/* <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" title="Delete entry"
                                   onClick={() => setDeleteTarget({ id: e.id, label: `${e.category} — ${fmt(a)}` })}>
                                   <Trash2 size={14} />

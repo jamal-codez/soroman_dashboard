@@ -37,7 +37,7 @@ import {
   UserCircle2,
   User2
 } from 'lucide-react';
-import { apiClient } from '@/api/client';
+import { apiClient, fetchAllPages } from '@/api/client';
 import { shouldAutoCancel } from '@/lib/orderTimers';
 import { getOrderReference } from '@/lib/orderReference';
 import { PageHeader } from '@/components/PageHeader';
@@ -139,33 +139,9 @@ const Orders = () => {
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
     queryFn: async () => {
-      // Backend is paginated; default responses cap the number of records returned.
-      // Pull all pages so the UI can show/export the complete dataset.
-      const page_size = 200;
-      let page = 1;
-      let count = 0;
-      const all: Order[] = [];
-
-      // Safety limit to prevent accidental infinite loops if API shape changes.
-      const MAX_PAGES = 5000;
-
-      while (page <= MAX_PAGES) {
-        const response = await apiClient.admin.getAllAdminOrders({ page, page_size });
-
-        const results = (response?.results ?? []) as Order[];
-        count = Number(response?.count ?? count ?? 0);
-
-        all.push(...results);
-
-        // Stop when API returns fewer than page_size (last page)
-        // or when we've reached/exceeded total count.
-        if (results.length < page_size) break;
-        if (count && all.length >= count) break;
-
-        page += 1;
-      }
-
-      return { count: count || all.length, results: all };
+      return fetchAllPages<Order>(
+        (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size }),
+      );
     },
     retry: 2,
     staleTime: 30_000,
@@ -343,11 +319,11 @@ const Orders = () => {
   }, [filteredOrders]);
 
   const releasedFilteredOrders = useMemo(() => {
-    // Include both PAID (released for loading) and RELEASED (loaded) orders.
+    // Include PAID, RELEASED, and LOADED orders (all confirmed).
     const s = (v: unknown) => String(v || '').toLowerCase();
     return filteredOrdersForSummary.filter((o) => {
       const status = s(o.status);
-      return status === 'paid' || status === 'released';
+      return status === 'paid' || status === 'released' || status === 'loaded';
     });
   }, [filteredOrdersForSummary]);
 

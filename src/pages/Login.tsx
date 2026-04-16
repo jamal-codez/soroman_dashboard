@@ -24,6 +24,10 @@ function landingPageForRole(role: number | string): string {
       return '/security';
     case 6: // TRANSPORT
       return '/fleet-ledger';
+    case 7: // RELEASE OFFICER
+      return '/confirm-release';
+    case 8: // AUDITOR (read-only)
+      return '/dashboard';
     default:
       return '/dashboard';
   }

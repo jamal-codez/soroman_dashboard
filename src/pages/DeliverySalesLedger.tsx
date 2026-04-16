@@ -29,6 +29,7 @@ import {
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
+import { isCurrentUserReadOnly } from '@/roles';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -179,6 +180,7 @@ const getPresetRange = (preset: TimePreset): { from: Date | null; to: Date | nul
 export default function DeliverySalesLedger() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const readOnly = isCurrentUserReadOnly();
 
   // ── Filters ────────────────────────────────────────────────────────
   const [timePreset, setTimePreset] = useState<TimePreset>('month');
@@ -663,9 +665,11 @@ export default function DeliverySalesLedger() {
                   <Button variant="outline" className="gap-2" onClick={exportExcel} disabled={filteredSales.length === 0}>
                     <Download size={16} /> Download Report
                   </Button>
-                  <Button className="gap-2" onClick={openPaymentDialog}>
-                    <Plus size={16} /> Record Payment
-                  </Button>
+                  {!readOnly && (
+                    <Button className="gap-2" onClick={openPaymentDialog}>
+                      <Plus size={16} /> Record Payment
+                    </Button>
+                  )}
                 </>
               }
             />
