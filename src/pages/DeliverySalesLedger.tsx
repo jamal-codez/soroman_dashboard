@@ -547,6 +547,23 @@ export default function DeliverySalesLedger() {
       };
 
       await apiClient.admin.createDeliverySale(payload);
+
+      // Write customer & destination back to the inventory entry so the inventory table shows them
+      const loadingId = Number(form.truck_loading_id);
+      if (loadingId && (form.customer || form.location.trim())) {
+        try {
+          const custName = form.customer
+            ? (customerMap.get(Number(form.customer))?.customer_name || form.customer_name)
+            : '';
+          await apiClient.admin.updateDeliveryInventory(loadingId, {
+            ...(form.customer ? { customer: Number(form.customer), customer_name: custName } : {}),
+            ...(form.location.trim() ? { location: form.location.trim() } : {}),
+          });
+        } catch {
+          // Non-critical — sale was already saved, inventory update is best-effort
+        }
+      }
+
       toast({ title: 'Payment entry recorded' });
       setDialogOpen(false);
       invalidateAll();
@@ -559,7 +576,7 @@ export default function DeliverySalesLedger() {
     } finally {
       setSaving(false);
     }
-  }, [form, toast, bankMap]);
+  }, [form, toast, bankMap, customerMap]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -917,18 +934,10 @@ export default function DeliverySalesLedger() {
                     <span className="font-medium text-slate-800">{form.depot_loaded || '—'}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 text-xs">Destination:</span>{' '}
-                    <span className="font-medium text-slate-800">{form.location || '—'}</span>
-                  </div>
-                  <div>
                     <span className="text-slate-500 text-xs">Qty:</span>{' '}
                     <span className="font-medium text-slate-800">
                       {form.quantity ? `${formatWithCommas(stripCommas(form.quantity))} L` : '—'}
                     </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 text-xs">Customer:</span>{' '}
-                    <span className="font-medium text-slate-800 capitalize">{form.customer_name || '—'}</span>
                   </div>
                   <div>
                     <span className="text-slate-500 text-xs">Date Loaded:</span>{' '}
@@ -949,6 +958,42 @@ export default function DeliverySalesLedger() {
                       </div>
                     );
                   })()}
+                </div>
+              </div>
+            )}
+
+            {/* Customer & Destination — editable, assigned at sale time */}
+            {form.truck_number && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium text-slate-700">Customer</Label>
+                  <select
+                    aria-label="Select customer"
+                    value={form.customer}
+                    onChange={e => {
+                      const custId = e.target.value;
+                      const cust = custId ? customerMap.get(Number(custId)) : null;
+                      setForm(f => ({
+                        ...f,
+                        customer: custId,
+                        customer_name: cust?.customer_name || '',
+                      }));
+                    }}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Select customer…</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium text-slate-700">Destination</Label>
+                  <Input
+                    placeholder="e.g. Kano, Abuja…"
+                    value={form.location}
+                    onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                  />
                 </div>
               </div>
             )}

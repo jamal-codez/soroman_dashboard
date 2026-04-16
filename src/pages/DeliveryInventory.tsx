@@ -182,8 +182,6 @@ export default function DeliveryInventory() {
   const [loadDepot, setLoadDepot] = useState('');
   const [loadNotes, setLoadNotes] = useState('');
   const [selectedTruckIds, setSelectedTruckIds] = useState<Set<number>>(new Set());
-  const [truckCustomers, setTruckCustomers] = useState<Record<number, string>>({});
-  const [truckDestinations, setTruckDestinations] = useState<Record<number, string>>({});
   const [truckSearch, setTruckSearch] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -519,8 +517,6 @@ export default function DeliveryInventory() {
     setLoadDepot('');
     setLoadNotes('');
     setSelectedTruckIds(new Set());
-    setTruckCustomers({});
-    setTruckDestinations({});
     setTruckSearch('');
     setLoadDialogOpen(true);
   };
@@ -530,8 +526,6 @@ export default function DeliveryInventory() {
       const next = new Set(prev);
       if (next.has(truckId)) {
         next.delete(truckId);
-        setTruckCustomers(tc => { const c = { ...tc }; delete c[truckId]; return c; });
-        setTruckDestinations(td => { const d = { ...td }; delete d[truckId]; return d; });
       } else {
         next.add(truckId);
       }
@@ -559,18 +553,12 @@ export default function DeliveryInventory() {
       const currentUser = localStorage.getItem('fullname') || 'Unknown';
       const promises = [...selectedTruckIds].map(truckId => {
         const truckObj = allTrucks.find(t => t.id === truckId);
-        const custId = truckCustomers[truckId];
-        const custObj = custId ? customers.find(c => String(c.id) === custId) : null;
-        const dest = truckDestinations[truckId]?.trim() || '';
 
         return apiClient.admin.createDeliveryInventory({
           pfi: loadPfi ? Number(loadPfi) : undefined,
           truck: truckId,
           truck_number: truckObj?.plate_number || '',
           depot: depot || undefined,
-          location: dest || undefined,
-          customer: custId ? Number(custId) : undefined,
-          customer_name: custObj?.customer_name || undefined,
           quantity_allocated: qtyPerTruck,
           date_allocated: format(new Date(), 'yyyy-MM-dd'),
           loading_status: 'loaded',
@@ -594,7 +582,7 @@ export default function DeliveryInventory() {
     } finally {
       setSaving(false);
     }
-  }, [selectedTruckIds, loadQty, loadPfi, loadDepot, loadNotes, selectedPfi, truckCustomers, truckDestinations, allTrucks, customers, toast, invalidateAll]);
+  }, [selectedTruckIds, loadQty, loadPfi, loadDepot, loadNotes, selectedPfi, allTrucks, toast, invalidateAll]);
 
   const handleOffload = useCallback(async () => {
     if (!offloadTarget) return;
@@ -1276,52 +1264,6 @@ export default function DeliveryInventory() {
                 </p>
               )}
             </div>
-
-            {/* ── Assign Customers & Destinations (per truck) ── */}
-            {selectedTruckIds.size > 0 && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">
-                  Per-Truck Assignment
-                  <span className="text-xs font-normal text-slate-400 ml-1.5">(customer & destination per truck)</span>
-                </Label>
-                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-[280px] overflow-y-auto">
-                  {[...selectedTruckIds].map(truckId => {
-                    const truck = allTrucks.find(t => t.id === truckId);
-                    if (!truck) return null;
-                    return (
-                      <div key={truckId} className="px-3 py-2.5 space-y-2">
-                        <div className="flex items-center gap-1.5">
-                          <Truck size={13} className="text-blue-500 shrink-0" />
-                          <span className="text-sm font-semibold text-slate-800">{truck.plate_number}</span>
-                          {truck.driver_name && (
-                            <span className="text-xs text-slate-400">· {truck.driver_name}</span>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <select
-                            aria-label={`Customer for ${truck.plate_number}`}
-                            value={truckCustomers[truckId] || ''}
-                            onChange={e => setTruckCustomers(tc => ({ ...tc, [truckId]: e.target.value }))}
-                            className="h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                          >
-                            <option value="">No customer</option>
-                            {customers.map(c => (
-                              <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
-                            ))}
-                          </select>
-                          <Input
-                            placeholder="Destination (e.g. Kano, Abuja…)"
-                            value={truckDestinations[truckId] || ''}
-                            onChange={e => setTruckDestinations(td => ({ ...td, [truckId]: e.target.value }))}
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
             {/* ── Summary ─────────────────────────────────────── */}
             {selectedTruckIds.size > 0 && loadQty && (
