@@ -38,12 +38,13 @@ import {
   Search,
   UserPlus,
   Edit,
-  User,
-  Shield,
   Loader2,
   Users2,
   Ban,
   CheckCircle2,
+  Shield,
+  Mail,
+  Phone,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
@@ -60,6 +61,7 @@ type UserType = {
   last_login_ip?: string | null;
   last_login_user_agent?: string | null;
   label: string;
+  location?: string;
 };
 
 const roleMap: Record<number, string> = {
@@ -73,9 +75,22 @@ const roleMap: Record<number, string> = {
   8: 'AUDITOR',
 };
 
+const roleColorMap: Record<number, string> = {
+  1: 'text-purple-600',
+  2: 'text-blue-600',
+  3: 'text-emerald-600',
+  4: 'text-amber-600',
+  5: 'text-red-600',
+  6: 'text-cyan-600',
+  7: 'text-orange-600',
+  8: 'text-slate-500',
+};
+
 const Settings = () => {
   const [users, setUsers] = useState<UserType[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [locationFilter, setLocationFilter] = useState<string>('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
   const [formData, setFormData] = useState({
@@ -85,6 +100,7 @@ const Settings = () => {
     phone_number: '',
     role: '1',
     suspended: false,
+    location: '',
   });
   const [errors, setErrors] = useState({
     full_name: '',
@@ -127,11 +143,19 @@ const Settings = () => {
     setSearchQuery(event.target.value.toLowerCase());
   };
 
+  const LOCATIONS = ['Headquarters', 'Lagos', 'Calabar', 'Port Harcourt', 'Warri'];
+
   const filteredUsers = users
-    .filter(user =>
-      user.full_name.toLowerCase().includes(searchQuery) ||
-      user.email.toLowerCase().includes(searchQuery)
-    )
+    .filter(user => {
+      const matchesSearch =
+        user.full_name.toLowerCase().includes(searchQuery) ||
+        user.email.toLowerCase().includes(searchQuery);
+      const matchesRole = roleFilter === 'all' || String(user.role) === roleFilter;
+      const matchesLocation =
+        locationFilter === 'all' ||
+        (locationFilter === 'none' ? !user.location?.trim() : user.location?.trim().toLowerCase() === locationFilter.toLowerCase());
+      return matchesSearch && matchesRole && matchesLocation;
+    })
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   const validateForm = () => {
@@ -155,6 +179,7 @@ const Settings = () => {
         phone_number: user.phone_number,
         role: String(user.role),
         suspended: user.suspended,
+        location: user.location || '',
       });
     } else {
       setEditingUser(null);
@@ -165,6 +190,7 @@ const Settings = () => {
         phone_number: '',
         role: '1',
         suspended: false,
+        location: '',
       });
     }
     setIsDialogOpen(true);
@@ -180,6 +206,7 @@ const Settings = () => {
       phone_number: '',
       role: '1',
       suspended: false,
+      location: '',
     });
     setErrors({
       full_name: '',
@@ -202,6 +229,7 @@ const Settings = () => {
           phone_number: formData.phone_number,
           role: parseInt(formData.role),
           suspended: formData.suspended,
+          location: formData.location.trim() || undefined,
         };
 
         if (formData.password && formData.password !== "********") {
@@ -227,6 +255,7 @@ const Settings = () => {
           full_name: formData.full_name,
           phone_number: formData.phone_number,
           role: parseInt(formData.role),
+          location: formData.location.trim() || undefined,
         });
 
         toast({
@@ -364,7 +393,7 @@ const Settings = () => {
               />
             </div>
 
-            <div className="mb-6">
+            {/* <div className="mb-6">
               <SummaryCards
                 cards={[
                   { title: 'Total staff', value: String(summary.total), description: 'All staff accounts', icon: <Users2 className="h-5 w-5" />, tone: 'neutral' },
@@ -373,64 +402,96 @@ const Settings = () => {
                   { title: 'Admins', value: String(summary.admins), description: 'Admin role', icon: <Shield className="h-5 w-5" />, tone: 'neutral' }
                 ]}
               />
-            </div>
+            </div> */}
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <div className="p-4 border-b border-slate-200">
-                <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
                     <Input
                       type="text"
-                      placeholder="Search users..."
+                      placeholder="Search by name or email…"
                       className="pl-10"
                       value={searchQuery}
                       onChange={handleSearch}
                     />
                   </div>
+                  <select
+                    aria-label="Filter by role"
+                    value={roleFilter}
+                    onChange={(e) => setRoleFilter(e.target.value)}
+                    className="h-10 w-full sm:w-[170px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="all">All Roles</option>
+                    {Object.entries(roleMap).map(([value, label]) => (
+                      <option key={value} value={value}>{label.charAt(0) + label.slice(1).toLowerCase()}</option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter by location"
+                    value={locationFilter}
+                    onChange={(e) => setLocationFilter(e.target.value)}
+                    className="h-10 w-full sm:w-[170px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="all">All Locations</option>
+                    <option value="none">No Location</option>
+                    {LOCATIONS.map((loc) => (
+                      <option key={loc} value={loc}>{loc}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Staff</TableHead>
+                  <TableRow className="bg-slate-50/80 [&>th]:px-4 [&>th]:py-3 [&>th]:text-xs [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:uppercase [&>th]:tracking-wider">
+                    <TableHead className="w-[48px]">#</TableHead>
+                    <TableHead className="min-w-[180px]">Name</TableHead>
+                    <TableHead className="min-w-[180px]">Contact</TableHead>
+                    <TableHead>Location</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Last Login</TableHead>
-                    {/* <TableHead>Device Used</TableHead> */}
-                    {/* <TableHead>IP</TableHead> */}
+                    <TableHead className="min-w-[160px]">Last Login</TableHead>
                     <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div className="flex items-center">
-                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center mr-3">
-                            <User className="text-slate-500" size={16} />
-                          </div>
-                          <div>
-                            <div className="font-medium">{user.full_name}</div>
-                            <div className="text-sm text-slate-500">{user.email}</div>
-                          </div>
-                        </div>
+                  {filteredUsers.map((user, idx) => {
+                    const roleName = roleMap[user.role] || user.label || '';
+                    const displayRole = roleName.charAt(0).toUpperCase() + roleName.slice(1).toLowerCase();
+                    const displayLocation = user.location ? (user.location.charAt(0).toUpperCase() + user.location.slice(1).toLowerCase()) : '—';
+                    return (
+                    <TableRow key={user.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                      <TableCell className="px-4 text-slate-400 text-center text-xs">{idx + 1}</TableCell>
+                      <TableCell className="px-4 font-semibold text-slate-800 whitespace-nowrap">
+                        {user.full_name}
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center">
-                          <Shield className={`mr-2 ${user.role === 1 ? 'text-amber-600' : 'text-slate-400'}`} size={16} />
-                          {user.label}
-                        </div>
+                      <TableCell className="px-4">
+                        <a href={`mailto:${user.email}`} className="flex items-center gap-1.5 text-sm text-black hover:text-blue-800 hover:underline" title={user.email}>
+                          <Mail size={14} className="shrink-0 text-green-600" />
+                          {user.email}
+                        </a>
+                        <a href={`tel:${user.phone_number}`} className="flex items-center gap-1.5 text-sm text-black hover:text-slate-800 hover:underline mt-0.5">
+                          <Phone size={13} className="shrink-0 text-green-600" />
+                          {user.phone_number}
+                        </a>
                       </TableCell>
-                      <TableCell>
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          !user.suspended ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                      <TableCell className="px-4 text-sm text-black capitalize">
+                        {displayLocation}
+                      </TableCell>
+                      <TableCell className={`px-4 text-sm font-medium capitalize ${roleColorMap[user.role] || 'text-slate-700'}`}>
+                        {displayRole}
+                      </TableCell>
+                      <TableCell className="px-4">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${
+                          !user.suspended ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
                         }`}>
                           {!user.suspended ? 'Active' : 'Suspended'}
                         </span>
                       </TableCell>
-                      <TableCell>{formatLastLogin(user.last_login)}</TableCell>
+                      <TableCell className="px-4 text-sm text-slate-500 whitespace-nowrap">{formatLastLogin(user.last_login)}</TableCell>
                       {/* <TableCell className="max-w-[280px] truncate" title={user.last_login_user_agent || undefined}>
                         {user.last_login_user_agent || '—'}
                       </TableCell> */}
@@ -467,9 +528,11 @@ const Settings = () => {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
+              </div>
             </div>
           </div>
         </div>
@@ -542,8 +605,23 @@ const Settings = () => {
                 {errors.phone_number && <p className="text-red-500 text-xs">{errors.phone_number}</p>}
               </div>
               <div className="space-y-2">
+                <Label htmlFor="location">Location</Label>
+                <select
+                  aria-label="Location"
+                  value={formData.location}
+                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select location</option>
+                  {LOCATIONS.map((loc) => (
+                    <option key={loc} value={loc}>{loc}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="role">Role</Label>
                 <select
+                  aria-label="Role"
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                   className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -553,11 +631,11 @@ const Settings = () => {
                     <option value="1">General Admin</option>
                     <option value="2">Accounts</option>
                     <option value="3">Sales</option>
-                    <option value="4">Ticketing Officer</option>
+                    <option value="4">Ticketing</option>
                     <option value="5">Security</option>
-                    <option value="6">Transport Officer</option>
-                    <option value="7">Release Officer</option>
-                    <option value="8">Auditor (Read-Only)</option>
+                    <option value="6">Transport</option>
+                    <option value="7">Release</option>
+                    <option value="8">Auditor</option>
                   </optgroup>
                 </select>
               </div>

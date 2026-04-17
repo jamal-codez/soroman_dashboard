@@ -50,13 +50,15 @@ import { apiClient } from '@/api/client';
 type PagedCount = { count?: number };
 type OrdersResults = { results?: Array<{ status?: string | null }> };
 
-// SUPERADMIN= 0,"SUPERADMIN"
-// ADMIN= 1,"General Admin"
-// FINANCE =2,"Accounts"
-// SALES=3,"Marketing Officer"
-// RELEASE=4,"Ticketing Officer"
-// SECURITY=5,"Security"
-// TRANSPORT=6,"Transport Officer"
+// SUPERADMIN: 0,
+//   ADMIN: 1,
+//   FINANCE: 2,
+//   SALES: 3,
+//   RELEASE: 4,
+//   SECURITY: 5,
+//   TRANSPORT: 6,
+//   RELEASE_OFFICER: 7,
+//   AUDITOR: 8,
 
 type NavItem = { title: string; icon: React.ComponentType<{ size?: string | number; className?: string }>; path: string; allowedRoles: number[] };
 type NavCategory = { category: string; items: NavItem[] };
@@ -71,8 +73,8 @@ const navCategories: NavCategory[] = [
   {
     category: 'Sales & Customers',
     items: [
-      { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,3,8] },
-      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3,8] },
+      { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,8] },
+      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,8] },
       // { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
     ],
   },
@@ -81,7 +83,7 @@ const navCategories: NavCategory[] = [
     items: [
       { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0,1,7,8] },
       { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4,7,8] },
-      // { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0] },
+      { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
       // { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0] },
       // { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0] },
     ],
@@ -109,18 +111,13 @@ const navCategories: NavCategory[] = [
       { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2,8] },
     ],
   },
-  // {
-  //   category: 'Inventory & Pricing',
-  //   items: [
-  //     // { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0,1] },
-  //   ],
-  // },
   {
     category: 'Admin',
     items: [
       { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0] },
       { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1,8] },
       { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2,8] },
+      { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0] },
       { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1,8] },
       { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
     ],

@@ -11,7 +11,6 @@ import { SummaryCards, type SummaryCard } from '@/components/SummaryCards';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -21,9 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   Plus, Search, Download, Loader2, Truck, Fuel, MapPin, Package,
-  AlertCircle, CheckCircle, Clock, FuelIcon, TruckIcon,
-  User, Phone, FileText, Banknote, Hash, ShieldCheck,
-  Calendar as CalendarIcon,
+  AlertCircle, CheckCircle, Clock,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -32,9 +29,8 @@ import { useToast } from '@/hooks/use-toast';
 import { getOrderReference } from '@/lib/orderReference';
 import {
   type InHouseOrder, type InHouseOrderResponse, type State, type Product,
-  NIGERIAN_STATES, MAX_TRUCK_CAPACITY,
   getStatusText, getStatusClass,
-  formatCurrency, formatQuantity, formatWithCommas, stripCommas,
+  formatQuantity, formatWithCommas, stripCommas,
 } from '@/lib/inHouseHelpers';
 
 export default function InHouseCreate() {
@@ -48,14 +44,6 @@ export default function InHouseCreate() {
     product_id: '',
     quantity: '',
     state_id: '',
-    destination_state: '',
-    destination_town: '',
-    driver_name: '',
-    driver_phone: '',
-    truck_number: '',
-    supervised_by: '',
-    loading_date: format(new Date(), 'yyyy-MM-dd'),
-    notes: '',
   });
 
   // ── Filters ────────────────────────────────────────────────────────
@@ -160,14 +148,9 @@ export default function InHouseCreate() {
       result = result.filter((o) => {
         const ref = getOrderReference(o).toLowerCase();
         const product = (o.products?.[0]?.name || '').toLowerCase();
-        const driver = (o.driver_name || '').toLowerCase();
-        const truckNo = (o.truck_number || '').toLowerCase();
-        const supervisor = (o.supervised_by || '').toLowerCase();
-        const destination = (`${o.destination_state || ''} ${o.destination_town || ''}`).toLowerCase();
         const state = (o.state || '').toLowerCase();
         return (
-          ref.includes(q) || product.includes(q) || driver.includes(q) ||
-          truckNo.includes(q) || supervisor.includes(q) || destination.includes(q) ||
+          ref.includes(q) || product.includes(q) ||
           state.includes(q) || String(o.id).includes(q)
         );
       });
@@ -202,48 +185,22 @@ export default function InHouseCreate() {
       toast({ title: 'Loading depot is required', description: 'Select the loading depot.', variant: 'destructive' });
       return;
     }
-    if (!form.destination_state) {
-      toast({ title: 'Destination is required', description: 'Select the destination state.', variant: 'destructive' });
-      return;
-    }
     const rawQty = Number(stripCommas(form.quantity));
     if (!rawQty || rawQty <= 0) {
       toast({ title: 'Quantity is required', description: 'Enter the volume in litres.', variant: 'destructive' });
       return;
     }
-    if (rawQty > MAX_TRUCK_CAPACITY) {
-      toast({ title: 'Quantity too large', description: `Maximum single order is ${MAX_TRUCK_CAPACITY.toLocaleString()} litres.`, variant: 'destructive' });
-      return;
-    }
-    if (!form.driver_name.trim()) {
-      toast({ title: "Driver's name is required", variant: 'destructive' });
-      return;
-    }
-    if (!form.truck_number.trim()) {
-      toast({ title: 'Truck number is required', variant: 'destructive' });
-      return;
-    }
-
     setCreating(true);
     try {
       await apiClient.admin.createInHouseOrder({
         product_id: Number(form.product_id),
         quantity: rawQty,
         state_id: Number(form.state_id),
-        destination_state: form.destination_state,
-        destination_town: form.destination_town.trim() || undefined,
-        driver_name: form.driver_name.trim(),
-        driver_phone: form.driver_phone.trim() || undefined,
-        truck_number: form.truck_number.trim().toUpperCase(),
-        supervised_by: form.supervised_by.trim() || undefined,
-        loading_date: form.loading_date || undefined,
-        notes: form.notes.trim() || undefined,
+        loading_date: format(new Date(), 'yyyy-MM-dd'),
       });
       toast({ title: 'Order Created', description: 'In-house order created successfully.' });
       setForm({
-        product_id: '', quantity: '', state_id: '', destination_state: '', destination_town: '',
-        driver_name: '', driver_phone: '', truck_number: '',
-        supervised_by: '', loading_date: format(new Date(), 'yyyy-MM-dd'), notes: '',
+        product_id: '', quantity: '', state_id: '',
       });
       setCreateOpen(false);
       queryClient.invalidateQueries({ queryKey: ['in-house-orders'] });
@@ -264,17 +221,8 @@ export default function InHouseCreate() {
       Product: o.products?.[0]?.name || '',
       'Quantity (L)': Number(o.quantity || 0),
       'Loading Depot': o.state || '',
-      'Destination State': o.destination_state || '',
-      'Destination Town': o.destination_town || '',
-      'Driver Name': o.driver_name || '',
-      'Driver Phone': o.driver_phone || '',
-      'Truck Number': o.truck_number || '',
-      'Sales Rep': o.supervised_by || '',
-      'Loading Date': o.loading_date || '',
       Status: getStatusText(o.status),
-      'Buyer Name': o.sold_to_name || '',
-      'Total Price': o.total_price || '',
-      'Created At': o.created_at ? format(new Date(o.created_at), 'yyyy-MM-dd HH:mm') : '',
+      Date: o.created_at ? format(new Date(o.created_at), 'yyyy-MM-dd HH:mm') : '',
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
@@ -293,17 +241,15 @@ export default function InHouseCreate() {
           <div className="max-w-7xl mx-auto space-y-5">
             {/* Header */}
             <PageHeader
-              title="Truck-Out & Delivery Orders"
-              description="Create and dispatch truck-out/delivery orders to sales representatives."
+              title="Truck-Out Orders"
+              description="Create and dispatch truck-out orders for Soroman Trucks."
               actions={
                 <>
                   <Button
                     className="gap-2"
                     onClick={() => {
                       setForm({
-                        product_id: '', quantity: '', state_id: '', destination_state: '', destination_town: '',
-                        driver_name: '', driver_phone: '', truck_number: '',
-                        supervised_by: '', loading_date: format(new Date(), 'yyyy-MM-dd'), notes: '',
+                        product_id: '', quantity: '', state_id: '',
                       });
                       setCreateOpen(true);
                     }}
@@ -378,12 +324,8 @@ export default function InHouseCreate() {
                       <TableRow className="bg-slate-50/80">
                         <TableHead className="font-semibold text-slate-700">Reference</TableHead>
                         <TableHead className="font-semibold text-slate-700">Product</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-right">Qty (L)</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Quantity</TableHead>
                         <TableHead className="font-semibold text-slate-700">Depot</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Destination</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Truck No.</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Driver</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Sales Rep</TableHead>
                         <TableHead className="font-semibold text-slate-700">Status</TableHead>
                         <TableHead className="font-semibold text-slate-700">Date</TableHead>
                       </TableRow>
@@ -400,19 +342,8 @@ export default function InHouseCreate() {
                           <TableRow key={order.id} className="hover:bg-slate-50/60 transition-colors">
                             <TableCell className="text-sm font-semibold text-slate-800">{ref}</TableCell>
                             <TableCell className="text-sm">{productName}</TableCell>
-                            <TableCell className="text-sm text-right font-semibold">{qty}</TableCell>
+                            <TableCell className="text-sm font-semibold">{qty} Litres</TableCell>
                             <TableCell className="text-sm">{state}</TableCell>
-                            <TableCell className="text-sm">
-                              {order.destination_state
-                                ? `${order.destination_state}${order.destination_town ? `, ${order.destination_town}` : ''}`
-                                : '—'}
-                            </TableCell>
-                            <TableCell className="text-sm"><span className="font-semibold text-green-800">{order.truck_number}</span></TableCell>
-                            <TableCell className="text-sm">
-                              <span className="font-semibold">{order.driver_name}</span>
-                              <br /><span className="text-xs text-slate-600">{order.driver_phone}</span>
-                            </TableCell>
-                            <TableCell className="text-sm text-black">{order.supervised_by || '—'}</TableCell>
                             <TableCell>
                               <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${getStatusClass(order.status)}`}>
                                 {getStatusText(order.status)}
@@ -446,9 +377,9 @@ export default function InHouseCreate() {
                 <Truck className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">New Truck-Out/Delivery Order</h2>
+                <h2 className="text-lg font-semibold">New Truck-Out Order</h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  Create and assign product to a sales rep for consignment/dispatch
+                  Create and dispatch truck-out orders for Soroman Trucks
                 </p>
               </div>
             </DialogTitle>
@@ -500,17 +431,9 @@ export default function InHouseCreate() {
                 value={form.quantity}
                 onChange={(e) => {
                   const formatted = formatWithCommas(e.target.value);
-                  const raw = Number(stripCommas(formatted));
-                  if (raw > MAX_TRUCK_CAPACITY) {
-                    setForm((f) => ({ ...f, quantity: formatWithCommas(String(MAX_TRUCK_CAPACITY)) }));
-                  } else {
-                    setForm((f) => ({ ...f, quantity: formatted }));
-                  }
+                  setForm((f) => ({ ...f, quantity: formatted }));
                 }}
               />
-              <p className="text-xs text-slate-400">
-                Max {MAX_TRUCK_CAPACITY.toLocaleString()} litres per order (one truck capacity)
-              </p>
             </div>
 
             {/* Loading Depot */}
@@ -538,117 +461,6 @@ export default function InHouseCreate() {
                   <option key={s.id} value={String(s.id)}>{s.name}</option>
                 ))}
               </select>
-            </div>
-
-            {/* Destination (State + Town) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Truck size={15} className="text-slate-500" />
-                  Destination State <span className="text-red-500">*</span>
-                </Label>
-                <select
-                  value={form.destination_state}
-                  onChange={(e) => setForm((f) => ({ ...f, destination_state: e.target.value }))}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  aria-label="Destination State"
-                >
-                  <option value="">Select state</option>
-                  {NIGERIAN_STATES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <MapPin size={15} className="text-slate-500" />
-                  Destination Town
-                </Label>
-                <Input
-                  placeholder="e.g. Ikeja, Lekki, Aba"
-                  value={form.destination_town}
-                  onChange={(e) => setForm((f) => ({ ...f, destination_town: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            {/* Driver's Name + Phone */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <User size={15} className="text-slate-500" />
-                  Driver's Name <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  placeholder="e.g. Musa Abdullahi"
-                  value={form.driver_name}
-                  onChange={(e) => setForm((f) => ({ ...f, driver_name: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Phone size={15} className="text-slate-500" />
-                  Driver's Phone
-                </Label>
-                <Input
-                  placeholder="e.g. 08012345678"
-                  value={form.driver_phone}
-                  onChange={(e) => setForm((f) => ({ ...f, driver_phone: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            {/* Truck Number */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                <Hash size={15} className="text-slate-500" />
-                Truck Number <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                placeholder="e.g. ABC-123-XY"
-                value={form.truck_number}
-                onChange={(e) => setForm((f) => ({ ...f, truck_number: e.target.value.toUpperCase() }))}
-              />
-            </div>
-
-            {/* Supervised By + Loading Date */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <ShieldCheck size={15} className="text-slate-500" />
-                  Sales Representative
-                </Label>
-                <Input
-                  placeholder="e.g. Ahmed Bello"
-                  value={form.supervised_by}
-                  onChange={(e) => setForm((f) => ({ ...f, supervised_by: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <CalendarIcon size={15} className="text-slate-500" />
-                  Loading Date
-                </Label>
-                <Input
-                  type="date"
-                  value={form.loading_date}
-                  onChange={(e) => setForm((f) => ({ ...f, loading_date: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                <FileText size={15} className="text-slate-500" />
-                Notes
-              </Label>
-              <Textarea
-                placeholder="Any additional notes about this dispatch…"
-                rows={2}
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-              />
             </div>
           </div>
 

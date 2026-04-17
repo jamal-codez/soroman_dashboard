@@ -24,6 +24,8 @@ import {
   TicketPlusIcon,
   UserCheck,
   FileText,
+  Package,
+  ClipboardList,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -49,68 +51,72 @@ const navCategories: NavCategory[] = [
   {
     category: '',
     items: [
-      { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0,1] },
+      { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0,1,8] },
     ],
   },
   {
     category: 'Sales & Customers',
     items: [
-      { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,3] },
-      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,3] },
-      { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
+      { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,8] },
+      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,8] },
+      // { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
     ],
   },
   {
     category: 'Dispatch & Waybill',
     items: [
-      { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4] },
+      { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0,1,7,8] },
+      { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4,7,8] },
       { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
-      { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0,1] },
-      { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0,3] },
+      // { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0] },
+      // { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0] },
     ],
   },
   {
     category: 'Transport',
     items: [
-      { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6] },
-      { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,6] },
+      { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6,8] },
+      { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,6,8] },
+    ],
+  },
+  {
+    category: 'Deliveries',
+    items: [
+      { title: "Inventory", icon: Package, path: "/delivery-inventory", allowedRoles: [0,1,3,8] },
+      { title: "Delivery Customers", icon: UserCheck, path: "/delivery-customers-db", allowedRoles: [0,1,3,8] },
+      { title: "Sales Ledger", icon: ClipboardList, path: "/delivery-sales-ledger", allowedRoles: [0,1,3,8] },
     ],
   },
   {
     category: 'Finance',
     items: [
-      { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2] },
-      { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2] },
-      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2] },
-    ],
-  },
-  {
-    category: 'Inventory & Pricing',
-    items: [
-      { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0,1] },
-      { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1] },
-      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2] },
+      { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2,8] },
+      { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2,8] },
+      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2,8] },
     ],
   },
   {
     category: 'Admin',
     items: [
       { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0] },
-      { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1] },
+      { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1,8] },
+      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2,8] },
+      { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0] },
+      { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1,8] },
       { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
     ],
   },
-  {
-    category: 'Records',
-    items: [
-      { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
-      { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
-    ],
-  },
+  // {
+  //   category: 'Records',
+  //   items: [
+  //     { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
+  //     { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
+  //   ],
+  // },
   {
     category: 'Security',
     items: [
-      { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5] },
+      { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5,8] },
     ],
   },
 ];
@@ -191,8 +197,8 @@ export const MobileNav = React.memo(function MobileNav() {
               <Menu size={18} />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[88vw] max-w-[360px] p-0">
-            <SheetHeader className="p-4 border-b border-slate-200">
+          <SheetContent side="left" className="w-[88vw] max-w-[360px] p-0 flex flex-col">
+            <SheetHeader className="p-4 border-b border-slate-200 shrink-0">
               <div className="flex items-center gap-2">
                 <img src="/logo.png" alt="" className="w-8 h-8" />
                 <SheetTitle className="text-left">Soroman</SheetTitle>
@@ -206,7 +212,7 @@ export const MobileNav = React.memo(function MobileNav() {
               </div> */}
             </SheetHeader>
 
-            <div className="p-2">
+            <div className="flex-1 overflow-y-auto overscroll-contain p-2">
               {visibleCategories.map((group) => (
                 <div key={group.category || '__overview'}>
                   {group.category && (
