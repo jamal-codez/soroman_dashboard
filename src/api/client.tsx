@@ -1122,7 +1122,7 @@ export const apiClient = {
      * Accepts an array of truck allocations. The backend creates one ticket
      * per entry. All quantities must sum to the order total.
      *
-     * Body: { trucks: [{ quantity_litres, driver_name?, driver_phone?, plate_number? }, …] }
+     * Body: { trucks: [{ quantity_litres, driver_name?, driver_phone?, plate_number? }, …], pfi_id?: number }
      */
     generateOrderTickets: async (
       orderId: number,
@@ -1131,12 +1131,15 @@ export const apiClient = {
         driver_name?: string;
         driver_phone?: string;
         plate_number?: string;
-      }>
+      }>,
+      pfiId?: number
     ) => {
+      const body: Record<string, unknown> = { trucks };
+      if (pfiId) body.pfi_id = pfiId;
       const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/generate-tickets/`, {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({ trucks }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) {
         const msg = await safeReadError(response);

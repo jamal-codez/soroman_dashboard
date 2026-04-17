@@ -16,7 +16,7 @@ import { MobileNav } from '@/components/MobileNav';
 import { apiClient, fetchAllPages } from '@/api/client';
 import { isCurrentUserReadOnly } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle } from 'lucide-react';
+import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, Calendar, MapPin, Package, Building2, User, Banknote } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -190,107 +190,134 @@ function VerifyConfirmModalBody({
     .filter(Boolean)
     .join(' × ')
     .trim();
-
   return (
     <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
-      <DialogContent className="sm:max-w-[540px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-slate-950">Confirm payment & release order</DialogTitle>
-          <DialogDescription className="text-sm text-slate-600">
-            You’re about to mark this payment as <span className="font-medium text-slate-900">paid</span> and <span className="font-medium text-slate-900">release</span> the
-            order for loading
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto p-0">
+        <div className="border-b border-slate-200 bg-slate-50 px-6 pt-6 pb-4">
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-lg text-slate-950">Confirm Payment & Release Order</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              Review the details below before confirming. This will release the order for loading.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        <div className="space-y-4 text-sm">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-              <div className="min-w-0">
-                <div className="text-xs text-slate-500">Order Reference</div>
-                <div className="truncate font-semibold text-slate-950">{orderRef}</div>
-                <div className="mt-2 space-y-1">
-                  <div className="text-xs text-slate-500">Location</div>
-                  <div className="font-medium text-slate-900">{location || '—'}</div>
-                </div>
-              </div>
-
-              <div className="sm:text-right">
-                <div>
-                  <div className="text-xs text-slate-500">Total Amount</div>
-                  <div className="font-semibold text-slate-950">{totalAmount}</div>
-                </div>
-                <div className="mt-2">
-                  <div className="text-xs text-slate-500">Product</div>
-                  <div className="font-medium text-slate-900">{productSummary || '—'}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-md border border-slate-200 p-3">
-              <div className="text-xs text-slate-500">Date</div>
-              <div className="font-medium text-slate-900">{createdText}</div>
-            </div>
-
-            <div className="rounded-md border border-slate-200 p-3">
-              <div className="text-xs text-slate-500">Customer</div>
-              <div className="font-bold text-slate-900">{companyName || '—'}</div>
-              {/* {companyName ? <div className="text-slate-700">{companyName}</div> : null} */}
-              {customerPhone ? <div className="text-slate-700">{customerPhone}</div> : null}
-            </div>
-          </div>
-
-          <div className="rounded-md border border-slate-200 p-3">
-            <div className="mb-2 text-xs font-medium text-slate-500">Paid Into</div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="space-y-3 px-6 py-5 text-sm">
+          {/* Date & Order Ref */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
+              <Calendar size={15} className="mt-0.5 shrink-0 text-slate-400" />
               <div>
-                <div className="text-[11px] text-slate-500">Account Number</div>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Date</div>
+                <div className="font-medium text-slate-900">{createdText}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
+              <Search size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Order Ref</div>
+                <div className="truncate font-semibold text-slate-950">{orderRef}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Location & Product */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
+              <MapPin size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Location</div>
+                <div className="font-medium text-slate-900">{location || '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
+              <Package size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Product & Qty</div>
+                <div className="font-medium text-slate-900">{productSummary || '—'}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Company & Facilitator */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
+              <Building2 size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Company</div>
+                <div className="font-semibold uppercase text-slate-900">{companyName || '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
+              <User size={15} className="mt-0.5 shrink-0 text-slate-400" />
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Facilitator</div>
+                <div className="font-medium uppercase text-slate-900">{customerName || '—'}</div>
+                {customerPhone ? <div className="text-xs text-slate-500">{customerPhone}</div> : null}
+              </div>
+            </div>
+          </div>
+
+          {/* Bank Details */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              <Banknote size={14} />
+              Paid Into
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <div className="text-[11px] text-slate-400">Account No.</div>
                 <div className="font-semibold text-slate-900">{paidInto.account_number || '—'}</div>
               </div>
               <div>
-                <div className="text-[11px] text-slate-500">Bank</div>
-                <div className="font-medium text-slate-900">{paidInto.bank_name || '—'}</div>
+                <div className="text-[11px] text-slate-400">Bank</div>
+                <div className="font-medium uppercase text-slate-900">{paidInto.bank_name || '—'}</div>
               </div>
               <div>
-                <div className="text-[11px] text-slate-500">Account Name</div>
-                <div className="font-medium text-slate-900">{paidInto.account_name || '—'}</div>
+                <div className="text-[11px] text-slate-400">Account Name</div>
+                <div className="font-medium uppercase text-slate-900">{paidInto.account_name || '—'}</div>
               </div>
             </div>
           </div>
 
-          <div className="rounded-md border border-slate-200 p-3">
-            <div className="mb-2 text-xs font-medium text-slate-500">Narration (optional)</div>
+          {/* Amount */}
+          <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <span className="text-sm font-medium text-emerald-800">Expected Amount</span>
+            <span className="text-lg font-bold text-emerald-900">{totalAmount}</span>
+          </div>
+
+          {/* Narration */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-500">Any Remarks</label>
             <Textarea
               value={narration}
               onChange={(e) => setNarration(e.target.value)}
-              placeholder="Add a note (e.g. part payment, short payment, lump sum, bank transfer details)..."
-              className="min-h-[90px]"
+              placeholder="e.g. part payment, short payment, lump sum, bank transfer details…"
+              className="min-h-[60px] resize-none"
             />
           </div>
 
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
-            <div className="text-sm">
-              Do not confirm unless payment is verified. Confirmation triggers order release for loading.
-            </div>
+          {/* Warning */}
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
+            ⚠️ Do not confirm unless payment has been verified. This action allows releasing for loading.
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={() => onConfirm(narration)} disabled={!isPending}>
-            Confirm payment & release order
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => onConfirm(narration)} disabled={!isPending} className="gap-1.5">
+            <CheckCheck size={16} />
+            Confirm & Release
           </Button>
           {!isPending ? (
-            <div className="w-full text-xs text-amber-700">This order is no longer pending, so it can’t be confirmed.</div>
+            <div className="w-full text-xs text-amber-700">This order is no longer pending.</div>
           ) : null}
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
+
 
 function getStatusClass(status: string): string {
   switch (status) {
@@ -835,21 +862,20 @@ export default function PaymentVerification() {
                </div>
              </div>
 
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200">
-              <Table>
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
+              <Table className="text-sm">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>S/N</TableHead>
-                    <TableHead>Date/Time</TableHead>
-                    {/* <TableHead>Time</TableHead> */}
-                    <TableHead>Order Reference</TableHead>
-                    <TableHead>Customer</TableHead>
+                    <TableHead className="w-10">S/N</TableHead>
+                    <TableHead>Date & Time</TableHead>
+                    <TableHead>Reference</TableHead>
+                    <TableHead>Facilitator</TableHead>
+                    <TableHead>Company</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Product</TableHead>
-                    <TableHead>Qty/Price</TableHead>
+                    <TableHead>Quantity</TableHead>
                     <TableHead>Paid Into</TableHead>
-                    <TableHead>Amount Paid</TableHead>
-                    {/* <TableHead>Status</TableHead> */}
+                    <TableHead>Expected Amount</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -857,24 +883,22 @@ export default function PaymentVerification() {
                   {isLoading ? (
                     [...Array(5)].map((_, index) => (
                       <TableRow key={index}>
-                        <TableCell><Skeleton className="h-4 w-10" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-8" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                        <TableCell><Skeleton className="h-8 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
+                        <TableCell><Skeleton className="h-8 w-28 ml-auto" /></TableCell>
                        </TableRow>
                      ))
                   ) : filteredPayments.length === 0 ? (
                      <TableRow>
-                      <TableCell colSpan={13} className="text-center h-24 text-slate-500">
+                      <TableCell colSpan={11} className="text-center h-24 text-slate-500">
                          No pending payments found
                        </TableCell>
                      </TableRow>
@@ -887,75 +911,68 @@ export default function PaymentVerification() {
                       const { product, qty, unitPrice } = extractProductInfo(payment);
                       const paidInto = extractPaidInto(payment);
                        return (
-                         <TableRow key={payment.id}>
-                          <TableCell className="text-slate-700">{idx + 1}</TableCell>
-                          <TableCell>
-                            {Number.isNaN(created.getTime())
-                              ? '—'
-                              : created.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })} {Number.isNaN(created.getTime()) ? '—' : created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                         <TableRow key={payment.id} className="hover:bg-slate-50/50">
+                          <TableCell className="text-sm text-center text-slate-600">{idx + 1}</TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-slate-600">
+                            <div>{Number.isNaN(created.getTime()) ? '—' : created.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</div>
+                            <div className="text-slate-400 text-xs">{Number.isNaN(created.getTime()) ? '' : created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                           </TableCell>
-                          {/* <TableCell>
-                            {Number.isNaN(created.getTime()) ? '—' : created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                          </TableCell> */}
                           <TableCell className="font-semibold text-slate-950">
                             {getOrderReference(payment) || payment.order_id}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="font-medium">{companyName || '—'}</span>
+                              <span className="text-sm uppercase font-medium text-slate-800">{customerName || '—'}</span>
                               {customerPhone ? (
                                 <a
                                   href={`tel:${customerPhone}`}
-                                  className="inline-flex items-center gap-2 text-slate-700 font-bold hover:underline"
+                                  className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 hover:underline"
                                   onClick={(e) => e.stopPropagation()}
                                   title="Call"
                                 >
-                                  <PhoneOutgoing size={12} className="text-green-700" />
+                                  <PhoneOutgoing size={11} className="text-green-600" />
                                   {customerPhone}
                                 </a>
-                              ) : (
-                                <span className="text-slate-700">{customerPhone || ''}</span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>{location || '—'}</TableCell>
-                          <TableCell>{product || '—'}</TableCell>
-                          <TableCell>
-                            <div className="flex flex-col">
-                              <span className="font-bold">{qty || '—'} Litres</span>
-                              <span className="text-slate-600">Price: {unitPrice ? `₦${unitPrice}` : '—'}</span>
+                              ) : null}
                             </div>
                           </TableCell>
                           <TableCell>
+                            <span className="font-medium uppercase text-slate-900">{companyName || '—'}</span>
+                          </TableCell>
+                          
+                          <TableCell className="text-slate-700">{location || '—'}</TableCell>
+                          <TableCell className="text-slate-700">{product || '—'}</TableCell>
+                          <TableCell>
                             <div className="flex flex-col">
-                              <span className="text-slate-900 font-bold">{paidInto.account_number || '—'}</span>
-                              <span className="text-slate-700">{paidInto.bank_name || '—'}</span>
+                              <span className="font-semibold text-slate-900">{qty || '—'} Litres</span>
+                              <span className="text-xs text-slate-500">{unitPrice ? `Unit Price: ₦${unitPrice}` : '—'}</span>
                             </div>
                           </TableCell>
-                           <TableCell className="text-right font-semibold text-slate-950">
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-slate-900">{paidInto.account_number || '—'}</span>
+                              <span className="text-xs text-slate-500">{paidInto.bank_name || '—'}</span>
+                            </div>
+                          </TableCell>
+                           <TableCell className="text-right font-bold text-slate-950">
                              ₦{parseFloat(String(payment.amount || '0')).toLocaleString()}
                            </TableCell>
-                           {/* <TableCell>
-                             <Badge className={getStatusClass(payment.status.toLowerCase())}>
-                               {payment.status.toLowerCase()}
-                             </Badge>
-                           </TableCell> */}
-                           <TableCell>
+                           <TableCell className="text-left">
                              {!readOnly && (
-                             <div className="flex items-center gap-2">
+                             <div className="flex items-center justify-end gap-1.5">
                                <Button
                                  variant="default"
                                  size="sm"
                                  disabled={updatingPaymentId === payment.id}
                                  onClick={() => handleVerifyClick(payment)}
-                                 className="whitespace-nowrap"
+                                 className="h-8 gap-1 px-2.5 text-xs"
                                >
                                  {updatingPaymentId === payment.id ? (
-                                   <Loader2 className="h-6 w-6 animate-spin" />
+                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                  ) : (
-                                   <CheckCheck className="h-6 w-6" />
+                                   <CheckCheck className="h-3.5 w-3.5" />
                                  )}
-                                 Confirm Payment
+                                 Confirm
                                </Button>
 
                                <Button
@@ -963,14 +980,14 @@ export default function PaymentVerification() {
                                  size="sm"
                                  disabled={cancelingOrderId === Number(payment.order_id)}
                                  onClick={() => handleCancelClick(payment)}
-                                 className="whitespace-nowrap"
+                                 className="h-8 gap-1 px-2.5 text-xs"
                                >
                                  {cancelingOrderId === Number(payment.order_id) ? (
-                                   <Loader2 className="h-6 w-6 animate-spin" />
+                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                  ) : (
-                                   <XCircle className="h-6 w-6" />
+                                   <XCircle className="h-3.5 w-3.5" />
                                  )}
-                                 Cancel Order
+                                 Cancel
                                </Button>
                              </div>
                              )}

@@ -938,8 +938,8 @@ export const PickupProcessing = () => {
         });
       }
 
-      // 2. Generate individual truck tickets for ALL trucks
-      await apiClient.admin.generateOrderTickets(selectedOrder.id, trucks);
+      // 2. Generate individual truck tickets for ALL trucks (pass pfi_id so backend tracks PFI movement)
+      await apiClient.admin.generateOrderTickets(selectedOrder.id, trucks, sanitized.pfiId);
 
       // Update local ticket count and allocated qty
       setTicketCounts((prev) => ({ ...prev, [selectedOrder.id]: (prev[selectedOrder.id] || 0) + trucks.length }));
@@ -950,6 +950,8 @@ export const PickupProcessing = () => {
       // Refresh the list used by this page
       await queryClient.invalidateQueries({ queryKey: ['all-orders', 'released'] });
       await queryClient.invalidateQueries({ queryKey: ['order-tickets', selectedOrder.id] });
+      // Refresh PFI caches so sold_qty_litres / remaining updates across the app
+      queryClient.invalidateQueries({ queryKey: ['pfis'] });
 
       toast({
         title: 'Success ✅',
