@@ -1,14 +1,23 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'; 
+import { useState, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, Plus, Edit, Power, Info } from 'lucide-react';
-import { apiClient } from '@/api/client'; // Assuming your API clients are here
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog';
+import { Search, Pencil, Power, Loader2, CheckCircle, Fuel } from 'lucide-react';
+import { apiClient } from '@/api/client';
 import { isCurrentUserReadOnly } from '@/roles';
+import { useToast } from '@/hooks/use-toast';
 
 interface Product {
   id: string;
@@ -27,8 +36,9 @@ interface State {
 const Pricing = () => {
   const readOnly = isCurrentUserReadOnly();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  const { data: states = [], isLoading, refetch } = useQuery<State[]>({
+  const { data: states = [], isLoading } = useQuery<State[]>({
     queryKey: ['state-prices'],
     queryFn: () => apiClient.admin.getStatesPricing(),
     retry: 2,
@@ -39,84 +49,70 @@ const Pricing = () => {
       apiClient.admin.updateStatePrice(updatedState),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['state-prices'] });
+      toast({ title: 'Prices updated', description: 'Product prices saved successfully.' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to update prices.', variant: 'destructive' });
     },
   });
-
-  // const addProductMutation = useMutation({
-  //   mutationFn: (newProduct: { stateId: string; product: Product }) => 
-  //     apiClient.admin.addProductToState(newProduct.stateId, newProduct.product),
-  //   onSuccess: () => {
-  //     queryClient.invalidateQueries({ queryKey: ['state-prices'] });
-  //   }
-  // });
 
   const toggleStatusMutation = useMutation({
     mutationFn: (stateId: string) => apiClient.admin.toggleStateStatus(stateId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['state-prices'] });
-    }
+      toast({ title: 'Status updated' });
+    },
   });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [editingState, setEditingState] = useState<State | null>(null);
-  const [tempPrices, setTempPrices] = useState<{ [key: string]: number }>({});
-  const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
-  const [newProductName, setNewProductName] = useState('');
-  const [newProductDescription, setNewProductDescription] = useState('');
-  const [newProductPrice, setNewProductPrice] = useState<number | ''>('');
+  const [tempPrices, setTempPrices] = useState<Record<string, number>>({});
+  const [saving, setSaving] = useState(false);
 
-  const filteredStates = states.filter(state =>
-    state.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    state.products.some(product =>
-      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.description.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  );
+  const productNames = useMemo(() => {
+    const names = new Set<string>();
+    states.forEach(s => (s.products || []).forEach(p => names.add(p.name)));
+    const sorted = Array.from(names).sort();
+    const petrolIdx = sorted.findIndex(n => n.toLowerCase() === 'petrol');
+    if (petrolIdx > 0) sorted.unshift(sorted.splice(petrolIdx, 1)[0]);
+    return sorted;
+  }, [states]);
 
-  const handleSavePrices = async () => {
+  const filteredStates = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return states;
+    return states.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      (s.products || []).some(p => p.name.toLowerCase().includes(q))
+    );
+  }, [states, searchQuery]);
+
+  const openEdit = (state: State) => {
+    const prices: Record<string, number> = {};
+    (state.products || []).forEach(p => { prices[p.id] = p.price; });
+    setTempPrices(prices);
+    setEditingState(state);
+  };
+
+  const handleSave = async () => {
     if (!editingState) return;
-  
-    const updatedState = {
-      id: Number(editingState.id), // convert state id to number
-      products: editingState.products.map((product) => ({
-        id: Number(product.id), // convert product id to number
-        price: tempPrices[product.id] ?? product.price,
-      })),
-    };
-  
+    setSaving(true);
     try {
-      await updateStateMutation.mutateAsync(updatedState);
-      setEditingState(null); // Close the modal
-      setTempPrices({}); // Reset temporary prices
-    } catch (error) {
-      console.error('Failed to save prices:', error);
+      await updateStateMutation.mutateAsync({
+        id: Number(editingState.id),
+        products: editingState.products.map(p => ({
+          id: Number(p.id),
+          price: tempPrices[p.id] ?? p.price,
+        })),
+      });
+      setEditingState(null);
+      setTempPrices({});
+    } catch {
+      // toast handled by mutation
+    } finally {
+      setSaving(false);
     }
   };
-
-  const toggleStateStatus = async (stateId: string) => {
-    await toggleStatusMutation.mutateAsync(stateId);
-  };
-
-  // const handleAddProduct = async () => {
-  //   if (!editingState || !newProductName || !newProductDescription || newProductPrice === '') return;
-
-  //   const newProduct: Product = {
-  //     id: `p${Date.now()}`, // Frontend generated ID
-  //     name: newProductName,
-  //     description: newProductDescription,
-  //     price: newProductPrice
-  //   };
-
-  //   await addProductMutation.mutateAsync({
-  //     stateId: editingState.id,
-  //     product: newProduct
-  //   });
-
-  //   setIsAddProductModalOpen(false);
-  //   setNewProductName('');
-  //   setNewProductDescription('');
-  //   setNewProductPrice('');
-  // };
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -129,16 +125,15 @@ const Pricing = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="Pricing"
-              description="Manage product pricing across depots/locations and keep rates up to date."
+              title="Manage Pricing"
+              description="View and update product pricing across all locations."
             />
 
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <Input
-                  type="text"
-                  placeholder="Search states or products..."
+                  placeholder="Search locations or products…"
                   className="pl-10"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -146,174 +141,146 @@ const Pricing = () => {
               </div>
             </div>
 
-            {isLoading ? (
-              <div className="text-center text-slate-500">Loading states...</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {filteredStates.map(state => (
-                  <div key={state.id} className="bg-white rounded-lg shadow-sm border border-slate-200">
-                    <div className="p-4 border-b flex justify-between items-center">
-                      <div>
-                        <h3 className="text-lg font-semibold text-slate-800">{state.name}</h3>
-                        <span className={`text-sm px-2 py-1 rounded-full ${
-                          state.status === 'Active'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {state.status}
-                        </span>
-                      </div>
-                      {!readOnly && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={state.status === 'Active'
-                          ? 'text-red-600 hover:bg-red-50'
-                          : 'text-green-600 hover:bg-green-50'}
-                        onClick={() => toggleStateStatus(state.id)}
-                      >
-                        <Power className="mr-2 h-4 w-4" />
-                        {state.status === 'Active' ? 'Suspend' : 'Activate'}
-                      </Button>
-                      )}
-                    </div>
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+              {isLoading ? (
+                <div className="p-6 space-y-4">
+                  {[...Array(6)].map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full rounded" />
+                  ))}
+                </div>
+              ) : filteredStates.length === 0 ? (
+                <div className="p-10 text-center text-slate-500">
+                  {searchQuery.trim() ? 'No locations match your search.' : 'No pricing data available.'}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50/80 [&>th]:whitespace-nowrap [&>th]:px-4 [&>th]:py-3 [&>th]:text-xs [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:uppercase [&>th]:tracking-wider">
+                        <TableHead className="w-[48px] text-center">#</TableHead>
+                        <TableHead>Location</TableHead>
+                        <TableHead>Status</TableHead>
+                        {productNames.map(name => (
+                          <TableHead key={name} className="text-right">{name}</TableHead>
+                        ))}
+                        <TableHead className="text-center">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredStates.map((state, idx) => {
+                        const isEven = idx % 2 === 0;
+                        const productMap = new Map((state.products || []).map(p => [p.name, p]));
 
-                    <div className="p-4 space-y-4">
-                      {Array.isArray(state.products) && state.products.map(product => (
-                      // {state.products.map(product => (
-                        <div key={product.id} className="border-b pb-4 last:border-b-0">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h4 className="font-medium text-slate-800">{product.name}</h4>
-                            </div>
-                            <div className="flex items-center">
-                              {!readOnly && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-slate-600 hover:bg-slate-100"
-                                onClick={() => {
-                                  setEditingState(state);
-                                  setTempPrices((prev) => ({ ...prev, [product.id]: product.price }));
-                                }}
-                              >
-                                <Edit className="mr-2 h-4 w-4" />₦{product.price.toLocaleString()}
-                              </Button>
+                        return (
+                          <TableRow key={state.id} className={`transition-colors hover:bg-blue-50/40 ${isEven ? 'bg-white' : 'bg-slate-50/50'}`}>
+                            <TableCell className="px-4 text-slate-400 text-center text-xs">{idx + 1}</TableCell>
+                            <TableCell className="px-4 font-semibold text-slate-800">{state.name}</TableCell>
+                            <TableCell className="px-4">
+                              {state.status === 'Active' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border bg-green-50 text-green-700 border-green-200">
+                                  <CheckCircle size={11} /> Active
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border bg-red-50 text-red-600 border-red-200">
+                                  <Power size={11} /> Suspended
+                                </span>
                               )}
-                              {readOnly && (
-                                <span className="text-sm text-slate-600 px-3 py-1.5">₦{product.price.toLocaleString()}</span>
-                              )}
-                              {/* <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-slate-600 hover:bg-slate-100 ml-2"
-                                onClick={() => {
-                                  setEditingState(state);
-                                  setIsAddProductModalOpen(true);
-                                }}
-                              >
-                                <Plus className="mr-2 h-4 w-4" />
-                              </Button> */}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                            </TableCell>
+                            {productNames.map(name => {
+                              const product = productMap.get(name);
+                              return (
+                                <TableCell key={name} className="px-4 text-right whitespace-nowrap text-sm">
+                                  {product ? (
+                                    <span className="font-medium text-slate-800">₦{product.price.toLocaleString()}</span>
+                                  ) : (
+                                    <span className="text-slate-300">—</span>
+                                  )}
+                                </TableCell>
+                              );
+                            })}
+                            <TableCell className="px-4 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                {!readOnly && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 px-2 gap-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                                    onClick={() => openEdit(state)}
+                                  >
+                                    <Pencil size={14} /> Edit
+                                  </Button>
+                                )}
+                                {!readOnly && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={`h-8 px-2 gap-1 ${state.status === 'Active' ? 'text-red-500 hover:text-red-700 hover:bg-red-50' : 'text-green-600 hover:text-green-800 hover:bg-green-50'}`}
+                                    onClick={() => toggleStatusMutation.mutate(state.id)}
+                                  >
+                                    <Power size={14} /> {state.status === 'Active' ? 'Suspend' : 'Activate'}
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Edit Prices Dialog */}
+      <Dialog open={!!editingState} onOpenChange={(open) => { if (!open) { setEditingState(null); setTempPrices({}); } }}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Fuel size={18} className="text-blue-600" />
+              Edit Prices — {editingState?.name}
+            </DialogTitle>
+            <DialogDescription>Update product prices for this location, then save.</DialogDescription>
+          </DialogHeader>
+
+          {editingState && (
+            <div className="space-y-4 py-2">
+              {[...editingState.products].sort((a, b) => {
+                if (a.name.toLowerCase() === 'petrol') return -1;
+                if (b.name.toLowerCase() === 'petrol') return 1;
+                return a.name.localeCompare(b.name);
+              }).map((product) => (
+                <div key={product.id} className="flex items-center gap-4">
+                  <Label className="flex-1 text-sm font-medium text-slate-700">{product.name}</Label>
+                  <div className="relative w-36">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">₦</span>
+                    <Input
+                      type="number"
+                      className="pl-7 h-10 text-right font-semibold tabular-nums"
+                      value={tempPrices[product.id] ?? product.price}
+                      onChange={(e) =>
+                        setTempPrices(prev => ({ ...prev, [product.id]: parseFloat(e.target.value) || 0 }))
+                      }
+                    />
                   </div>
-                ))}
-              </div>
-            )}
-
-            {filteredStates.length === 0 && !isLoading && (
-              <div className="p-8 text-center text-slate-500">
-                {searchQuery.trim()
-                  ? 'No states or products found matching your search criteria.'
-                  : 'No states available.'}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {editingState && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-    <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
-      <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-        <Info className="h-5 w-5" />
-        Edit Prices for {editingState.name}
-      </h2>
-      <div className="space-y-4">
-        {editingState.products.map((product) => (
-          <div key={product.id} className="flex items-center gap-4">
-            <div className="flex-1">
-              <h4 className="font-medium">{product.name}</h4>
+                </div>
+              ))}
             </div>
-            <Input
-              type="number"
-              value={tempPrices[product.id] || product.price}
-              onChange={(e) =>
-                setTempPrices({
-                  ...tempPrices,
-                  [product.id]: parseFloat(e.target.value),
-                })
-              }
-              className="w-32"
-            />
-          </div>
-        ))}
-      </div>
-      <div className="flex justify-end gap-2 mt-6">
-        <Button variant="outline" onClick={() => setEditingState(null)}>
-          Cancel
-        </Button>
-        <Button onClick={handleSavePrices}>Save All Changes</Button>
-      </div>
-    </div>
-  </div>
-)}
+          )}
 
-      {/* Add Product Modal */}
-      {isAddProductModalOpen && editingState && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <Plus className="h-5 w-5" />
-              Add Product to {editingState.name}
-            </h2>
-            <div className="space-y-4">
-              <Input
-                type="text"
-                placeholder="Product Name"
-                value={newProductName}
-                onChange={(e) => setNewProductName(e.target.value)}
-                className="w-full"
-              />
-              <Input
-                type="text"
-                placeholder="Product Description"
-                value={newProductDescription}
-                onChange={(e) => setNewProductDescription(e.target.value)}
-                className="w-full"
-              />
-              <Input
-                type="number"
-                placeholder="Product Price"
-                value={newProductPrice}
-                onChange={(e) => setNewProductPrice(parseFloat(e.target.value))}
-                className="w-full"
-              />
-            </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <Button variant="outline" onClick={() => setIsAddProductModalOpen(false)}>
-                Cancel
-              </Button>
-              {/* <Button onClick={handleAddProduct}>
-                Add Product
-              </Button> */}
-            </div>
-          </div>
-        </div>
-      )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setEditingState(null); setTempPrices({}); }} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving} className="gap-2">
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+              {saving ? 'Saving…' : 'Save Prices'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

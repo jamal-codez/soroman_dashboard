@@ -35,7 +35,8 @@ import {
   PhoneOutgoingIcon,
   User,
   UserCircle2,
-  User2
+  User2,
+  X,
 } from 'lucide-react';
 import { apiClient, fetchAllPages } from '@/api/client';
 import { shouldAutoCancel } from '@/lib/orderTimers';
@@ -102,7 +103,8 @@ const getStatusClass = (status: string) => {
     case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
     case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
     case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
-    default: return 'bg-gray-50 text-blue-700 border-blue-200';
+    case 'loaded': return 'bg-purple-50 text-purple-700 border-purple-200';
+    default: return 'bg-gray-50 text-gray-700 border-gray-200';
   }
 };
 
@@ -130,6 +132,17 @@ const Orders = () => {
   const [statusFilter, setStatusFilter] = useState<string|null>(null);
   const [pfiFilter, setPfiFilter] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
+
+  const hasAnyFilter = !!(searchQuery || filterType || dateRange.from || productFilter || locationFilter || statusFilter || pfiFilter);
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setFilterType(null);
+    setDateRange({ from: null, to: null });
+    setProductFilter(null);
+    setLocationFilter(null);
+    setStatusFilter(null);
+    setPfiFilter(null);
+  };
 
   // Keep the Orders table fast on initial load.
   // Export still uses the full (backend-paginated) dataset.
@@ -515,53 +528,55 @@ const Orders = () => {
             />
 
             {/* Summary and Filters */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <div className="flex flex-col gap-3">
-
-                <div className="flex flex-col lg:flex-row gap-3">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                    <Input
-                      type="text"
-                      placeholder="Search orders..."
-                      className="pl-10"
-                      value={searchQuery}
-                      onChange={handleSearch}
-                    />
-                  </div>
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6 space-y-3">
+              {/* Row 1: Search */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input
+                    type="text"
+                    placeholder="Search orders by name, reference, product, location…"
+                    className="pl-10"
+                    value={searchQuery}
+                    onChange={handleSearch}
+                  />
                 </div>
+              </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Row 2: Filter dropdowns */}
+              <div className="flex flex-row gap-3 flex-wrap items-end pt-2 border-t border-slate-100">
+                {/* Timeframe */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Timeframe</label>
                   <select
                     aria-label="Timeframe filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={filterType ?? ''}
                     onChange={(e) => {
                       const v = e.target.value as ''|'today'|'yesterday'|'week'|'month'|'year';
                       setFilterType(v === '' ? null : v);
-                      // Clear date range when using quick filter
                       if (v !== '') setDateRange({ from: null, to: null });
                     }}
                   >
-                    <option value="">Select Timeframe</option>
+                    <option value="">All Time</option>
                     <option value="today">Today</option>
                     <option value="yesterday">Yesterday</option>
                     <option value="week">This Week</option>
                     <option value="month">This Month</option>
                     <option value="year">This Year</option>
                   </select>
+                </div>
 
+                {/* Date Range */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Date Range</label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-between h-11">
-                        <span className="inline-flex items-center gap-2">
-                          <CalendarDays size={16} className="text-slate-500" />
-                          <span>
-                            {dateRange.from && dateRange.to
-                              ? `${format(dateRange.from, "dd MMM yyyy")} - ${format(dateRange.to, "dd MMM yyyy")}`
-                              : "Select date range"}
-                          </span>
-                        </span>
+                      <Button variant="outline" className="h-9 justify-start text-left font-normal text-sm min-w-[200px]">
+                        <CalendarDays size={14} className="mr-2 text-slate-400" />
+                        {dateRange.from && dateRange.to
+                          ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+                          : 'Pick date range'}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
@@ -570,7 +585,6 @@ const Orders = () => {
                         selected={dateRange}
                         onSelect={(range) => {
                           setDateRange(range as { from: Date | null; to: Date | null });
-                          // Clear quick filter when using date range
                           if (range?.from) setFilterType(null);
                         }}
                         numberOfMonths={2}
@@ -578,64 +592,91 @@ const Orders = () => {
                       />
                     </PopoverContent>
                   </Popover>
+                </div>
 
+                {/* Status */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Status</label>
                   <select
                     aria-label="Status filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={statusFilter ?? ''}
                     onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
                   >
                     <option value="">All Statuses</option>
                     <option value="pending">Pending</option>
-                    <option value="paid">Released</option>
+                    <option value="paid">Paid</option>
+                    <option value="released">Released</option>
+                    <option value="loaded">Loaded</option>
                     <option value="canceled">Canceled</option>
-                    <option value="released">Loaded</option>
                   </select>
+                </div>
 
+                {/* Product */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Product</label>
                   <select
                     aria-label="Product filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={productFilter ?? ''}
                     onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
                   >
-                    <option value="">Select Product</option>
+                    <option value="">All Products</option>
                     {uniqueProducts.map((p) => (
                       <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
+                </div>
 
+                {/* Location */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Location</label>
                   <select
                     aria-label="Location filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={locationFilter ?? ''}
                     onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
                   >
-                    <option value="">Select Location</option>
+                    <option value="">All Locations</option>
                     {uniqueLocations.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                </div>
 
+                {/* PFI */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">PFI</label>
                   <select
                     aria-label="PFI filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={pfiFilter ?? ''}
                     onChange={(e) => setPfiFilter(e.target.value === '' ? null : e.target.value)}
                   >
-                    <option value="">Select PFI</option>
+                    <option value="">All PFIs</option>
                     {uniquePfis.length === 0 ? (
-                      <option value="" disabled>
-                        No PFI data yet
-                      </option>
+                      <option value="" disabled>No PFI data yet</option>
                     ) : (
                       uniquePfis.map((pfi) => (
-                        <option key={pfi} value={pfi}>
-                          {pfi}
-                        </option>
+                        <option key={pfi} value={pfi}>{pfi}</option>
                       ))
                     )}
                   </select>
                 </div>
+
+                {/* Clear all */}
+                {hasAnyFilter && (
+                  <div className="flex items-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 text-xs text-slate-500 hover:text-slate-700 h-9"
+                      onClick={clearAllFilters}
+                    >
+                      <X size={13} /> Clear all
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {/* Totals (unchanged) */}
@@ -684,130 +725,122 @@ const Orders = () => {
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-              <Table className="text-sm">
+              <div className="overflow-x-auto">
+              <Table className="text-sm min-w-[1200px]">
                 <TableHeader>
-                  <TableRow className="[&>th]:py-2 [&>th]:px-2">
-                    <TableHead className="w-[52px]">S/N</TableHead>
-                    <TableHead className="w-[120px]">Date</TableHead>
-                    <TableHead className="w-[120px]">Reference</TableHead>
-                    <TableHead className="w-[170px]">Name & Company</TableHead>
-                    <TableHead className="w-[140px]">Contact</TableHead>
-                    <TableHead className="w-[105px]">Location</TableHead>
-                    <TableHead className="w-[150px]">Product</TableHead>
-                    <TableHead className="w-[105px]">Unit Price</TableHead>
-                    <TableHead className="w-[80px]">Qty (L)</TableHead>
-                    <TableHead className="w-[105px]">Amount</TableHead>
-                    <TableHead className="w-[95px]">PFI</TableHead>
-                    <TableHead className="w-[110px]">Status</TableHead>
+                  <TableRow className="bg-slate-50/80 [&>th]:whitespace-nowrap [&>th]:px-3 [&>th]:py-2.5 [&>th]:text-sm [&>th]:font-semibold [&>th]:text-slate-600">
+                    <TableHead className="text-center w-[40px]">#</TableHead>
+                    <TableHead className="w-[75px]">Date</TableHead>
+                    <TableHead className="w-[110px]">Reference</TableHead>
+                    <TableHead className="w-[180px]">Customer</TableHead>
+                    <TableHead className="w-[120px]">Contact</TableHead>
+                    <TableHead className="w-[100px]">Location</TableHead>
+                    <TableHead className="w-[110px]">Product</TableHead>
+                    <TableHead className="w-[85px]">Unit Price</TableHead>
+                    <TableHead className="w-[75px]">Quantity</TableHead>
+                    <TableHead className="w-[100px]">Amount</TableHead>
+                    <TableHead className="w-[90px]">PFI</TableHead>
+                    <TableHead className="w-[90px]">Status</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody className="[&>tr>td]:py-2 [&>tr>td]:px-2">
+                <TableBody>
                   {pagedOrders.map((order, idx) => {
                     const status = (order.status || '').toLowerCase();
                     const autoCanceled =
                       status === 'canceled' &&
                       shouldAutoCancel({ status: 'pending', created_at: order.created_at });
                     const serial = filteredOrders.length - ((page - 1) * PAGE_SIZE + idx);
+                    const isEven = idx % 2 === 0;
 
                     return (
-                      <TableRow key={order.id}>
-                        <TableCell className="text-slate-600">{serial}</TableCell>
+                      <TableRow key={order.id} className={`hover:bg-blue-50/40 transition-colors ${isEven ? 'bg-white' : 'bg-slate-50/50'}`}>
+                        <TableCell className="px-3 text-slate-400 text-center text-sm">{serial}</TableCell>
 
-                        <TableCell className="text-slate-700 whitespace-nowrap">
-                          <div className="leading-tight">
-                            <div className="font-medium text-slate-900">
-                              {format(new Date(order.created_at), 'dd/MM/yyyy')}
-                            </div>
-                            <div className="text-[11px] text-slate-500">
-                              {format(new Date(order.created_at), 'HH:mm')}
-                            </div>
+                        <TableCell className="px-3 whitespace-nowrap">
+                          <div className="text-sm font-medium text-slate-900">
+                            {format(new Date(order.created_at), 'dd/MM/yy')}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {format(new Date(order.created_at), 'HH:mm')}
                           </div>
                         </TableCell>
 
-                        <TableCell className="font-semibold text-slate-950 whitespace-nowrap">
+                        <TableCell className="px-3 text-black whitespace-nowrap" title={getSalesRef(order)}>
                           {getSalesRef(order) || '-'}
                         </TableCell>
 
-                        <TableCell>
-                          <div className="leading-tight">
-                            <div className="font-bold text-slate-950 break-words uppercase whitespace-normal">
+                        <TableCell className="px-3 max-w-[180px]">
+                          <div className="leading-snug">
+                            <div className="font-semibold text-sm text-slate-900 truncate">
                               {getCompanyName(order) || '-'}
                             </div>
-                            <div className="mt-1 inline-flex items-center gap-1 text-slate-700 break-words uppercase whitespace-normal">
-                              <User2 size={12} className="text-green-700" />
+                            <div className="inline-flex items-center gap-1 text-xs uppercase text-slate-500">
+                              <User2 size={10} className="text-emerald-500 shrink-0" />
                               <span>{getCustomerFullName(order) || '-'}</span>
                             </div>
                           </div>
                         </TableCell>
 
-                        <TableCell className="text-slate-800">
-                          <div className="break-words whitespace-normal">
+                        <TableCell className="px-3">
+                          <div>
                             {getPhoneNumber(order) ? (
                               <a
                                 href={`tel:${getPhoneNumber(order)}`}
-                                className="inline-flex items-center gap-2 font-bold text-slate-900 hover:underline"
+                                className="inline-flex items-center gap-1 text-sm font-medium text-slate-800 hover:underline"
                                 onClick={(e) => e.stopPropagation()}
-                                title="Call"
                               >
-                                <PhoneOutgoingIcon size={12} className="text-green-700" />
-                                {getPhoneNumber(order)}
+                                <PhoneOutgoingIcon size={10} className="text-emerald-500 shrink-0" />
+                                <span>{getPhoneNumber(order)}</span>
                               </a>
                             ) : (
-                              '-'
+                              <span className="text-slate-400">-</span>
                             )}
+                            {getEmail(order) ? (
+                              <a
+                                href={`mailto:${getEmail(order)}`}
+                                className="block text-xs text-blue-600 hover:underline truncate max-w-[110px]"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {getEmail(order).toLowerCase()}
+                              </a>
+                            ) : null}
                           </div>
-
-                          {getEmail(order) ? (
-                            <a
-                              href={`mailto:${getEmail(order)}`}
-                              className="mt-0 block text-[11px] font-medium lowercase text-blue-700 underline underline-offset-2 hover:text-blue-800 truncate max-w-[140px]"
-                              onClick={(e) => e.stopPropagation()}
-                              title="Send email"
-                            >
-                              {getEmail(order)}
-                            </a>
-                          ) : null}
                         </TableCell>
 
-                        <TableCell className="text-slate-800 truncate whitespace-nowrap max-w-[105px]">
+                        <TableCell className="px-3 text-sm text-slate-600">
                           {order.state || '-'}
                         </TableCell>
 
-                        <TableCell className="text-slate-800 break-words whitespace-normal">
+                        <TableCell className="px-3 text-sm text-slate-600">
                           {getProductsList(order) || '-'}
                         </TableCell>
 
-                        <TableCell className="text-left font-medium text-slate-950 whitespace-nowrap">
+                        <TableCell className="px-3 font-medium text-slate-800 whitespace-nowrap">
                           ₦{extractUnitPrice(order)}
                         </TableCell>
 
-                        <TableCell className="text-left font-medium text-slate-950 whitespace-nowrap">
-                          {safeParseNumber(order.quantity).toLocaleString()}
+                        <TableCell className="px-3 font-medium text-slate-800 whitespace-nowrap">
+                          {safeParseNumber(order.quantity).toLocaleString()} Litres
                         </TableCell>
 
-                        <TableCell className="text-left font-semibold text-slate-950 whitespace-nowrap">
+                        <TableCell className="px-3 font-bold text-slate-900 whitespace-nowrap">
                           ₦{safeParseNumber(order.total_price).toLocaleString()}
                         </TableCell>
 
-                        <TableCell className="text-slate-800 whitespace-nowrap">
+                        <TableCell className="px-3 text-sm text-slate-600 truncate" title={pfiLabel(order) || ''}>
                           {pfiLabel(order) || '-'}
                         </TableCell>
 
-                        {/* Status */}
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <span
-                              className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(
-                                order.status
-                              )}`}
-                            >
-                              {getStatusIcon(order.status)}
-                              <span className="ml-1.5">{getStatusText(order.status)}</span>
-                            </span>
-                            {autoCanceled ? (
-                              <span className="text-[11px] text-slate-500">12 hours expired</span>
-                            ) : null}
-                          </div>
+                        <TableCell className="px-3">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 text-sm font-medium border rounded-md whitespace-nowrap ${getStatusClass(order.status)}`}
+                          >
+                            {getStatusIcon(order.status)}
+                            {getStatusText(order.status)}
+                          </span>
+                          {autoCanceled && (
+                            <div className="text-xs text-slate-400 mt-0.5">12h expired</div>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -821,6 +854,7 @@ const Orders = () => {
                   )}
                 </TableBody>
               </Table>
+              </div>
 
               {/* Pagination */}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200 bg-white px-4 py-3">

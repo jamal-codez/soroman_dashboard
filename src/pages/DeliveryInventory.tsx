@@ -913,12 +913,12 @@ export default function DeliveryInventory() {
                       <TableRow className="bg-slate-50/80">
                         <TableHead className="font-semibold text-slate-700 w-[48px]">S/N</TableHead>
                         <TableHead className="font-semibold text-slate-700">Truck</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Quantity</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Depot</TableHead>
                         <TableHead className="font-semibold text-slate-700">PFI</TableHead>
                         <TableHead className="font-semibold text-slate-700">Product</TableHead>
                         <TableHead className="font-semibold text-slate-700">Customer</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Depot</TableHead>
                         <TableHead className="font-semibold text-slate-700">Destination</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Qty (L)</TableHead>
                         <TableHead className="font-semibold text-slate-700">Status</TableHead>
                         <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead>
                         <TableHead className="font-semibold text-slate-700">Allocated By</TableHead>
@@ -954,6 +954,14 @@ export default function DeliveryInventory() {
                               </div>
                             </TableCell>
 
+                            {/* Qty */}
+                            <TableCell className="font-bold text-slate-800">
+                              {r.qty > 0 ? fmtQty(r.qty) : '—'} Litres
+                            </TableCell>
+
+                            {/* Depot */}
+                            <TableCell className="text-slate-600">{r.depotDisplay || '—'}</TableCell>
+
                             {/* PFI */}
                             <TableCell className="text-slate-700 font-medium whitespace-nowrap">
                               {r.pfiLabel || '—'}
@@ -969,16 +977,8 @@ export default function DeliveryInventory() {
                               {r.custName || '—'}
                             </TableCell>
 
-                            {/* Depot */}
-                            <TableCell className="text-slate-600">{r.depotDisplay || '—'}</TableCell>
-
                             {/* Destination */}
                             <TableCell className="text-slate-600">{r.destination || '—'}</TableCell>
-
-                            {/* Qty */}
-                            <TableCell className="font-bold text-slate-800">
-                              {r.qty > 0 ? fmtQty(r.qty) : '—'}
-                            </TableCell>
 
                             {/* Status */}
                             <TableCell>
@@ -1019,8 +1019,8 @@ export default function DeliveryInventory() {
                               <div className="flex gap-1">
                                 {r.status === 'loaded' && !readOnly && (
                                   <Button
-                                    size="sm" variant="outline"
-                                    className="gap-1.5 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                    size="sm" variant="default"
+                                    
                                     onClick={() => {
                                       setOffloadTarget(r);
                                       setOffloadDate(format(new Date(), 'yyyy-MM-dd'));

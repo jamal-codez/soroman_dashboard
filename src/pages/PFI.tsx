@@ -279,40 +279,40 @@ export default function PFIPage() {
     {
       title: 'Active PFIs',
       value: String(totals.activeCount),
-      description: `of ${totals.total} total`,
+      // description: `of ${totals.total} total`,
       icon: <FileSearch2 size={20} />,
       tone: 'green',
     },
     {
       title: 'Completed PFIs',
       value: String(totals.finishedCount),
-      description: `of ${totals.total} total`,
+      // description: `of ${totals.total} total`,
       icon: <CheckCircle2 size={20} />,
       tone: 'red',
     },
+    // {
+    //   title: 'Total Quantity',
+    //   value: `${fmtQty(totals.totalStarting)} L`,
+    //   icon: <DropletIcon size={20} />,
+    //   tone: 'neutral',
+    // },
+    // {
+    //   title: 'Total Sold',
+    //   value: `${fmtQty(totals.totalSold)} L`,
+    //   description: totals.totalStarting > 0
+    //     ? `${((totals.totalSold / totals.totalStarting) * 100).toFixed(1)}% sold`
+    //     : undefined,
+    //   icon: <Package size={20} />,
+    //   tone: 'green',
+    // },
     {
-      title: 'Total Quantity',
-      value: `${fmtQty(totals.totalStarting)} L`,
-      icon: <DropletIcon size={20} />,
-      tone: 'neutral',
-    },
-    {
-      title: 'Total Sold',
-      value: `${fmtQty(totals.totalSold)} L`,
-      description: totals.totalStarting > 0
-        ? `${((totals.totalSold / totals.totalStarting) * 100).toFixed(1)}% sold`
-        : undefined,
-      icon: <Package size={20} />,
-      tone: 'green',
-    },
-    {
-      title: 'Remaining',
+      title: 'Quantity Remaining',
       value: `${fmtQty(totals.totalRemaining)} L`,
       icon: <DropletIcon size={20} />,
       tone: totals.totalRemaining > 0 ? 'amber' : 'green',
     },
     {
-      title: 'Revenue',
+      title: 'Total Revenue',
       value: fmtCurrency(totals.totalAmount),
       icon: <Banknote size={20} />,
       tone: 'green',
@@ -562,19 +562,19 @@ export default function PFIPage() {
                             Location <SortIcon col="location" />
                           </button>
                         </TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-right">
+                        <TableHead className="font-semibold text-slate-700">
                           <button type="button" className="inline-flex items-center gap-1 ml-auto" onClick={() => toggleSort('starting')}>
-                            Starting (L) <SortIcon col="starting" />
+                            Starting <SortIcon col="starting" />
                           </button>
                         </TableHead>
-                        <TableHead className="font-semibold text-emerald-700 text-right">
+                        <TableHead className="font-semibold text-emerald-700">
                           <button type="button" className="inline-flex items-center gap-1 ml-auto" onClick={() => toggleSort('sold')}>
-                            Sold (L) <SortIcon col="sold" />
+                            Sold <SortIcon col="sold" />
                           </button>
                         </TableHead>
-                        <TableHead className="font-semibold text-amber-700 text-right">
+                        <TableHead className="font-semibold text-amber-700">
                           <button type="button" className="inline-flex items-center gap-1 ml-auto" onClick={() => toggleSort('remaining')}>
-                            Remaining (L) <SortIcon col="remaining" />
+                            Remaining <SortIcon col="remaining" />
                           </button>
                         </TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[130px]">
@@ -627,16 +627,16 @@ export default function PFIPage() {
                             <TableCell className={isActive ? 'text-slate-600' : 'text-red-600'}>
                               {p.locationLabel || '—'}
                             </TableCell>
-                            <TableCell className={`text-right font-medium ${isActive ? 'text-slate-800' : 'text-red-700'}`}>
-                              {fmtQty(p.starting)}
+                            <TableCell className={`text-left font-medium ${isActive ? 'text-slate-800' : 'text-red-700'}`}>
+                              {fmtQty(p.starting)} Litres
                             </TableCell>
-                            <TableCell className={`text-right font-medium ${isActive ? 'text-emerald-700' : 'text-red-600'}`}>
-                              {p.sold > 0 ? fmtQty(p.sold) : '—'}
+                            <TableCell className={`text font-medium ${isActive ? 'text-emerald-700' : 'text-red-600'}`}>
+                              {p.sold > 0 ? fmtQty(p.sold) : '—'} Litres
                             </TableCell>
-                            <TableCell className={`text-right font-bold ${
+                            <TableCell className={`text-left font-bold ${
                               !isActive ? 'text-red-500' : p.remaining > 0 ? 'text-amber-600' : 'text-slate-400'
                             }`}>
-                              {fmtQty(p.remaining)}
+                              {fmtQty(p.remaining)} Litres
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">

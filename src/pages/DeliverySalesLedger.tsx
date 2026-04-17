@@ -767,7 +767,7 @@ export default function DeliverySalesLedger() {
                         <TableHead className="font-semibold text-slate-700">Depot</TableHead>
                         <TableHead className="font-semibold text-slate-700">Destination</TableHead>
                         <TableHead className="font-semibold text-slate-700">Customer</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-right">Qty (L)</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Quantity</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-right">Rate</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-right">Expected</TableHead>
                         <TableHead className="font-semibold text-emerald-700 text-right">Payment</TableHead>
@@ -809,8 +809,8 @@ export default function DeliverySalesLedger() {
                             <TableCell className="text-slate-700">{s.depot_loaded || '—'}</TableCell>
                             <TableCell className="text-slate-700 whitespace-nowrap">{s.location || '—'}</TableCell>
                             <TableCell className="font-medium text-slate-900 capitalize whitespace-nowrap">{custName}</TableCell>
-                            <TableCell className="text-right text-slate-700">
-                              {toNum(s.quantity) > 0 ? fmtQty(toNum(s.quantity)) : '—'}
+                            <TableCell className="text-slate-700">
+                              {toNum(s.quantity) > 0 ? fmtQty(toNum(s.quantity)) : '—'} Litres
                             </TableCell>
                             <TableCell className="text-right text-slate-700">
                               {toNum(s.rate) > 0 ? fmt(toNum(s.rate)) : '—'}
@@ -866,11 +866,11 @@ export default function DeliverySalesLedger() {
               )}
             </div>
 
-            {!isLoading && filteredSales.length > 0 && (
+            {/* {!isLoading && filteredSales.length > 0 && (
               <p className="text-xs text-slate-400 text-right">
                 Showing {filteredSales.length} of {allSales.length} entries · Period: {periodLabel}
               </p>
-            )}
+            )} */}
           </div>
         </div>
       </div>

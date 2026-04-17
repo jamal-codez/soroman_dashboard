@@ -35,6 +35,7 @@ import {
   ClockAlert,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   Dialog,
@@ -477,6 +478,18 @@ export const PickupProcessing = () => {
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [pfiFilter, setPfiFilter] = useState<string | null>(null);
+
+  const hasAnyFilter = !!(searchQuery || filterType || dateRange.from || productFilter || locationFilter || statusFilter || pfiFilter);
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setFilterType(null);
+    setDateRange({ from: null, to: null });
+    setProductFilter(null);
+    setLocationFilter(null);
+    setStatusFilter(null);
+    setPfiFilter(null);
+  };
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(100);
 
@@ -551,14 +564,29 @@ export const PickupProcessing = () => {
   const [ticketCounts, setTicketCounts] = useState<Record<number, number>>({});
   /** Already-generated litres per order (sum of existing ticket quantities) */
   const [ticketAllocated, setTicketAllocated] = useState<Record<number, number>>({});
+  /** Store actual ticket data per order so the table can display truck/driver/date */
+  const [ticketDataByOrder, setTicketDataByOrder] = useState<Record<number, Array<{
+    id: number;
+    truck_number?: number;
+    plate_number?: string | null;
+    driver_name?: string | null;
+    driver_phone?: string | null;
+    quantity_litres?: string;
+    ticket_status?: string;
+    created_at?: string;
+    loading_datetime?: string | null;
+    pfi_number?: string | null;
+  }>>>({});
 
-  // Fetch ticket counts for all visible orders (lightweight)
+  // Fetch ticket details for all visible orders
   const fetchTicketCount = useCallback(async (orderId: number) => {
     try {
       const tickets = await apiClient.admin.getOrderTickets(orderId);
       setTicketCounts((prev) => ({ ...prev, [orderId]: tickets.length }));
       const allocated = tickets.reduce((s: number, t: { quantity_litres: string }) => s + (Number(t.quantity_litres) || 0), 0);
       setTicketAllocated((prev) => ({ ...prev, [orderId]: allocated }));
+      // Store full ticket data for table display
+      setTicketDataByOrder((prev) => ({ ...prev, [orderId]: tickets as typeof prev[number] }));
     } catch {
       // Silently fail — no count shown
     }
@@ -1089,35 +1117,35 @@ export const PickupProcessing = () => {
 
             <SummaryCards
               cards={[
+                // {
+                //   title: 'Total Orders',
+                //   value: isLoading ? '…' : summary.total.toLocaleString(),
+                //   icon: <ShoppingCart className="h-4 w-4" />,
+                //   tone: 'neutral',
+                // },
                 {
-                  title: 'Total Orders',
-                  value: isLoading ? '…' : summary.total.toLocaleString(),
-                  icon: <ShoppingCart className="h-4 w-4" />,
-                  tone: 'neutral',
-                },
-                {
-                  title: 'Quantity Sold',
+                  title: 'Quantity Loaded',
                   value: isLoading ? '…' : `${summary.totalQty.toLocaleString()} L`,
                   icon: <Droplets className="h-4 w-4" />,
                   tone: 'neutral',
                 },
+                // {
+                //   title: 'Total Amount',
+                //   value: isLoading ? '…' : `₦${summary.totalAmount.toLocaleString()}`,
+                //   icon: <Banknote className="h-4 w-4" />,
+                //   tone: 'neutral',
+                // },
                 {
-                  title: 'Total Amount',
-                  value: isLoading ? '…' : `₦${summary.totalAmount.toLocaleString()}`,
-                  icon: <Banknote className="h-4 w-4" />,
-                  tone: 'neutral',
-                },
-                {
-                  title: 'Released (Awaiting Tickets)',
-                  value: isLoading ? '…' : summary.released.toLocaleString(),
-                  icon: <CheckCircle className="h-4 w-4" />,
-                  tone: 'amber',
-                },
-                {
-                  title: 'Loaded',
+                  title: 'Trucks Loaded',
                   value: isLoading ? '…' : summary.loaded.toLocaleString(),
                   icon: <TruckIcon className="h-4 w-4" />,
                   tone: 'green',
+                },
+                {
+                  title: 'Trucks Awaiting Tickets',
+                  value: isLoading ? '…' : summary.released.toLocaleString(),
+                  icon: <CheckCircle className="h-4 w-4" />,
+                  tone: 'amber',
                 },
               ]}
             />
@@ -1131,52 +1159,55 @@ export const PickupProcessing = () => {
               </div>
             )}
 
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col lg:flex-row gap-3">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                    <Input
-                      type="text"
-                      placeholder="Search orders by name, reference or ID..."
-                      className="pl-10"
-                      value={searchQuery}
-                      onChange={handleSearch}
-                    />
-                  </div>
-                </div>
+            
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
+              {/* Row 1: Search */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input
+                    placeholder="Search by name, reference, truck, driver, PFI…"
+                    className="pl-10"
+                    value={searchQuery}
+                    onChange={handleSearch}
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Filter dropdowns */}
+              <div className="flex flex-row gap-3 flex-wrap items-end pt-2 border-t border-slate-100">
+                {/* Timeframe */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Timeframe</label>
                   <select
                     aria-label="Timeframe filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={filterType ?? ''}
                     onChange={(e) => {
                       const v = e.target.value as ''|'today'|'yesterday'|'week'|'month'|'year';
                       setFilterType(v === '' ? null : v);
-                      // Clear date range when using quick filter
                       if (v !== '') setDateRange({ from: null, to: null });
                     }}
                   >
-                    <option value="">Select Timeframe</option>
+                    <option value="">All Time</option>
                     <option value="today">Today</option>
                     <option value="yesterday">Yesterday</option>
                     <option value="week">This Week</option>
                     <option value="month">This Month</option>
-                    {/* <option value="year">This Year</option> */}
                   </select>
+                </div>
 
+                {/* Date Range */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Date Range</label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-between h-11">
-                        <span className="inline-flex items-center gap-2">
-                          <CalendarDays size={16} className="text-slate-500" />
-                          <span>
-                            {dateRange.from && dateRange.to
-                              ? `${format(dateRange.from, "dd MMM yyyy")} - ${format(dateRange.to, "dd MMM yyyy")}`
-                              : "Select date range"}
-                          </span>
-                        </span>
+                      <Button variant="outline" className="h-9 justify-start text-left font-normal text-sm min-w-[200px]">
+                        <CalendarDays size={14} className="mr-2 text-slate-400" />
+                        {dateRange.from && dateRange.to
+                          ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+                          : 'Pick date range'}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
@@ -1185,72 +1216,63 @@ export const PickupProcessing = () => {
                         selected={dateRange}
                         onSelect={(range) => {
                           setDateRange({ from: range?.from ?? null, to: range?.to ?? null });
-                          // Clear quick filter when using date range
                           if (range?.from) setFilterType(null);
                         }}
                         numberOfMonths={2}
                       />
                     </PopoverContent>
                   </Popover>
+                </div>
 
-                  <select
-                    aria-label="Status filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={statusFilter ?? ''}
-                    onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">Select Order Status</option>
-                    <option value="pending">Pending Orders</option>
-                    <option value="paid">Paid Not Loaded</option>
-                    {/* <option value="canceled">Canceled</option> */}
-                    <option value="released">Loaded Orders</option>
-                  </select>
-
-                  <select
-                    aria-label="Product filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={productFilter ?? ''}
-                    onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">Select Product</option>
-                    {uniqueProducts.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-
+                {/* Location */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Location</label>
                   <select
                     aria-label="Location filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={locationFilter ?? ''}
                     onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
                   >
-                    <option value="">Select Location</option>
+                    <option value="">All Locations</option>
                     {uniqueLocations.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                </div>
 
+                {/* PFI */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">PFI</label>
                   <select
                     aria-label="PFI filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={pfiFilter ?? ''}
                     onChange={(e) => setPfiFilter(e.target.value === '' ? null : e.target.value)}
                   >
-                    <option value="">Select PFI</option>
+                    <option value="">All PFIs</option>
                     {uniquePfis.length === 0 ? (
-                      <option value="" disabled>
-                        No PFI data yet
-                      </option>
+                      <option value="" disabled>No PFI data yet</option>
                     ) : (
                       uniquePfis.map((pfi) => (
-                        <option key={pfi} value={pfi}>
-                          {pfi}
-                        </option>
+                        <option key={pfi} value={pfi}>{pfi}</option>
                       ))
                     )}
                   </select>
                 </div>
 
+                {/* Clear all */}
+                {hasAnyFilter && (
+                  <div className="flex items-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 text-xs text-slate-500 hover:text-slate-700 h-9"
+                      onClick={clearAllFilters}
+                    >
+                      <X size={13} /> Clear all
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1259,20 +1281,17 @@ export const PickupProcessing = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[70px]">S/N</TableHead>
-                    {/* <TableHead>Order ID</TableHead> */}
                     <TableHead>Reference</TableHead>
-                    {/* <TableHead>Type</TableHead> */}
-                    <TableHead>Loading Date/Time</TableHead>
+                    <TableHead>Date Loaded</TableHead>
                     <TableHead>Customer</TableHead>
-                    {/* <TableHead>Assigned Agent</TableHead> */}
                     <TableHead>Location</TableHead>
                     <TableHead>Product</TableHead>
-                    <TableHead>Total Quantity</TableHead>
-                    {/* <TableHead className="w-[70px]">Trucks</TableHead> */}
+                    <TableHead>Quantity</TableHead>
                     {/* <TableHead>Truck No.</TableHead> */}
-                    {/* <TableHead>Driver Details</TableHead> */}
+                    {/* <TableHead>Driver</TableHead> */}
+                    {/* <TableHead className="w-[70px]">Tickets</TableHead> */}
                     <TableHead>PFI</TableHead>
-                    <TableHead>Status</TableHead>
+                    {/* <TableHead>Status</TableHead> */}
                     <TableHead className="text-center">Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1294,20 +1313,33 @@ export const PickupProcessing = () => {
                     ))
                   ) : filteredOrders.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center text-slate-500 py-10">
+                      <TableCell colSpan={13} className="text-center text-slate-500 py-10">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>
                   ) : (
                   filteredOrders.slice(0, visibleCount).map((order, index) => {
                     const sn = filteredOrders.length - index;
-                    const ticket = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
 
-                    const truckNumber = ticket?.truckNumber || '';
-                    const driverName = ticket?.driverName || '';
-                    const driverPhone = ticket?.driverPhone || '';
-                    const loadingDateTime = ticket?.loadingDateTime ? formatTicketLoadingDateTime(ticket.loadingDateTime) : '';
+                    // Try ticket data fetched from /truck-tickets/ endpoint first
+                    const tickets = ticketDataByOrder[order.id] || [];
+                    const firstTicket = tickets[0];
+
+                    // Fall back to flat fields on order object (legacy) or local release form
+                    const fallback = getOrderTicketDetails(order, releaseDetailsByOrder[order.id]);
+
+                    const truckNumber = firstTicket?.plate_number || firstTicket?.truck_number?.toString() || fallback?.truckNumber || '';
+                    const driverName = firstTicket?.driver_name || fallback?.driverName || '';
+                    const driverPhone = firstTicket?.driver_phone || fallback?.driverPhone || '';
+                    const loadingDateTime = firstTicket?.loading_datetime
+                      ? formatTicketLoadingDateTime(firstTicket.loading_datetime)
+                      : firstTicket?.created_at
+                        ? formatTicketLoadingDateTime(firstTicket.created_at)
+                        : fallback?.loadingDateTime
+                          ? formatTicketLoadingDateTime(fallback.loadingDateTime)
+                          : '';
                     const companyName = extractCompanyName(order);
+                    const ticketCount = ticketCounts[order.id] || 0;
 
                     return (
                       <TableRow key={order.id}>
@@ -1316,7 +1348,7 @@ export const PickupProcessing = () => {
                         <TableCell>{getOrderReference(order) || '-'}</TableCell>
                         {/* <TableCell className="capitalize">{order.release_type || '-'}</TableCell> */}
                         <TableCell>
-                          <div className="max-w-[150px]">{loadingDateTime || '-'}</div>
+                          <div className="text-slate-600">{loadingDateTime || '-'}</div>
                         </TableCell>
                         <TableCell>
                           <div>
@@ -1330,40 +1362,36 @@ export const PickupProcessing = () => {
                         </TableCell>
                         {/* <TableCell>{formatAssignedAgent(order) || '-'}</TableCell> */}
                         <TableCell>
-                          <div className="max-w-[135px] truncate">{extractLocation(order) || '-'}</div>
+                          <div className="text-black">{extractLocation(order) || '-'}</div>
                         </TableCell>
                         <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
                         <TableCell>{order.quantity.toLocaleString()} Litres</TableCell>
-                        {/* <TableCell>
-                          {(() => {
-                            const count = ticketCounts[order.id];
-                            if (count === undefined || count === 0) return <span className="text-slate-400">—</span>;
-                            return (
-                              <Badge variant="outline" className="gap-1 text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                <TruckIcon className="h-3 w-3" />
-                                {count}
-                              </Badge>
-                            );
-                          })()}
+                        {/* <TableCell className="max-w-[120px] truncate" title={truckNumber}>
+                          {truckNumber || '-'}
                         </TableCell> */}
-                        {/* <TableCell>{truckNumber || '-'}</TableCell> */}
                         {/* <TableCell>
                           {driverName || driverPhone ? (
                             <div>
-                              <div className="font-medium">{driverName || '-'}</div>
-                              <div className="text-xs text-slate-500">{driverPhone || '-'}</div>
+                              <div className="font-medium text-sm max-w-[120px] truncate">{driverName || '-'}</div>
+                              {driverPhone && <div className="text-xs text-slate-500">{driverPhone}</div>}
                             </div>
-                          ) : (
-                            '-'
-                          )}
+                          ) : '-'}
                         </TableCell> */}
-                        <TableCell className="max-w-[180px] truncate">{order.pfi_number ? String(order.pfi_number) : '-'}</TableCell>
-                        <TableCell>
+                        {/* <TableCell className="text-center">
+                          {ticketCount > 0 ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                              <TruckIcon className="h-3 w-3" />
+                              {ticketCount}
+                            </span>
+                          ) : <span className="text-slate-400">—</span>}
+                        </TableCell> */}
+                        <TableCell className="text-black">{order.pfi_number ? String(order.pfi_number) : '-'}</TableCell>
+                        {/* <TableCell>
                           <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
                             {getStatusIcon(order.status)}
                             <span className="ml-1.5">{statusDisplayMap[order.status]}</span>
                           </div>
-                        </TableCell>
+                        </TableCell> */}
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             {/* Determine if this released order is fully allocated */}
@@ -1717,19 +1745,19 @@ export const PickupProcessing = () => {
             {filteredOrders.length > visibleCount && (
               <div className="flex items-center justify-center py-4">
                 <Button
-                  variant="outline"
+                  variant="default"
                   className="gap-2"
                   onClick={() => setVisibleCount(prev => prev + 100)}
                 >
-                  Show More ({filteredOrders.length - visibleCount} remaining)
+                  Load More
                 </Button>
-                <Button
+                {/* <Button
                   variant="ghost"
                   className="ml-2 gap-2 text-slate-500"
                   onClick={() => setVisibleCount(filteredOrders.length)}
                 >
                   Show All
-                </Button>
+                </Button> */}
               </div>
             )}
             

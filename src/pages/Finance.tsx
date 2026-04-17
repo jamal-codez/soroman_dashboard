@@ -191,11 +191,10 @@ export default function Finance() {
   });
 
   const bankQuery = useQuery<BankAccount[]>({
-    queryKey: ['banks', selectedBankLocationId, showInactiveBankAccounts],
+    queryKey: ['banks', selectedBankLocationId],
     queryFn: () =>
       apiClient.admin.getBankAccounts({
         location_id: selectedBankLocationId || undefined,
-        active: showInactiveBankAccounts ? 'false' : 'true',
       }),
     retry: 2,
   });
@@ -415,8 +414,8 @@ export default function Finance() {
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="Finance Dashboard"
-              description="Monitor revenue, bank accounts, outstanding items, and finance performance trends."
+              title="Bank Accounts"
+              description="List of all bank accounts and assigned locations."
             />
 
             {/* <div className="pt-1 pb-1">
@@ -424,114 +423,119 @@ export default function Finance() {
             </div> */}
 
             {/* Bank Accounts */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-                <h2 className="text-lg font-semibold">Bank Accounts</h2>
-
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                  <select
-                    aria-label="Filter bank accounts by location"
-                    className="border border-gray-300 rounded px-3 py-2 h-10"
-                    value={selectedBankLocationId}
-                    onChange={(e) => setSelectedBankLocationId(e.target.value)}
-                  >
-                    <option value="">All Locations</option>
-                    {stateQuery.data?.map((s) => (
-                      <option key={s.id} value={String(s.id)}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-slate-600">Show inactive</span>
-                    <Switch
-                      checked={showInactiveBankAccounts}
-                      onCheckedChange={setShowInactiveBankAccounts}
-                    />
-                  </div>
-                </div>
-              </div>
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               {bankQuery.isLoading ? (
-                <div className="space-y-4">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="flex items-center justify-between p-4">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="h-8 w-24" />
-                      <Skeleton className="h-4 w-20" />
-                      <Skeleton className="h-8 w-8" />
-                    </div>
+                <div className="p-6 space-y-4">
+                  {[...Array(4)].map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full rounded" />
                   ))}
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="bg-slate-50/80 [&>th]:whitespace-nowrap [&>th]:px-4 [&>th]:py-3 [&>th]:text-xs [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:uppercase [&>th]:tracking-wider">
                       <TableHead>Location</TableHead>
                       <TableHead>Bank Name</TableHead>
                       <TableHead>Account Name</TableHead>
                       <TableHead>Account Number</TableHead>
-                      <TableHead>Date Created</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {bankQuery.data?.map((bank) => {
-                      const rec = bank as unknown as Record<string, unknown>;
-                      const loc = rec.location;
-                      const locName =
-                        (loc && typeof loc === 'object' && typeof (loc as Record<string, unknown>).name === 'string'
-                          ? String((loc as Record<string, unknown>).name)
-                          : '') ||
-                        '';
-                      const isActive =
-                        typeof rec.is_active === 'boolean'
-                          ? rec.is_active
-                          : !(typeof rec.suspended === 'boolean' ? rec.suspended : false);
+                    {(() => {
+                      const banks = bankQuery.data ?? [];
+                      // Sort: active accounts first, inactive at the bottom
+                      const sorted = [...banks].sort((a, b) => {
+                        const aRec = a as unknown as Record<string, unknown>;
+                        const bRec = b as unknown as Record<string, unknown>;
+                        const aActive = typeof aRec.is_active === 'boolean' ? aRec.is_active : !(typeof aRec.suspended === 'boolean' ? aRec.suspended : false);
+                        const bActive = typeof bRec.is_active === 'boolean' ? bRec.is_active : !(typeof bRec.suspended === 'boolean' ? bRec.suspended : false);
+                        if (aActive === bActive) return 0;
+                        return aActive ? -1 : 1;
+                      });
 
-                      return (
-                        <TableRow key={bank.id}>
-                          <TableCell className="font-medium">{locName || '—'}</TableCell>
-                          <TableCell className="font-medium">{bank.bank_name}</TableCell>
-                          <TableCell className="font-medium">{bank.name}</TableCell>
-                          <TableCell className="font-medium">{bank.acct_no}</TableCell>
-                          {/* <TableCell className="font-medium">{new Date(bank.created_at).toISOString().slice(0, 10)}</TableCell> */}
-                          <TableCell>
-                            <div className="flex items-center gap-4">
-                              {!readOnly && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  setEditingBank(bank);
-                                  setShowEditModal(true);
-                                }}
-                              >
-                                <Pencil size={16} />
-                              </Button>
+                      if (sorted.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center text-slate-500 py-10">
+                              No bank accounts found.
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+
+                      return sorted.map((bank, idx) => {
+                        const rec = bank as unknown as Record<string, unknown>;
+                        const loc = rec.location;
+                        const locName =
+                          (loc && typeof loc === 'object' && typeof (loc as Record<string, unknown>).name === 'string'
+                            ? String((loc as Record<string, unknown>).name)
+                            : '') || '';
+                        const isActive =
+                          typeof rec.is_active === 'boolean'
+                            ? rec.is_active
+                            : !(typeof rec.suspended === 'boolean' ? rec.suspended : false);
+                        const isEven = idx % 2 === 0;
+
+                        return (
+                          <TableRow key={bank.id} className={`transition-colors ${isActive ? '' : 'opacity-60'} ${isEven ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/40`}>
+                            <TableCell className="px-4 font-medium text-slate-800">{locName || '—'}</TableCell>
+                            <TableCell className="px-4 text-sm text-slate-700">{bank.bank_name}</TableCell>
+                            <TableCell className="px-4 text-sm text-slate-700">{bank.name}</TableCell>
+                            <TableCell className="px-4 text-sm font-mono text-slate-800">{bank.acct_no}</TableCell>
+                            <TableCell className="px-4">
+                              {isActive ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border bg-green-50 text-green-700 border-green-200">
+                                  <CheckCircle size={11} /> Active
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border bg-red-50 text-red-600 border-red-200">
+                                  <XCircle size={11} /> Inactive
+                                </span>
                               )}
-                              {!readOnly && (
-                              <Switch
-                                checked={isActive}
-                                onCheckedChange={() => handleToggle(bank.id)}
-                                className={`data-[state=unchecked]:bg-red-500 data-[state=checked]:bg-green-500`}
-                              />
-                              )}
-                              
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                            </TableCell>
+                            <TableCell className="px-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {!readOnly && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 px-2 gap-1 text-slate-500 hover:text-slate-700"
+                                    onClick={() => {
+                                      setEditingBank(bank);
+                                      setShowEditModal(true);
+                                    }}
+                                  >
+                                    <Pencil size={14} /> Edit
+                                  </Button>
+                                )}
+                                {!readOnly && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={`h-8 px-2 gap-1 ${isActive ? 'text-red-500 hover:text-red-700 hover:bg-red-50' : 'text-green-600 hover:text-green-800 hover:bg-green-50'}`}
+                                    onClick={() => handleToggle(bank.id)}
+                                  >
+                                    {isActive ? <><XCircle size={14} /> Deactivate</> : <><CheckCircle size={14} /> Activate</>}
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      });
+                    })()}
                   </TableBody>
                 </Table>
               )}
-              <div className="flex justify-end mt-4">
-                {!readOnly && (
-                <Button onClick={() => setIsModalOpen(true)}>
-                  Add Bank Account
-                </Button>
-                )}
-              </div>
+              {!readOnly && (
+                <div className="flex justify-end px-4 py-3 border-t border-slate-100">
+                  <Button onClick={() => setIsModalOpen(true)} className="gap-1.5">
+                    <Plus size={15} /> Add Bank Account
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>

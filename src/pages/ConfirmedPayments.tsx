@@ -353,7 +353,7 @@ export default function ConfirmedPayments() {
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="Payments Report"
-              description="View all paid and released orders, with filters, totals, and CSV export."
+              description="View all paid and released orders, with filters, totals, and export."
               actions={
                 <Button variant="default" className="gap-2" onClick={exportToCSV}>
                   <Download className="h-4 w-4" />
@@ -455,7 +455,7 @@ export default function ConfirmedPayments() {
                     <TableHead>Date/Time</TableHead>
                     <TableHead>Reference</TableHead>
                     <TableHead>Company</TableHead>
-                    <TableHead>Truck No.</TableHead>
+                    {/* <TableHead>Truck No.</TableHead> */}
                     <TableHead>Location</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Qty</TableHead>
@@ -533,9 +533,9 @@ export default function ConfirmedPayments() {
                           <TableCell className="max-w-[240px] truncate" title={company || undefined}>
                             {company || '—'}
                           </TableCell>
-                          <TableCell className="font-bold max-w-[180px] truncate" title={truckNo || undefined}>
+                          {/* <TableCell className="font-bold max-w-[180px] truncate" title={truckNo || undefined}>
                             {truckNo || '—'}
-                          </TableCell>
+                          </TableCell> */}
                           <TableCell className="max-w-[260px] truncate" title={location || undefined}>
                             {location || '—'}
                           </TableCell>
