@@ -450,12 +450,12 @@ export default function ConfirmedPayments() {
       ['Location', locationLabel],
       ['Product', productLabel],
       ['Quantity Sold', `${totalQtyAll.toLocaleString()} Litres`],
-      ['Number of Trucks Sold', String(ordersCountAll)],
+      ['Number of Orders', String(ordersCountAll)],
       ['Total Amount', `N ${totalAmountAll.toLocaleString()}`],
       [],
     ];
 
-    const headers = ['S/N', 'Date', 'Reference', 'Truck No.', 'Customer Name', 'Product Qty (L)', 'Price/L', 'Sales Value', 'Company Name', 'Bank', 'Remarks', 'Balance', 'Status'];
+    const headers = ['S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', 'Quantity (Litres)', 'Unit Price', 'Sales Value', 'Paying Company', 'Bank', 'Remarks', 'Balance', 'Status'];
     // Sort oldest to newest for the exported file
     const exportSorted = [...filtered].sort((a, b) => getPaymentDate(a).getTime() - getPaymentDate(b).getTime());
     const rows = exportSorted.map((p, idx) => {
@@ -486,7 +486,7 @@ export default function ConfirmedPayments() {
     const ws = XLSX.utils.aoa_to_sheet(sheetData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Report');
-    XLSX.writeFile(wb, `Report ${format(new Date(), 'dd-MM-yy')}.xlsx`);
+    XLSX.writeFile(wb, `Payment Report ${format(new Date(), 'dd-MM-yy')}.xlsx`);
   };
 
   return (
@@ -545,7 +545,7 @@ export default function ConfirmedPayments() {
                 {
                   title: 'Overpaid',
                   value: isLoading ? '\u2026' : `\u20A6${summary.totalOverpaid.toLocaleString()}`,
-                  className: "text-blue-600",
+                  className: "text-amber-600",
                   icon: <Coins className="h-4 w-4" />,
                   tone: summary.totalOverpaid > 0 ? 'amber' : 'neutral',
                 },
@@ -795,15 +795,17 @@ export default function ConfirmedPayments() {
                 <div className="space-y-4 py-2">
                   {/* Amount Paid */}
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700">Amount Paid (\u20A6)</label>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-700">Amount Paid (N)</label>
                     <Input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={editAmountPaid}
-                      onChange={(e) => setEditAmountPaid(e.target.value)}
+                      type="text"
+                      inputMode="numeric"
+                      value={editAmountPaid ? Number(editAmountPaid).toLocaleString() : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/[^0-9.]/g, '');
+                        setEditAmountPaid(raw);
+                      }}
                       placeholder="Enter amount paid"
-                      className="h-10 tabular-nums"
+                      className="h-10"
                     />
                     {editOrder && (() => {
                       const sv = safeToNumber(editOrder.total_price ?? editOrder.amount);
