@@ -1067,7 +1067,9 @@ export const PickupProcessing = () => {
       .filter((order) => {
         if (!pfiFilter) return true;
         return pfiLabel(order) === pfiFilter;
-      });
+      })
+      // Stable sort by id so orders don't jump around after ticket generation
+      .sort((a, b) => b.id - a.id);
   }, [apiResponse?.results, searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, pfiFilter, releaseDetailsByOrder]);
 
   // Summary computed from filteredOrders so stat cards update when filters change
