@@ -1257,6 +1257,23 @@ export const apiClient = {
     },
 
     /**
+     * PATCH /api/admin/orders/<id>/update-narration/
+     * Updates payment_narration on a confirmed order.
+     */
+    updateNarration: async (orderId: number | string, narration: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/update-narration/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ payment_narration: narration }),
+      });
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(msg);
+      }
+      return response.json();
+    },
+
+    /**
      * PATCH /api/admin/orders/<id>/update-price/
      * Updates the unit price and total amount for an in-house order after
      * the agent has sold the product.

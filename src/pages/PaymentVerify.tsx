@@ -169,11 +169,17 @@ function VerifyConfirmModalBody({
   bankAccounts: BankAccount[];
 }) {
   const [narration, setNarration] = useState('');
+  const [amountPaid, setAmountPaid] = useState('');
 
-  // Reset narration whenever the modal opens or a different payment is selected.
+  // Reset narration and amount paid whenever the modal opens or a different payment is selected.
   useEffect(() => {
-    if (isOpen) setNarration('');
-  }, [isOpen, payment.id]);
+    if (isOpen) {
+      setNarration('');
+      // Pre-fill with the expected amount
+      const expected = parseFloat(payment.amount || '0');
+      setAmountPaid(expected > 0 ? String(expected) : '');
+    }
+  }, [isOpen, payment.id, payment.amount]);
 
   const isPending = String(payment.status || '').toLowerCase() === 'pending';
   const createdDate = new Date(payment.created_at);
@@ -286,6 +292,46 @@ function VerifyConfirmModalBody({
             <span className="text-lg font-bold text-emerald-900">{totalAmount}</span>
           </div>
 
+          {/* Amount Paid */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-500">Amount Paid (₦)</label>
+            <Input
+              type="number"
+              min="0"
+              step="any"
+              value={amountPaid}
+              onChange={(e) => setAmountPaid(e.target.value)}
+              placeholder="Enter the amount the customer actually paid"
+              className="h-10 tabular-nums"
+            />
+            {(() => {
+              const expected = parseFloat(payment.amount || '0');
+              const paid = parseFloat(amountPaid || '0');
+              const bal = expected - paid;
+              if (!amountPaid || Number.isNaN(paid)) return null;
+              if (bal > 0) {
+                return (
+                  <div className="mt-1.5 flex items-center justify-between rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm">
+                    <span className="text-red-700">Outstanding Balance</span>
+                    <span className="font-bold text-red-800">₦{bal.toLocaleString()}</span>
+                  </div>
+                );
+              }
+              if (bal === 0) {
+                return (
+                  <div className="mt-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 font-medium">
+                    ✓ Fully paid
+                  </div>
+                );
+              }
+              return (
+                <div className="mt-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                  Overpaid by ₦{Math.abs(bal).toLocaleString()}
+                </div>
+              );
+            })()}
+          </div>
+
           {/* Narration */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-500">Any Remarks</label>
@@ -305,7 +351,11 @@ function VerifyConfirmModalBody({
 
         <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onConfirm(narration)} disabled={!isPending} className="gap-1.5">
+          <Button onClick={() => {
+              const paidNum = parseFloat(amountPaid || '0');
+              const prefix = Number.isFinite(paidNum) && paidNum > 0 ? `[PAID:${paidNum}] ` : '';
+              onConfirm(`${prefix}${narration}`.trim());
+            }} disabled={!isPending} className="gap-1.5">
             <CheckCheck size={16} />
             Confirm & Release
           </Button>

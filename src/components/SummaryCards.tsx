@@ -7,6 +7,7 @@ export type SummaryCard = {
   description?: string;
   icon: ReactNode;
   tone?: "neutral" | "green" | "amber" | "red";
+  className?: string;
 };
 
 const toneStyles: Record<NonNullable<SummaryCard["tone"]>, { wrap: string; icon: string; ring: string }> = {
@@ -17,7 +18,9 @@ const toneStyles: Record<NonNullable<SummaryCard["tone"]>, { wrap: string; icon:
 };
 
 export function SummaryCards({ cards }: { cards: SummaryCard[] }) {
-  const gridCols = cards.length >= 4
+  const gridCols = cards.length >= 6
+    ? 'grid-cols-2 sm:grid-cols-3'
+    : cards.length >= 4
     ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
     : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
   return (
@@ -38,7 +41,7 @@ export function SummaryCards({ cards }: { cards: SummaryCard[] }) {
                   {c.title}
                 </div>
 
-                <div className="text-[28px] sm:text-[28px] font-bold text-slate-950 tracking-[-0.02em] leading-[1.05] break-all">
+                <div className={`text-[28px] sm:text-[28px] font-bold tracking-[-0.02em] leading-[1.05] break-all ${c.className || 'text-slate-950'}`}>
                   {c.value}
                 </div>
 
