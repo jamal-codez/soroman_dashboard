@@ -296,13 +296,15 @@ function VerifyConfirmModalBody({
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-500">Amount Paid (₦)</label>
             <Input
-              type="number"
-              min="0"
-              step="any"
-              value={amountPaid}
-              onChange={(e) => setAmountPaid(e.target.value)}
+              type="text"
+              inputMode="numeric"
+              value={amountPaid ? Number(amountPaid).toLocaleString() : ''}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/[^0-9.]/g, '');
+                setAmountPaid(raw);
+              }}
               placeholder="Enter the amount the customer actually paid"
-              className="h-10 tabular-nums"
+              className="h-10"
             />
             {(() => {
               const expected = parseFloat(payment.amount || '0');
@@ -344,9 +346,9 @@ function VerifyConfirmModalBody({
           </div>
 
           {/* Warning */}
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
+          {/* <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
             ⚠️ Do not confirm unless payment has been verified. This action allows releasing for loading.
-          </div>
+          </div> */}
         </div>
 
         <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
