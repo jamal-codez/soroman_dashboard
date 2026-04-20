@@ -646,7 +646,7 @@ export default function DeliveryCustomersDB() {
                             {/* Customer — photo + name */}
                             <TableCell>
                               <div className="flex items-center gap-2.5">
-                                {c.passport_photo ? (
+                                {/* {c.passport_photo ? (
                                   <img
                                     src={c.passport_photo}
                                     alt={c.customer_name}
@@ -656,7 +656,7 @@ export default function DeliveryCustomersDB() {
                                   <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
                                     <User size={14} />
                                   </div>
-                                )}
+                                )} */}
                                 <span className="font-medium text-slate-900 capitalize truncate max-w-[180px]">
                                   {c.customer_name}
                                 </span>
@@ -884,7 +884,7 @@ export default function DeliveryCustomersDB() {
                             </div>
                           )} */}
                         </div>
-                        {(selectedCustomer.contact_person || selectedCustomer.contact_person_phone) && (
+                        {/* {(selectedCustomer.contact_person || selectedCustomer.contact_person_phone) && (
                           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-1">
                             {selectedCustomer.contact_person && (
                               <div>
@@ -899,7 +899,7 @@ export default function DeliveryCustomersDB() {
                               </div>
                             )}
                           </div>
-                        )}
+                        )} */}
                       </div>
                     </div>
 
@@ -972,7 +972,7 @@ export default function DeliveryCustomersDB() {
                     </div>
 
                     {/* Bank Details sub-section */}
-                    <div className="border-t border-slate-100 pt-3 mt-3">
+                    {/* <div className="border-t border-slate-100 pt-3 mt-3">
                       <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1">
                         <CreditCard size={10} /> Bank Account Details
                       </span>
@@ -990,7 +990,7 @@ export default function DeliveryCustomersDB() {
                           <p className="text-sm font-medium text-slate-800">{selectedCustomer.account_name || '—'}</p>
                         </div>
                       </div>
-                    </div>
+                    </div> */}
                   </div>
 
                   {/* ── Trucks Used ── */}
@@ -1074,7 +1074,7 @@ export default function DeliveryCustomersDB() {
                     onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
                   />
                 </div>
-                <div className="space-y-1.5">
+                {/* <div className="space-y-1.5">
                   <Label className="text-sm font-medium text-slate-700">Contact Person</Label>
                   <Input
                     placeholder="Main contact name"
@@ -1089,7 +1089,7 @@ export default function DeliveryCustomersDB() {
                     value={form.contact_person_phone}
                     onChange={e => setForm(f => ({ ...f, contact_person_phone: e.target.value }))}
                   />
-                </div>
+                </div> */}
               </div>
             </div>
 
@@ -1191,7 +1191,7 @@ export default function DeliveryCustomersDB() {
             </div>
 
             {/* ── Section: Bank Details ── */}
-            <div className="space-y-3">
+            {/* <div className="space-y-3">
               <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-1">
                 <CreditCard size={13} /> Bank Details
               </h4>
@@ -1221,7 +1221,7 @@ export default function DeliveryCustomersDB() {
                   />
                 </div>
               </div>
-            </div>
+            </div> */}
 
             {/* ── Section: Credit & Status ── */}
             <div className="space-y-3">
@@ -1236,7 +1236,7 @@ export default function DeliveryCustomersDB() {
                   <Input
                     type="text"
                     inputMode="decimal"
-                    placeholder="e.g. 5,000,000"
+                    placeholder="e.g. 100,000,000"
                     value={form.outstanding_limit}
                     onChange={e =>
                       setForm(f => ({ ...f, outstanding_limit: formatWithCommas(e.target.value) }))
