@@ -921,7 +921,7 @@ export default function DeliveryInventory() {
                         <TableHead className="font-semibold text-slate-700">Destination</TableHead>
                         <TableHead className="font-semibold text-slate-700">Status</TableHead>
                         <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Allocated By</TableHead>
+                        {/* <TableHead className="font-semibold text-slate-700">Allocated By</TableHead> */}
                         <TableHead className="font-semibold text-slate-700">Date Sold</TableHead>
                         <TableHead className="font-semibold text-slate-700">Confirmed By</TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[130px]">Actions</TableHead>
@@ -998,9 +998,9 @@ export default function DeliveryInventory() {
                             </TableCell>
 
                             {/* Loaded By */}
-                            <TableCell className="whitespace-nowrap text-slate-600 text-sm">
+                            {/* <TableCell className="whitespace-nowrap text-slate-600 text-sm">
                               {r.created_by || '—'}
-                            </TableCell>
+                            </TableCell> */}
 
                             {/* Date Offloaded */}
                             <TableCell className="whitespace-nowrap text-slate-600">
