@@ -1910,5 +1910,6 @@ export const apiClient = {
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
+
   },
 };

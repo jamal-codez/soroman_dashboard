@@ -20,8 +20,10 @@ import {
   Search, Loader2, CheckCircle2, XCircle,
   Package, Clock, ShieldCheck, ShieldX,
   Eye, DollarSign, MapPin, User, Phone, Building2,
-  FileText, Hash, Fuel, CalendarDays, X,
+  FileText, Hash, Fuel, CalendarDays, X, Download, History,
+  ListChecks, ClipboardList,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { format, parseISO, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -163,6 +165,7 @@ export default function ConfirmRelease() {
   const qc = useQueryClient();
   const { toast } = useToast();
 
+  const [activeTab, setActiveTab] = useState<'pending' | 'released'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [productFilter, setProductFilter] = useState<string | null>(null);
@@ -199,6 +202,23 @@ export default function ConfirmRelease() {
     staleTime: 30_000,
     gcTime: 5 * 60_000,
     refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    placeholderData: keepPreviousData,
+    enabled: isAuthorized,
+  });
+
+  // Fetch released orders for the "Released" tab
+  const releasedOrdersQuery = useQuery({
+    queryKey: ['all-orders', 'released'],
+    queryFn: async () => {
+      const res = await fetchAllPages<PaidOrder>(
+        (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size, status: 'released' }),
+      );
+      return res.results;
+    },
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    refetchInterval: 60_000,
     refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
     enabled: isAuthorized,

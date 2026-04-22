@@ -537,10 +537,10 @@ export default function FleetLedger() {
                                   Edit Entry
                                 </Button>
                                 )}
-                                {/* <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" title="Delete entry"
+                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:text-red-700" title="Delete entry"
                                   onClick={() => setDeleteTarget({ id: e.id, label: `${e.category} — ${fmt(a)}` })}>
                                   <Trash2 size={14} />
-                                </Button> */}
+                                </Button>
                               </div>
                             </TableCell>
                           </TableRow>

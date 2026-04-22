@@ -118,17 +118,17 @@ const navCategories: NavCategory[] = [
       { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1,8] },
       { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2,8] },
       { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0] },
-      // { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1,8] },
+      { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1,8] },
       { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1] },
     ],
   },
-  // {
-  //   category: 'Records',
-  //   items: [
-  //     { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6] },
-  //     { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2] },
-  //   ],
-  // },
+  {
+    category: 'Records',
+    items: [
+      { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6,7,8] },
+      { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2,7,8] },
+    ],
+  },
   {
     category: 'Security',
     items: [
