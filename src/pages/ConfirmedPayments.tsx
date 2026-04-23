@@ -260,6 +260,7 @@ export default function ConfirmedPayments() {
   const [filterType, setFilterType] = useState<'today' | 'yesterday' | 'week' | 'month' | 'year' | null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [productFilter, setProductFilter] = useState<string | null>(null);
+  const [pfiFilter, setPfiFilter] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
 
   // Edit modal state
@@ -361,13 +362,21 @@ export default function ConfirmedPayments() {
     return Array.from(new Set(prods)).sort();
   }, [confirmedPayments]);
 
-  const hasActiveFilters = !!(locationFilter || productFilter || filterType || dateRange.from);
+  const uniquePfis = useMemo(() => {
+    const pfis = confirmedPayments
+      .map((p) => extractPfi(p))
+      .filter((v) => v.length > 0);
+    return Array.from(new Set(pfis)).sort();
+  }, [confirmedPayments]);
+
+  const hasActiveFilters = !!(locationFilter || productFilter || pfiFilter || filterType || dateRange.from);
 
   const clearAllFilters = () => {
     setSearchQuery('');
     setFilterType(null);
     setLocationFilter(null);
     setProductFilter(null);
+    setPfiFilter(null);
     setDateRange({ from: null, to: null });
   };
 
@@ -409,8 +418,12 @@ export default function ConfirmedPayments() {
       .filter((p) => {
         if (!productFilter) return true;
         return extractProductInfo(p).product.toLowerCase().includes(productFilter.toLowerCase());
+      })
+      .filter((p) => {
+        if (!pfiFilter) return true;
+        return extractPfi(p) === pfiFilter;
       });
-  }, [confirmedPayments, filterType, locationFilter, searchQuery, productFilter, dateRange]);
+  }, [confirmedPayments, filterType, locationFilter, searchQuery, productFilter, pfiFilter, dateRange]);
 
   const summary = useMemo(() => {
     const totalOrders = filtered.length;
@@ -588,6 +601,7 @@ export default function ConfirmedPayments() {
                   <div className="flex-1 min-w-[160px]">
                     <label className="text-xs font-medium text-slate-500 mb-1 block">Location</label>
                     <select
+                      aria-label="Filter by location"
                       className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={locationFilter ?? ''}
                       onChange={(e) => setLocationFilter(e.target.value || null)}
@@ -602,6 +616,7 @@ export default function ConfirmedPayments() {
                   <div className="flex-1 min-w-[160px]">
                     <label className="text-xs font-medium text-slate-500 mb-1 block">Product</label>
                     <select
+                      aria-label="Filter by product"
                       className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                       value={productFilter ?? ''}
                       onChange={(e) => setProductFilter(e.target.value || null)}
@@ -609,6 +624,21 @@ export default function ConfirmedPayments() {
                       <option value="">All Products</option>
                       {uniqueProducts.map((p) => (
                         <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex-1 min-w-[140px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">PFI</label>
+                    <select
+                      aria-label="Filter by PFI"
+                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      value={pfiFilter ?? ''}
+                      onChange={(e) => setPfiFilter(e.target.value || null)}
+                    >
+                      <option value="">All PFIs</option>
+                      {uniquePfis.map((pfi) => (
+                        <option key={pfi} value={pfi}>{pfi}</option>
                       ))}
                     </select>
                   </div>
