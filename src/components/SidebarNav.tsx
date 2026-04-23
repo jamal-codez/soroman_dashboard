@@ -82,6 +82,7 @@ const navCategories: NavCategory[] = [
     category: 'Dispatch & Waybill',
     items: [
       { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0,1,7,8] },
+      { title: "Released Orders", icon: ClipboardCheck, path: "/released-orders", allowedRoles: [0,1,4,7,8] },
       { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4,7,8] },
       { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
       // { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0] },
