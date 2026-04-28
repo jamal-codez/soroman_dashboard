@@ -16,13 +16,17 @@ import { MobileNav } from '@/components/MobileNav';
 import { apiClient, fetchAllPages } from '@/api/client';
 import { isCurrentUserReadOnly } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, Calendar, MapPin, Package, Building2, User, Banknote } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, Calendar, MapPin, Package, Building2, User, Banknote, CalendarDays, X, Fuel, Clock } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday } from 'date-fns';
+import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, isAfter, isBefore, isSameDay, addDays, parseISO } from 'date-fns';
 import { PageHeader } from '@/components/PageHeader';
+import { SummaryCards, type SummaryCard } from '@/components/SummaryCards';
+import { Calendar as CalendarPicker } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { getOrderReference } from '@/lib/orderReference';
 
 interface PaymentOrder {
@@ -580,6 +584,8 @@ export default function PaymentVerification() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
+  const [productFilter, setProductFilter] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentOrder | null>(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -631,6 +637,23 @@ export default function PaymentVerification() {
     return Array.from(new Set(locs)).sort();
   }, [allPayments]);
 
+  const uniqueProducts = useMemo(() => {
+    const names = allPayments
+      .flatMap(p => (p.products || []).map(x => x?.name))
+      .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+    return Array.from(new Set(names)).sort();
+  }, [allPayments]);
+
+  const hasActiveFilters = !!(locationFilter || productFilter || filterType || dateRange.from);
+
+  const clearAllFilters = () => {
+    setLocationFilter(null);
+    setProductFilter(null);
+    setFilterType(null);
+    setDateRange({ from: null, to: null });
+    setSearchQuery('');
+  };
+
   const filteredPayments = useMemo(() => {
     return allPayments
       // Only show entries that are likely confirmable; this reduces 409 conflicts caused by mismatched list/status.
@@ -667,8 +690,21 @@ export default function PaymentVerification() {
       .filter(p => {
         if (!locationFilter) return true;
         return extractLocation(p) === locationFilter;
+      })
+      .filter(p => {
+        if (!productFilter) return true;
+        const { product } = extractProductInfo(p);
+        return product.includes(productFilter);
+      })
+      .filter(p => {
+        if (dateRange.from && dateRange.to) {
+          const d = new Date(p.created_at);
+          return (isSameDay(d, dateRange.from) || isAfter(d, dateRange.from)) &&
+                 (isSameDay(d, dateRange.to) || isBefore(d, addDays(dateRange.to, 1)));
+        }
+        return true;
       });
-  }, [allPayments, searchQuery, filterType, locationFilter]);
+  }, [allPayments, searchQuery, filterType, locationFilter, productFilter, dateRange]);
 
   const updatePaymentMutation = useMutation({
     mutationFn: async (args: { orderId: number; narration: string }) => {
@@ -827,6 +863,24 @@ export default function PaymentVerification() {
     }
   };
 
+  const summaryCards = useMemo((): SummaryCard[] => {
+    const pendingList = allPayments.filter(p => isConfirmableStatus(p.status));
+    const totalQty = pendingList.reduce((s, p) => {
+      const { qty } = extractProductInfo(p);
+      const n = parseFloat(qty.replace(/,/g, '') || '0');
+      return s + (Number.isFinite(n) ? n : 0);
+    }, 0);
+    const totalAmt = pendingList.reduce((s, p) => {
+      const n = parseFloat(String(p.amount || '0').replace(/,/g, ''));
+      return s + (Number.isFinite(n) ? n : 0);
+    }, 0);
+    return [
+      { title: 'Pending Payments', value: String(pendingList.length), icon: <Clock size={20} />, tone: pendingList.length > 0 ? 'amber' : 'neutral' },
+      { title: 'Total Volume', value: `${totalQty.toLocaleString(undefined, { maximumFractionDigits: 0 })} L`, icon: <Fuel size={20} />, tone: 'green' },
+      { title: 'Total Amount', value: `₦${totalAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, icon: <DollarSign size={20} />, tone: 'green' },
+    ];
+  }, [allPayments]);
+
   const exportToCSV = () => {
     const headers = ['Date', 'Order Reference', 'Account No', 'Account Name', 'Bank', 'Amount', 'Status'];
     const rows = filteredPayments.map(p => {
@@ -855,6 +909,82 @@ export default function PaymentVerification() {
     document.body.removeChild(link);
   };
 
+  const exportToXLS = () => {
+    const title = 'PENDING PAYMENTS REPORT';
+    const subtitle = `EXPORTED: ${format(new Date(), 'dd/MM/yyyy HH:mm').toUpperCase()}`;
+    const totalRows = `TOTAL RECORDS: ${filteredPayments.length.toLocaleString()}`;
+
+    const headers = ['DATE', 'ORDER REFERENCE', 'FACILITATOR', 'PHONE', 'COMPANY', 'LOCATION', 'PRODUCT', 'QUANTITY (L)', 'UNIT PRICE (₦)', 'AMOUNT (₦)', 'ACCOUNT NO', 'ACCOUNT NAME', 'BANK', 'STATUS'];
+
+    const fmt = (n: string | number | undefined | null) => {
+      const num = parseFloat(String(n ?? '').replace(/,/g, ''));
+      return Number.isFinite(num) && num > 0 ? num.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(n ?? '—').toUpperCase();
+    };
+
+    const rows = filteredPayments.map(p => {
+      const { acct_no, name, bank_name } = extractAccountDetails(p, bankAccounts);
+      const { name: customerName, phone } = extractCustomerDisplay(p);
+      const companyName = extractCompanyName(p);
+      const location = extractLocation(p);
+      const { product, qty, unitPrice } = extractProductInfo(p);
+      const amount = parseFloat(String(p.amount || '0').replace(/,/g, ''));
+      const qtyNum = parseFloat(String(qty).replace(/,/g, ''));
+      const upNum = parseFloat(String(unitPrice).replace(/,/g, ''));
+      return [
+        format(new Date(p.created_at), 'dd/MM/yyyy HH:mm'),
+        String(getOrderReference(p) || p.order_id).toUpperCase(),
+        customerName.toUpperCase(),
+        phone.toUpperCase(),
+        companyName.toUpperCase(),
+        location.toUpperCase(),
+        product.toUpperCase(),
+        Number.isFinite(qtyNum) && qtyNum > 0 ? qtyNum.toLocaleString(undefined, { maximumFractionDigits: 0 }) : (qty || '—'),
+        Number.isFinite(upNum) && upNum > 0 ? upNum.toLocaleString(undefined, { maximumFractionDigits: 2 }) : (unitPrice || '—'),
+        Number.isFinite(amount) ? amount.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(p.amount || '—'),
+        acct_no.toUpperCase(),
+        name.toUpperCase(),
+        bank_name.toUpperCase(),
+        String(p.status || '—').toUpperCase(),
+      ];
+    });
+
+    const totalAmt = filteredPayments.reduce((s, p) => {
+      const n = parseFloat(String(p.amount || '0').replace(/,/g, ''));
+      return s + (Number.isFinite(n) ? n : 0);
+    }, 0);
+
+    const summaryRow = ['', '', '', '', '', '', '', '', 'TOTAL AMOUNT:', `₦${totalAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, '', '', '', ''];
+
+    const aoa = [
+      [title],
+      [subtitle],
+      [totalRows],
+      [],
+      headers,
+      ...rows,
+      [],
+      summaryRow,
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // Merge title cells across all columns
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } },
+    ];
+
+    // Auto column widths (based on headers + data rows)
+    ws['!cols'] = headers.map((h, i) => ({
+      wch: Math.max(h.length, ...rows.map(r => String(r[i] ?? '').length), 10) + 2,
+    }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'PENDING PAYMENTS');
+    XLSX.writeFile(wb, `PENDING_PAYMENTS_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+  };
+
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
@@ -866,53 +996,124 @@ export default function PaymentVerification() {
             <PageHeader
               title="Pending Payments"
               description="Review incoming payment, confirm payments, and track verification status."
+              actions={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={exportToXLS}
+                  disabled={filteredPayments.length === 0}
+                >
+                  <Download size={15} />
+                  Export Excel
+                </Button>
+              }
             />
+
+            <SummaryCards cards={summaryCards} />
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
               <div className="flex flex-col gap-3">
-                <div className="flex flex-col lg:flex-row gap-3">
+                {/* Row 1: Search + quick timeframe buttons */}
+                <div className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <Input
-                      placeholder="Search here..."
+                      placeholder="Search reference, customer, company, product…"
                       className="pl-10"
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={e => setSearchQuery(e.target.value)}
                     />
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {(['today', 'yesterday', 'week', 'month', 'year'] as const).map(tf => (
+                      <Button
+                        key={tf}
+                        size="sm"
+                        variant={filterType === tf ? 'default' : 'outline'}
+                        className="h-9 text-xs capitalize"
+                        onClick={() => {
+                          setFilterType(filterType === tf ? null : tf);
+                          setDateRange({ from: null, to: null });
+                        }}
+                      >
+                        {tf}
+                      </Button>
+                    ))}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3">
-                  <select
-                    aria-label="Timeframe filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={filterType ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value as ''|'today'|'yesterday'|'week'|'month'|'year';
-                      setFilterType(v === '' ? null : v);
-                    }}
-                  >
-                    <option value="">Select Timeframe</option>
-                    <option value="today">Today</option>
-                    <option value="yesterday">Yesterday</option>
-                    <option value="week">This Week</option>
-                    <option value="month">This Month</option>
-                    <option value="year">This Year</option>
-                  </select>
-                  <select
-                    aria-label="Location filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={locationFilter ?? ''}
-                    onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">All Locations</option>
-                    {uniqueLocations.map((l) => (
-                      <option key={l} value={l}>{l}</option>
-                    ))}
-                  </select>
+                {/* Row 2: Location, Product, Date Range, Clear */}
+                <div className="flex flex-col sm:flex-row gap-3 items-end">
+                  <div className="flex-1 min-w-[160px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Location</label>
+                    <select
+                      aria-label="Location filter"
+                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      value={locationFilter ?? ''}
+                      onChange={e => setLocationFilter(e.target.value || null)}
+                    >
+                      <option value="">All Locations</option>
+                      {uniqueLocations.map(loc => (
+                        <option key={loc} value={loc}>{loc}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex-1 min-w-[160px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Product</label>
+                    <select
+                      aria-label="Product filter"
+                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      value={productFilter ?? ''}
+                      onChange={e => setProductFilter(e.target.value || null)}
+                    >
+                      <option value="">All Products</option>
+                      {uniqueProducts.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Date Range</label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full h-9 justify-start text-left font-normal text-sm">
+                          <CalendarDays className="mr-2 h-4 w-4 text-slate-400" />
+                          {dateRange.from && dateRange.to
+                            ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+                            : 'Pick date range'}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <CalendarPicker
+                          mode="range"
+                          selected={dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined}
+                          onSelect={(range) => {
+                            setDateRange({ from: range?.from ?? null, to: range?.to ?? null });
+                            if (range?.from) setFilterType(null);
+                          }}
+                          numberOfMonths={2}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {hasActiveFilters && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-9 gap-1 text-slate-500 hover:text-red-600 shrink-0"
+                      onClick={clearAllFilters}
+                    >
+                      <X size={14} />
+                      Clear
+                    </Button>
+                  )}
                 </div>
-               </div>
-             </div>
+              </div>
+            </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
               <Table className="text-sm">
