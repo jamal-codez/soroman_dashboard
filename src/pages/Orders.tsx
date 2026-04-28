@@ -37,6 +37,11 @@ import {
   UserCircle2,
   User2,
   X,
+  DollarSignIcon,
+  XCircleIcon,
+  SendIcon,
+  TruckIcon,
+  HelpCircleIcon,
 } from 'lucide-react';
 import { apiClient, fetchAllPages } from '@/api/client';
 import { shouldAutoCancel } from '@/lib/orderTimers';
@@ -79,32 +84,42 @@ interface OrderResponse {
 }
 
 const statusDisplayMap: Record<string, string> = {
-  pending: 'Pending',
-  paid: 'Released',
+  pending: 'Not Paid',
+  paid: 'Paid',
   canceled: 'Canceled',
-  released: 'Loaded'
+  released: 'Released',
+  loaded: 'Loaded'
 };
 
 const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()] || status;
 
 const getStatusIcon = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid': return <FuelIcon className="text-green-500" size={14} />;
-    case 'pending': return <Hourglass className="text-orange-500" size={14} />;
-    case 'canceled': return <AlertCircle className="text-red-600" size={14} />;
-    case 'released': return <Truck className="text-blue-600" size={14} />;
-    default: return <FuelIcon className="text-blue-500" size={14} />;
+    case 'paid': return <DollarSignIcon className="text-green-500" size={14} />;
+    case 'pending': return <HourglassIcon className="text-orange-500" size={14} />;
+    case 'canceled': return <XCircleIcon className="text-red-600" size={14} />;
+    case 'released': return <SendIcon className="text-blue-600" size={14} />;
+    case 'loaded': return <TruckIcon className="text-blue-600" size={14} />;
+    default: return <HelpCircleIcon className="text-blue-500" size={14} />;
   }
 };
 
 const getStatusClass = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
-    case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
-    case 'loaded': return 'bg-purple-50 text-purple-700 border-purple-200';
-    default: return 'bg-gray-50 text-gray-700 border-gray-200';
+    case 'paid':
+      return 'bg-green-50 text-green-700 border-green-200 ring-1 ring-green-100';
+    case 'pending':
+      return 'bg-amber-50 text-amber-700 border-amber-200 ring-1 ring-amber-100';
+    case 'canceled':
+      return 'bg-red-50 text-red-700 border-red-200 ring-1 ring-red-100';
+    case 'released':
+      return 'bg-blue-50 text-blue-700 border-blue-200 ring-1 ring-blue-100';
+    case 'loaded':
+      return 'bg-violet-50 text-violet-700 border-violet-200 ring-1 ring-violet-100';
+    case 'sold':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200 ring-1 ring-emerald-100';
+    default:
+      return 'bg-slate-50 text-slate-600 border-slate-200 ring-1 ring-slate-100';
   }
 };
 

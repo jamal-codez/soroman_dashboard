@@ -376,15 +376,14 @@ function VerifyConfirmModalBody({
 
 
 function getStatusClass(status: string): string {
-  switch (status) {
-    case 'paid':
-      return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending':
-      return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'failed':
-      return 'bg-red-50 text-red-700 border-red-200';
-    default:
-      return 'bg-gray-50 text-gray-700 border-gray-200';
+  switch (status.toLowerCase()) {
+    case 'paid':     return 'bg-green-50 text-green-700 border-green-200 ring-1 ring-green-100';
+    case 'pending':  return 'bg-amber-50 text-amber-700 border-amber-200 ring-1 ring-amber-100';
+    case 'released': return 'bg-blue-50 text-blue-700 border-blue-200 ring-1 ring-blue-100';
+    case 'loaded':   return 'bg-violet-50 text-violet-700 border-violet-200 ring-1 ring-violet-100';
+    case 'canceled':
+    case 'failed':   return 'bg-red-50 text-red-700 border-red-200 ring-1 ring-red-100';
+    default:         return 'bg-slate-50 text-slate-600 border-slate-200 ring-1 ring-slate-100';
   }
 }
 

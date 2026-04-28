@@ -34,37 +34,37 @@ type StatusConfig = {
 const STATUS_MAP: Record<string, StatusConfig> = {
   pending: {
     label: 'Pending',
-    badge: 'bg-amber-50 text-amber-700 border-amber-300',
+    badge: 'bg-amber-50 text-amber-700 border-amber-200 ring-1 ring-amber-100',
     dot:   'bg-amber-400',
     Icon:  Clock,
   },
   paid: {
     label: 'Paid',
-    badge: 'bg-green-50 text-green-700 border-green-300',
+    badge: 'bg-green-50 text-green-700 border-green-200 ring-1 ring-green-100',
     dot:   'bg-green-500',
     Icon:  BadgeCheck,
   },
   released: {
     label: 'Released',
-    badge: 'bg-blue-50 text-blue-700 border-blue-300',
+    badge: 'bg-blue-50 text-blue-700 border-blue-200 ring-1 ring-blue-100',
     dot:   'bg-blue-500',
     Icon:  PackageCheck,
   },
   loaded: {
     label: 'Loaded',
-    badge: 'bg-violet-50 text-violet-700 border-violet-300',
+    badge: 'bg-violet-50 text-violet-700 border-violet-200 ring-1 ring-violet-100',
     dot:   'bg-violet-500',
     Icon:  Truck,
   },
   canceled: {
     label: 'Canceled',
-    badge: 'bg-red-50 text-red-700 border-red-300',
+    badge: 'bg-red-50 text-red-700 border-red-200 ring-1 ring-red-100',
     dot:   'bg-red-500',
     Icon:  XCircle,
   },
   sold: {
     label: 'Sold',
-    badge: 'bg-emerald-50 text-emerald-700 border-emerald-300',
+    badge: 'bg-emerald-50 text-emerald-700 border-emerald-200 ring-1 ring-emerald-100',
     dot:   'bg-emerald-500',
     Icon:  ShoppingBag,
   },
@@ -72,7 +72,7 @@ const STATUS_MAP: Record<string, StatusConfig> = {
 
 const FALLBACK: StatusConfig = {
   label: '',
-  badge: 'bg-slate-50 text-slate-600 border-slate-200',
+  badge: 'bg-slate-50 text-slate-600 border-slate-200 ring-1 ring-slate-100',
   dot:   'bg-slate-400',
   Icon:  HelpCircle,
 };

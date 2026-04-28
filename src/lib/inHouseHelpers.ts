@@ -92,17 +92,19 @@ export const getStatusText = (status: string) =>
 export const getStatusClass = (status: string) => {
   switch (status.toLowerCase()) {
     case 'paid':
-      return 'text-green-700';
+      return 'bg-green-50 text-green-700 border border-green-200 ring-1 ring-green-100';
     case 'pending':
-      return 'text-orange-700';
+      return 'bg-amber-50 text-amber-700 border border-amber-200 ring-1 ring-amber-100';
     case 'canceled':
-      return 'text-red-700';
+      return 'bg-red-50 text-red-700 border border-red-200 ring-1 ring-red-100';
     case 'released':
-      return 'text-blue-700';
+      return 'bg-blue-50 text-blue-700 border border-blue-200 ring-1 ring-blue-100';
+    case 'loaded':
+      return 'bg-violet-50 text-violet-700 border border-violet-200 ring-1 ring-violet-100';
     case 'sold':
-      return 'text-purple-700';
+      return 'bg-emerald-50 text-emerald-700 border border-emerald-200 ring-1 ring-emerald-100';
     default:
-      return 'text-slate-700';
+      return 'bg-slate-50 text-slate-600 border border-slate-200 ring-1 ring-slate-100';
   }
 };
 
