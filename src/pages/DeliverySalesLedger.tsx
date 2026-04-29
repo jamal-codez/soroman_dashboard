@@ -959,8 +959,8 @@ export default function DeliverySalesLedger() {
                                 const bankName = parts[1] || '';
                                 return (
                                   <div>
-                                    <p className="font-bold text-slate-900 tracking-wide">{acct}</p>
-                                    {bankName && <p className="text-xs text-slate-500">{bankName}</p>}
+                                    <p className="font-semibold text-black">{acct}</p>
+                                    {bankName && <p className="text-xs text-slate-600">{bankName}</p>}
                                   </div>
                                 );
                               })() : <span className="text-slate-400">—</span>}
