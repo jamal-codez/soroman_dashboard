@@ -50,15 +50,16 @@ import { apiClient } from '@/api/client';
 type PagedCount = { count?: number };
 type OrdersResults = { results?: Array<{ status?: string | null }> };
 
-// SUPERADMIN: 0,
-//   ADMIN: 1,
-//   FINANCE: 2,
-//   SALES: 3,
-//   RELEASE: 4,
-//   SECURITY: 5,
-//   TRANSPORT: 6,
-//   RELEASE_OFFICER: 7,
-//   AUDITOR: 8,
+// SUPERADMIN: 0,  Support
+//   ADMIN: 1,  Administration
+//   FINANCE: 2,  Finance
+//   SALES: 3,  Sales
+//   RELEASE: 4,  Ticketing
+//   SECURITY: 5,  Security
+//   TRANSPORT: 6,  Transport
+//   RELEASE_OFFICER: 7,  Release
+//   AUDITOR: 8,  Audit
+//   MARKETING: 9,  Marketing
 
 type NavItem = { title: string; icon: React.ComponentType<{ size?: string | number; className?: string }>; path: string; allowedRoles: number[] };
 type NavCategory = { category: string; items: NavItem[] };
@@ -73,8 +74,8 @@ const navCategories: NavCategory[] = [
   {
     category: 'Sales & Customers',
     items: [
-      { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,3,4,7,8] },
-      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,8] },
+      { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,4,7,8,9] },
+      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,8,9] },
       // { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
     ],
   },
@@ -108,9 +109,9 @@ const navCategories: NavCategory[] = [
   {
     category: 'Finance',
     items: [
-      { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2,8] },
-      { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2,8] },
-      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2,8] },
+      { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2,8,9] },
+      { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2,8,9] },
+      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2,8,9] },
     ],
   },
   {
@@ -127,7 +128,7 @@ const navCategories: NavCategory[] = [
   {
     category: 'Records',
     items: [
-      { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6,7,8] },
+      { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6,7,8,9] },
       { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2,7,8] },
     ],
   },

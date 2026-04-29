@@ -1014,7 +1014,7 @@ export default function DeliveryInventory() {
                         <TableHead className="font-semibold text-slate-700">Depot</TableHead>
                         <TableHead className="font-semibold text-slate-700">PFI</TableHead>
                         <TableHead className="font-semibold text-slate-700">Product</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Customer</TableHead>
+                        {/* <TableHead className="font-semibold text-slate-700">Customer</TableHead> */}
                         <TableHead className="font-semibold text-slate-700">Customers (Sales)</TableHead>
                         <TableHead className="font-semibold text-slate-700">Rate(s)</TableHead>
                         <TableHead className="font-semibold text-slate-700">Destination</TableHead>
@@ -1072,9 +1072,9 @@ export default function DeliveryInventory() {
                             </TableCell>
 
                             {/* Customer (inventory allocation) */}
-                            <TableCell className="font-medium text-slate-700 capitalize whitespace-nowrap">
+                            {/* <TableCell className="font-medium text-slate-700 capitalize whitespace-nowrap">
                               {r.custName || '—'}
-                            </TableCell>
+                            </TableCell> */}
 
                             {/* Customers from Sales Ledger */}
                             <TableCell>
@@ -1086,7 +1086,7 @@ export default function DeliveryInventory() {
                                 return (
                                   <div className="flex flex-col gap-0.5">
                                     {salesEntries.map(e => (
-                                      <span key={e.customerId} className="text-xs text-slate-700 font-medium capitalize whitespace-nowrap">
+                                      <span key={e.customerId} className="text-sm text-black font-medium capitalize whitespace-nowrap">
                                         {e.customerName || `#${e.customerId}`}
                                       </span>
                                     ))}
@@ -1105,10 +1105,10 @@ export default function DeliveryInventory() {
                                 return (
                                   <div className="flex flex-col gap-0.5">
                                     {salesEntries.map(e => (
-                                      <span key={e.customerId} className="text-xs text-slate-700 whitespace-nowrap">
+                                      <span key={e.customerId} className="text-sm text-slate-700 whitespace-nowrap">
                                         {e.rates.size > 0
                                           ? [...e.rates].map(r => `₦${r.toLocaleString()}`).join(', ')
-                                          : <span className="text-amber-600 font-medium">Pending</span>
+                                          : <span className="text-amber-600 font-medium">—</span>
                                         }
                                       </span>
                                     ))}
@@ -1118,7 +1118,7 @@ export default function DeliveryInventory() {
                             </TableCell>
 
                             {/* Destination */}
-                            <TableCell className="text-slate-600">{r.destination || '—'}</TableCell>
+                            <TableCell className="text-slate-600 uppercase">{r.destination || '—'}</TableCell>
 
                             {/* Status */}
                             <TableCell>

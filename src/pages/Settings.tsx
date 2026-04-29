@@ -628,14 +628,15 @@ const Settings = () => {
                 >
                   <option value="">Select a role</option>
                   <optgroup label="Available Roles">
-                    <option value="1">General Admin</option>
-                    <option value="2">Accounts</option>
+                    <option value="1">Administration</option>
                     <option value="3">Sales</option>
+                    <option value="9">Marketing</option>
                     <option value="4">Ticketing</option>
-                    <option value="5">Security</option>
                     <option value="6">Transport</option>
                     <option value="7">Release</option>
-                    <option value="8">Auditor</option>
+                    <option value="2">Finance</option>
+                    <option value="8">Audit</option>
+                    <option value="5">Security</option>
                   </optgroup>
                 </select>
               </div>
