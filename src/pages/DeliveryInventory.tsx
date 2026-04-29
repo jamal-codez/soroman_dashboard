@@ -19,7 +19,7 @@ import {
   Plus, Search, Download, Loader2, Trash2,
   Truck, DropletIcon, FileText, Package,
   CheckCircle2, AlertTriangle,
-  CalendarDays, X, UserPlus,
+  CalendarDays, X, UserPlus, Fuel, User,
 } from 'lucide-react';
 import {
   format, parseISO, isWithinInterval, startOfDay, endOfDay,
@@ -46,6 +46,19 @@ interface DeliveryCustomer {
   phone_number?: string;
   status: string;
   outstanding_limit?: string | number | null;
+  customer_type?: 'customer' | 'filling_station';
+  notes?: string;
+}
+
+interface DeliverySale {
+  id: number;
+  truck_number: string;
+  customer: number;
+  customer_name?: string;
+  rate: string | number;
+  sales_value: string | number;
+  quantity: string | number;
+  location?: string;
 }
 
 interface BackendPfi {
@@ -257,6 +270,16 @@ export default function DeliveryInventory() {
   });
   const allPfis = useMemo(() => pfisQuery.data?.results || [], [pfisQuery.data]);
 
+  const salesQuery = useQuery({
+    queryKey: ['delivery-sales'],
+    queryFn: async () =>
+      safePaged<DeliverySale>(
+        await apiClient.admin.getDeliverySales({ page_size: 5000 }),
+      ),
+    staleTime: 30_000,
+  });
+  const allSales = useMemo(() => salesQuery.data?.results || [], [salesQuery.data]);
+
   // ═══════════════════════════════════════════════════════════════════
   // Lookup Maps
   // ═══════════════════════════════════════════════════════════════════
@@ -278,6 +301,28 @@ export default function DeliveryInventory() {
     allPfis.forEach(p => m.set(p.id, p));
     return m;
   }, [allPfis]);
+
+  // truck_number → array of { customerName, rate } (deduplicated)
+  const truckSalesMap = useMemo(() => {
+    const map = new Map<string, { customerId: number; customerName: string; rates: Set<number> }[]>();
+    allSales.forEach(s => {
+      if (!s.truck_number) return;
+      const existing = map.get(s.truck_number) || [];
+      const rate = toNum(s.rate);
+      const custEntry = existing.find(e => e.customerId === s.customer);
+      if (custEntry) {
+        if (rate > 0) custEntry.rates.add(rate);
+      } else {
+        existing.push({
+          customerId: s.customer,
+          customerName: s.customer_name || '',
+          rates: rate > 0 ? new Set([rate]) : new Set(),
+        });
+      }
+      map.set(s.truck_number, existing);
+    });
+    return map;
+  }, [allSales]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Enrich entries → truck records only (skip pure allocations with no truck)
@@ -720,7 +765,7 @@ export default function DeliveryInventory() {
   // Render
   // ═══════════════════════════════════════════════════════════════════
 
-  const isLoading = inventoryQuery.isLoading || trucksQuery.isLoading || pfisQuery.isLoading;
+  const isLoading = inventoryQuery.isLoading || trucksQuery.isLoading || pfisQuery.isLoading || salesQuery.isLoading;
 
   return (
     <div className="flex h-screen bg-slate-100">
@@ -970,6 +1015,8 @@ export default function DeliveryInventory() {
                         <TableHead className="font-semibold text-slate-700">PFI</TableHead>
                         <TableHead className="font-semibold text-slate-700">Product</TableHead>
                         <TableHead className="font-semibold text-slate-700">Customer</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Customers (Sales)</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Rate(s)</TableHead>
                         <TableHead className="font-semibold text-slate-700">Destination</TableHead>
                         <TableHead className="font-semibold text-slate-700">Status</TableHead>
                         <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead>
@@ -1024,9 +1071,50 @@ export default function DeliveryInventory() {
                               {r.product || '—'}
                             </TableCell>
 
-                            {/* Customer */}
+                            {/* Customer (inventory allocation) */}
                             <TableCell className="font-medium text-slate-700 capitalize whitespace-nowrap">
                               {r.custName || '—'}
+                            </TableCell>
+
+                            {/* Customers from Sales Ledger */}
+                            <TableCell>
+                              {(() => {
+                                const salesEntries = truckSalesMap.get(r.truckPlate);
+                                if (!salesEntries || salesEntries.length === 0) {
+                                  return <span className="text-slate-400 text-xs">—</span>;
+                                }
+                                return (
+                                  <div className="flex flex-col gap-0.5">
+                                    {salesEntries.map(e => (
+                                      <span key={e.customerId} className="text-xs text-slate-700 font-medium capitalize whitespace-nowrap">
+                                        {e.customerName || `#${e.customerId}`}
+                                      </span>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </TableCell>
+
+                            {/* Rate(s) from Sales Ledger */}
+                            <TableCell>
+                              {(() => {
+                                const salesEntries = truckSalesMap.get(r.truckPlate);
+                                if (!salesEntries || salesEntries.length === 0) {
+                                  return <span className="text-slate-400 text-xs">—</span>;
+                                }
+                                return (
+                                  <div className="flex flex-col gap-0.5">
+                                    {salesEntries.map(e => (
+                                      <span key={e.customerId} className="text-xs text-slate-700 whitespace-nowrap">
+                                        {e.rates.size > 0
+                                          ? [...e.rates].map(r => `₦${r.toLocaleString()}`).join(', ')
+                                          : <span className="text-amber-600 font-medium">Pending</span>
+                                        }
+                                      </span>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                             </TableCell>
 
                             {/* Destination */}

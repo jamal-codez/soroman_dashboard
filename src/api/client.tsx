@@ -63,12 +63,21 @@ const safeReadError = async (response: Response): Promise<string> => {
   if (ct.includes('application/json')) {
     const data: unknown = await response.json().catch(() => null);
     const rec = (data && typeof data === 'object') ? (data as Record<string, unknown>) : null;
-    return (
-      (rec && typeof rec.error === 'string' && rec.error) ||
-      (rec && typeof rec.detail === 'string' && rec.detail) ||
-      (rec && typeof rec.message === 'string' && rec.message) ||
-      `Request failed (${response.status})`
-    );
+    if (rec) {
+      // Standard single-message fields
+      if (typeof rec.error === 'string' && rec.error) return rec.error;
+      if (typeof rec.detail === 'string' && rec.detail) return rec.detail;
+      if (typeof rec.message === 'string' && rec.message) return rec.message;
+      // DRF field validation errors: { field: ["msg1", "msg2"], ... }
+      const fieldErrors = Object.entries(rec)
+        .filter(([, v]) => Array.isArray(v) || typeof v === 'string')
+        .map(([k, v]) => {
+          const msgs = Array.isArray(v) ? v.join(', ') : String(v);
+          return `${k}: ${msgs}`;
+        });
+      if (fieldErrors.length) return fieldErrors.join(' | ');
+    }
+    return `Request failed (${response.status})`;
   }
   const text = await response.text().catch(() => '');
   return text?.trim() ? text.trim() : `Request failed (${response.status})`;
@@ -1581,12 +1590,14 @@ export const apiClient = {
     /** POST /api/admin/delivery/customers/ */
     createDeliveryCustomer: async (data: {
       customer_name: string;
+      customer_type?: 'customer' | 'filling_station';
       phone_number?: string;
       alt_phone_number?: string;
       email?: string;
       home_address?: string;
       office_address?: string;
       contact_person?: string;
+      contact_person_phone?: string;
       bank_name?: string;
       account_number?: string;
       account_name?: string;
@@ -1609,12 +1620,14 @@ export const apiClient = {
       id: number,
       data: Partial<{
         customer_name: string;
+        customer_type: 'customer' | 'filling_station';
         phone_number: string;
         alt_phone_number: string;
         email: string;
         home_address: string;
         office_address: string;
         contact_person: string;
+        contact_person_phone: string;
         bank_name: string;
         account_number: string;
         account_name: string;

@@ -220,6 +220,10 @@ export const DeliveryProcessing = () => {
                               </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
+                              <DialogHeader>
+                                <DialogTitle>Delivery Location</DialogTitle>
+                                <DialogDescription className="sr-only">View delivery address details</DialogDescription>
+                              </DialogHeader>
                               {/* ... your existing dialog content ... */}
                             </DialogContent>
                           </Dialog>
@@ -232,6 +236,10 @@ export const DeliveryProcessing = () => {
                               </Button>
                             </DialogTrigger>
                             <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Track Delivery</DialogTitle>
+                                <DialogDescription className="sr-only">Track the current delivery status</DialogDescription>
+                              </DialogHeader>
                               {/* ... your existing dialog content ... */}
                             </DialogContent>
                           </Dialog>
@@ -243,6 +251,10 @@ export const DeliveryProcessing = () => {
                               </Button>
                             </DialogTrigger>
                             <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Confirm Delivery</DialogTitle>
+                                <DialogDescription className="sr-only">Confirm this delivery has been completed</DialogDescription>
+                              </DialogHeader>
                               {/* ... your existing dialog content ... */}
                             </DialogContent>
                           </Dialog>

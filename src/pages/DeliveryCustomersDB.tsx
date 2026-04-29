@@ -48,6 +48,7 @@ interface DeliveryCustomer {
   account_number?: string;
   account_name?: string;
   status: 'active' | 'dormant' | 'suspended';
+  customer_type: CustomerType;           // ← now a real API field
   outstanding_limit: string | number | null;
   total_value_given: string | number;
   total_payments_received: string | number;
@@ -82,17 +83,16 @@ type CustomerType = 'customer' | 'filling_station';
 /** Number of days of inactivity before a customer is flagged as auto-dormant */
 const AUTO_DORMANT_DAYS = 60;
 
-// Customer type is stored in the notes field as a prefix until backend supports it
-const TYPE_PREFIX = '__type:filling_station__';
-
-const getCustomerType = (notes?: string): CustomerType =>
-  notes?.startsWith(TYPE_PREFIX) ? 'filling_station' : 'customer';
-
-const encodeNotes = (type: CustomerType, notes: string): string =>
-  type === 'filling_station' ? `${TYPE_PREFIX}${notes}` : notes;
-
-const decodeNotes = (notes?: string): string =>
-  notes?.startsWith(TYPE_PREFIX) ? notes.slice(TYPE_PREFIX.length) : (notes || '');
+/**
+ * Strip any legacy notes prefix that was used before customer_type became a
+ * first-class API field (e.g. "__type:filling_station__Some notes").
+ * Safe to call on clean notes too — it just returns them unchanged.
+ */
+const LEGACY_TYPE_PREFIX = '__type:filling_station__';
+const cleanNotes = (notes?: string): string =>
+  notes?.startsWith(LEGACY_TYPE_PREFIX)
+    ? notes.slice(LEGACY_TYPE_PREFIX.length)
+    : (notes || '');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -312,7 +312,7 @@ export default function DeliveryCustomersDB() {
     }
 
     if (typeFilter !== 'all') {
-      list = list.filter(c => getCustomerType(c.notes) === typeFilter);
+      list = list.filter(c => c.customer_type === typeFilter);
     }
 
     const q = searchQuery.trim().toLowerCase();
@@ -339,7 +339,7 @@ export default function DeliveryCustomersDB() {
     const dormant = allCustomers.filter(c => c.status === 'dormant').length;
     const suspended = allCustomers.filter(c => c.status === 'suspended').length;
     const autoDormant = customersWithDormancy.filter(c => c._autoDormant).length;
-    const fillingStations = allCustomers.filter(c => getCustomerType(c.notes) === 'filling_station').length;
+    const fillingStations = allCustomers.filter(c => c.customer_type === 'filling_station').length;
     const regularCustomers = allCustomers.length - fillingStations;
 
     let totalTrucksUsed = new Set<string>();
@@ -398,7 +398,7 @@ export default function DeliveryCustomersDB() {
   const openEdit = (c: DeliveryCustomer) => {
     setEditing(c);
     setForm({
-      customer_type: getCustomerType(c.notes),
+      customer_type: c.customer_type ?? 'customer',
       customer_name: c.customer_name,
       phone_number: c.phone_number || '',
       alt_phone_number: c.alt_phone_number || '',
@@ -416,7 +416,7 @@ export default function DeliveryCustomersDB() {
       outstanding_limit: toNum(c.outstanding_limit) > 0
         ? formatWithCommas(String(toNum(c.outstanding_limit)))
         : '',
-      notes: decodeNotes(c.notes),
+      notes: cleanNotes(c.notes),   // strips any legacy prefix from old records
     });
     setDialogOpen(true);
   };
@@ -429,9 +429,9 @@ export default function DeliveryCustomersDB() {
     setSaving(true);
     try {
       const limitVal = Number(stripCommas(form.outstanding_limit));
-      const encodedNotes = encodeNotes(form.customer_type, form.notes.trim());
       const payload: Record<string, unknown> = {
         customer_name: form.customer_name.trim(),
+        customer_type: form.customer_type,           // ← real field now
         phone_number: form.phone_number.trim() || '',
         alt_phone_number: form.alt_phone_number.trim() || '',
         email: form.email.trim() || '',
@@ -444,7 +444,7 @@ export default function DeliveryCustomersDB() {
         account_name: form.account_name.trim() || '',
         status: form.status,
         outstanding_limit: limitVal > 0 ? limitVal : 0,
-        notes: encodedNotes,
+        notes: form.notes.trim(),                    // ← plain notes, no prefix
       };
 
       // If a new file was selected, use FormData for multipart upload
@@ -679,7 +679,7 @@ export default function DeliveryCustomersDB() {
                             {/* Customer — type badge + name */}
                             <TableCell>
                               <div className="flex items-center gap-2">
-                                {getCustomerType(c.notes) === 'filling_station' ? (
+                                {c.customer_type === 'filling_station' ? (
                                   <span title="Filling Station" className="text-amber-500 shrink-0"><Fuel size={14} /></span>
                                 ) : (
                                   <span title="Regular Customer" className="text-blue-500 shrink-0"><User size={14} /></span>
@@ -816,22 +816,8 @@ export default function DeliveryCustomersDB() {
       <Dialog open={!!selectedCustomer} onOpenChange={open => { if (!open) setSelectedCustomer(null); }}>
         <DialogContent className="sm:max-w-[800px] max-h-[92vh] overflow-hidden flex flex-col">
           <DialogHeader className="shrink-0">
-            {/* <DialogTitle className="flex items-center gap-3">
-              <div className="bg-emerald-100 p-2 rounded-lg">
-                {selectedCustomer?.passport_photo ? (
-                  <img src={selectedCustomer.passport_photo} alt="" className="w-6 h-6 rounded-full object-cover" />
-                ) : (
-                  <User className="w-5 h-5 text-emerald-700" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-lg text-emerald-700 font-bold capitalize">{selectedCustomer?.customer_name}</h2>
-                <p className="text-sm font-normal text-slate-500 mt-0.5 flex items-center gap-2">
-                  {selectedCustomer?.contact_person && <span>Contact: {selectedCustomer.contact_person}</span>}
-                </p>
-              </div>
-            </DialogTitle> */}
-            {/* <DialogDescription className="sr-only">Customer profile detail</DialogDescription> */}
+            <DialogTitle className="sr-only">Customer Profile</DialogTitle>
+            <DialogDescription className="sr-only">Customer profile and transaction history</DialogDescription>
           </DialogHeader>
 
           {selectedCustomer && (() => {
@@ -868,7 +854,7 @@ export default function DeliveryCustomersDB() {
                   {/* ── Customer Profile (photo, phones, addresses all here) ── */}
                   {/* ── Customer Profile (type-aware) ── */}
                   {(() => {
-                    const isFS = getCustomerType(selectedCustomer.notes) === 'filling_station';
+                    const isFS = selectedCustomer.customer_type === 'filling_station';
                     return (
                       <div className="bg-white border border-slate-200 rounded-xl p-4">
                         <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 flex items-center gap-2">
@@ -1036,7 +1022,7 @@ export default function DeliveryCustomersDB() {
                     <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2 flex items-center gap-2">
                       <FileText size={13} className="text-slate-500" /> Notes
                     </h4>
-                    <p className="text-sm text-slate-700 whitespace-pre-line">{decodeNotes(selectedCustomer.notes) || '—'}</p>
+                    <p className="text-sm text-slate-700 whitespace-pre-line">{cleanNotes(selectedCustomer.notes) || '—'}</p>
                   </div>
 
                   {/* ── Edit Button ── */}

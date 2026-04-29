@@ -58,13 +58,16 @@ interface DeliveryCustomer {
   customer_name: string;
   phone_number?: string;
   status: string;
-  notes?: string;
+  customer_type?: 'customer' | 'filling_station';  // ← real API field
+  notes?: string;                                   // kept for legacy display only
 }
 
-// Customer type helpers (mirrors DeliveryCustomersDB)
-const FS_TYPE_PREFIX = '__type:filling_station__';
+// Filling station detection — reads the real customer_type field.
+// Falls back to checking the legacy notes prefix for any records not yet migrated.
+const LEGACY_FS_PREFIX = '__type:filling_station__';
 const isFillingStation = (c: DeliveryCustomer | undefined | null): boolean =>
-  !!c?.notes?.startsWith(FS_TYPE_PREFIX);
+  c?.customer_type === 'filling_station' ||
+  (c?.customer_type == null && !!c?.notes?.startsWith(LEGACY_FS_PREFIX));
 
 interface DeliverySale {
   id: number;
@@ -312,7 +315,8 @@ export default function DeliverySalesLedger() {
       const existing = map.get(key) || { totalExpected: 0, totalPaid: 0, entries: [] };
       const sv = toNum(s.sales_value);
       const pa = toNum(s.payment_amount);
-      if (sv > 0) existing.totalExpected = Math.max(existing.totalExpected, sv);
+      // Sum all customers' sales_values per truck (not max — trucks carry multiple customers)
+      if (sv > 0) existing.totalExpected += sv;
       existing.totalPaid += pa;
       existing.entries.push(s);
       map.set(key, existing);
@@ -375,6 +379,7 @@ export default function DeliverySalesLedger() {
   // ═══════════════════════════════════════════════════════════════════
 
   const rowBalances = useMemo(() => {
+    // Group entries per truck, sorted chronologically
     const truckEntries = new Map<string, DeliverySale[]>();
     allSales.forEach(s => {
       const arr = truckEntries.get(s.truck_number) || [];
@@ -390,16 +395,13 @@ export default function DeliverySalesLedger() {
         return dateA.localeCompare(dateB) || a.id - b.id;
       });
 
-      let expected = 0;
-      sorted.forEach(s => {
-        const sv = toNum(s.sales_value);
-        if (sv > 0) expected = Math.max(expected, sv);
-      });
+      // Total expected = sum of all customers' sales_values for this truck
+      const totalExpected = sorted.reduce((sum, s) => sum + toNum(s.sales_value), 0);
 
       let cumulativePaid = 0;
       sorted.forEach(s => {
         cumulativePaid += toNum(s.payment_amount);
-        balanceMap.set(s.id, expected - cumulativePaid);
+        balanceMap.set(s.id, totalExpected - cumulativePaid);
       });
     });
 
@@ -459,10 +461,25 @@ export default function DeliverySalesLedger() {
     return Array.from(set).sort();
   }, [allSales]);
 
-  // Loaded trucks for the dialog — show all entries that have a truck number
+  // Loaded trucks for the dialog — show trucks that:
+  // 1. Have a truck_number or truck ID, AND
+  // 2. Are NOT (offloaded AND fully paid with no outstanding balance)
   const loadedTrucks = useMemo(() => {
-    return allLoadings.filter(t => !!(t.truck_number || t.truck));
-  }, [allLoadings]);
+    return allLoadings.filter(t => {
+      if (!(t.truck_number || t.truck)) return false;
+      // If offloaded, check if fully paid — hide only when fully settled
+      if (t.loading_status === 'offloaded') {
+        const truckNum = t.truck_number || '';
+        const summary = truckPaymentSummary.get(truckNum);
+        if (summary) {
+          const outstanding = summary.totalExpected - summary.totalPaid;
+          // Hide if fully paid (outstanding ≤ 0) and no unrecorded customers
+          if (outstanding <= 0 && summary.totalExpected > 0) return false;
+        }
+      }
+      return true;
+    });
+  }, [allLoadings, truckPaymentSummary]);
 
   // Per-truck-per-customer locked rate: truckNumber → customerId → rate string
   const truckCustomerRateMap = useMemo(() => {
