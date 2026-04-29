@@ -73,6 +73,7 @@ const roleMap: Record<number, string> = {
   6: 'TRANSPORT',
   7: 'RELEASE OFFICER',
   8: 'AUDITOR',
+  9: 'MARKETING',
 };
 
 const roleColorMap: Record<number, string> = {
@@ -84,6 +85,7 @@ const roleColorMap: Record<number, string> = {
   6: 'text-cyan-600',
   7: 'text-orange-600',
   8: 'text-slate-500',
+  9: 'text-green-600',
 };
 
 const Settings = () => {
