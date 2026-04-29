@@ -17,7 +17,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
 import {
-  Plus, Search, Download, Loader2, Trash2,
+  Plus, Search, Download, Loader2, Trash2, Pencil,
   Truck, Wallet, FileText,
   TrendingUp, Banknote, Building2,
   Calendar as CalendarIcon, UserPlus, X, Fuel,
@@ -57,6 +57,8 @@ interface DeliveryCustomer {
   id: number;
   customer_name: string;
   phone_number?: string;
+  contact_person?: string;        // manager's name (filling stations)
+  contact_person_phone?: string;  // manager's phone (filling stations)
   status: string;
   customer_type?: 'customer' | 'filling_station';  // ← real API field
   notes?: string;                                   // kept for legacy display only
@@ -249,6 +251,15 @@ export default function DeliverySalesLedger() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // ── Edit ───────────────────────────────────────────────────────────
+  const [editTarget, setEditTarget] = useState<DeliverySale | null>(null);
+  const [editForm, setEditForm] = useState<{
+    rate: string; sales_value: string; payment_amount: string;
+    payer_name: string; bank_account_id: string; date_of_payment: string;
+    remarks: string; phone_number: string; location: string; quantity: string;
+  } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
   // ═══════════════════════════════════════════════════════════════════
   // Queries
   // ═══════════════════════════════════════════════════════════════════
@@ -310,16 +321,25 @@ export default function DeliverySalesLedger() {
 
   const truckPaymentSummary = useMemo(() => {
     const map = new Map<string, { totalExpected: number; totalPaid: number; entries: DeliverySale[] }>();
+    // First pass: collect entries and total paid
     allSales.forEach(s => {
       const key = s.truck_number;
       const existing = map.get(key) || { totalExpected: 0, totalPaid: 0, entries: [] };
-      const sv = toNum(s.sales_value);
-      const pa = toNum(s.payment_amount);
-      // Sum all customers' sales_values per truck (not max — trucks carry multiple customers)
-      if (sv > 0) existing.totalExpected += sv;
-      existing.totalPaid += pa;
+      existing.totalPaid += toNum(s.payment_amount);
       existing.entries.push(s);
       map.set(key, existing);
+    });
+    // Second pass: totalExpected = sum of MAX sales_value per customer per truck
+    // (each customer's sales_value is repeated on every payment row — take max to avoid double-counting)
+    map.forEach((summary) => {
+      const perCustMax = new Map<number, number>();
+      summary.entries.forEach(s => {
+        const sv = toNum(s.sales_value);
+        if (sv > 0) {
+          perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) || 0, sv));
+        }
+      });
+      summary.totalExpected = Array.from(perCustMax.values()).reduce((a, b) => a + b, 0);
     });
     return map;
   }, [allSales]);
@@ -395,8 +415,16 @@ export default function DeliverySalesLedger() {
         return dateA.localeCompare(dateB) || a.id - b.id;
       });
 
-      // Total expected = sum of all customers' sales_values for this truck
-      const totalExpected = sorted.reduce((sum, s) => sum + toNum(s.sales_value), 0);
+      // Total expected = sum of MAX sales_value per customer (not sum of all rows —
+      // each payment row repeats the same customer total, so sum would double-count).
+      const perCustMax = new Map<number, number>();
+      sorted.forEach(s => {
+        const sv = toNum(s.sales_value);
+        if (sv > 0) {
+          perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) || 0, sv));
+        }
+      });
+      const totalExpected = Array.from(perCustMax.values()).reduce((a, b) => a + b, 0);
 
       let cumulativePaid = 0;
       sorted.forEach(s => {
@@ -546,7 +574,8 @@ export default function DeliverySalesLedger() {
 
     // Pre-fill first row from the loading record (customer + destination + qty)
     const custId = loading.customer ? String(loading.customer) : '';
-    const custName = loading.customer_name || (loading.customer ? customerMap.get(loading.customer)?.customer_name : '') || '';
+    const custObj = loading.customer ? customerMap.get(loading.customer) : null;
+    const custName = loading.customer_name || custObj?.customer_name || '';
     const destination = loading.location || '';
     const qty = toNum(loading.quantity_allocated);
 
@@ -555,12 +584,17 @@ export default function DeliverySalesLedger() {
     const existingRate = (custId && truckRates?.get(custId)) || '';
     const rateLocked = !!existingRate;
 
-    // rate lock is now per-row, handled in the row itself
-
     const qtyStr = qty > 0 ? formatWithCommas(String(qty)) : '';
     const sv = existingRate && qtyStr
       ? formatWithCommas(String(Number(stripCommas(qtyStr)) * Number(stripCommas(existingRate))))
       : '';
+
+    // Auto-fill phone for filling station customers
+    const autoPhone = (custObj && isFillingStation(custObj) && custObj.phone_number) ? custObj.phone_number : '';
+    const autoPayerName = (custObj && isFillingStation(custObj) && custObj.contact_person) ? custObj.contact_person : '';
+    const autoPayerPhone = (custObj && isFillingStation(custObj) && custObj.contact_person_phone)
+      ? custObj.contact_person_phone
+      : autoPhone;
 
     setSaleRows([{
       ...makeSaleRow(),
@@ -571,6 +605,8 @@ export default function DeliverySalesLedger() {
       rate: existingRate,
       rateLocked,
       sales_value: sv,
+      phone_number: autoPayerPhone,
+      payer_name: autoPayerName,
     }]);
   };
 
@@ -593,18 +629,25 @@ export default function DeliverySalesLedger() {
         : value };
 
       // When customer is selected, check if they already have a rate for this truck
+      // Also auto-fill phone for filling stations
       if (field === 'customer') {
         const truckRates = truckCustomerRateMap.get(dialogTruckNumber);
         const priorRate = value ? truckRates?.get(value) : undefined;
         if (priorRate) {
           updated.rate = priorRate;
           updated.rateLocked = true;
-          // recalc sales_value with locked rate
           const q = Number(stripCommas(updated.quantity)) || 0;
           const r = Number(stripCommas(priorRate)) || 0;
           updated.sales_value = q * r > 0 ? formatWithCommas(String(q * r)) : '';
         } else {
           updated.rateLocked = false;
+        }
+        // Auto-fill phone number and payer name from customer profile for filling stations
+        const selectedCust = value ? customerMap.get(Number(value)) : null;
+        if (selectedCust && isFillingStation(selectedCust)) {
+          if (selectedCust.contact_person) updated.payer_name = selectedCust.contact_person;
+          if (selectedCust.contact_person_phone) updated.phone_number = selectedCust.contact_person_phone;
+          else if (selectedCust.phone_number) updated.phone_number = selectedCust.phone_number;
         }
       }
 
@@ -755,6 +798,81 @@ export default function DeliverySalesLedger() {
     }
   }, [deleteTarget, toast]);
 
+  // Reverse-match bank account from stored "ACCT · BankName" string
+  const bankStringToId = (bankStr: string): string => {
+    if (!bankStr) return '';
+    const match = BANK_ACCOUNTS.find(b =>
+      bankStr.startsWith(b.account_number) || bankStr.includes(b.account_number),
+    );
+    return match ? String(match.id) : '';
+  };
+
+  const openEditDialog = (sale: DeliverySale) => {
+    setEditTarget(sale);
+    const rate = toNum(sale.rate);
+    const sv = toNum(sale.sales_value);
+    const pa = toNum(sale.payment_amount);
+    const qty = toNum(sale.quantity);
+    setEditForm({
+      quantity:         qty > 0 ? formatWithCommas(String(qty)) : '',
+      rate:             rate > 0 ? formatWithCommas(String(rate)) : '',
+      sales_value:      sv > 0 ? formatWithCommas(String(sv)) : '',
+      payment_amount:   pa > 0 ? formatWithCommas(String(pa)) : '',
+      payer_name:       sale.payer_name || '',
+      bank_account_id:  bankStringToId(sale.bank || ''),
+      date_of_payment:  sale.date_of_payment || '',
+      remarks:          sale.remarks || '',
+      phone_number:     sale.phone_number || '',
+      location:         sale.location || '',
+    });
+  };
+
+  const handleEditSave = useCallback(async () => {
+    if (!editTarget || !editForm) return;
+    setEditSaving(true);
+    try {
+      const bankAcct = editForm.bank_account_id
+        ? BANK_ACCOUNTS.find(b => String(b.id) === editForm.bank_account_id)
+        : null;
+      const bankStr = bankAcct
+        ? `${bankAcct.account_number} · ${bankAcct.bank_name}`
+        : editTarget.bank || undefined;
+
+      const qty   = Number(stripCommas(editForm.quantity))       || undefined;
+      const rate  = Number(stripCommas(editForm.rate))           || undefined;
+      const sv    = Number(stripCommas(editForm.sales_value))    || undefined;
+      const pa    = Number(stripCommas(editForm.payment_amount)) || undefined;
+
+      // Auto-compute sales_value if qty + rate are set but sv wasn't manually entered
+      const computedSv = qty && rate && !sv ? qty * rate : sv;
+
+      await apiClient.admin.updateDeliverySale(editTarget.id, {
+        quantity:         qty,
+        rate:             rate,
+        sales_value:      computedSv,
+        payment_amount:   pa,
+        payer_name:       editForm.payer_name.trim() || undefined,
+        bank:             bankStr,
+        date_of_payment:  editForm.date_of_payment || undefined,
+        remarks:          editForm.remarks.trim() || undefined,
+        phone_number:     editForm.phone_number.trim() || undefined,
+        location:         editForm.location.trim() || undefined,
+      });
+      toast({ title: 'Entry updated' });
+      setEditTarget(null);
+      setEditForm(null);
+      invalidateAll();
+    } catch (err: unknown) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Update failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editTarget, editForm, toast]);
+
   const exportExcel = useCallback(() => {
     if (!filteredSales.length) return;
     const period = timePreset === 'custom'
@@ -777,6 +895,7 @@ export default function DeliverySalesLedger() {
         'Payment (₦)': toNum(s.payment_amount),
         'Balance (₦)': balance,
         'Payer': s.payer_name || '',
+        'Payer Phone': s.phone_number || '',
         'Bank / Account': s.bank || '',
         'Payment Date': s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '',
         'Remarks': s.remarks || '',
@@ -933,15 +1052,19 @@ export default function DeliverySalesLedger() {
                         <TableHead className="font-semibold text-slate-700">Paid On</TableHead>
                         <TableHead className="font-semibold text-slate-700">Remarks</TableHead>
                         <TableHead className="font-semibold text-slate-700">Entered By</TableHead>
-                        {/* <TableHead className="font-semibold text-slate-700 w-[60px]">Del</TableHead> */}
+                        <TableHead className="font-semibold text-slate-700 w-[80px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredSales.map((s, idx) => {
                         const custName = s.customer_name || customerMap.get(s.customer)?.customer_name || `#${s.customer}`;
+                        const custObj = customerMap.get(s.customer);
+                        const isFSRow = isFillingStation(custObj);
                         const sv = toNum(s.sales_value);
                         const pa = toNum(s.payment_amount);
                         const balance = rowBalances.get(s.id) ?? (sv - pa);
+                        // For filling stations with no rate yet, don't show a balance
+                        const showBalance = !(isFSRow && sv === 0);
                         const isPaymentRow = pa > 0;
                         const isPaidOff = balance <= 0 && sv > 0;
 
@@ -963,7 +1086,7 @@ export default function DeliverySalesLedger() {
                               {s.date_loaded ? format(parseISO(s.date_loaded), 'dd MMM yyyy') : '—'}
                             </TableCell>
                             <TableCell className="text-slate-700">{s.depot_loaded || '—'}</TableCell>
-                            <TableCell className="text-slate-700 whitespace-nowrap">{s.location || '—'}</TableCell>
+                            <TableCell className="text-slate-700 uppercase whitespace-nowrap">{s.location || '—'}</TableCell>
                             <TableCell className="font-medium text-slate-900 capitalize whitespace-nowrap">{custName}</TableCell>
                             <TableCell className="text-slate-700">
                               {toNum(s.quantity) > 0 ? fmtQty(toNum(s.quantity)) : '—'} Litres
@@ -978,11 +1101,27 @@ export default function DeliverySalesLedger() {
                               {pa > 0 ? fmt(pa) : '—'}
                             </TableCell>
                             <TableCell className={`text-right font-bold ${
+                              !showBalance ? 'text-slate-400' :
                               balance > 0 ? 'text-red-600' : balance < 0 ? 'text-blue-600' : 'text-emerald-600'
                             }`}>
-                              {balance !== 0 ? fmt(balance) : (sv > 0 ? 'Fully Paid ✓' : '—')}
+                              {!showBalance
+                                ? '—'
+                                : balance !== 0 ? fmt(balance) : (sv > 0 ? 'Fully Paid ✓' : '—')}
                             </TableCell>
-                            <TableCell className="text-slate-700 whitespace-nowrap">{s.payer_name || '—'}</TableCell>
+                            <TableCell className="text-slate-700 whitespace-nowrap">
+                              {s.payer_name ? (
+                                <div>
+                                  <p className="font-medium uppercase">{s.payer_name}</p>
+                                  {s.phone_number && (
+                                    <p className="text-xs text-slate-500">{s.phone_number}</p>
+                                  )}
+                                </div>
+                              ) : (
+                                s.phone_number
+                                  ? <span className="text-xs text-slate-500">{s.phone_number}</span>
+                                  : <span className="text-slate-400">—</span>
+                              )}
+                            </TableCell>
                             <TableCell className="text-sm max-w-[160px]">
                               {s.bank ? (() => {
                                 const parts = s.bank.split(' · ');
@@ -1014,14 +1153,28 @@ export default function DeliverySalesLedger() {
                               {s.entered_by || '—'}
                             </TableCell>
                             <TableCell>
-                              <Button
-                                size="sm" variant="ghost"
-                                className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
-                                title="Delete entry"
-                                onClick={() => setDeleteTarget({ id: s.id, label: `${s.truck_number} — ${pa > 0 ? fmt(pa) : 'rate entry'}` })}
-                              >
-                                <Trash2 size={14} />
-                              </Button>
+                              <div className="flex gap-1">
+                                {!readOnly && (
+                                  <Button
+                                    size="sm" variant="ghost"
+                                    className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                                    title="Edit entry"
+                                    onClick={() => openEditDialog(s)}
+                                  >
+                                    <Pencil size={14} />
+                                  </Button>
+                                )}
+                                {!readOnly && (
+                                  <Button
+                                    size="sm" variant="ghost"
+                                    className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    title="Delete entry"
+                                    onClick={() => setDeleteTarget({ id: s.id, label: `${s.truck_number} — ${pa > 0 ? fmt(pa) : 'entry'}` })}
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -1400,6 +1553,216 @@ export default function DeliverySalesLedger() {
             <Button onClick={handleSave} disabled={saving} className="gap-2">
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
               {saving ? 'Saving…' : `Record ${saleRows.filter(r => r.customer).length || ''} Payment${saleRows.filter(r => r.customer).length !== 1 ? 's' : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* Edit Entry Dialog                                              */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      <Dialog open={!!editTarget} onOpenChange={open => { if (!open) { setEditTarget(null); setEditForm(null); } }}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-100">
+                <Pencil className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Edit Entry</h2>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">
+                  {editTarget?.truck_number} — {editTarget ? (editTarget.customer_name || `Customer #${editTarget.customer}`) : ''}
+                </p>
+              </div>
+            </DialogTitle>
+            <DialogDescription className="sr-only">Edit a sales ledger entry</DialogDescription>
+          </DialogHeader>
+
+          {editForm && editTarget && (
+            <div className="space-y-4 py-2">
+              {/* Info banner for filling-station rows with no rate yet */}
+              {(!toNum(editTarget.rate) || !toNum(editTarget.sales_value)) && (
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <Fuel size={14} className="text-amber-500 mt-0.5 shrink-0" />
+                  <p className="text-xs text-amber-700">
+                    This entry has no rate or revenue yet — fill them in below now that the station has sold.
+                  </p>
+                </div>
+              )}
+
+              {/* Row 1: Destination + Qty */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Destination</Label>
+                  <Input
+                    value={editForm.location}
+                    onChange={e => setEditForm(f => f ? { ...f, location: e.target.value } : f)}
+                    className="h-9 text-sm"
+                    placeholder="e.g. Kano"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Quantity (L)</Label>
+                  <Input
+                    type="text" inputMode="decimal"
+                    value={editForm.quantity}
+                    onChange={e => {
+                      const qty = formatWithCommas(e.target.value);
+                      const r = Number(stripCommas(editForm.rate)) || 0;
+                      const q = Number(stripCommas(qty)) || 0;
+                      const sv = q && r ? formatWithCommas(String(q * r)) : editForm.sales_value;
+                      setEditForm(f => f ? { ...f, quantity: qty, sales_value: sv } : f);
+                    }}
+                    className="h-9 text-sm"
+                    placeholder="e.g. 33,000"
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Rate + Expected */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Rate (₦/L)</Label>
+                  <Input
+                    type="text" inputMode="decimal"
+                    value={editForm.rate}
+                    onChange={e => {
+                      const rate = formatWithCommas(e.target.value);
+                      const r = Number(stripCommas(rate)) || 0;
+                      const q = Number(stripCommas(editForm.quantity)) || 0;
+                      const sv = q && r ? formatWithCommas(String(q * r)) : editForm.sales_value;
+                      setEditForm(f => f ? { ...f, rate, sales_value: sv } : f);
+                    }}
+                    className="h-9 text-sm"
+                    placeholder="e.g. 1,210"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Total Expected (₦)</Label>
+                  <Input
+                    type="text" inputMode="decimal"
+                    value={editForm.sales_value}
+                    onChange={e => setEditForm(f => f ? { ...f, sales_value: formatWithCommas(e.target.value) } : f)}
+                    className="h-9 text-sm font-semibold"
+                    placeholder="Auto-computed or manual"
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: Payment + Date */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Amount Paid (₦)</Label>
+                  <Input
+                    type="text" inputMode="decimal"
+                    value={editForm.payment_amount}
+                    onChange={e => setEditForm(f => f ? { ...f, payment_amount: formatWithCommas(e.target.value) } : f)}
+                    className="h-9 text-sm"
+                    placeholder="e.g. 5,000,000"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Date of Payment</Label>
+                  <Input
+                    type="date"
+                    value={editForm.date_of_payment}
+                    onChange={e => setEditForm(f => f ? { ...f, date_of_payment: e.target.value } : f)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Row 4: Payer + Bank */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Payer's Name</Label>
+                  <Input
+                    value={editForm.payer_name}
+                    onChange={e => setEditForm(f => f ? { ...f, payer_name: e.target.value.replace(/[0-9]/g, '') } : f)}
+                    className="h-9 text-sm"
+                    placeholder="Name only"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Bank Account</Label>
+                  <select
+                    aria-label="Bank account"
+                    value={editForm.bank_account_id}
+                    onChange={e => setEditForm(f => f ? { ...f, bank_account_id: e.target.value } : f)}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                  >
+                    <option value="">Select account…</option>
+                    {BANK_ACCOUNTS.filter(b => b.is_active).map(b => (
+                      <option key={b.id} value={String(b.id)}>
+                        {b.account_number} · {b.bank_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Row 5: Phone + Remarks */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Phone Number</Label>
+                  <Input
+                    value={editForm.phone_number}
+                    onChange={e => setEditForm(f => f ? { ...f, phone_number: e.target.value } : f)}
+                    className="h-9 text-sm"
+                    placeholder="e.g. 08012345678"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Remarks</Label>
+                  <Input
+                    value={editForm.remarks}
+                    onChange={e => setEditForm(f => f ? { ...f, remarks: e.target.value } : f)}
+                    className="h-9 text-sm"
+                    placeholder="e.g. Full Payment"
+                  />
+                </div>
+              </div>
+
+              {/* Live balance preview */}
+              {editForm.sales_value && (
+                (() => {
+                  const sv = Number(stripCommas(editForm.sales_value)) || 0;
+                  const pa = Number(stripCommas(editForm.payment_amount)) || 0;
+                  // Sum all other payments for this truck+customer (excluding this entry)
+                  const otherPaid = allSales
+                    .filter(s => s.id !== editTarget.id && s.truck_number === editTarget.truck_number && s.customer === editTarget.customer)
+                    .reduce((sum, s) => sum + toNum(s.payment_amount), 0);
+                  const bal = sv - pa - otherPaid;
+                  return (
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 grid grid-cols-3 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-slate-400">Expected</p>
+                        <p className="font-bold text-slate-800">{sv > 0 ? fmt(sv) : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400">Total Paid</p>
+                        <p className="font-bold text-emerald-700">{fmt(pa + otherPaid)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400">Balance</p>
+                        <p className={`font-bold ${bal > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                          {bal > 0 ? fmt(bal) : '✓ Fully paid'}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setEditTarget(null); setEditForm(null); }} disabled={editSaving}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditSave} disabled={editSaving} className="gap-2">
+              {editSaving ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}
+              {editSaving ? 'Saving…' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
