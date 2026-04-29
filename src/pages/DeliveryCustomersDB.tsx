@@ -21,7 +21,7 @@ import {
   Users, Phone, Wallet, UserCheck, UserX, UserMinus,
   Truck, AlertTriangle, ShieldAlert, Eye, Camera, MapPin,
   Building2, Mail, CreditCard, Clock,
-  FileText, User,
+  FileText, User, Fuel,
 } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -73,6 +73,7 @@ interface DeliverySale {
 
 type PagedResponse<T> = { count: number; results: T[] };
 type StatusFilter = 'all' | 'active' | 'dormant' | 'suspended' | 'auto-dormant';
+type CustomerType = 'customer' | 'filling_station';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants
@@ -80,6 +81,18 @@ type StatusFilter = 'all' | 'active' | 'dormant' | 'suspended' | 'auto-dormant';
 
 /** Number of days of inactivity before a customer is flagged as auto-dormant */
 const AUTO_DORMANT_DAYS = 60;
+
+// Customer type is stored in the notes field as a prefix until backend supports it
+const TYPE_PREFIX = '__type:filling_station__';
+
+const getCustomerType = (notes?: string): CustomerType =>
+  notes?.startsWith(TYPE_PREFIX) ? 'filling_station' : 'customer';
+
+const encodeNotes = (type: CustomerType, notes: string): string =>
+  type === 'filling_station' ? `${TYPE_PREFIX}${notes}` : notes;
+
+const decodeNotes = (notes?: string): string =>
+  notes?.startsWith(TYPE_PREFIX) ? notes.slice(TYPE_PREFIX.length) : (notes || '');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -160,6 +173,7 @@ export default function DeliveryCustomersDB() {
   const readOnly = isCurrentUserReadOnly();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | CustomerType>('all');
 
   // ── Drill-down ─────────────────────────────────────────────────────
   const [selectedCustomer, setSelectedCustomer] = useState<DeliveryCustomer | null>(null);
@@ -168,6 +182,7 @@ export default function DeliveryCustomersDB() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<DeliveryCustomer | null>(null);
   const [form, setForm] = useState({
+    customer_type: 'customer' as CustomerType,
     customer_name: '',
     phone_number: '',
     alt_phone_number: '',
@@ -176,8 +191,8 @@ export default function DeliveryCustomersDB() {
     office_address: '',
     passport_photo: null as File | null,
     passport_photo_preview: '',
-    contact_person: '',
-    contact_person_phone: '',
+    contact_person: '',        // used as "Manager's Name" for filling stations
+    contact_person_phone: '',  // used as "Manager's Phone" for filling stations
     bank_name: '',
     account_number: '',
     account_name: '',
@@ -296,6 +311,10 @@ export default function DeliveryCustomersDB() {
       list = list.filter(c => c.status === statusFilter);
     }
 
+    if (typeFilter !== 'all') {
+      list = list.filter(c => getCustomerType(c.notes) === typeFilter);
+    }
+
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       list = list.filter(c =>
@@ -313,13 +332,15 @@ export default function DeliveryCustomersDB() {
     }
 
     return list;
-  }, [customersWithDormancy, statusFilter, searchQuery]);
+  }, [customersWithDormancy, statusFilter, typeFilter, searchQuery]);
 
   const totals = useMemo(() => {
     const active = allCustomers.filter(c => c.status === 'active').length;
     const dormant = allCustomers.filter(c => c.status === 'dormant').length;
     const suspended = allCustomers.filter(c => c.status === 'suspended').length;
     const autoDormant = customersWithDormancy.filter(c => c._autoDormant).length;
+    const fillingStations = allCustomers.filter(c => getCustomerType(c.notes) === 'filling_station').length;
+    const regularCustomers = allCustomers.length - fillingStations;
 
     let totalTrucksUsed = new Set<string>();
     let totalQtyFromLedger = 0;
@@ -337,6 +358,8 @@ export default function DeliveryCustomersDB() {
       dormant,
       suspended,
       autoDormant,
+      fillingStations,
+      regularCustomers,
       totalTrucksUsed: totalTrucksUsed.size,
       totalQtyFromLedger,
     };
@@ -344,8 +367,8 @@ export default function DeliveryCustomersDB() {
 
   const summaryCards = useMemo((): SummaryCard[] => [
     { title: 'Total Customers', value: String(totals.total), icon: <Users size={20} />, tone: 'neutral' },
-    { title: 'Active', value: String(totals.active), icon: <UserCheck size={20} />, tone: 'green' },
-    // { title: 'Auto-Dormant (60d)', value: String(totals.autoDormant), icon: <Clock size={20} />, tone: totals.autoDormant > 0 ? 'amber' : 'neutral' },
+    { title: 'Regular Customers', value: String(totals.regularCustomers), icon: <User size={20} />, tone: 'green' },
+    { title: 'Filling Stations', value: String(totals.fillingStations), icon: <Fuel size={20} />, tone: 'neutral' },
     { title: 'Total Qty Sold', value: `${fmtQty(totals.totalQtyFromLedger)} L`, icon: <Wallet size={20} />, tone: 'green' },
   ], [totals]);
 
@@ -361,6 +384,7 @@ export default function DeliveryCustomersDB() {
   const openAdd = () => {
     setEditing(null);
     setForm({
+      customer_type: 'customer',
       customer_name: '', phone_number: '', alt_phone_number: '',
       email: '', home_address: '', office_address: '',
       passport_photo: null, passport_photo_preview: '',
@@ -374,6 +398,7 @@ export default function DeliveryCustomersDB() {
   const openEdit = (c: DeliveryCustomer) => {
     setEditing(c);
     setForm({
+      customer_type: getCustomerType(c.notes),
       customer_name: c.customer_name,
       phone_number: c.phone_number || '',
       alt_phone_number: c.alt_phone_number || '',
@@ -391,7 +416,7 @@ export default function DeliveryCustomersDB() {
       outstanding_limit: toNum(c.outstanding_limit) > 0
         ? formatWithCommas(String(toNum(c.outstanding_limit)))
         : '',
-      notes: c.notes || '',
+      notes: decodeNotes(c.notes),
     });
     setDialogOpen(true);
   };
@@ -404,13 +429,14 @@ export default function DeliveryCustomersDB() {
     setSaving(true);
     try {
       const limitVal = Number(stripCommas(form.outstanding_limit));
+      const encodedNotes = encodeNotes(form.customer_type, form.notes.trim());
       const payload: Record<string, unknown> = {
         customer_name: form.customer_name.trim(),
         phone_number: form.phone_number.trim() || '',
         alt_phone_number: form.alt_phone_number.trim() || '',
         email: form.email.trim() || '',
-        home_address: form.home_address.trim() || '',
-        office_address: form.office_address.trim() || '',
+        home_address: form.customer_type === 'customer' ? (form.home_address.trim() || '') : '',
+        office_address: form.customer_type === 'customer' ? (form.office_address.trim() || '') : '',
         contact_person: form.contact_person.trim() || '',
         contact_person_phone: form.contact_person_phone.trim() || '',
         bank_name: form.bank_name.trim() || '',
@@ -418,7 +444,7 @@ export default function DeliveryCustomersDB() {
         account_name: form.account_name.trim() || '',
         status: form.status,
         outstanding_limit: limitVal > 0 ? limitVal : 0,
-        notes: form.notes.trim() || '',
+        notes: encodedNotes,
       };
 
       // If a new file was selected, use FormData for multipart upload
@@ -572,6 +598,16 @@ export default function DeliveryCustomersDB() {
                   />
                 </div>
                 <select
+                  aria-label="Filter by type"
+                  value={typeFilter}
+                  onChange={e => setTypeFilter(e.target.value as 'all' | CustomerType)}
+                  className="h-10 w-full sm:w-[180px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="all">All Types</option>
+                  <option value="customer">Regular Customers</option>
+                  <option value="filling_station">Filling Stations</option>
+                </select>
+                <select
                   aria-label="Filter by status"
                   value={statusFilter}
                   onChange={e => setStatusFilter(e.target.value as StatusFilter)}
@@ -583,9 +619,6 @@ export default function DeliveryCustomersDB() {
                   <option value="suspended">Suspended</option>
                   <option value="auto-dormant">⏰ Auto-Dormant (60d+)</option>
                 </select>
-                {/* <div className="text-sm text-slate-500 self-center whitespace-nowrap">
-                  {isLoading ? '…' : `${filtered.length} customer${filtered.length !== 1 ? 's' : ''}`}
-                </div> */}
               </div>
             </div>
 
@@ -643,20 +676,14 @@ export default function DeliveryCustomersDB() {
                           >
                             <TableCell className="text-slate-500 text-sm">{idx + 1}</TableCell>
 
-                            {/* Customer — photo + name */}
+                            {/* Customer — type badge + name */}
                             <TableCell>
-                              <div className="flex items-center gap-2.5">
-                                {/* {c.passport_photo ? (
-                                  <img
-                                    src={c.passport_photo}
-                                    alt={c.customer_name}
-                                    className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                                  />
+                              <div className="flex items-center gap-2">
+                                {getCustomerType(c.notes) === 'filling_station' ? (
+                                  <span title="Filling Station" className="text-amber-500 shrink-0"><Fuel size={14} /></span>
                                 ) : (
-                                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                                    <User size={14} />
-                                  </div>
-                                )} */}
+                                  <span title="Regular Customer" className="text-blue-500 shrink-0"><User size={14} /></span>
+                                )}
                                 <span className="font-medium text-slate-900 capitalize truncate max-w-[180px]">
                                   {c.customer_name}
                                 </span>
@@ -839,100 +866,93 @@ export default function DeliveryCustomersDB() {
                   )}
 
                   {/* ── Customer Profile (photo, phones, addresses all here) ── */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-4">
-                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 flex items-center gap-2">
-                      <User size={13} className="text-slate-500" /> Customer Profile
-                      <span className={`ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${sc.cls}`}>
-                        <StatusIcon size={11} /> {sc.label}
-                      </span>
-                    </h4>
+                  {/* ── Customer Profile (type-aware) ── */}
+                  {(() => {
+                    const isFS = getCustomerType(selectedCustomer.notes) === 'filling_station';
+                    return (
+                      <div className="bg-white border border-slate-200 rounded-xl p-4">
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                          {isFS ? <Fuel size={13} className="text-amber-500" /> : <User size={13} className="text-slate-500" />}
+                          {isFS ? 'Filling Station Profile' : 'Customer Profile'}
+                          <span className={`ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${isFS ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-blue-700 bg-blue-50 border-blue-200'}`}>
+                            {isFS ? <><Fuel size={11} /> Filling Station</> : <><User size={11} /> Regular Customer</>}
+                          </span>
+                          <span className={`ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${sc.cls}`}>
+                            <StatusIcon size={11} /> {sc.label}
+                          </span>
+                        </h4>
 
-                    <div className="flex gap-4 mb-4">
-                      {/* Passport Photo */}
-                      {selectedCustomer.passport_photo ? (
-                        <img
-                          src={selectedCustomer.passport_photo}
-                          alt={selectedCustomer.customer_name}
-                          className="w-20 h-20 rounded-lg object-cover border border-slate-200 shrink-0"
-                        />
-                      ) : (
-                        <div className="w-20 h-20 rounded-lg border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 shrink-0">
-                          <Camera size={26} />
-                        </div>
-                      )}
-
-                      {/* Name, Phones, Email */}
-                      <div className="space-y-1.5 min-w-0 flex-1">
-                        <p className="text-lg font-bold text-slate-900 capitalize">{selectedCustomer.customer_name}</p>
-                        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-                          <div>
-                            <span className="text-[11px] font-medium text-slate-400">Phone Number</span>
-                            <p className="text-sm font-bold underline"><PhoneLink phone={selectedCustomer.phone_number} /></p>
-                          </div>
-                          {selectedCustomer.alt_phone_number && (
-                            <div>
-                              <span className="text-[11px] font-medium text-slate-400">Alt Phone</span>
-                              <p className="text-sm font-bold underline"><PhoneLink phone={selectedCustomer.alt_phone_number} /></p>
+                        <div className="flex gap-4 mb-4">
+                          {isFS ? (
+                            <div className="w-20 h-20 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-400 shrink-0">
+                              <Fuel size={30} />
+                            </div>
+                          ) : selectedCustomer.passport_photo ? (
+                            <img src={selectedCustomer.passport_photo} alt={selectedCustomer.customer_name} className="w-20 h-20 rounded-lg object-cover border border-slate-200 shrink-0" />
+                          ) : (
+                            <div className="w-20 h-20 rounded-lg border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 shrink-0">
+                              <Camera size={26} />
                             </div>
                           )}
-                          {/* {selectedCustomer.email && (
-                            <div>
-                              <span className="text-[11px] font-medium text-slate-400">Email</span>
-                              <p className="text-sm font-bold underline text-blue-700">
-                                <a href={`mailto:${selectedCustomer.email}`} className="hover:underline">{selectedCustomer.email}</a>
-                              </p>
+                          <div className="space-y-1.5 min-w-0 flex-1">
+                            <p className="text-lg font-bold text-slate-900 capitalize">{selectedCustomer.customer_name}</p>
+                            <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                              <div>
+                                <span className="text-[11px] font-medium text-slate-400">{isFS ? 'Station Phone' : 'Phone Number'}</span>
+                                <p className="text-sm font-bold underline"><PhoneLink phone={selectedCustomer.phone_number} /></p>
+                              </div>
+                              {selectedCustomer.alt_phone_number && (
+                                <div>
+                                  <span className="text-[11px] font-medium text-slate-400">Alt Phone</span>
+                                  <p className="text-sm font-bold underline"><PhoneLink phone={selectedCustomer.alt_phone_number} /></p>
+                                </div>
+                              )}
                             </div>
-                          )} */}
-                        </div>
-                        {/* {(selectedCustomer.contact_person || selectedCustomer.contact_person_phone) && (
-                          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-1">
-                            {selectedCustomer.contact_person && (
-                              <div>
-                                <span className="text-[11px] font-medium text-slate-400">Contact Person</span>
-                                <p className="text-sm font-medium text-slate-800">{selectedCustomer.contact_person}</p>
-                              </div>
-                            )}
-                            {selectedCustomer.contact_person_phone && (
-                              <div>
-                                <span className="text-[11px] font-medium text-slate-400">Contact Phone</span>
-                                <p className="text-sm font-bold underline"><PhoneLink phone={selectedCustomer.contact_person_phone} /></p>
-                              </div>
-                            )}
                           </div>
-                        )} */}
-                      </div>
-                    </div>
+                        </div>
 
-                    {/* Phone Numbers */}
-                    {/* <div className="border-t border-slate-100 pt-3 mb-3">
-                      <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Phone Numbers</span>
-                      <div className="flex gap-6 mt-1.5">
-                        <div>
-                          <span className="text-[11px] font-medium text-slate-400">Primary</span>
-                          <p className="text-sm"><PhoneLink phone={selectedCustomer.phone_number} /></p>
-                        </div>
-                        <div>
-                          <span className="text-[11px] font-medium text-slate-400">Alt Phone</span>
-                          <p className="text-sm"><PhoneLink phone={selectedCustomer.alt_phone_number} /></p>
-                        </div>
-                      </div>
-                    </div> */}
+                        {/* Manager info — filling stations only */}
+                        {isFS && (selectedCustomer.contact_person || selectedCustomer.contact_person_phone) && (
+                          <div className="border-t border-slate-100 pt-3 mb-3">
+                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                              <User size={10} /> Manager Details
+                            </span>
+                            <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1.5">
+                              {selectedCustomer.contact_person && (
+                                <div>
+                                  <span className="text-[11px] font-medium text-slate-400">Manager's Name</span>
+                                  <p className="text-sm font-semibold text-slate-800">{selectedCustomer.contact_person}</p>
+                                </div>
+                              )}
+                              {selectedCustomer.contact_person_phone && (
+                                <div>
+                                  <span className="text-[11px] font-medium text-slate-400">Manager's Phone</span>
+                                  <p className="text-sm font-bold underline"><PhoneLink phone={selectedCustomer.contact_person_phone} /></p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
 
-                    {/* Addresses */}
-                    <div className="border-t border-slate-100 pt-3">
-                      <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Addresses</span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1.5">
-                        <div>
-                          <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1"><MapPin size={10} /> Home</span>
-                          <p className="text-sm text-slate-700 whitespace-pre-line">{selectedCustomer.home_address || '—'}</p>
-                        </div>
-                        <div>
-                          <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1"><Building2 size={10} /> Office</span>
-                          <p className="text-sm text-slate-700 whitespace-pre-line">{selectedCustomer.office_address || '—'}</p>
-                        </div>
+                        {/* Addresses — regular customers only */}
+                        {!isFS && (
+                          <div className="border-t border-slate-100 pt-3">
+                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Addresses</span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1.5">
+                              <div>
+                                <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1"><MapPin size={10} /> Home</span>
+                                <p className="text-sm text-slate-700 whitespace-pre-line">{selectedCustomer.home_address || '—'}</p>
+                              </div>
+                              <div>
+                                <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1"><Building2 size={10} /> Office</span>
+                                <p className="text-sm text-slate-700 whitespace-pre-line">{selectedCustomer.office_address || '—'}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
 
                   {/* ── Financial Summary ── */}
                   <div className="bg-white border border-slate-200 rounded-xl p-4">
@@ -1016,7 +1036,7 @@ export default function DeliveryCustomersDB() {
                     <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2 flex items-center gap-2">
                       <FileText size={13} className="text-slate-500" /> Notes
                     </h4>
-                    <p className="text-sm text-slate-700 whitespace-pre-line">{selectedCustomer.notes || '—'}</p>
+                    <p className="text-sm text-slate-700 whitespace-pre-line">{decodeNotes(selectedCustomer.notes) || '—'}</p>
                   </div>
 
                   {/* ── Edit Button ── */}
@@ -1039,15 +1059,19 @@ export default function DeliveryCustomersDB() {
         <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-100">
-                <Users className="w-5 h-5 text-emerald-600" />
+              <div className={`p-2 rounded-lg ${form.customer_type === 'filling_station' ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+                {form.customer_type === 'filling_station'
+                  ? <Fuel className="w-5 h-5 text-amber-600" />
+                  : <Users className="w-5 h-5 text-emerald-600" />}
               </div>
               <div>
                 <h2 className="text-lg font-semibold">
-                  {editing ? 'Edit Customer' : 'New Customer'}
+                  {editing
+                    ? (form.customer_type === 'filling_station' ? 'Edit Filling Station' : 'Edit Customer')
+                    : (form.customer_type === 'filling_station' ? 'New Filling Station' : 'New Customer')}
                 </h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  {editing ? 'Update customer details' : 'Add a delivery customer'}
+                  {editing ? 'Update details' : 'Add a delivery customer'}
                 </p>
               </div>
             </DialogTitle>
@@ -1058,38 +1082,75 @@ export default function DeliveryCustomersDB() {
 
           <div className="space-y-5 py-2">
 
+            {/* ── Section: Customer Type Toggle ── */}
+            <div className="space-y-2">
+              <Label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Customer Type</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, customer_type: 'customer' }))}
+                  className={`flex items-center justify-center gap-2 py-3 rounded-xl border-2 text-sm font-semibold transition-all ${
+                    form.customer_type === 'customer'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                      : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                  }`}
+                >
+                  <User size={16} /> Regular Customer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, customer_type: 'filling_station' }))}
+                  className={`flex items-center justify-center gap-2 py-3 rounded-xl border-2 text-sm font-semibold transition-all ${
+                    form.customer_type === 'filling_station'
+                      ? 'border-amber-500 bg-amber-50 text-amber-700 shadow-sm'
+                      : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                  }`}
+                >
+                  <Fuel size={16} /> Filling Station
+                </button>
+              </div>
+            </div>
+
             {/* ── Section: Basic Info ── */}
             <div className="space-y-3">
               <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-1">
-                <User size={13} /> Basic Information
+                {form.customer_type === 'filling_station' ? <Fuel size={13} className="text-amber-500" /> : <User size={13} />}
+                {form.customer_type === 'filling_station' ? 'Station Information' : 'Basic Information'}
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label className="text-sm font-medium text-slate-700">
-                    Customer Name <span className="text-red-500">*</span>
+                    {form.customer_type === 'filling_station' ? 'Station Name' : 'Customer Name'}{' '}
+                    <span className="text-red-500">*</span>
                   </Label>
                   <Input
-                    placeholder="e.g. John Doe"
+                    placeholder={form.customer_type === 'filling_station' ? 'e.g. Sunrise Filling Station' : 'e.g. John Doe'}
                     value={form.customer_name}
                     onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))}
                   />
                 </div>
-                {/* <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Contact Person</Label>
-                  <Input
-                    placeholder="Main contact name"
-                    value={form.contact_person}
-                    onChange={e => setForm(f => ({ ...f, contact_person: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Contact Person Phone</Label>
-                  <Input
-                    placeholder="08012345678"
-                    value={form.contact_person_phone}
-                    onChange={e => setForm(f => ({ ...f, contact_person_phone: e.target.value }))}
-                  />
-                </div> */}
+
+                {/* Manager fields — filling stations only */}
+                {form.customer_type === 'filling_station' && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium text-slate-700">Manager's Name</Label>
+                      <Input
+                        placeholder="e.g. Alhaji Musa"
+                        value={form.contact_person}
+                        onChange={e => setForm(f => ({ ...f, contact_person: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium text-slate-700">Manager's Phone</Label>
+                      <Input
+                        placeholder="08012345678"
+                        value={form.contact_person_phone}
+                        onChange={e => setForm(f => ({ ...f, contact_person_phone: e.target.value }))}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1100,7 +1161,9 @@ export default function DeliveryCustomersDB() {
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Primary</Label>
+                  <Label className="text-sm font-medium text-slate-700">
+                    {form.customer_type === 'filling_station' ? 'Station Phone' : 'Primary'}
+                  </Label>
                   <Input
                     placeholder="08012345678"
                     value={form.phone_number}
@@ -1118,110 +1181,91 @@ export default function DeliveryCustomersDB() {
               </div>
             </div>
 
-            {/* ── Section: Addresses ── */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-1">
-                <MapPin size={13} /> Addresses
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Home Address</Label>
-                  <Textarea
-                    placeholder="Home address…"
-                    rows={2}
-                    value={form.home_address}
-                    onChange={e => setForm(f => ({ ...f, home_address: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Office Address</Label>
-                  <Textarea
-                    placeholder="Office address…"
-                    rows={2}
-                    value={form.office_address}
-                    onChange={e => setForm(f => ({ ...f, office_address: e.target.value }))}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* ── Section: Passport Photo ── */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-1">
-                <Camera size={13} /> Passport Photo
-              </h4>
-              <div className="flex items-center gap-4">
-                {(form.passport_photo || form.passport_photo_preview) ? (
-                  <div className="relative group">
-                    <img
-                      src={form.passport_photo ? URL.createObjectURL(form.passport_photo) : form.passport_photo_preview}
-                      alt="Preview"
-                      className="w-20 h-20 rounded-lg object-cover border border-slate-200"
+            {/* ── Section: Addresses — regular customers only ── */}
+            {form.customer_type === 'customer' && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-1">
+                  <MapPin size={13} /> Addresses
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium text-slate-700">Home Address</Label>
+                    <Textarea
+                      placeholder="Home address…"
+                      rows={2}
+                      value={form.home_address}
+                      onChange={e => setForm(f => ({ ...f, home_address: e.target.value }))}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, passport_photo: null, passport_photo_preview: '' }))}
-                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      ×
-                    </button>
                   </div>
-                ) : (
-                  <div className="w-20 h-20 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400">
-                    <Camera size={24} />
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium text-slate-700">Office Address</Label>
+                    <Textarea
+                      placeholder="Office address…"
+                      rows={2}
+                      value={form.office_address}
+                      onChange={e => setForm(f => ({ ...f, office_address: e.target.value }))}
+                    />
                   </div>
-                )}
-                <div className="flex-1 space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Upload Photo</Label>
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={e => {
-                      const file = e.target.files?.[0] || null;
-                      setForm(f => ({
-                        ...f,
-                        passport_photo: file,
-                        passport_photo_preview: file ? URL.createObjectURL(file) : f.passport_photo_preview,
-                      }));
-                    }}
-                  />
-                  <p className="text-xs text-slate-400">Select a passport photo to upload.</p>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* ── Section: Bank Details ── */}
-            {/* <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-1">
-                <CreditCard size={13} /> Bank Details
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Bank Name</Label>
-                  <Input
-                    placeholder="e.g. GTBank"
-                    value={form.bank_name}
-                    onChange={e => setForm(f => ({ ...f, bank_name: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Account Number</Label>
-                  <Input
-                    placeholder="0123456789"
-                    value={form.account_number}
-                    onChange={e => setForm(f => ({ ...f, account_number: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Account Name</Label>
-                  <Input
-                    placeholder="Account holder name"
-                    value={form.account_name}
-                    onChange={e => setForm(f => ({ ...f, account_name: e.target.value }))}
-                  />
+            {/* ── Section: Passport Photo — regular customers only ── */}
+            {form.customer_type === 'customer' && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wide flex items-center gap-2 border-b border-slate-100 pb-1">
+                  <Camera size={13} /> Passport Photo
+                </h4>
+                <div className="flex items-center gap-4">
+                  {(form.passport_photo || form.passport_photo_preview) ? (
+                    <div className="relative group">
+                      <img
+                        src={form.passport_photo ? URL.createObjectURL(form.passport_photo) : form.passport_photo_preview}
+                        alt="Preview"
+                        className="w-20 h-20 rounded-lg object-cover border border-slate-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, passport_photo: null, passport_photo_preview: '' }))}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-20 h-20 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400">
+                      <Camera size={24} />
+                    </div>
+                  )}
+                  <div className="flex-1 space-y-1.5">
+                    <Label className="text-sm font-medium text-slate-700">Upload Photo</Label>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={e => {
+                        const file = e.target.files?.[0] || null;
+                        setForm(f => ({
+                          ...f,
+                          passport_photo: file,
+                          passport_photo_preview: file ? URL.createObjectURL(file) : f.passport_photo_preview,
+                        }));
+                      }}
+                    />
+                    <p className="text-xs text-slate-400">Select a passport photo to upload.</p>
+                  </div>
                 </div>
               </div>
-            </div> */}
+            )}
+
+            {/* ── Filling Station hint banner ── */}
+            {form.customer_type === 'filling_station' && (
+              <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <Fuel size={16} className="text-amber-500 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-700">
+                  <span className="font-semibold">Filling Station mode:</span> Revenue and payments are typically entered after the station sells the product. Rate and payment fields will be optional when recording a sale for this customer.
+                </p>
+              </div>
+            )}
 
             {/* ── Section: Credit & Status ── */}
             <div className="space-y-3">

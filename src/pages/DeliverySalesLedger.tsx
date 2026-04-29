@@ -20,7 +20,7 @@ import {
   Plus, Search, Download, Loader2, Trash2,
   Truck, Wallet, FileText,
   TrendingUp, Banknote, Building2,
-  Calendar as CalendarIcon, UserPlus, X,
+  Calendar as CalendarIcon, UserPlus, X, Fuel,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -58,7 +58,13 @@ interface DeliveryCustomer {
   customer_name: string;
   phone_number?: string;
   status: string;
+  notes?: string;
 }
+
+// Customer type helpers (mirrors DeliveryCustomersDB)
+const FS_TYPE_PREFIX = '__type:filling_station__';
+const isFillingStation = (c: DeliveryCustomer | undefined | null): boolean =>
+  !!c?.notes?.startsWith(FS_TYPE_PREFIX);
 
 interface DeliverySale {
   id: number;
@@ -607,8 +613,8 @@ export default function DeliverySalesLedger() {
       return;
     }
 
-    // Validate rows — each filled row needs at least a customer or payment
-    const filledRows = saleRows.filter(r => r.customer || r.payment_amount || r.rate);
+    // Validate rows — keep any row that has a customer selected or any data entered
+    const filledRows = saleRows.filter(r => r.customer || r.payment_amount || r.rate || r.quantity);
     if (filledRows.length === 0) {
       toast({ title: 'Add at least one customer row', variant: 'destructive' });
       return;
@@ -620,14 +626,22 @@ export default function DeliverySalesLedger() {
 
     filledRows.forEach(row => {
       const e: Partial<Record<keyof SaleRow, string>> = {};
+      const custObj = row.customer ? customerMap.get(Number(row.customer)) : null;
+      const isFS = isFillingStation(custObj);
+
       if (!row.customer) e.customer = 'Customer is required';
       if (!row.location.trim()) e.location = 'Destination is required';
-      if (!row.rate || Number(stripCommas(row.rate)) <= 0) e.rate = 'Rate is required';
-      if (!row.bank_account_id) e.bank_account_id = 'Select a bank account';
-      if (!row.date_of_payment) e.date_of_payment = 'Payment date is required';
-      if (row.payer_name.trim() && !nameOnlyRegex.test(row.payer_name.trim())) {
-        e.payer_name = 'Payer name should contain letters only — no numbers';
+
+      // Filling stations: only qty needed — rate/bank/date optional (entered later)
+      if (!isFS) {
+        if (!row.rate || Number(stripCommas(row.rate)) <= 0) e.rate = 'Rate is required';
+        if (!row.bank_account_id) e.bank_account_id = 'Select a bank account';
+        if (!row.date_of_payment) e.date_of_payment = 'Payment date is required';
+        if (row.payer_name.trim() && !nameOnlyRegex.test(row.payer_name.trim())) {
+          e.payer_name = 'Payer name should contain letters only — no numbers';
+        }
       }
+
       if (Object.keys(e).length) errors[row.uid] = e;
     });
 
@@ -982,7 +996,7 @@ export default function DeliverySalesLedger() {
                             <TableCell className="text-slate-600 whitespace-nowrap text-sm">
                               {s.entered_by || '—'}
                             </TableCell>
-                            {/* <TableCell>
+                            <TableCell>
                               <Button
                                 size="sm" variant="ghost"
                                 className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
@@ -991,7 +1005,7 @@ export default function DeliverySalesLedger() {
                               >
                                 <Trash2 size={14} />
                               </Button>
-                            </TableCell> */}
+                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -1111,15 +1125,26 @@ export default function DeliverySalesLedger() {
                   </Button>
                 </div>
 
-                {saleRows.map((row, idx) => (
+                {saleRows.map((row, idx) => {
+                  const custObj = row.customer ? customerMap.get(Number(row.customer)) : null;
+                  const isFS = isFillingStation(custObj);
+                  const hasError = rowErrors[row.uid] && Object.keys(rowErrors[row.uid]).length;
+
+                  return (
                   <div
                     key={row.uid}
-                    className={`border rounded-lg p-3 space-y-3 relative ${rowErrors[row.uid] && Object.keys(rowErrors[row.uid]).length ? 'border-red-300 bg-red-50/30' : 'border-slate-200 bg-slate-50/50'}`}
+                    className={`border rounded-lg p-3 space-y-3 relative ${hasError ? 'border-red-300 bg-red-50/30' : isFS ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-slate-50/50'}`}
                   >
                     {/* Row header */}
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        {isFS ? <Fuel size={12} className="text-amber-500" /> : null}
                         Customer #{idx + 1}
+                        {isFS && (
+                          <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 normal-case tracking-normal">
+                            Filling Station
+                          </span>
+                        )}
                       </span>
                       {saleRows.length > 1 && (
                         <button
@@ -1133,7 +1158,7 @@ export default function DeliverySalesLedger() {
                       )}
                     </div>
 
-                    {/* Customer + Destination + Qty */}
+                    {/* Customer + Destination + Qty — always shown */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="space-y-1">
                         <Label className="text-xs text-slate-600">Customer <span className="text-red-500">*</span></Label>
@@ -1176,100 +1201,107 @@ export default function DeliverySalesLedger() {
                       </div>
                     </div>
 
-                    {/* Rate + Expected + Payment */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600 flex items-center gap-1">
-                          Rate (₦/L) <span className="text-red-500">*</span>
-                          {row.rateLocked && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                              🔒 Locked
-                            </span>
-                          )}
-                        </Label>
-                        <Input
-                          type="text" inputMode="decimal" placeholder="e.g. 1,210"
-                          className={`h-9 text-sm ${row.rateLocked ? 'bg-amber-50 text-amber-800 font-semibold cursor-not-allowed' : rowErrors[row.uid]?.rate ? 'border-red-400 bg-red-50' : ''}`}
-                          value={row.rate}
-                          readOnly={row.rateLocked}
-                          onChange={e => updateSaleRow(row.uid, 'rate', e.target.value)}
-                          title={row.rateLocked ? `Rate locked at ₦${row.rate}/L from first entry for this customer` : undefined}
-                        />
-                        {rowErrors[row.uid]?.rate && <p className="text-[11px] text-red-500">{rowErrors[row.uid].rate}</p>}
+                    {/* Filling station hint — no rate/payment fields shown */}
+                    {isFS && (
+                      <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                        <Fuel size={14} className="text-amber-500 mt-0.5 shrink-0" />
+                        <p className="text-xs text-amber-700">
+                          <span className="font-semibold">Filling Station</span> — only quantity is recorded now. You can edit this entry later to add the rate, total revenue and payment details once the station has sold.
+                        </p>
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Expected (₦)</Label>
-                        <Input
-                          readOnly
-                          className="h-9 text-sm bg-white font-semibold text-slate-700"
-                          value={row.sales_value ? `₦${row.sales_value}` : '—'}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Amount Paid (₦)</Label>
-                        <Input
-                          type="text" inputMode="decimal"
-                          className="h-9 text-sm"
-                          value={row.payment_amount}
-                          onChange={e => updateSaleRow(row.uid, 'payment_amount', e.target.value)}
-                        />
-                        {/* <p className="text-[10px] text-slate-400">Leave blank or 0 if no payment yet</p> */}
-                      </div>
-                    </div>
+                    )}
 
-                    {/* Payment date + Payer + Bank */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">
-                          <CalendarIcon size={11} className="inline mr-1" />Date of Payment <span className="text-red-500">*</span>
-                        </Label>
-                        <Input
-                          type="date"
-                          className={`h-9 text-sm ${rowErrors[row.uid]?.date_of_payment ? 'border-red-400 bg-red-50' : ''}`}
-                          value={row.date_of_payment}
-                          onChange={e => updateSaleRow(row.uid, 'date_of_payment', e.target.value)}
-                        />
-                        {rowErrors[row.uid]?.date_of_payment && <p className="text-[11px] text-red-500">{rowErrors[row.uid].date_of_payment}</p>}
+                    {/* Rate + Expected + Payment — regular customers only */}
+                    {!isFS && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600 flex items-center gap-1">
+                            Rate (₦/L) <span className="text-red-500">*</span>
+                            {row.rateLocked && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                                <FileText size={9} /> Locked
+                              </span>
+                            )}
+                          </Label>
+                          <Input
+                            type="text" inputMode="decimal" placeholder="e.g. 1,210"
+                            className={`h-9 text-sm ${row.rateLocked ? 'bg-amber-50 text-amber-800 font-semibold cursor-not-allowed' : rowErrors[row.uid]?.rate ? 'border-red-400 bg-red-50' : ''}`}
+                            value={row.rate}
+                            readOnly={row.rateLocked}
+                            onChange={e => updateSaleRow(row.uid, 'rate', e.target.value)}
+                            title={row.rateLocked ? `Rate locked at ₦${row.rate}/L from first entry for this customer` : undefined}
+                          />
+                          {rowErrors[row.uid]?.rate && <p className="text-[11px] text-red-500">{rowErrors[row.uid].rate}</p>}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Expected (₦)</Label>
+                          <Input
+                            readOnly
+                            className="h-9 text-sm bg-white font-semibold text-slate-700"
+                            value={row.sales_value ? `₦${row.sales_value}` : '—'}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Amount Paid (₦)</Label>
+                          <Input
+                            type="text" inputMode="decimal"
+                            className="h-9 text-sm"
+                            value={row.payment_amount}
+                            onChange={e => updateSaleRow(row.uid, 'payment_amount', e.target.value)}
+                          />
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Payer's Name</Label>
-                        <Input
-                          // placeholder="Full name, letters only"
-                          className={`h-9 text-sm ${rowErrors[row.uid]?.payer_name ? 'border-red-400 bg-red-50' : ''}`}
-                          value={row.payer_name}
-                          onChange={e => {
-                            // Strip digits as user types
-                            const cleaned = e.target.value.replace(/[0-9]/g, '');
-                            updateSaleRow(row.uid, 'payer_name', cleaned);
-                          }}
-                        />
-                        {/* {rowErrors[row.uid]?.payer_name
-                          ? <p className="text-[11px] text-red-500">{rowErrors[row.uid].payer_name}</p>
-                          : <p className="text-[10px] text-slate-400">Letters only — no numbers</p>
-                        } */}
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">
-                          <Building2 size={11} className="inline mr-1" />Bank Account <span className="text-red-500">*</span>
-                        </Label>
-                        <select
-                          aria-label={`Bank account for row ${idx + 1}`}
-                          value={row.bank_account_id}
-                          onChange={e => updateSaleRow(row.uid, 'bank_account_id', e.target.value)}
-                          className={`h-9 w-full rounded-md border bg-background px-3 py-2 text-sm ${rowErrors[row.uid]?.bank_account_id ? 'border-red-400 bg-red-50' : 'border-input'}`}
-                        >
-                          <option value="">Select account…</option>
-                          {activeBankAccounts.map(b => (
-                            <option key={b.id} value={String(b.id)}>
-                              {b.account_number} · {b.bank_name}
-                            </option>
-                          ))}
-                        </select>
-                        {rowErrors[row.uid]?.bank_account_id && <p className="text-[11px] text-red-500">{rowErrors[row.uid].bank_account_id}</p>}
-                      </div>
-                    </div>
+                    )}
 
-                    {/* Phone + Remarks */}
+                    {/* Payment date + Payer + Bank — regular customers only */}
+                    {!isFS && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">
+                            <CalendarIcon size={11} className="inline mr-1" />Date of Payment <span className="text-red-500">*</span>
+                          </Label>
+                          <Input
+                            type="date"
+                            className={`h-9 text-sm ${rowErrors[row.uid]?.date_of_payment ? 'border-red-400 bg-red-50' : ''}`}
+                            value={row.date_of_payment}
+                            onChange={e => updateSaleRow(row.uid, 'date_of_payment', e.target.value)}
+                          />
+                          {rowErrors[row.uid]?.date_of_payment && <p className="text-[11px] text-red-500">{rowErrors[row.uid].date_of_payment}</p>}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Payer's Name</Label>
+                          <Input
+                            className={`h-9 text-sm ${rowErrors[row.uid]?.payer_name ? 'border-red-400 bg-red-50' : ''}`}
+                            value={row.payer_name}
+                            onChange={e => {
+                              const cleaned = e.target.value.replace(/[0-9]/g, '');
+                              updateSaleRow(row.uid, 'payer_name', cleaned);
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">
+                            <Building2 size={11} className="inline mr-1" />Bank Account <span className="text-red-500">*</span>
+                          </Label>
+                          <select
+                            aria-label={`Bank account for row ${idx + 1}`}
+                            value={row.bank_account_id}
+                            onChange={e => updateSaleRow(row.uid, 'bank_account_id', e.target.value)}
+                            className={`h-9 w-full rounded-md border bg-background px-3 py-2 text-sm ${rowErrors[row.uid]?.bank_account_id ? 'border-red-400 bg-red-50' : 'border-input'}`}
+                          >
+                            <option value="">Select account…</option>
+                            {activeBankAccounts.map(b => (
+                              <option key={b.id} value={String(b.id)}>
+                                {b.account_number} · {b.bank_name}
+                              </option>
+                            ))}
+                          </select>
+                          {rowErrors[row.uid]?.bank_account_id && <p className="text-[11px] text-red-500">{rowErrors[row.uid].bank_account_id}</p>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Phone + Remarks — always shown */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <Label className="text-xs text-slate-600">Phone Number</Label>
@@ -1283,7 +1315,7 @@ export default function DeliverySalesLedger() {
                       <div className="space-y-1">
                         <Label className="text-xs text-slate-600">Remarks</Label>
                         <Input
-                          placeholder="e.g. Partial Payment, Full Payment…"
+                          placeholder={isFS ? 'e.g. Awaiting sale…' : 'e.g. Partial Payment, Full Payment…'}
                           className="h-9 text-sm"
                           value={row.remarks}
                           onChange={e => updateSaleRow(row.uid, 'remarks', e.target.value)}
@@ -1291,7 +1323,8 @@ export default function DeliverySalesLedger() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
 
                 {/* ── Grand Total Summary ──────────────────────────── */}
                 {(() => {
