@@ -20,7 +20,7 @@ import {
   Plus, Search, Download, Loader2, Trash2,
   Truck, Wallet, FileText,
   TrendingUp, Banknote, Building2,
-  Calendar as CalendarIcon,
+  Calendar as CalendarIcon, UserPlus, X,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -85,6 +85,24 @@ interface DeliverySale {
 
 type PagedResponse<T> = { count: number; results: T[] };
 type TimePreset = 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'custom';
+
+// One customer row inside the "Record Payment" dialog
+interface SaleRow {
+  uid: string;
+  customer: string;        // customer id string
+  customer_name: string;
+  location: string;        // destination
+  quantity: string;
+  rate: string;
+  rateLocked: boolean;     // true when this customer already has a rate for this truck
+  sales_value: string;     // auto-computed
+  payment_amount: string;
+  payer_name: string;
+  bank_account_id: string;
+  date_of_payment: string;
+  phone_number: string;
+  remarks: string;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Hardcoded Bank Accounts
@@ -173,6 +191,23 @@ const getPresetRange = (preset: TimePreset): { from: Date | null; to: Date | nul
   }
 };
 
+const makeSaleRow = (): SaleRow => ({
+  uid: crypto.randomUUID(),
+  customer: '',
+  customer_name: '',
+  location: '',
+  quantity: '',
+  rate: '',
+  rateLocked: false,
+  sales_value: '',
+  payment_amount: '',
+  payer_name: '',
+  bank_account_id: '',
+  date_of_payment: format(new Date(), 'yyyy-MM-dd'),
+  phone_number: '',
+  remarks: '',
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════════════════════════════
@@ -191,24 +226,14 @@ export default function DeliverySalesLedger() {
 
   // ── Payment Dialog ─────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState({
-    truck_loading_id: '',
-    truck_number: '',
-    date_loaded: '',
-    depot_loaded: '',
-    customer: '',
-    customer_name: '',
-    location: '',
-    quantity: '',
-    rate: '',
-    sales_value: '',
-    payment_amount: '',
-    payer_name: '',
-    bank_account_id: '',
-    date_of_payment: format(new Date(), 'yyyy-MM-dd'),
-    phone_number: '',
-    remarks: '',
-  });
+  // Shared truck-level fields
+  const [dialogTruckLoadingId, setDialogTruckLoadingId] = useState('');
+  const [dialogTruckNumber, setDialogTruckNumber] = useState('');
+  const [dialogDateLoaded, setDialogDateLoaded] = useState('');
+  const [dialogDepot, setDialogDepot] = useState('');
+  // Per-customer rows
+  const [saleRows, setSaleRows] = useState<SaleRow[]>([makeSaleRow()]);
+  const [rowErrors, setRowErrors] = useState<Record<string, Partial<Record<keyof SaleRow, string>>>>({});
   const [saving, setSaving] = useState(false);
 
   // ── Delete ─────────────────────────────────────────────────────────
@@ -228,8 +253,7 @@ export default function DeliverySalesLedger() {
     staleTime: 30_000,
   });
   const allLoadings = useMemo(() => {
-    const entries = truckLoadingsQuery.data?.results || [];
-    return entries.filter(e => e.truck || e.truck_number || e.loading_status);
+    return truckLoadingsQuery.data?.results || [];
   }, [truckLoadingsQuery.data]);
 
   const customersQuery = useQuery({
@@ -429,13 +453,25 @@ export default function DeliverySalesLedger() {
     return Array.from(set).sort();
   }, [allSales]);
 
-  // Loaded trucks for the dialog
+  // Loaded trucks for the dialog — show all entries that have a truck number
   const loadedTrucks = useMemo(() => {
-    return allLoadings.filter(t => {
-      const status = t.loading_status || (t.date_offloaded ? 'offloaded' : 'loaded');
-      return status === 'loaded' || status === 'offloaded';
-    });
+    return allLoadings.filter(t => !!(t.truck_number || t.truck));
   }, [allLoadings]);
+
+  // Per-truck-per-customer locked rate: truckNumber → customerId → rate string
+  const truckCustomerRateMap = useMemo(() => {
+    const map = new Map<string, Map<string, string>>();
+    allSales.forEach(s => {
+      const r = toNum(s.rate);
+      if (!r || !s.truck_number || !s.customer) return;
+      if (!map.has(s.truck_number)) map.set(s.truck_number, new Map());
+      const inner = map.get(s.truck_number)!;
+      if (!inner.has(String(s.customer))) {
+        inner.set(String(s.customer), formatWithCommas(String(r)));
+      }
+    });
+    return map;
+  }, [allSales]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Handlers
@@ -460,113 +496,202 @@ export default function DeliverySalesLedger() {
   };
 
   const openPaymentDialog = () => {
-    setForm({
-      truck_loading_id: '', truck_number: '', date_loaded: '', depot_loaded: '',
-      customer: '', customer_name: '', location: '', quantity: '', rate: '', sales_value: '',
-      payment_amount: '', payer_name: '', bank_account_id: '',
-      date_of_payment: format(new Date(), 'yyyy-MM-dd'), phone_number: '', remarks: '',
-    });
+    setDialogTruckLoadingId('');
+    setDialogTruckNumber('');
+    setDialogDateLoaded('');
+    setDialogDepot('');
+    setSaleRows([makeSaleRow()]);
+    setRowErrors({});
     setDialogOpen(true);
   };
 
   const handleTruckSelect = (loadingId: string) => {
+    setDialogTruckLoadingId(loadingId);
     const loading = loadedTrucks.find(t => String(t.id) === loadingId);
     if (!loading) {
-      setForm(f => ({ ...f, truck_loading_id: loadingId }));
+      setDialogTruckNumber('');
+      setDialogDateLoaded('');
+      setDialogDepot('');
+      setSaleRows([makeSaleRow()]);
       return;
     }
 
-    const custName = loading.customer_name || (loading.customer ? customerMap.get(loading.customer)?.customer_name : '') || '';
-    const qty = toNum(loading.quantity_allocated);
     const depot = loading.depot || loading.pfi_location || loading.location || '';
+    setDialogTruckNumber(loading.truck_number || '');
+    setDialogDateLoaded(loading.date_allocated || '');
+    setDialogDepot(depot);
+
+    // Pre-fill first row from the loading record (customer + destination + qty)
+    const custId = loading.customer ? String(loading.customer) : '';
+    const custName = loading.customer_name || (loading.customer ? customerMap.get(loading.customer)?.customer_name : '') || '';
     const destination = loading.location || '';
+    const qty = toNum(loading.quantity_allocated);
 
-    // Check if this truck already has a rate from previous entries
-    const existing = truckPaymentSummary.get(loading.truck_number || '');
-    let existingRate = '';
-    let existingSalesValue = '';
-    if (existing && existing.entries.length > 0) {
-      const firstWithRate = existing.entries.find(e => toNum(e.rate) > 0);
-      if (firstWithRate) {
-        existingRate = formatWithCommas(String(toNum(firstWithRate.rate)));
-        existingSalesValue = formatWithCommas(String(toNum(firstWithRate.sales_value)));
-      }
-    }
+    // Check for existing rate for this truck+customer combo
+    const truckRates = truckCustomerRateMap.get(loading.truck_number || '');
+    const existingRate = (custId && truckRates?.get(custId)) || '';
+    const rateLocked = !!existingRate;
 
-    setForm(f => ({
-      ...f,
-      truck_loading_id: loadingId,
-      truck_number: loading.truck_number || '',
-      date_loaded: loading.date_allocated || '',
-      depot_loaded: depot,
-      customer: loading.customer ? String(loading.customer) : '',
+    // rate lock is now per-row, handled in the row itself
+
+    const qtyStr = qty > 0 ? formatWithCommas(String(qty)) : '';
+    const sv = existingRate && qtyStr
+      ? formatWithCommas(String(Number(stripCommas(qtyStr)) * Number(stripCommas(existingRate))))
+      : '';
+
+    setSaleRows([{
+      ...makeSaleRow(),
+      customer: custId,
       customer_name: custName,
       location: destination,
-      quantity: qty > 0 ? formatWithCommas(String(qty)) : '',
+      quantity: qtyStr,
       rate: existingRate,
-      sales_value: existingSalesValue,
+      rateLocked,
+      sales_value: sv,
+    }]);
+  };
+
+  const updateSaleRow = (uid: string, field: keyof Omit<SaleRow, 'uid'>, value: string) => {
+    // Clear error for this field on change
+    if (rowErrors[uid]?.[field]) {
+      setRowErrors(prev => {
+        const next = { ...prev };
+        if (next[uid]) { next[uid] = { ...next[uid] }; delete next[uid][field]; }
+        return next;
+      });
+    }
+    setSaleRows(prev => prev.map(row => {
+      if (row.uid !== uid) return row;
+      // Prevent changing rate when it's locked for this row
+      if (field === 'rate' && row.rateLocked) return row;
+
+      const updated = { ...row, [field]: field === 'quantity' || field === 'rate' || field === 'payment_amount' || field === 'sales_value'
+        ? (field === 'sales_value' ? value : formatWithCommas(value))
+        : value };
+
+      // When customer is selected, check if they already have a rate for this truck
+      if (field === 'customer') {
+        const truckRates = truckCustomerRateMap.get(dialogTruckNumber);
+        const priorRate = value ? truckRates?.get(value) : undefined;
+        if (priorRate) {
+          updated.rate = priorRate;
+          updated.rateLocked = true;
+          // recalc sales_value with locked rate
+          const q = Number(stripCommas(updated.quantity)) || 0;
+          const r = Number(stripCommas(priorRate)) || 0;
+          updated.sales_value = q * r > 0 ? formatWithCommas(String(q * r)) : '';
+        } else {
+          updated.rateLocked = false;
+        }
+      }
+
+      // Auto-calc sales_value when qty or rate changes
+      if (field === 'quantity' || field === 'rate') {
+        const q = Number(stripCommas(field === 'quantity' ? value : row.quantity)) || 0;
+        const r = Number(stripCommas(field === 'rate' ? value : row.rate)) || 0;
+        updated.sales_value = q * r > 0 ? formatWithCommas(String(q * r)) : '';
+      }
+      return updated;
     }));
   };
 
+  const addSaleRow = () => setSaleRows(prev => [...prev, makeSaleRow()]);
+
+  const removeSaleRow = (uid: string) => {
+    setSaleRows(prev => prev.length > 1 ? prev.filter(r => r.uid !== uid) : prev);
+  };
+
   const handleSave = useCallback(async () => {
-    if (!form.truck_number.trim()) {
+    if (!dialogTruckNumber.trim()) {
       toast({ title: 'Please select a truck', variant: 'destructive' });
       return;
     }
 
-    const paymentAmt = Number(stripCommas(form.payment_amount));
-    const rateNum = Number(stripCommas(form.rate));
-
-    if (!paymentAmt && !rateNum) {
-      toast({ title: 'Enter a rate or payment amount', variant: 'destructive' });
+    // Validate rows — each filled row needs at least a customer or payment
+    const filledRows = saleRows.filter(r => r.customer || r.payment_amount || r.rate);
+    if (filledRows.length === 0) {
+      toast({ title: 'Add at least one customer row', variant: 'destructive' });
       return;
     }
 
+    // Per-field validation
+    const errors: Record<string, Partial<Record<keyof SaleRow, string>>> = {};
+    const nameOnlyRegex = /^[A-Za-z\s'\-\.]+$/;
+
+    filledRows.forEach(row => {
+      const e: Partial<Record<keyof SaleRow, string>> = {};
+      if (!row.customer) e.customer = 'Customer is required';
+      if (!row.location.trim()) e.location = 'Destination is required';
+      if (!row.rate || Number(stripCommas(row.rate)) <= 0) e.rate = 'Rate is required';
+      if (!row.bank_account_id) e.bank_account_id = 'Select a bank account';
+      if (!row.date_of_payment) e.date_of_payment = 'Payment date is required';
+      if (row.payer_name.trim() && !nameOnlyRegex.test(row.payer_name.trim())) {
+        e.payer_name = 'Payer name should contain letters only — no numbers';
+      }
+      if (Object.keys(e).length) errors[row.uid] = e;
+    });
+
+    if (Object.keys(errors).length) {
+      setRowErrors(errors);
+      toast({ title: 'Please fix the highlighted fields', variant: 'destructive' });
+      return;
+    }
+    setRowErrors({});
+
     setSaving(true);
     try {
-      const bankAcct = form.bank_account_id ? bankMap.get(Number(form.bank_account_id)) : null;
-      const bankStr = bankAcct
-        ? `${bankAcct.bank_name} — ${bankAcct.account_number} (${bankAcct.account_name})`
-        : '';
-
       const currentUser = localStorage.getItem('fullname') || 'Unknown';
-      const payload = {
-        truck_number: form.truck_number.trim(),
-        date_loaded: form.date_loaded || format(new Date(), 'yyyy-MM-dd'),
-        depot_loaded: form.depot_loaded.trim() || undefined,
-        customer: form.customer ? Number(form.customer) : 0,
-        location: form.location.trim() || undefined,
-        quantity: Number(stripCommas(form.quantity)) || undefined,
-        rate: rateNum || undefined,
-        sales_value: Number(stripCommas(form.sales_value)) || undefined,
-        payment_amount: paymentAmt || undefined,
-        payer_name: form.payer_name.trim() || undefined,
-        bank: bankStr || undefined,
-        date_of_payment: form.date_of_payment || undefined,
-        phone_number: form.phone_number.trim() || undefined,
-        remarks: form.remarks.trim() || undefined,
-        entered_by: currentUser,
-      };
+      const promises = filledRows.map(row => {
+        const bankAcct = row.bank_account_id ? bankMap.get(Number(row.bank_account_id)) : null;
+        const bankStr = bankAcct
+          ? `${bankAcct.account_number} · ${bankAcct.bank_name}`
+          : '';
+        const custObj = row.customer ? customerMap.get(Number(row.customer)) : null;
 
-      await apiClient.admin.createDeliverySale(payload);
+        return apiClient.admin.createDeliverySale({
+          truck_number: dialogTruckNumber.trim(),
+          date_loaded: dialogDateLoaded || format(new Date(), 'yyyy-MM-dd'),
+          depot_loaded: dialogDepot.trim() || undefined,
+          customer: row.customer ? Number(row.customer) : 0,
+          location: row.location.trim() || undefined,
+          quantity: Number(stripCommas(row.quantity)) || undefined,
+          rate: Number(stripCommas(row.rate)) || undefined,
+          sales_value: Number(stripCommas(row.sales_value)) || undefined,
+          payment_amount: Number(stripCommas(row.payment_amount)) || undefined,
+          payer_name: row.payer_name.trim() || undefined,
+          bank: bankStr || undefined,
+          date_of_payment: row.date_of_payment || undefined,
+          phone_number: row.phone_number.trim() || undefined,
+          remarks: row.remarks.trim() || undefined,
+          entered_by: currentUser,
+        });
+      });
 
-      // Write customer & destination back to the inventory entry so the inventory table shows them
-      const loadingId = Number(form.truck_loading_id);
-      if (loadingId && (form.customer || form.location.trim())) {
+      await Promise.all(promises);
+
+      // Write customer(s) & destination(s) back to the inventory entry
+      // For multi-row, update the inventory entry with the first row's customer/location
+      // (subsequent rows are additional allocations from the same loading)
+      const loadingId = Number(dialogTruckLoadingId);
+      if (loadingId) {
         try {
-          const custName = form.customer
-            ? (customerMap.get(Number(form.customer))?.customer_name || form.customer_name)
+          const firstRow = filledRows[0];
+          const custName = firstRow.customer
+            ? (customerMap.get(Number(firstRow.customer))?.customer_name || firstRow.customer_name)
             : '';
           await apiClient.admin.updateDeliveryInventory(loadingId, {
-            ...(form.customer ? { customer: Number(form.customer), customer_name: custName } : {}),
-            ...(form.location.trim() ? { location: form.location.trim() } : {}),
+            ...(firstRow.customer ? { customer: Number(firstRow.customer), customer_name: custName } : {}),
+            ...(firstRow.location.trim() ? { location: firstRow.location.trim() } : {}),
           });
         } catch {
-          // Non-critical — sale was already saved, inventory update is best-effort
+          // Non-critical
         }
       }
 
-      toast({ title: 'Payment entry recorded' });
+      toast({
+        title: `${filledRows.length} entry${filledRows.length > 1 ? ' entries' : ''} recorded`,
+        description: `Truck ${dialogTruckNumber} · ${filledRows.length} customer${filledRows.length > 1 ? 's' : ''}`,
+      });
       setDialogOpen(false);
       invalidateAll();
     } catch (err: unknown) {
@@ -578,7 +703,7 @@ export default function DeliverySalesLedger() {
     } finally {
       setSaving(false);
     }
-  }, [form, toast, bankMap, customerMap]);
+  }, [dialogTruckNumber, dialogDateLoaded, dialogDepot, dialogTruckLoadingId, saleRows, toast, bankMap, customerMap]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -827,8 +952,18 @@ export default function DeliverySalesLedger() {
                               {balance !== 0 ? fmt(balance) : (sv > 0 ? 'Fully Paid ✓' : '—')}
                             </TableCell>
                             <TableCell className="text-slate-700 whitespace-nowrap">{s.payer_name || '—'}</TableCell>
-                            <TableCell className="text-slate-600 text-sm max-w-[180px]" title={s.bank || ''}>
-                              {s.bank || '—'}
+                            <TableCell className="text-sm max-w-[160px]">
+                              {s.bank ? (() => {
+                                const parts = s.bank.split(' · ');
+                                const acct = parts[0] || s.bank;
+                                const bankName = parts[1] || '';
+                                return (
+                                  <div>
+                                    <p className="font-bold text-slate-900 tracking-wide">{acct}</p>
+                                    {bankName && <p className="text-xs text-slate-500">{bankName}</p>}
+                                  </div>
+                                );
+                              })() : <span className="text-slate-400">—</span>}
                             </TableCell>
                             <TableCell className="text-slate-600 whitespace-nowrap text-sm">
                               {s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd MMM yyyy') : '—'}
@@ -879,7 +1014,7 @@ export default function DeliverySalesLedger() {
       {/* Record Payment Dialog                                          */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-emerald-100">
@@ -888,22 +1023,22 @@ export default function DeliverySalesLedger() {
               <div>
                 <h2 className="text-lg font-semibold">Record Payment</h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  Select a loaded truck, set rate if first entry, then record payment.
+                  Select a loaded truck, then add one row per customer with their rate and payment details.
                 </p>
               </div>
             </DialogTitle>
-            <DialogDescription className="sr-only">Record a payment against a loaded truck</DialogDescription>
+            <DialogDescription className="sr-only">Record payments against a loaded truck</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Truck Selector */}
+            {/* ── Truck Selector ─────────────────────────────────────── */}
             <div className="space-y-2">
               <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                 <Truck size={15} className="text-slate-500" /> Select Loaded Truck <span className="text-red-500">*</span>
               </Label>
               <select
                 aria-label="Select loaded truck"
-                value={form.truck_loading_id}
+                value={dialogTruckLoadingId}
                 onChange={e => handleTruckSelect(e.target.value)}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
@@ -922,35 +1057,29 @@ export default function DeliverySalesLedger() {
               </select>
             </div>
 
-            {/* Auto-filled truck info */}
-            {form.truck_number && (
+            {/* ── Auto-filled truck header ───────────────────────────── */}
+            {dialogTruckNumber && (
               <div className="bg-blue-50/60 border border-blue-100 rounded-lg p-3">
-                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">
-                  Truck Details (auto-filled)
-                </p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                {/* <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">
+                  Truck Details
+                </p> */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-sm">
                   <div>
                     <span className="text-slate-500 text-xs">Truck:</span>{' '}
-                    <span className="font-bold text-slate-800">{form.truck_number}</span>
+                    <span className="font-bold text-slate-800">{dialogTruckNumber}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 text-xs">Depot:</span>{' '}
-                    <span className="font-medium text-slate-800">{form.depot_loaded || '—'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 text-xs">Qty:</span>{' '}
-                    <span className="font-medium text-slate-800">
-                      {form.quantity ? `${formatWithCommas(stripCommas(form.quantity))} L` : '—'}
-                    </span>
+                    <span className="text-slate-500 text-xs">Depot Loaded:</span>{' '}
+                    <span className="font-medium text-slate-800">{dialogDepot || '—'}</span>
                   </div>
                   <div>
                     <span className="text-slate-500 text-xs">Date Loaded:</span>{' '}
                     <span className="font-medium text-slate-800">
-                      {form.date_loaded ? format(parseISO(form.date_loaded), 'dd MMM yyyy') : '—'}
+                      {dialogDateLoaded ? format(parseISO(dialogDateLoaded), 'dd MMM yyyy') : '—'}
                     </span>
                   </div>
                   {(() => {
-                    const summary = truckPaymentSummary.get(form.truck_number);
+                    const summary = truckPaymentSummary.get(dialogTruckNumber);
                     if (!summary) return null;
                     const bal = summary.totalExpected - summary.totalPaid;
                     return (
@@ -966,176 +1095,250 @@ export default function DeliverySalesLedger() {
               </div>
             )}
 
-            {/* Customer & Destination — editable, assigned at sale time */}
-            {form.truck_number && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-slate-700">Customer</Label>
-                  <select
-                    aria-label="Select customer"
-                    value={form.customer}
-                    onChange={e => {
-                      const custId = e.target.value;
-                      const cust = custId ? customerMap.get(Number(custId)) : null;
-                      setForm(f => ({
-                        ...f,
-                        customer: custId,
-                        customer_name: cust?.customer_name || '',
-                      }));
-                    }}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">Select customer…</option>
-                    {customers.map(c => (
-                      <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-slate-700">Destination</Label>
-                  <Input
-                    placeholder="e.g. Kano, Abuja…"
-                    value={form.location}
-                    onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Rate + Sales Value */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">Rate (₦ per litre)</Label>
-                <Input
-                  type="text" inputMode="decimal" placeholder="e.g. 1,210"
-                  value={form.rate}
-                  onChange={e => {
-                    const r = formatWithCommas(e.target.value);
-                    setForm(f => ({ ...f, rate: r, sales_value: autoCalcSalesValue(f.quantity, r) }));
-                  }}
-                />
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label className="text-sm font-medium text-slate-700">Expected Amount (₦)</Label>
-                <Input
-                  type="text" readOnly
-                  value={form.sales_value ? `₦${form.sales_value}` : '—'}
-                  className="bg-slate-50 font-bold text-slate-800"
-                />
-                {form.sales_value && form.quantity && (
-                  <p className="text-[11px] text-slate-500">
-                    {formatWithCommas(stripCommas(form.quantity))} L × ₦{form.rate} = ₦{form.sales_value}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Divider */}
-            <div className="border-t border-slate-200 pt-3">
-              <p className="text-xs text-slate-500 uppercase tracking-wider font-medium mb-3">
-                💰 Payment Details
-              </p>
-            </div>
-
-            {/* Payment Amount + Date */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Banknote size={15} className="text-slate-500" /> Payment Amount (₦) <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  type="text" inputMode="decimal" placeholder="e.g. 24,450,000"
-                  value={form.payment_amount}
-                  onChange={e => setForm(f => ({ ...f, payment_amount: formatWithCommas(e.target.value) }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <CalendarIcon size={15} className="text-slate-500" /> Date of Payment
-                </Label>
-                <Input
-                  type="date"
-                  value={form.date_of_payment}
-                  onChange={e => setForm(f => ({ ...f, date_of_payment: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            {/* Payer + Bank Account */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">Payer's Name</Label>
-                <Input
-                  placeholder="Who made the payment?"
-                  value={form.payer_name}
-                  onChange={e => setForm(f => ({ ...f, payer_name: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Building2 size={15} className="text-slate-500" /> Bank Account
-                </Label>
-                <select
-                  aria-label="Select bank account"
-                  value={form.bank_account_id}
-                  onChange={e => setForm(f => ({ ...f, bank_account_id: e.target.value }))}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Select account…</option>
-                  {activeBankAccounts.map(b => (
-                    <option key={b.id} value={String(b.id)}>
-                      {b.bank_name} — {b.account_number} ({b.account_name})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Phone + Remarks */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">Phone Number</Label>
-                <Input
-                  placeholder="e.g. 08012345678"
-                  value={form.phone_number}
-                  onChange={e => setForm(f => ({ ...f, phone_number: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-slate-700">Remarks</Label>
-                <Input
-                  placeholder="e.g. Partial Payment, Full Payment…"
-                  value={form.remarks}
-                  onChange={e => setForm(f => ({ ...f, remarks: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            {/* Balance Preview */}
-            {(form.sales_value || form.payment_amount) && (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+            {/* ── Per-customer rows ─────────────────────────────────── */}
+            {dialogTruckNumber && (
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-slate-500 mb-0.5">After this payment</p>
-                    {(() => {
-                      const expected = Number(stripCommas(form.sales_value)) || 0;
-                      const thisPayment = Number(stripCommas(form.payment_amount)) || 0;
-                      const summary = truckPaymentSummary.get(form.truck_number);
-                      const previouslyPaid = summary?.totalPaid || 0;
-                      const newBalance = expected - previouslyPaid - thisPayment;
-                      return (
-                        <>
-                          <p className={`text-lg font-bold ${newBalance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                            {newBalance > 0 ? fmt(newBalance) + ' remaining' : '✓ Fully paid'}
-                          </p>
-                          <p className="text-[11px] text-slate-400 mt-1">
-                            Expected: {fmt(expected)} · Previously paid: {fmt(previouslyPaid)} · This payment: {fmt(thisPayment)}
-                          </p>
-                        </>
-                      );
-                    })()}
-                  </div>
+                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Customer ({saleRows.length})
+                  </p>
+                  <Button
+                    type="button" variant="outline" size="sm"
+                    className="gap-1.5 text-xs h-8"
+                    onClick={addSaleRow}
+                  >
+                    <UserPlus size={13} /> Add Customer
+                  </Button>
                 </div>
+
+                {saleRows.map((row, idx) => (
+                  <div
+                    key={row.uid}
+                    className={`border rounded-lg p-3 space-y-3 relative ${rowErrors[row.uid] && Object.keys(rowErrors[row.uid]).length ? 'border-red-300 bg-red-50/30' : 'border-slate-200 bg-slate-50/50'}`}
+                  >
+                    {/* Row header */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        Customer #{idx + 1}
+                      </span>
+                      {saleRows.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeSaleRow(row.uid)}
+                          className="text-slate-400 hover:text-red-500 transition-colors p-0.5 rounded"
+                          title="Remove row"
+                        >
+                          <X size={15} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Customer + Destination + Qty */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Customer <span className="text-red-500">*</span></Label>
+                        <select
+                          aria-label={`Customer for row ${idx + 1}`}
+                          value={row.customer}
+                          onChange={e => {
+                            const custId = e.target.value;
+                            const cust = custId ? customerMap.get(Number(custId)) : null;
+                            updateSaleRow(row.uid, 'customer', custId);
+                            if (cust) updateSaleRow(row.uid, 'customer_name', cust.customer_name);
+                          }}
+                          className={`h-9 w-full rounded-md border bg-background px-3 py-2 text-sm ${rowErrors[row.uid]?.customer ? 'border-red-400 bg-red-50' : 'border-input'}`}
+                        >
+                          <option value="">Select customer…</option>
+                          {customers.map(c => (
+                            <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
+                          ))}
+                        </select>
+                        {rowErrors[row.uid]?.customer && <p className="text-[11px] text-red-500">{rowErrors[row.uid].customer}</p>}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Destination <span className="text-red-500">*</span></Label>
+                        <Input
+                          placeholder="e.g. Kano, Abuja…"
+                          className={`h-9 text-sm ${rowErrors[row.uid]?.location ? 'border-red-400 bg-red-50' : ''}`}
+                          value={row.location}
+                          onChange={e => updateSaleRow(row.uid, 'location', e.target.value)}
+                        />
+                        {rowErrors[row.uid]?.location && <p className="text-[11px] text-red-500">{rowErrors[row.uid].location}</p>}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Quantity (L)</Label>
+                        <Input
+                          type="text" inputMode="decimal" placeholder="e.g. 33,000"
+                          className="h-9 text-sm"
+                          value={row.quantity}
+                          onChange={e => updateSaleRow(row.uid, 'quantity', e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Rate + Expected + Payment */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600 flex items-center gap-1">
+                          Rate (₦/L) <span className="text-red-500">*</span>
+                          {row.rateLocked && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                              🔒 Locked
+                            </span>
+                          )}
+                        </Label>
+                        <Input
+                          type="text" inputMode="decimal" placeholder="e.g. 1,210"
+                          className={`h-9 text-sm ${row.rateLocked ? 'bg-amber-50 text-amber-800 font-semibold cursor-not-allowed' : rowErrors[row.uid]?.rate ? 'border-red-400 bg-red-50' : ''}`}
+                          value={row.rate}
+                          readOnly={row.rateLocked}
+                          onChange={e => updateSaleRow(row.uid, 'rate', e.target.value)}
+                          title={row.rateLocked ? `Rate locked at ₦${row.rate}/L from first entry for this customer` : undefined}
+                        />
+                        {rowErrors[row.uid]?.rate && <p className="text-[11px] text-red-500">{rowErrors[row.uid].rate}</p>}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Expected (₦)</Label>
+                        <Input
+                          readOnly
+                          className="h-9 text-sm bg-white font-semibold text-slate-700"
+                          value={row.sales_value ? `₦${row.sales_value}` : '—'}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Amount Paid (₦)</Label>
+                        <Input
+                          type="text" inputMode="decimal"
+                          className="h-9 text-sm"
+                          value={row.payment_amount}
+                          onChange={e => updateSaleRow(row.uid, 'payment_amount', e.target.value)}
+                        />
+                        {/* <p className="text-[10px] text-slate-400">Leave blank or 0 if no payment yet</p> */}
+                      </div>
+                    </div>
+
+                    {/* Payment date + Payer + Bank */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">
+                          <CalendarIcon size={11} className="inline mr-1" />Date of Payment <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          type="date"
+                          className={`h-9 text-sm ${rowErrors[row.uid]?.date_of_payment ? 'border-red-400 bg-red-50' : ''}`}
+                          value={row.date_of_payment}
+                          onChange={e => updateSaleRow(row.uid, 'date_of_payment', e.target.value)}
+                        />
+                        {rowErrors[row.uid]?.date_of_payment && <p className="text-[11px] text-red-500">{rowErrors[row.uid].date_of_payment}</p>}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Payer's Name</Label>
+                        <Input
+                          // placeholder="Full name, letters only"
+                          className={`h-9 text-sm ${rowErrors[row.uid]?.payer_name ? 'border-red-400 bg-red-50' : ''}`}
+                          value={row.payer_name}
+                          onChange={e => {
+                            // Strip digits as user types
+                            const cleaned = e.target.value.replace(/[0-9]/g, '');
+                            updateSaleRow(row.uid, 'payer_name', cleaned);
+                          }}
+                        />
+                        {/* {rowErrors[row.uid]?.payer_name
+                          ? <p className="text-[11px] text-red-500">{rowErrors[row.uid].payer_name}</p>
+                          : <p className="text-[10px] text-slate-400">Letters only — no numbers</p>
+                        } */}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">
+                          <Building2 size={11} className="inline mr-1" />Bank Account <span className="text-red-500">*</span>
+                        </Label>
+                        <select
+                          aria-label={`Bank account for row ${idx + 1}`}
+                          value={row.bank_account_id}
+                          onChange={e => updateSaleRow(row.uid, 'bank_account_id', e.target.value)}
+                          className={`h-9 w-full rounded-md border bg-background px-3 py-2 text-sm ${rowErrors[row.uid]?.bank_account_id ? 'border-red-400 bg-red-50' : 'border-input'}`}
+                        >
+                          <option value="">Select account…</option>
+                          {activeBankAccounts.map(b => (
+                            <option key={b.id} value={String(b.id)}>
+                              {b.account_number} · {b.bank_name}
+                            </option>
+                          ))}
+                        </select>
+                        {rowErrors[row.uid]?.bank_account_id && <p className="text-[11px] text-red-500">{rowErrors[row.uid].bank_account_id}</p>}
+                      </div>
+                    </div>
+
+                    {/* Phone + Remarks */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Phone Number</Label>
+                        <Input
+                          placeholder="e.g. 08012345678"
+                          className="h-9 text-sm"
+                          value={row.phone_number}
+                          onChange={e => updateSaleRow(row.uid, 'phone_number', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Remarks</Label>
+                        <Input
+                          placeholder="e.g. Partial Payment, Full Payment…"
+                          className="h-9 text-sm"
+                          value={row.remarks}
+                          onChange={e => updateSaleRow(row.uid, 'remarks', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* ── Grand Total Summary ──────────────────────────── */}
+                {(() => {
+                  const grandExpected = saleRows.reduce((s, r) => s + (Number(stripCommas(r.sales_value)) || 0), 0);
+                  const grandPayment = saleRows.reduce((s, r) => s + (Number(stripCommas(r.payment_amount)) || 0), 0);
+                  const summary = truckPaymentSummary.get(dialogTruckNumber);
+                  const previouslyPaid = summary?.totalPaid || 0;
+                  if (!grandExpected && !grandPayment) return null;
+                  return (
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mt-1">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Grand Total (all rows)</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                        {grandExpected > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-400">Total Expected</p>
+                            <p className="font-bold text-slate-800">{fmt(grandExpected)}</p>
+                          </div>
+                        )}
+                        {grandPayment > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-400">This Payment</p>
+                            <p className="font-bold text-emerald-700">{fmt(grandPayment)}</p>
+                          </div>
+                        )}
+                        {previouslyPaid > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-400">Previously Paid</p>
+                            <p className="font-medium text-slate-600">{fmt(previouslyPaid)}</p>
+                          </div>
+                        )}
+                        {grandExpected > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-400">Balance After</p>
+                            {(() => {
+                              const bal = grandExpected - previouslyPaid - grandPayment;
+                              return (
+                                <p className={`font-bold ${bal > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                  {bal > 0 ? fmt(bal) + ' remaining' : '✓ Fully paid'}
+                                </p>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -1146,7 +1349,7 @@ export default function DeliverySalesLedger() {
             </Button>
             <Button onClick={handleSave} disabled={saving} className="gap-2">
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-              {saving ? 'Saving…' : 'Record Payment'}
+              {saving ? 'Saving…' : `Record ${saleRows.filter(r => r.customer).length || ''} Payment${saleRows.filter(r => r.customer).length !== 1 ? 's' : ''}`}
             </Button>
           </DialogFooter>
         </DialogContent>

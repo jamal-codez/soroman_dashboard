@@ -19,7 +19,7 @@ import {
   Plus, Search, Download, Loader2, Trash2,
   Truck, DropletIcon, FileText, Package,
   CheckCircle2, AlertTriangle,
-  CalendarDays, X,
+  CalendarDays, X, UserPlus,
 } from 'lucide-react';
 import {
   format, parseISO, isWithinInterval, startOfDay, endOfDay,
@@ -94,6 +94,13 @@ type TruckRecord = InventoryEntry & {
   qty: number;
 };
 
+/** One customer row in the Load Trucks dialog */
+interface CustomerAllocation {
+  uid: string;
+  customerId: string;
+  qty: string;
+}
+
 type PagedResponse<T> = { count: number; results: T[] };
 type StatusFilter = 'all' | 'active' | 'delivered';
 
@@ -156,6 +163,12 @@ const statusBadge = {
   },
 } as const;
 
+const makeAllocation = (): CustomerAllocation => ({
+  uid: crypto.randomUUID(),
+  customerId: '',
+  qty: '',
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════════════════════════════
@@ -177,12 +190,13 @@ export default function DeliveryInventory() {
   // ── Load Trucks Dialog ──────────────────────────────────────────
   const [loadDialogOpen, setLoadDialogOpen] = useState(false);
   const [loadPfi, setLoadPfi] = useState('');
-  const [loadQty, setLoadQty] = useState('');
   const [loadDepot, setLoadDepot] = useState('');
   const [loadNotes, setLoadNotes] = useState('');
   const [selectedTruckIds, setSelectedTruckIds] = useState<Set<number>>(new Set());
   const [truckSearch, setTruckSearch] = useState('');
   const [saving, setSaving] = useState(false);
+  // Customer allocations — each row: one customer + their quantity
+  const [customerAllocations, setCustomerAllocations] = useState<CustomerAllocation[]>([makeAllocation()]);
 
   // ── Offload Dialog ─────────────────────────────────────────────────
   const [offloadTarget, setOffloadTarget] = useState<TruckRecord | null>(null);
@@ -500,6 +514,12 @@ export default function DeliveryInventory() {
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [truckRecords]);
 
+  // Total quantity across all allocation rows (per truck)
+  const allocationTotal = useMemo(
+    () => customerAllocations.reduce((sum, a) => sum + (Number(stripCommas(a.qty)) || 0), 0),
+    [customerAllocations],
+  );
+
   // ═══════════════════════════════════════════════════════════════════
   // Handlers
   // ═══════════════════════════════════════════════════════════════════
@@ -512,11 +532,11 @@ export default function DeliveryInventory() {
 
   const openLoadDialog = () => {
     setLoadPfi('');
-    setLoadQty('');
     setLoadDepot('');
     setLoadNotes('');
     setSelectedTruckIds(new Set());
     setTruckSearch('');
+    setCustomerAllocations([makeAllocation()]);
     setLoadDialogOpen(true);
   };
 
@@ -532,43 +552,75 @@ export default function DeliveryInventory() {
     });
   };
 
+  const updateAllocation = (uid: string, field: 'customerId' | 'qty', value: string) => {
+    setCustomerAllocations(prev =>
+      prev.map(a =>
+        a.uid === uid
+          ? { ...a, [field]: field === 'qty' ? formatWithCommas(value) : value }
+          : a,
+      ),
+    );
+  };
+
+  const addAllocationRow = () => setCustomerAllocations(prev => [...prev, makeAllocation()]);
+
+  const removeAllocationRow = (uid: string) => {
+    setCustomerAllocations(prev => (prev.length > 1 ? prev.filter(a => a.uid !== uid) : prev));
+  };
+
   const handleLoadSave = useCallback(async () => {
     if (selectedTruckIds.size === 0) {
       toast({ title: 'Select at least one truck', variant: 'destructive' });
       return;
     }
-    const totalQty = Number(stripCommas(loadQty));
-    if (!totalQty || totalQty <= 0) {
-      toast({ title: 'Quantity must be greater than 0', variant: 'destructive' });
+
+    // Validate allocations
+    const filledRows = customerAllocations.filter(a => a.customerId || a.qty);
+    if (filledRows.length === 0) {
+      toast({ title: 'Add at least one customer allocation', variant: 'destructive' });
+      return;
+    }
+    const invalidRow = filledRows.find(a => !a.customerId || !a.qty || Number(stripCommas(a.qty)) <= 0);
+    if (invalidRow) {
+      toast({ title: 'Each allocation needs a customer and a quantity > 0', variant: 'destructive' });
       return;
     }
 
     const truckCount = selectedTruckIds.size;
-    const qtyPerTruck = Math.round(totalQty / truckCount);
-
     setSaving(true);
     try {
       const depot = loadDepot || selectedPfi?.location_name || '';
       const currentUser = localStorage.getItem('fullname') || 'Unknown';
-      const promises = [...selectedTruckIds].map(truckId => {
-        const truckObj = allTrucks.find(t => t.id === truckId);
 
-        return apiClient.admin.createDeliveryInventory({
-          pfi: loadPfi ? Number(loadPfi) : undefined,
-          truck: truckId,
-          truck_number: truckObj?.plate_number || '',
-          depot: depot || undefined,
-          quantity_allocated: qtyPerTruck,
-          date_allocated: format(new Date(), 'yyyy-MM-dd'),
-          loading_status: 'loaded',
-          notes: loadNotes.trim() || undefined,
-          created_by: currentUser,
-        });
-      });
+      // For each truck × each customer allocation → one record
+      const promises: Promise<unknown>[] = [];
+      for (const truckId of selectedTruckIds) {
+        const truckObj = allTrucks.find(t => t.id === truckId);
+        for (const alloc of filledRows) {
+          const custObj = customerMap.get(Number(alloc.customerId));
+          promises.push(
+            apiClient.admin.createDeliveryInventory({
+              pfi: loadPfi ? Number(loadPfi) : undefined,
+              truck: truckId,
+              truck_number: truckObj?.plate_number || '',
+              depot: depot || undefined,
+              customer: Number(alloc.customerId),
+              customer_name: custObj?.customer_name || '',
+              quantity_allocated: Number(stripCommas(alloc.qty)),
+              date_allocated: format(new Date(), 'yyyy-MM-dd'),
+              loading_status: 'loaded',
+              notes: loadNotes.trim() || undefined,
+              created_by: currentUser,
+            }),
+          );
+        }
+      }
 
       await Promise.all(promises);
+      const totalQtyPerTruck = filledRows.reduce((s, a) => s + Number(stripCommas(a.qty)), 0);
       toast({
-        title: `${truckCount} truck${truckCount > 1 ? 's' : ''} loaded — ${fmtQty(totalQty)} L total`,
+        title: `${truckCount} truck${truckCount > 1 ? 's' : ''} loaded — ${fmtQty(totalQtyPerTruck * truckCount)} L total`,
+        description: `${filledRows.length} customer allocation${filledRows.length > 1 ? 's' : ''} per truck`,
       });
       setLoadDialogOpen(false);
       invalidateAll();
@@ -581,7 +633,7 @@ export default function DeliveryInventory() {
     } finally {
       setSaving(false);
     }
-  }, [selectedTruckIds, loadQty, loadPfi, loadDepot, loadNotes, selectedPfi, allTrucks, toast, invalidateAll]);
+  }, [selectedTruckIds, customerAllocations, loadPfi, loadDepot, loadNotes, selectedPfi, allTrucks, customerMap, toast, invalidateAll]);
 
   const handleOffload = useCallback(async () => {
     if (!offloadTarget) return;
@@ -1139,23 +1191,69 @@ export default function DeliveryInventory() {
               </div>
             )}
 
-            {/* ── Total Quantity ───────────────────────────────── */}
+            {/* ── Customer Allocations ─────────────────────────── */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                <DropletIcon size={15} className="text-slate-500" />
-                Total Quantity (Litres) <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                type="text"
-                inputMode="decimal"
-                placeholder="e.g. 500,000"
-                value={loadQty}
-                onChange={e => setLoadQty(formatWithCommas(e.target.value))}
-              />
-              {selectedTruckIds.size > 0 && loadQty && (
-                <p className="text-xs text-slate-500">
-                  ≈ {fmtQty(Math.round(Number(stripCommas(loadQty)) / selectedTruckIds.size))} L per truck
-                  ({selectedTruckIds.size} truck{selectedTruckIds.size !== 1 ? 's' : ''} selected)
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                  <UserPlus size={15} className="text-slate-500" />
+                  Customer Allocations <span className="text-red-500">*</span>
+                </Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs text-blue-600 hover:text-blue-800 h-7 px-2"
+                  onClick={addAllocationRow}
+                >
+                  <Plus size={13} /> Add Customer
+                </Button>
+              </div>
+
+              {/* Column headers */}
+              <div className="grid grid-cols-[1fr_140px_32px] gap-2 px-1">
+                <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Customer</span>
+                <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Quantity (L)</span>
+                <span />
+              </div>
+
+              <div className="space-y-2">
+                {customerAllocations.map((alloc, idx) => (
+                  <div key={alloc.uid} className="grid grid-cols-[1fr_140px_32px] gap-2 items-center">
+                    <select
+                      aria-label={`Customer for row ${idx + 1}`}
+                      value={alloc.customerId}
+                      onChange={e => updateAllocation(alloc.uid, 'customerId', e.target.value)}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    >
+                      <option value="">Select customer…</option>
+                      {customers.map(c => (
+                        <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
+                      ))}
+                    </select>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="e.g. 33,000"
+                      value={alloc.qty}
+                      onChange={e => updateAllocation(alloc.uid, 'qty', e.target.value)}
+                      className="h-9 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeAllocationRow(alloc.uid)}
+                      disabled={customerAllocations.length === 1}
+                      className="h-8 w-8 flex items-center justify-center rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Remove row"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {allocationTotal > 0 && (
+                <p className="text-xs text-slate-500 text-right">
+                  Subtotal per truck: <span className="font-semibold text-slate-700">{fmtQty(allocationTotal)} L</span>
                 </p>
               )}
             </div>
@@ -1267,17 +1365,17 @@ export default function DeliveryInventory() {
             </div>
 
             {/* ── Summary ─────────────────────────────────────── */}
-            {selectedTruckIds.size > 0 && loadQty && (
+            {selectedTruckIds.size > 0 && allocationTotal > 0 && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-xs text-blue-700 font-semibold mb-1">Loading Summary</p>
                 <p className="text-lg font-bold text-slate-800">
-                  {formatWithCommas(stripCommas(loadQty))} L
+                  {fmtQty(allocationTotal * selectedTruckIds.size)} L total
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    across {selectedTruckIds.size} truck{selectedTruckIds.size !== 1 ? 's' : ''}
+                    ({fmtQty(allocationTotal)} L × {selectedTruckIds.size} truck{selectedTruckIds.size !== 1 ? 's' : ''})
                   </span>
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  ≈ {fmtQty(Math.round(Number(stripCommas(loadQty)) / selectedTruckIds.size))} L per truck
+                  {customerAllocations.filter(a => a.customerId && a.qty).length} customer{customerAllocations.filter(a => a.customerId && a.qty).length !== 1 ? 's' : ''} per truck
                   {selectedPfi ? ` · ${selectedPfi.pfi_number} · ${selectedPfi.product_name || '—'}` : ''}
                 </p>
               </div>
