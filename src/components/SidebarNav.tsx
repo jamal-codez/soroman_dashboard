@@ -110,8 +110,8 @@ const navCategories: NavCategory[] = [
     category: 'Finance',
     items: [
       { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2,8,9] },
-      { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2,8,9] },
-      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2,8,9] },
+      { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2,8] },
+      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2,8] },
     ],
   },
   {
@@ -125,13 +125,13 @@ const navCategories: NavCategory[] = [
       { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1,8] },
     ],
   },
-  {
-    category: 'Records',
-    items: [
-      { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6,7,8,9] },
-      { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2,7,8] },
-    ],
-  },
+  // {
+  //   category: 'Records',
+  //   items: [
+  //     { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6,7,8,9] },
+  //     { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2,7,8] },
+  //   ],
+  // },
   {
     category: 'Security',
     items: [
