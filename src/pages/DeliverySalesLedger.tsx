@@ -1,5 +1,5 @@
 // filepath: /Users/sableboxx/soroman_dashboard-2/src/pages/DeliverySalesLedger.tsx
-import { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -454,11 +454,18 @@ export default function DeliverySalesLedger() {
       });
       if (!hasEntryInRange) return;
 
+      // Expected revenue: already correct — truckPaymentSummary takes MAX sales_value
+      // per customer per truck, so FS entries with sales_value = 0 contribute 0 naturally.
       totalExpected += summary.totalExpected;
+
+      // Total paid: already correct — FS entries with no payment contribute 0 naturally.
       totalPaid += summary.totalPaid;
+
+      // Count this truck regardless of whether it has FS or regular customers.
       uniqueTrucks.add(truckNum);
 
-      // Qty: take MAX per customer per truck (same dedup logic as sales_value)
+      // Qty: MAX per customer per truck across ALL entries (FS qty is real loaded qty).
+      // Each payment row repeats the same quantity — take MAX to avoid double-counting.
       const perCustMaxQty = new Map<number, number>();
       summary.entries.forEach(s => {
         uniqueCustomers.add(s.customer);
@@ -492,6 +499,26 @@ export default function DeliverySalesLedger() {
     timePreset === 'custom'
       ? `${customFrom ? format(parseISO(customFrom), 'dd MMM') : '?'} – ${customTo ? format(parseISO(customTo), 'dd MMM yyyy') : '?'}`
       : timePreset === 'all' ? 'All Time' : timePreset.charAt(0).toUpperCase() + timePreset.slice(1);
+
+  // Group filteredSales by truck, preserving sort order within each group
+  const groupedByTruck = useMemo(() => {
+    const map = new Map<string, DeliverySale[]>();
+    filteredSales.forEach(s => {
+      const arr = map.get(s.truck_number) ?? [];
+      arr.push(s);
+      map.set(s.truck_number, arr);
+    });
+    return map;
+  }, [filteredSales]);
+
+  // Which truck groups are collapsed (default: all expanded)
+  const [collapsedTrucks, setCollapsedTrucks] = useState<Set<string>>(new Set());
+  const toggleTruck = (truckNum: string) =>
+    setCollapsedTrucks(prev => {
+      const next = new Set(prev);
+      next.has(truckNum) ? next.delete(truckNum) : next.add(truckNum);
+      return next;
+    });
 
   // Unique truck numbers for filter dropdown
   const uniqueTruckNumbers = useMemo(() => {
@@ -903,20 +930,30 @@ export default function DeliverySalesLedger() {
       ? `${customFrom || '?'}_TO_${customTo || '?'}`
       : timePreset.toUpperCase();
 
-    // ── Summary block — mirrors the on-page summaryCards logic ─────
-    // Group by truck, then take MAX sales_value per customer to avoid
-    // double-counting (each payment row repeats the same customer total).
-    const exportTruckMap = new Map<string, { entries: DeliverySale[] }>();
+    const n = (v: number) => v > 0 ? v.toLocaleString('en-NG') : '—';
+    const u = (s: string) => (s || '').toUpperCase();
+
+    // ── Build truck groups, each sorted chronologically ─────────────
+    const exportTruckMap = new Map<string, DeliverySale[]>();
     filteredSales.forEach(s => {
-      const arr = exportTruckMap.get(s.truck_number) ?? { entries: [] };
-      arr.entries.push(s);
+      const arr = exportTruckMap.get(s.truck_number) ?? [];
+      arr.push(s);
       exportTruckMap.set(s.truck_number, arr);
     });
+    // Sort entries within each truck by date_of_payment → date_loaded → id
+    exportTruckMap.forEach(entries => {
+      entries.sort((a, b) => {
+        const da = a.date_of_payment || a.date_loaded || '';
+        const db = b.date_of_payment || b.date_loaded || '';
+        return da.localeCompare(db) || a.id - b.id;
+      });
+    });
 
-    let totalExpExport  = 0;
-    let totalPaidExport = 0;
-    let totalQtyExport  = 0;
-    exportTruckMap.forEach(({ entries }) => {
+    // ── Grand totals (same dedup logic as on-page cards) ────────────
+    let grandExpected  = 0;
+    let grandPaid      = 0;
+    let grandQty       = 0;
+    exportTruckMap.forEach(entries => {
       const perCustMaxSv  = new Map<number, number>();
       const perCustMaxQty = new Map<number, number>();
       entries.forEach(s => {
@@ -924,60 +961,99 @@ export default function DeliverySalesLedger() {
         const q  = toNum(s.quantity);
         if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
         if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-        totalPaidExport += toNum(s.payment_amount);
+        grandPaid += toNum(s.payment_amount);
       });
-      perCustMaxSv.forEach(v  => { totalExpExport += v; });
-      perCustMaxQty.forEach(v => { totalQtyExport += v; });
+      perCustMaxSv.forEach(v  => { grandExpected += v; });
+      perCustMaxQty.forEach(v => { grandQty      += v; });
     });
-    const totalBalExport  = totalExpExport - totalPaidExport;
-    const uniqueTrucksExp = exportTruckMap.size;
-    const uniqueCustExp   = new Set(filteredSales.map(r => r.customer)).size;
+    const grandBalance    = grandExpected - grandPaid;
+    const totalTrucks     = exportTruckMap.size;
 
-    const n = (v: number) => v.toLocaleString('en-NG');
+    // ── Build AOA (array-of-arrays) for the sheet ───────────────────
+    const COLS = [
+      'S/N', 'TRUCK NO.', 'DATE LOADED', 'DEPOT', 'DESTINATION', 'CUSTOMER',
+      'QTY (LTRS)', 'RATE (₦)', 'EXPECTED (₦)', 'PAYMENT (₦)', 'BALANCE (₦)',
+      'PAYER', 'CONTACT', 'BANK', 'PAYMENT DATE', 'ENTERED BY',
+    ] as const;
 
-    const rows = filteredSales.map((s, idx) => {
-      const custName = (s.customer_name || customerMap.get(s.customer)?.customer_name || '').toUpperCase();
-      const balance = rowBalances.get(s.id) ?? 0;
-      return {
-        'S/N': idx + 1,
-        'TRUCK NO.': s.truck_number.toUpperCase(),
-        'DATE LOADED': s.date_loaded ? format(parseISO(s.date_loaded), 'dd/MM/yyyy') : '',
-        'DEPOT LOADED': (s.depot_loaded || '').toUpperCase(),
-        'DESTINATION': (s.location || '').toUpperCase(),
-        'CUSTOMER': custName,
-        'QTY (LTRS)': n(toNum(s.quantity)),
-        'RATE (₦)': n(toNum(s.rate)),
-        'EXPECTED (₦)': n(toNum(s.sales_value)),
-        'PAYMENT (₦)': n(toNum(s.payment_amount)),
-        'BALANCE (₦)': n(balance),
-        'PAYER': (s.payer_name || '').toUpperCase(),
-        'CONTACT': s.phone_number || '',
-        'BANK': (s.bank || '').toUpperCase(),
-        'PAYMENT DATE': s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '',
-        // 'REMARKS': (s.remarks || '').toUpperCase(),
-        'ENTERED BY': (s.entered_by || '').toUpperCase(),
-      };
+    const aoa: (string | number)[][] = [];
+
+    // Grand summary header
+    aoa.push(['TRUCK SALES LEDGER — ' + period]);
+    aoa.push([]);
+    aoa.push(['TOTAL QTY SOLD (LTRS)',  n(grandQty)]);
+    aoa.push(['TOTAL TRUCKS',           totalTrucks]);
+    aoa.push(['EXPECTED REVENUE (₦)',   n(grandExpected)]);
+    aoa.push(['TOTAL PAID (₦)',         n(grandPaid)]);
+    aoa.push(['OUTSTANDING (₦)',        n(grandBalance)]);
+    aoa.push([]);
+
+    // Column headers
+    aoa.push([...COLS]);
+
+    let rowNum = 0;
+
+    exportTruckMap.forEach((entries, truckNum) => {
+      // Per-truck totals
+      const perCustMaxSv  = new Map<number, number>();
+      const perCustMaxQty = new Map<number, number>();
+      let truckPaid = 0;
+      entries.forEach(s => {
+        const sv = toNum(s.sales_value);
+        const q  = toNum(s.quantity);
+        if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
+        if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
+        truckPaid += toNum(s.payment_amount);
+      });
+      let truckExpected = 0; perCustMaxSv.forEach(v  => { truckExpected += v; });
+      let truckQty      = 0; perCustMaxQty.forEach(v => { truckQty      += v; });
+      const truckBalance = truckExpected - truckPaid;
+
+      // Individual entry rows
+      entries.forEach(s => {
+        rowNum += 1;
+        const custName = u(s.customer_name || customerMap.get(s.customer)?.customer_name || '');
+        const balance  = rowBalances.get(s.id) ?? 0;
+        aoa.push([
+          rowNum,
+          u(s.truck_number),
+          s.date_loaded    ? format(parseISO(s.date_loaded),    'dd/MM/yyyy') : '',
+          u(s.depot_loaded  || ''),
+          u(s.location      || ''),
+          custName,
+          toNum(s.quantity)       > 0 ? n(toNum(s.quantity))       : '—',
+          toNum(s.rate)           > 0 ? n(toNum(s.rate))           : '—',
+          toNum(s.sales_value)    > 0 ? n(toNum(s.sales_value))    : '—',
+          toNum(s.payment_amount) > 0 ? n(toNum(s.payment_amount)) : '—',
+          balance !== 0 ? n(Math.abs(balance)) : 'FULLY PAID',
+          u(s.payer_name    || ''),
+          s.phone_number    || '',
+          u(s.bank          || ''),
+          s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '',
+          u(s.entered_by    || ''),
+        ]);
+      });
+
+      // Truck subtotal row
+      aoa.push([
+        '',
+        `SUBTOTAL — ${u(truckNum)}`,
+        '', '', '', '',
+        n(truckQty),
+        '',
+        n(truckExpected),
+        n(truckPaid),
+        truckBalance === 0 ? 'FULLY PAID' : n(truckBalance),
+        '', '', '', '', '',
+      ]);
+      // Blank separator between trucks
+      aoa.push([]);
     });
 
-    // Build a single sheet: summary block on top, blank row, then data
-    const ws = XLSX.utils.aoa_to_sheet([
-      [`TRUCK SALES LEDGER`],
-      [],
-      ['TOTAL QTY SOLD (LTRS)',   n(totalQtyExport)],
-      ['TRUCKS SOLD',               n(uniqueTrucksExp)],
-      // ['CUSTOMERS',            n(uniqueCustExp)],
-      ['EXPECTED REVENUE (₦)', n(totalExpExport)],
-      ['TOTAL PAID (₦)',       n(totalPaidExport)],
-      ['OUTSTANDING (₦)',      n(totalBalExport)],
-      [],
-    ]);
-
-    // Append the data rows below the summary
-    XLSX.utils.sheet_add_json(ws, rows, { origin: -1, skipHeader: false });
-
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Truck Sales Ledger');
-    XLSX.writeFile(wb, `TRUCK-SALES-LEDGER.xlsx`);
+    XLSX.writeFile(wb, `TRUCK-SALES-LEDGER-${period}.xlsx`);
   }, [filteredSales, customerMap, rowBalances, timePreset, customFrom, customTo]);
 
   const activeBankAccounts = useMemo(
@@ -1127,129 +1203,194 @@ export default function DeliverySalesLedger() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredSales.map((s, idx) => {
-                        const custName = s.customer_name || customerMap.get(s.customer)?.customer_name || `#${s.customer}`;
-                        const custObj = customerMap.get(s.customer);
-                        const isFSRow = isFillingStation(custObj);
-                        const sv = toNum(s.sales_value);
-                        const pa = toNum(s.payment_amount);
-                        const balance = rowBalances.get(s.id) ?? (sv - pa);
-                        // For filling stations with no rate yet, don't show a balance
-                        const showBalance = !(isFSRow && sv === 0);
-                        const isPaymentRow = pa > 0;
-                        const isPaidOff = balance <= 0 && sv > 0;
+                      {(() => {
+                        let globalIdx = 0;
+                        const rows: React.ReactNode[] = [];
 
-                        return (
-                          <TableRow
-                            key={s.id}
-                            className={`hover:bg-slate-50/60 transition-colors ${
-                              isPaymentRow ? 'bg-emerald-50/30' : ''
-                            } ${isPaidOff ? 'bg-green-50/40' : ''}`}
-                          >
-                            <TableCell className="text-center text-slate-500">{idx + 1}</TableCell>
-                            <TableCell className="font-semibold text-slate-800 whitespace-nowrap">
-                              <div className="flex items-center gap-1.5">
-                                {/* <Truck size={13} className="text-slate-400" /> */}
-                                {s.truck_number}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-slate-600 whitespace-nowrap">
-                              {s.date_loaded ? format(parseISO(s.date_loaded), 'dd MMM yyyy') : '—'}
-                            </TableCell>
-                            <TableCell className="text-slate-700">{s.depot_loaded || '—'}</TableCell>
-                            <TableCell className="text-slate-700 uppercase whitespace-nowrap">{s.location || '—'}</TableCell>
-                            <TableCell className="font-medium text-slate-900 capitalize whitespace-nowrap">{custName}</TableCell>
-                            <TableCell className="text-slate-700">
-                              {toNum(s.quantity) > 0 ? fmtQty(toNum(s.quantity)) : '—'} Litres
-                            </TableCell>
-                            <TableCell className="text-right text-slate-700">
-                              {toNum(s.rate) > 0 ? fmt(toNum(s.rate)) : '—'}
-                            </TableCell>
-                            <TableCell className="text-right font-medium text-slate-800">
-                              {sv > 0 ? fmt(sv) : '—'}
-                            </TableCell>
-                            <TableCell className="text-right font-bold text-emerald-700">
-                              {pa > 0 ? fmt(pa) : '—'}
-                            </TableCell>
-                            <TableCell className={`text-right font-bold ${
-                              !showBalance ? 'text-slate-400' :
-                              balance > 0 ? 'text-red-600' : balance < 0 ? 'text-blue-600' : 'text-emerald-600'
-                            }`}>
-                              {!showBalance
-                                ? '—'
-                                : balance !== 0 ? fmt(balance) : (sv > 0 ? 'Fully Paid ✓' : '—')}
-                            </TableCell>
-                            <TableCell className="text-slate-700 whitespace-nowrap">
-                              {s.payer_name ? (
-                                <div>
-                                  <p className="font-medium uppercase">{s.payer_name}</p>
-                                  {s.phone_number && (
-                                    <p className="text-xs text-slate-500">{s.phone_number}</p>
-                                  )}
-                                </div>
-                              ) : (
-                                s.phone_number
-                                  ? <span className="text-xs text-slate-500">{s.phone_number}</span>
-                                  : <span className="text-slate-400">—</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-sm max-w-[160px]">
-                              {s.bank ? (() => {
-                                const parts = s.bank.split(' · ');
-                                const acct = parts[0] || s.bank;
-                                const bankName = parts[1] || '';
-                                return (
-                                  <div>
-                                    <p className="font-semibold text-black">{acct}</p>
-                                    {bankName && <p className="text-xs text-slate-600">{bankName}</p>}
-                                  </div>
-                                );
-                              })() : <span className="text-slate-400">—</span>}
-                            </TableCell>
-                            <TableCell className="text-slate-600 whitespace-nowrap text-sm">
-                              {s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd MMM yyyy') : '—'}
-                            </TableCell>
-                            <TableCell>
-                              {s.remarks ? (
-                                <span className={`inline-block px-2 py-0.5 rounded text-sm font-medium ${
-                                  s.remarks.toLowerCase().includes('full') ? 'text-emerald-700 bg-emerald-50' :
-                                  s.remarks.toLowerCase().includes('partial') ? 'text-amber-700 bg-amber-50' :
-                                  'text-slate-600 bg-slate-50'
-                                }`}>
-                                  {s.remarks}
+                        groupedByTruck.forEach((entries, truckNum) => {
+                          const isCollapsed = collapsedTrucks.has(truckNum);
+
+                          // Per-truck totals for the group header
+                          const perCustMaxSv  = new Map<number, number>();
+                          const perCustMaxQty = new Map<number, number>();
+                          let truckPaid = 0;
+                          entries.forEach(s => {
+                            const sv = toNum(s.sales_value);
+                            const q  = toNum(s.quantity);
+                            if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
+                            if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
+                            truckPaid += toNum(s.payment_amount);
+                          });
+                          let truckExpected = 0; perCustMaxSv.forEach(v => { truckExpected += v; });
+                          let truckQty = 0;      perCustMaxQty.forEach(v => { truckQty += v; });
+                          const truckBalance = truckExpected - truckPaid;
+                          const firstEntry = entries[0];
+
+                          // ── Truck group header row ──────────────────────────
+                          rows.push(
+                            <TableRow
+                              key={`group-${truckNum}`}
+                              className="bg-slate-100 hover:bg-slate-200/70 cursor-pointer select-none border-t-2 border-slate-300"
+                              onClick={() => toggleTruck(truckNum)}
+                            >
+                              <TableCell className="w-[48px]">
+                                <span className="text-slate-500 text-xs">
+                                  {isCollapsed ? '▶' : '▼'}
                                 </span>
-                              ) : <span className="text-slate-400">—</span>}
-                            </TableCell>
-                            <TableCell className="text-slate-600 whitespace-nowrap text-sm">
-                              {s.entered_by || '—'}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-1">
-                                {!readOnly && (
-                                  <Button
-                                    size="sm" variant="ghost"
-                                    className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
-                                    title="Edit entry"
-                                    onClick={() => openEditDialog(s)}
-                                  >
-                                    <Pencil size={14} />
-                                  </Button>
-                                )}
-                                {!readOnly && (
-                                  <Button
-                                    size="sm" variant="ghost"
-                                    className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                    title="Delete entry"
-                                    onClick={() => setDeleteTarget({ id: s.id, label: `${s.truck_number} — ${pa > 0 ? fmt(pa) : 'entry'}` })}
-                                  >
-                                    <Trash2 size={14} />
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                              </TableCell>
+                              <TableCell className="font-bold text-slate-900 whitespace-nowrap" colSpan={2}>
+                                <div className="flex items-center gap-2">
+                                  <Truck size={14} className="text-slate-500" />
+                                  {truckNum}
+                                  <span className="text-xs font-normal text-slate-500 ml-1">
+                                    {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-slate-600 text-sm">
+                                {firstEntry?.depot_loaded || '—'}
+                              </TableCell>
+                              <TableCell className="text-slate-600 text-sm">
+                                {firstEntry?.date_loaded ? format(parseISO(firstEntry.date_loaded), 'dd MMM yyyy') : '—'}
+                              </TableCell>
+                              <TableCell className="text-slate-500 text-xs italic">
+                                {entries.map(s => s.customer_name || customerMap.get(s.customer)?.customer_name || '').filter(Boolean).join(', ')}
+                              </TableCell>
+                              <TableCell className="text-slate-700 text-sm font-medium">
+                                {truckQty > 0 ? `${fmtQty(truckQty)} L` : '—'}
+                              </TableCell>
+                              <TableCell className="text-right text-slate-400 text-xs" />
+                              <TableCell className="text-right font-bold text-slate-800">
+                                {truckExpected > 0 ? fmt(truckExpected) : '—'}
+                              </TableCell>
+                              <TableCell className="text-right font-bold text-emerald-700">
+                                {truckPaid > 0 ? fmt(truckPaid) : '—'}
+                              </TableCell>
+                              <TableCell className={`text-right font-bold ${
+                                truckBalance > 0 ? 'text-red-600' : truckBalance < 0 ? 'text-blue-600' : truckExpected > 0 ? 'text-emerald-600' : 'text-slate-400'
+                              }`}>
+                                {truckExpected > 0
+                                  ? (truckBalance === 0 ? 'Fully Paid ✓' : fmt(truckBalance))
+                                  : '—'}
+                              </TableCell>
+                              {/* blank cells for remaining columns */}
+                              <TableCell colSpan={6} />
+                            </TableRow>
+                          );
+
+                          // ── Individual entry rows (hidden when collapsed) ───
+                          if (!isCollapsed) {
+                            entries.forEach(s => {
+                              globalIdx += 1;
+                              const custName = s.customer_name || customerMap.get(s.customer)?.customer_name || `#${s.customer}`;
+                              const custObj  = customerMap.get(s.customer);
+                              const isFSRow  = isFillingStation(custObj);
+                              const sv       = toNum(s.sales_value);
+                              const pa       = toNum(s.payment_amount);
+                              const balance  = rowBalances.get(s.id) ?? (sv - pa);
+                              const showBalance = !(isFSRow && sv === 0);
+                              const isPaidOff   = balance <= 0 && sv > 0;
+
+                              rows.push(
+                                <TableRow
+                                  key={s.id}
+                                  className={`hover:bg-slate-50/60 transition-colors border-l-4 border-l-transparent ${
+                                    pa > 0 ? 'bg-emerald-50/30' : ''
+                                  } ${isPaidOff ? 'bg-green-50/40' : ''}`}
+                                >
+                                  <TableCell className="text-center text-slate-400 pl-6">{globalIdx}</TableCell>
+                                  <TableCell className="text-slate-500 pl-6" colSpan={2}>
+                                    {/* indented — truck already shown in header */}
+                                    <span className="text-xs text-slate-400 italic">{s.truck_number}</span>
+                                  </TableCell>
+                                  <TableCell className="text-slate-700">{s.depot_loaded || '—'}</TableCell>
+                                  <TableCell className="text-slate-600 whitespace-nowrap text-sm">
+                                    {s.date_loaded ? format(parseISO(s.date_loaded), 'dd MMM yyyy') : '—'}
+                                  </TableCell>
+                                  <TableCell className="font-medium text-slate-900 capitalize whitespace-nowrap">{custName}</TableCell>
+                                  <TableCell className="text-slate-700">
+                                    {toNum(s.quantity) > 0 ? `${fmtQty(toNum(s.quantity))} L` : '—'}
+                                  </TableCell>
+                                  <TableCell className="text-right text-slate-700">
+                                    {toNum(s.rate) > 0 ? fmt(toNum(s.rate)) : '—'}
+                                  </TableCell>
+                                  <TableCell className="text-right font-medium text-slate-800">
+                                    {sv > 0 ? fmt(sv) : '—'}
+                                  </TableCell>
+                                  <TableCell className="text-right font-bold text-emerald-700">
+                                    {pa > 0 ? fmt(pa) : '—'}
+                                  </TableCell>
+                                  <TableCell className={`text-right font-bold ${
+                                    !showBalance ? 'text-slate-400' :
+                                    balance > 0 ? 'text-red-600' : balance < 0 ? 'text-blue-600' : 'text-emerald-600'
+                                  }`}>
+                                    {!showBalance ? '—' : balance !== 0 ? fmt(balance) : (sv > 0 ? 'Fully Paid ✓' : '—')}
+                                  </TableCell>
+                                  <TableCell className="text-slate-700 whitespace-nowrap">
+                                    {s.payer_name ? (
+                                      <div>
+                                        <p className="font-medium uppercase">{s.payer_name}</p>
+                                        {s.phone_number && <p className="text-xs text-slate-500">{s.phone_number}</p>}
+                                      </div>
+                                    ) : s.phone_number
+                                      ? <span className="text-xs text-slate-500">{s.phone_number}</span>
+                                      : <span className="text-slate-400">—</span>
+                                    }
+                                  </TableCell>
+                                  <TableCell className="text-sm max-w-[160px]">
+                                    {s.bank ? (() => {
+                                      const parts = s.bank.split(' · ');
+                                      return (
+                                        <div>
+                                          <p className="font-semibold text-black">{parts[0]}</p>
+                                          {parts[1] && <p className="text-xs text-slate-600">{parts[1]}</p>}
+                                        </div>
+                                      );
+                                    })() : <span className="text-slate-400">—</span>}
+                                  </TableCell>
+                                  <TableCell className="text-slate-600 whitespace-nowrap text-sm">
+                                    {s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd MMM yyyy') : '—'}
+                                  </TableCell>
+                                  <TableCell>
+                                    {s.remarks
+                                      ? <span className={`inline-block px-2 py-0.5 rounded text-sm font-medium ${
+                                          s.remarks.toLowerCase().includes('full') ? 'text-emerald-700 bg-emerald-50' :
+                                          s.remarks.toLowerCase().includes('partial') ? 'text-amber-700 bg-amber-50' :
+                                          'text-slate-600 bg-slate-50'
+                                        }`}>{s.remarks}</span>
+                                      : <span className="text-slate-400">—</span>
+                                    }
+                                  </TableCell>
+                                  <TableCell className="text-slate-600 whitespace-nowrap text-sm">
+                                    {s.entered_by || '—'}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex gap-1">
+                                      {!readOnly && (
+                                        <Button size="sm" variant="ghost"
+                                          className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                                          title="Edit entry" onClick={() => openEditDialog(s)}>
+                                          <Pencil size={14} />
+                                        </Button>
+                                      )}
+                                      {!readOnly && (
+                                        <Button size="sm" variant="ghost"
+                                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                          title="Delete entry"
+                                          onClick={() => setDeleteTarget({ id: s.id, label: `${s.truck_number} — ${pa > 0 ? fmt(pa) : 'entry'}` })}>
+                                          <Trash2 size={14} />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            });
+                          }
+                        });
+
+                        return rows;
+                      })()}
                     </TableBody>
                   </Table>
                 </div>
