@@ -457,10 +457,15 @@ export default function DeliverySalesLedger() {
       totalExpected += summary.totalExpected;
       totalPaid += summary.totalPaid;
       uniqueTrucks.add(truckNum);
+
+      // Qty: take MAX per customer per truck (same dedup logic as sales_value)
+      const perCustMaxQty = new Map<number, number>();
       summary.entries.forEach(s => {
         uniqueCustomers.add(s.customer);
-        totalQty += toNum(s.quantity);
+        const q = toNum(s.quantity);
+        if (q > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
       });
+      perCustMaxQty.forEach(q => { totalQty += q; });
     });
 
     return {
@@ -912,14 +917,17 @@ export default function DeliverySalesLedger() {
     let totalPaidExport = 0;
     let totalQtyExport  = 0;
     exportTruckMap.forEach(({ entries }) => {
-      const perCustMax = new Map<number, number>();
+      const perCustMaxSv  = new Map<number, number>();
+      const perCustMaxQty = new Map<number, number>();
       entries.forEach(s => {
         const sv = toNum(s.sales_value);
-        if (sv > 0) perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) ?? 0, sv));
+        const q  = toNum(s.quantity);
+        if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
+        if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
         totalPaidExport += toNum(s.payment_amount);
-        totalQtyExport  += toNum(s.quantity);
       });
-      perCustMax.forEach(v => { totalExpExport += v; });
+      perCustMaxSv.forEach(v  => { totalExpExport += v; });
+      perCustMaxQty.forEach(v => { totalQtyExport += v; });
     });
     const totalBalExport  = totalExpExport - totalPaidExport;
     const uniqueTrucksExp = exportTruckMap.size;
