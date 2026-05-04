@@ -21,14 +21,16 @@ import {
 import {
   Plus, Search, Download, Loader2, Truck, Pencil, Trash2,
   Phone, User, Hash, FileText, TrendingDown, TrendingUp, Wallet,
-  ArrowUpDown, Eye, Calendar as CalendarIcon, Fuel, Camera, AlertTriangle, Users,
+  ArrowUpDown, Eye, Calendar as CalendarIcon, CalendarDays, Fuel, Camera, AlertTriangle, Users,
   Star, MapPin, Clock, Shield, Wrench, Upload, X, CircleAlert,
   TruckIcon,
   FuelIcon,
   RouteIcon,
 } from 'lucide-react';
-import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfDay, endOfDay, subDays, isWithinInterval } from 'date-fns';
+import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfDay, endOfDay, subDays, isWithinInterval, isSameDay, isAfter, isBefore, addDays } from 'date-fns';
 import * as XLSX from 'xlsx';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { isCurrentUserReadOnly } from '@/roles';
@@ -86,6 +88,14 @@ interface LedgerEntry {
   description?: string;
   entered_by?: string;
   created_at?: string;
+}
+
+interface DeliveryInventoryEntry {
+  id: number;
+  truck: number | null;
+  loading_status?: 'loaded' | 'offloaded' | 'empty';
+  date_offloaded?: string | null;
+  quantity_allocated?: number | string;
 }
 
 type PagedResponse<T> = { count: number; results: T[] };
@@ -219,12 +229,17 @@ export default function FleetTrucks() {
   const { toast } = useToast();
 
   // ── Filters ────────────────────────────────────────────────────────
-  const [timePreset, setTimePreset] = useState<TimePreset>('month');
+  const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [truckSearch, setTruckSearch] = useState('');
   const [sortField, setSortField] = useState<SortField>('balance');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  // ── Fleet-specific filters ─────────────────────────────────────────
+  const [loadFilter, setLoadFilter] = useState<'all' | 'loaded' | 'available'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | TruckStatusRating>('all');
+  const [capacityFilter, setCapacityFilter] = useState<'all' | 'small' | 'medium' | 'large'>('all');
 
   // ── Drill-down ─────────────────────────────────────────────────────
   const [selectedTruck, setSelectedTruck] = useState<FleetTruck | null>(null);
@@ -278,6 +293,24 @@ export default function FleetTrucks() {
     staleTime: 30_000,
   });
   const allEntries = useMemo(() => ledgerQuery.data?.results || [], [ledgerQuery.data]);
+
+  // ── Delivery inventory — derive which trucks are currently loaded ────
+  const deliveryInventoryQuery = useQuery({
+    queryKey: ['delivery-inventory-for-fleet'],
+    queryFn: async () => safePaged<DeliveryInventoryEntry>(
+      await apiClient.admin.getDeliveryInventory({ page_size: 5000 })
+    ),
+    staleTime: 30_000,
+  });
+  const loadedTruckIds = useMemo(() => {
+    const ids = new Set<number>();
+    (deliveryInventoryQuery.data?.results || []).forEach(e => {
+      if (e.truck != null && (e.loading_status === 'loaded' || (!e.loading_status && !e.date_offloaded && Number(e.quantity_allocated ?? 0) > 0))) {
+        ids.add(e.truck);
+      }
+    });
+    return ids;
+  }, [deliveryInventoryQuery.data]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Date range logic
@@ -367,6 +400,29 @@ export default function FleetTrucks() {
       );
     }
 
+    // Load filter
+    if (loadFilter === 'loaded') {
+      list = list.filter(t => loadedTruckIds.has(t.id));
+    } else if (loadFilter === 'available') {
+      list = list.filter(t => !loadedTruckIds.has(t.id));
+    }
+
+    // Status / condition filter
+    if (statusFilter !== 'all') {
+      list = list.filter(t => parseStatus(t.truck_status).rating === statusFilter);
+    }
+
+    // Capacity filter: small <30k, medium 30k–45k, large >45k
+    if (capacityFilter !== 'all') {
+      list = list.filter(t => {
+        const cap = t.max_capacity || 0;
+        if (capacityFilter === 'small') return cap > 0 && cap < 30000;
+        if (capacityFilter === 'medium') return cap >= 30000 && cap <= 45000;
+        if (capacityFilter === 'large') return cap > 45000;
+        return true;
+      });
+    }
+
     list.sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
@@ -379,7 +435,7 @@ export default function FleetTrucks() {
     });
 
     return list;
-  }, [trucks, truckSummaries, truckSearch, sortField, sortDir]);
+  }, [trucks, truckSummaries, truckSearch, loadFilter, statusFilter, capacityFilter, loadedTruckIds, sortField, sortDir]);
 
   // ── Drill-down entries for selected truck ──────────────────────────
 
@@ -741,51 +797,135 @@ export default function FleetTrucks() {
               }
             />
 
-            {/* ── Time Filter ──────────────────────────────────────── */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-              <div className="flex flex-wrap gap-2 items-center">
-                <span className="text-sm font-medium text-slate-600 mr-1">
-                  <CalendarIcon size={14} className="inline mr-1" />Period:
-                </span>
-                {(['today', 'yesterday', 'week', 'month', 'year', 'all', 'custom'] as TimePreset[]).map(tp => (
-                  <button
-                    key={tp}
-                    onClick={() => handlePresetChange(tp)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-                      timePreset === tp
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                    }`}
-                  >
-                    {tp === 'all' ? 'All Time' : tp === 'custom' ? 'Date Range' : tp.charAt(0).toUpperCase() + tp.slice(1)}
-                  </button>
-                ))}
-              </div>
-              {timePreset === 'custom' && (
-                <div className="flex flex-wrap gap-3 mt-3 items-end">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">From</Label>
-                    <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="h-9 w-[160px]" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">To</Label>
-                    <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="h-9 w-[160px]" />
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* ── Summary Cards ─────────────────────────────────────── */}
             <SummaryCards cards={summaryCards} />
 
-            {/* ── Search bar ───────────────────────────────────────── */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <Input placeholder="Search by truck, driver, chassis, motor boy, status…" className="pl-10" value={truckSearch} onChange={e => setTruckSearch(e.target.value)} />
+            {/* ── Search + Filters (unified) ───────────────────────── */}
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+              <div className="flex flex-col gap-3">
+
+                {/* Row 1: Search + quick period buttons */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <Input placeholder="Search by truck, driver, chassis, motor boy…" className="pl-10" value={truckSearch} onChange={e => setTruckSearch(e.target.value)} />
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {(['today', 'yesterday', 'week', 'month', 'year', 'all'] as const).map(tp => (
+                      <Button
+                        key={tp}
+                        size="sm"
+                        variant={timePreset === tp ? 'default' : 'outline'}
+                        className="h-9 text-xs capitalize"
+                        onClick={() => handlePresetChange(tp as TimePreset)}
+                      >
+                        {tp === 'all' ? 'All Time' : tp}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Row 2: Load status, Condition, Capacity, Date Range, Clear */}
+                <div className="flex flex-col sm:flex-row gap-3 items-end flex-wrap">
+
+                  <div className="flex-1 min-w-[140px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Load Status</label>
+                    <select
+                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      title="Filter by load status"
+                      value={loadFilter}
+                      onChange={e => setLoadFilter(e.target.value as typeof loadFilter)}
+                    >
+                      <option value="all">All Trucks</option>
+                      <option value="loaded">🟡 Loaded</option>
+                      <option value="available">🟢 Available</option>
+                    </select>
+                  </div>
+
+                  <div className="flex-1 min-w-[140px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Condition</label>
+                    <select
+                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      value={statusFilter}
+                      onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
+                      title="Filter by condition"
+                    >
+                      <option value="all">Any Condition</option>
+                      <option value="Excellent">Excellent</option>
+                      <option value="Good">Good</option>
+                      <option value="Fair">Fair</option>
+                      <option value="Bad">Bad</option>
+                    </select>
+                  </div>
+
+                  <div className="flex-1 min-w-[150px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Capacity</label>
+                    <select
+                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      value={capacityFilter}
+                      onChange={e => setCapacityFilter(e.target.value as typeof capacityFilter)}
+                      title="Filter by capacity"
+                    >
+                      <option value="all">Any Size</option>
+                      <option value="small">Small (&lt;30k L)</option>
+                      <option value="medium">Medium (30–45k L)</option>
+                      <option value="large">Large (&gt;45k L)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Custom Date Range</label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full h-9 justify-start text-left font-normal text-sm">
+                          <CalendarDays className="mr-2 h-4 w-4 text-slate-400" />
+                          {customFrom && customTo
+                            ? `${format(new Date(customFrom), 'dd MMM')} – ${format(new Date(customTo), 'dd MMM yyyy')}`
+                            : 'Pick date range'}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="range"
+                          selected={customFrom && customTo ? { from: new Date(customFrom), to: new Date(customTo) } : undefined}
+                          onSelect={(range) => {
+                            if (range?.from) {
+                              setCustomFrom(format(range.from, 'yyyy-MM-dd'));
+                              setCustomTo(range.to ? format(range.to, 'yyyy-MM-dd') : format(range.from, 'yyyy-MM-dd'));
+                              setTimePreset('custom');
+                            } else {
+                              setCustomFrom('');
+                              setCustomTo('');
+                            }
+                          }}
+                          numberOfMonths={2}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {(loadFilter !== 'all' || statusFilter !== 'all' || capacityFilter !== 'all' || truckSearch.trim() || timePreset !== 'all') && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-9 gap-1 text-slate-500 hover:text-red-600 shrink-0 self-end"
+                      onClick={() => {
+                        setLoadFilter('all');
+                        setStatusFilter('all');
+                        setCapacityFilter('all');
+                        setTruckSearch('');
+                        handlePresetChange('all');
+                      }}
+                    >
+                      <X size={14} /> Clear
+                    </Button>
+                  )}
+
+                  <span className="ml-auto text-xs text-slate-400 font-medium self-end pb-1">
+                    {displayTrucks.length} of {trucks.length} truck{trucks.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
               </div>
-              {/* <Button variant="outline" className="gap-2" onClick={exportSummary}><Download size={16} /> Export</Button>
-              <Button className="gap-2 sm:hidden" onClick={openAddTruck}><Plus size={16} /> Add Truck</Button> */}
             </div>
 
             {/* ── Trucks Table ──────────────────────────────────────── */}
@@ -804,7 +944,8 @@ export default function FleetTrucks() {
                     <TableHeader>
                       <TableRow className="bg-slate-50/80">
                         <TableHead className="font-semibold text-slate-700 w-[50px]">S/N</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Truck No.</TableHead>
+                        <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Truck No.</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Status</TableHead>
                         <TableHead className="font-semibold text-slate-700 hidden md:table-cell">Capacity</TableHead>
                         <TableHead className="font-semibold text-slate-700 hidden md:table-cell">Driver</TableHead>
                         <TableHead className="font-semibold text-slate-700 hidden md:table-cell">Driver's Contact</TableHead>
@@ -823,6 +964,15 @@ export default function FleetTrucks() {
                     <TableBody>
                       {displayTrucks.map((t, idx) => {
                         const balColor = t.balance > 0 ? 'text-emerald-700' : t.balance < 0 ? 'text-red-700' : 'text-slate-500';
+                        const { rating } = parseStatus(t.truck_status);
+                        const isGoodCondition = rating === 'Excellent' || rating === 'Good';
+                        const isLoaded = loadedTruckIds.has(t.id);
+                        const plateColor = !isGoodCondition
+                          ? 'text-red-600 bg-red-50 border border-red-200'
+                          : isLoaded
+                          ? 'text-amber-700 bg-amber-50 border border-amber-200'
+                          : 'text-emerald-700 bg-emerald-50 border border-emerald-200';
+                        const statusBadgeClass = statusColors[rating]?.badge ?? 'text-slate-700 border-slate-300 bg-slate-50';
                         return (
                           <TableRow
                             key={t.id}
@@ -832,8 +982,17 @@ export default function FleetTrucks() {
                             <TableCell className="text-sm text-center text-slate-500 font-medium">{idx + 1}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-3">
-                                <p className="text-sm font-bold text-slate-900">{t.plate_number}</p>
+                                <span className={`text-sm font-bold px-2 py-0.5 rounded ${plateColor}`}>{t.plate_number}</span>
                               </div>
+                            </TableCell>
+                            <TableCell>
+                              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded border ${statusBadgeClass}`}>
+                                {isLoaded && isGoodCondition && <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                                {!isGoodCondition && <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                {isGoodCondition && !isLoaded && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                                {rating}
+                                {/* {isLoaded && isGoodCondition && <span className="text-amber-600 font-bold">· Loaded</span>} */}
+                              </span>
                             </TableCell>
                             <TableCell className="text-sm font-semibold text-slate-700 hidden md:table-cell">
                               {t.max_capacity ? `${t.max_capacity.toLocaleString()} Litres` : '—'}
@@ -884,6 +1043,14 @@ export default function FleetTrucks() {
                                   <Eye size={16} />
                                   View Details
                                 </Button>
+                                {!readOnly && (
+                                  <Button size="sm" variant="outline"
+                                    className="px-2 py-1 text-red-500 border-red-200 bg-red-50/40 hover:bg-red-100 hover:text-red-700 hover:border-red-400 transition-all shadow-sm"
+                                    title="Delete truck"
+                                    onClick={() => setDeleteTarget({ id: t.id, label: t.plate_number })}>
+                                    <Trash2 size={15} />
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>

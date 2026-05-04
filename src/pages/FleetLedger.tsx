@@ -146,7 +146,7 @@ export default function FleetLedger() {
   const { toast } = useToast();
 
   // ── Filters ────────────────────────────────────────────────────────
-  const [timePreset, setTimePreset] = useState<TimePreset>('month');
+  const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [ledgerSearch, setLedgerSearch] = useState('');
