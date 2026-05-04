@@ -443,6 +443,7 @@ export default function DeliverySalesLedger() {
   const totals = useMemo(() => {
     let totalExpected = 0;
     let totalPaid = 0;
+    let totalQty = 0;
     const uniqueTrucks = new Set<string>();
     const uniqueCustomers = new Set<number>();
 
@@ -456,13 +457,17 @@ export default function DeliverySalesLedger() {
       totalExpected += summary.totalExpected;
       totalPaid += summary.totalPaid;
       uniqueTrucks.add(truckNum);
-      summary.entries.forEach(s => uniqueCustomers.add(s.customer));
+      summary.entries.forEach(s => {
+        uniqueCustomers.add(s.customer);
+        totalQty += toNum(s.quantity);
+      });
     });
 
     return {
       entries: timeFilteredSales.length,
       totalExpected,
       totalPaid,
+      totalQty,
       outstanding: totalExpected - totalPaid,
       truckCount: uniqueTrucks.size,
       customerCount: uniqueCustomers.size,
@@ -470,8 +475,9 @@ export default function DeliverySalesLedger() {
   }, [truckPaymentSummary, timeFilteredSales, dateRange]);
 
   const summaryCards = useMemo((): SummaryCard[] => [
-    // { title: 'Total Entries', value: String(totals.entries), icon: <FileText size={20} />, tone: 'neutral' },
-    // { title: 'Trucks Sold', value: String(totals.truckCount), icon: <Truck size={20} />, tone: 'neutral' },
+    { title: 'Qty Sold (Ltrs)', value: totals.totalQty > 0 ? totals.totalQty.toLocaleString() : '0', icon: <Truck size={20} />, tone: 'neutral' },
+    { title: 'Trucks Sold', value: String(totals.truckCount), icon: <FileText size={20} />, tone: 'neutral' },
+    { title: 'Customers', value: String(totals.customerCount), icon: <Building2 size={20} />, tone: 'neutral' },
     { title: 'Expected Revenue', value: fmt(totals.totalExpected), icon: <TrendingUp size={20} />, tone: 'neutral' },
     { title: 'Total Payments', value: fmt(totals.totalPaid), icon: <Banknote size={20} />, tone: 'green' },
     { title: 'Outstanding', value: fmt(totals.outstanding), icon: <Wallet size={20} />, tone: totals.outstanding > 0 ? 'red' : 'green' },
@@ -830,6 +836,11 @@ export default function DeliverySalesLedger() {
   const handleEditSave = useCallback(async () => {
     if (!editTarget || !editForm) return;
     setEditSaving(true);
+
+    // Determine lock states at save time (same logic as the form UI)
+    const editRateIsLocked = toNum(editTarget.rate) > 0;
+    const editDopIsLocked  = !!editTarget.date_of_payment;
+
     try {
       const bankAcct = editForm.bank_account_id
         ? BANK_ACCOUNTS.find(b => String(b.id) === editForm.bank_account_id)
@@ -839,12 +850,20 @@ export default function DeliverySalesLedger() {
         : editTarget.bank || undefined;
 
       const qty   = Number(stripCommas(editForm.quantity))       || undefined;
-      const rate  = Number(stripCommas(editForm.rate))           || undefined;
+      // Only send rate if it wasn't locked (i.e. it had no value before)
+      const rate  = editRateIsLocked
+        ? (toNum(editTarget.rate) || undefined)
+        : (Number(stripCommas(editForm.rate)) || undefined);
       const sv    = Number(stripCommas(editForm.sales_value))    || undefined;
       const pa    = Number(stripCommas(editForm.payment_amount)) || undefined;
 
       // Auto-compute sales_value if qty + rate are set but sv wasn't manually entered
       const computedSv = qty && rate && !sv ? qty * rate : sv;
+
+      // Only send date_of_payment if it wasn't already set
+      const dop = editDopIsLocked
+        ? (editTarget.date_of_payment || undefined)
+        : (editForm.date_of_payment || undefined);
 
       await apiClient.admin.updateDeliverySale(editTarget.id, {
         quantity:         qty,
@@ -853,7 +872,7 @@ export default function DeliverySalesLedger() {
         payment_amount:   pa,
         payer_name:       editForm.payer_name.trim() || undefined,
         bank:             bankStr,
-        date_of_payment:  editForm.date_of_payment || undefined,
+        date_of_payment:  dop,
         remarks:          editForm.remarks.trim() || undefined,
         phone_number:     editForm.phone_number.trim() || undefined,
         location:         editForm.location.trim() || undefined,
@@ -879,34 +898,78 @@ export default function DeliverySalesLedger() {
       ? `${customFrom || '?'}_TO_${customTo || '?'}`
       : timePreset.toUpperCase();
 
+    // ── Summary block — mirrors the on-page summaryCards logic ─────
+    // Group by truck, then take MAX sales_value per customer to avoid
+    // double-counting (each payment row repeats the same customer total).
+    const exportTruckMap = new Map<string, { entries: DeliverySale[] }>();
+    filteredSales.forEach(s => {
+      const arr = exportTruckMap.get(s.truck_number) ?? { entries: [] };
+      arr.entries.push(s);
+      exportTruckMap.set(s.truck_number, arr);
+    });
+
+    let totalExpExport  = 0;
+    let totalPaidExport = 0;
+    let totalQtyExport  = 0;
+    exportTruckMap.forEach(({ entries }) => {
+      const perCustMax = new Map<number, number>();
+      entries.forEach(s => {
+        const sv = toNum(s.sales_value);
+        if (sv > 0) perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) ?? 0, sv));
+        totalPaidExport += toNum(s.payment_amount);
+        totalQtyExport  += toNum(s.quantity);
+      });
+      perCustMax.forEach(v => { totalExpExport += v; });
+    });
+    const totalBalExport  = totalExpExport - totalPaidExport;
+    const uniqueTrucksExp = exportTruckMap.size;
+    const uniqueCustExp   = new Set(filteredSales.map(r => r.customer)).size;
+
+    const n = (v: number) => v.toLocaleString('en-NG');
+
     const rows = filteredSales.map((s, idx) => {
-      const custName = s.customer_name || customerMap.get(s.customer)?.customer_name || '';
+      const custName = (s.customer_name || customerMap.get(s.customer)?.customer_name || '').toUpperCase();
       const balance = rowBalances.get(s.id) ?? 0;
       return {
         'S/N': idx + 1,
-        'Truck': s.truck_number,
-        'Date Loaded': s.date_loaded ? format(parseISO(s.date_loaded), 'dd/MM/yyyy') : '',
-        'Depot': s.depot_loaded || '',
-        'Destination': s.location || '',
-        'Customer': custName,
-        'Qty (L)': toNum(s.quantity),
-        'Rate (₦)': toNum(s.rate),
-        'Expected (₦)': toNum(s.sales_value),
-        'Payment (₦)': toNum(s.payment_amount),
-        'Balance (₦)': balance,
-        'Payer': s.payer_name || '',
-        'Payer Phone': s.phone_number || '',
-        'Bank / Account': s.bank || '',
-        'Payment Date': s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '',
-        'Remarks': s.remarks || '',
-        'Entered By': s.entered_by || '',
+        'TRUCK NO.': s.truck_number.toUpperCase(),
+        'DATE LOADED': s.date_loaded ? format(parseISO(s.date_loaded), 'dd/MM/yyyy') : '',
+        'DEPOT LOADED': (s.depot_loaded || '').toUpperCase(),
+        'DESTINATION': (s.location || '').toUpperCase(),
+        'CUSTOMER': custName,
+        'QTY (LTRS)': n(toNum(s.quantity)),
+        'RATE (₦)': n(toNum(s.rate)),
+        'EXPECTED (₦)': n(toNum(s.sales_value)),
+        'PAYMENT (₦)': n(toNum(s.payment_amount)),
+        'BALANCE (₦)': n(balance),
+        'PAYER': (s.payer_name || '').toUpperCase(),
+        'CONTACT': s.phone_number || '',
+        'BANK': (s.bank || '').toUpperCase(),
+        'PAYMENT DATE': s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '',
+        // 'REMARKS': (s.remarks || '').toUpperCase(),
+        'ENTERED BY': (s.entered_by || '').toUpperCase(),
       };
     });
 
-    const ws = XLSX.utils.json_to_sheet(rows);
+    // Build a single sheet: summary block on top, blank row, then data
+    const ws = XLSX.utils.aoa_to_sheet([
+      [`TRUCK SALES LEDGER`],
+      [],
+      ['TOTAL QTY SOLD (LTRS)',   n(totalQtyExport)],
+      ['TRUCKS SOLD',               n(uniqueTrucksExp)],
+      // ['CUSTOMERS',            n(uniqueCustExp)],
+      ['EXPECTED REVENUE (₦)', n(totalExpExport)],
+      ['TOTAL PAID (₦)',       n(totalPaidExport)],
+      ['OUTSTANDING (₦)',      n(totalBalExport)],
+      [],
+    ]);
+
+    // Append the data rows below the summary
+    XLSX.utils.sheet_add_json(ws, rows, { origin: -1, skipHeader: false });
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Payment Ledger');
-    XLSX.writeFile(wb, `PAYMENT-LEDGER-${period}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'Truck Sales Ledger');
+    XLSX.writeFile(wb, `TRUCK-SALES-LEDGER.xlsx`);
   }, [filteredSales, customerMap, rowBalances, timePreset, customFrom, customTo]);
 
   const activeBankAccounts = useMemo(
@@ -1578,7 +1641,10 @@ export default function DeliverySalesLedger() {
             <DialogDescription className="sr-only">Edit a sales ledger entry</DialogDescription>
           </DialogHeader>
 
-          {editForm && editTarget && (
+          {editForm && editTarget && (() => {
+            const rateIsLocked = toNum(editTarget.rate) > 0;
+            const dopIsLocked  = !!editTarget.date_of_payment;
+            return (
             <div className="space-y-4 py-2">
               {/* Info banner for filling-station rows with no rate yet */}
               {(!toNum(editTarget.rate) || !toNum(editTarget.sales_value)) && (
@@ -1589,6 +1655,18 @@ export default function DeliverySalesLedger() {
                   </p>
                 </div>
               )}
+              {/* Lock notice */}
+              {/* {(rateIsLocked || dopIsLocked) && (
+                <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <span className="text-slate-400 mt-0.5 shrink-0">🔒</span>
+                  <p className="text-xs text-slate-500">
+                    {[
+                      rateIsLocked && 'Rate is locked once set.',
+                      dopIsLocked  && 'Date of payment is locked once recorded.',
+                    ].filter(Boolean).join(' ')}
+                  </p>
+                </div>
+              )} */}
 
               {/* Row 1: Destination + Qty */}
               <div className="grid grid-cols-2 gap-3">
@@ -1622,18 +1700,22 @@ export default function DeliverySalesLedger() {
               {/* Row 2: Rate + Expected */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Rate (₦/L)</Label>
+                  <Label className="text-xs text-slate-600 flex items-center gap-1">
+                    Rate (₦/L){rateIsLocked && <span className="text-slate-400"></span>}
+                  </Label>
                   <Input
                     type="text" inputMode="decimal"
                     value={editForm.rate}
+                    disabled={rateIsLocked}
                     onChange={e => {
+                      if (rateIsLocked) return;
                       const rate = formatWithCommas(e.target.value);
                       const r = Number(stripCommas(rate)) || 0;
                       const q = Number(stripCommas(editForm.quantity)) || 0;
                       const sv = q && r ? formatWithCommas(String(q * r)) : editForm.sales_value;
                       setEditForm(f => f ? { ...f, rate, sales_value: sv } : f);
                     }}
-                    className="h-9 text-sm"
+                    className={`h-9 text-sm ${rateIsLocked ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : ''}`}
                     placeholder="e.g. 1,210"
                   />
                 </div>
@@ -1662,12 +1744,18 @@ export default function DeliverySalesLedger() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Date of Payment</Label>
+                  <Label className="text-xs text-slate-600 flex items-center gap-1">
+                    Date of Payment{dopIsLocked && <span className="text-slate-400">🔒</span>}
+                  </Label>
                   <Input
                     type="date"
                     value={editForm.date_of_payment}
-                    onChange={e => setEditForm(f => f ? { ...f, date_of_payment: e.target.value } : f)}
-                    className="h-9 text-sm"
+                    disabled={dopIsLocked}
+                    onChange={e => {
+                      if (dopIsLocked) return;
+                      setEditForm(f => f ? { ...f, date_of_payment: e.target.value } : f);
+                    }}
+                    className={`h-9 text-sm ${dopIsLocked ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : ''}`}
                   />
                 </div>
               </div>
@@ -1754,7 +1842,8 @@ export default function DeliverySalesLedger() {
                 })()
               )}
             </div>
-          )}
+            );
+          })()}
 
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => { setEditTarget(null); setEditForm(null); }} disabled={editSaving}>
