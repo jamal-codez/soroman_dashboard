@@ -43,6 +43,8 @@ import {
   ChevronsRight,
   LogOutIcon,
   UserCheck,
+  FileCheck2,
+  FileArchive,
 } from "lucide-react";
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
@@ -60,6 +62,7 @@ type OrdersResults = { results?: Array<{ status?: string | null }> };
 //   RELEASE_OFFICER: 7,  Release
 //   AUDITOR: 8,  Audit
 //   MARKETING: 9,  Marketing
+//   LOCATION_MANAGER: 10,  Location Manager
 
 type NavItem = { title: string; icon: React.ComponentType<{ size?: string | number; className?: string }>; path: string; allowedRoles: number[] };
 type NavCategory = { category: string; items: NavItem[] };
@@ -107,6 +110,12 @@ const navCategories: NavCategory[] = [
     ],
   },
   {
+    category: 'Location',
+    items: [
+      { title: "Orders Overview", icon: FileArchive, path: "/depot-view", allowedRoles: [0,10] },
+    ],
+  },
+  {
     category: 'Finance',
     items: [
       { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2,8,9] },
@@ -144,7 +153,7 @@ export const SidebarNav = React.memo(function SidebarNav() {
   const [expanded, setExpanded] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
-  const role = parseInt(localStorage.getItem('role')||'10');
+  const role = parseInt(localStorage.getItem('role') || '-1');
 
   const handleLogout = async () => {
     try { await apiClient.admin.logoutUser(); } catch { /* ignore — clear locally regardless */ }

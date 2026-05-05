@@ -74,6 +74,7 @@ const roleMap: Record<number, string> = {
   7: 'RELEASE OFFICER',
   8: 'AUDITOR',
   9: 'MARKETING',
+  10: 'LOCATION MANAGER',
 };
 
 const roleColorMap: Record<number, string> = {
@@ -86,6 +87,7 @@ const roleColorMap: Record<number, string> = {
   7: 'text-orange-600',
   8: 'text-slate-500',
   9: 'text-green-600',
+  10: 'text-teal-600',
 };
 
 const Settings = () => {
@@ -639,6 +641,7 @@ const Settings = () => {
                     <option value="2">Finance</option>
                     <option value="8">Audit</option>
                     <option value="5">Security</option>
+                    <option value="10">Location Manager</option>
                   </optgroup>
                 </select>
               </div>
