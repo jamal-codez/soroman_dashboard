@@ -1924,5 +1924,77 @@ export const apiClient = {
       return response.json();
     },
 
+    // ── Feedback ──────────────────────────────────────────────────────────
+
+    /** GET /api/admin/feedback/ — list all feedback submissions */
+    getFeedback: async (params?: { page?: number; page_size?: number; status?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.page)      q.set('page', String(params.page));
+      if (params?.page_size) q.set('page_size', String(params.page_size));
+      if (params?.status)    q.set('status', params.status);
+      const response = await safeFetch(`${ADMIN_BASE}/feedback/?${q}`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{ count: number; results: FeedbackEntry[] }>;
+    },
+
+    /** PATCH /api/admin/feedback/<id>/ — update status / staff response */
+    updateFeedback: async (id: number, data: { status?: string; staff_response?: string }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/feedback/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<FeedbackEntry>;
+    },
+
+    /** DELETE /api/admin/feedback/<id>/ */
+    deleteFeedback: async (id: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/feedback/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+    },
+
   },
+};
+
+// ── Feedback types ─────────────────────────────────────────────────────────
+export interface FeedbackEntry {
+  id: number;
+  name: string;
+  email: string;
+  phone?: string;
+  company?: string;
+  category: string;
+  rating: number;            // 1–5
+  message: string;
+  status: 'new' | 'in_review' | 'resolved' | 'dismissed';
+  staff_response?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Public (no-auth) submit — POST /api/consumer/feedback/submit/ */
+export const submitFeedbackPublic = async (data: {
+  name: string;
+  email: string;
+  phone?: string;
+  company?: string;
+  category: string;
+  rating: number;
+  message: string;
+}) => {
+  const PUBLIC_BASE = import.meta.env.VITE_API_BASE_URL?.replace('/admin', '') || 'https://api.ordersoroman.com/api';
+  const response = await fetch(`${PUBLIC_BASE}/consumer/feedback/submit/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err?.detail || err?.error || 'Submission failed');
+  }
+  return response.json();
 };

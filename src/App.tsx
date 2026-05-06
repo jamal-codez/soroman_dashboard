@@ -52,6 +52,8 @@ const ConfirmRelease = lazy(() => import("./pages/ConfirmRelease"));
 const ReleasedOrders = lazy(() => import("./pages/ReleasedOrders"));
 const DailySalesReport = lazy(() => import("./pages/DailySalesReport"));
 const DepotView = lazy(() => import("./pages/DepotView"));
+const FeedbackForm = lazy(() => import("./pages/FeedbackForm") as Promise<{ default: React.ComponentType }>);
+const FeedbackDashboard = lazy(() => import("./pages/FeedbackDashboard") as Promise<{ default: React.ComponentType }>);
 
 // ---------------------------------------------------------------------------
 // QueryClient with sane global defaults
@@ -101,6 +103,8 @@ const App = () => (
               {/* Public routes */}
               <Route path="/" element={<Login />} />
               <Route path="/login" element={<Login />} />
+              {/* Public feedback form — no auth */}
+              <Route path="/feedback" element={<FeedbackForm />} />
 
               {/* Authenticated routes — any logged-in role */}
               <Route path="/dashboard" element={<Protected><Index /></Protected>} />
@@ -131,6 +135,7 @@ const App = () => (
               <Route path="/released-orders" element={<Protected><ReleasedOrders /></Protected>} />
               <Route path="/daily-sales-report" element={<Protected><DailySalesReport /></Protected>} />
               <Route path="/depot-view" element={<Protected><DepotView /></Protected>} />
+              <Route path="/feedback-dashboard" element={<Protected><FeedbackDashboard /></Protected>} />
               <Route path="/delivery-pfi-allocations" element={<Navigate to="/delivery-inventory" replace />} />
               <Route path="/offline-sales" element={<Protected><OfflineSales /></Protected>} />
               <Route path="/report" element={<Protected><Report /></Protected>} />

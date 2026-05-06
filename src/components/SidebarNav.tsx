@@ -147,6 +147,12 @@ const navCategories: NavCategory[] = [
       { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5,8] },
     ],
   },
+  {
+    category: 'Feedback',
+    items: [
+      { title: "Feedback & Reviews", icon: ActivityIcon, path: "/feedback-dashboard", allowedRoles: [0,1,8,9] },
+    ],
+  },
 ];
 
 export const SidebarNav = React.memo(function SidebarNav() {
