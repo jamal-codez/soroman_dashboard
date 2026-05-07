@@ -475,12 +475,28 @@ export default function DeliverySalesLedger() {
       perCustMaxQty.forEach(q => { totalQty += q; });
     });
 
+    // Split outstanding vs overpaid per truck
+    let totalOutstanding = 0;
+    let totalOverpaid = 0;
+    truckPaymentSummary.forEach((summary, truckNum) => {
+      const hasEntryInRange = summary.entries.some(s => {
+        const dateField = s.date_of_payment || s.date_loaded;
+        return matchesDateRange(dateField, dateRange.from, dateRange.to);
+      });
+      if (!hasEntryInRange) return;
+      const bal = summary.totalExpected - summary.totalPaid;
+      if (bal > 0) totalOutstanding += bal;
+      else if (bal < 0) totalOverpaid += Math.abs(bal);
+    });
+
     return {
       entries: timeFilteredSales.length,
       totalExpected,
       totalPaid,
       totalQty,
       outstanding: totalExpected - totalPaid,
+      totalOutstanding,
+      totalOverpaid,
       truckCount: uniqueTrucks.size,
       customerCount: uniqueCustomers.size,
     };
@@ -492,7 +508,9 @@ export default function DeliverySalesLedger() {
     { title: 'Customers', value: String(totals.customerCount), icon: <Building2 size={20} />, tone: 'neutral' },
     { title: 'Expected Revenue', value: fmt(totals.totalExpected), icon: <TrendingUp size={20} />, tone: 'neutral' },
     { title: 'Total Payments', value: fmt(totals.totalPaid), icon: <Banknote size={20} />, tone: 'green' },
-    { title: 'Outstanding', value: fmt(totals.outstanding), icon: <Wallet size={20} />, tone: totals.outstanding > 0 ? 'red' : 'green' },
+    totals.totalOverpaid > 0
+      ? { title: 'Overpaid', value: `+${fmt(totals.totalOverpaid)}`, icon: <Wallet size={20} />, tone: 'blue' as const }
+      : { title: 'Outstanding', value: fmt(totals.totalOutstanding), icon: <Wallet size={20} />, tone: (totals.totalOutstanding > 0 ? ('red' as const) : ('green' as const)) },
   ], [totals]);
 
   const periodLabel =
@@ -949,22 +967,30 @@ export default function DeliverySalesLedger() {
       });
     });
 
-    // ── Grand totals (same dedup logic as on-page cards) ────────────
+    // Grand totals (same dedup logic as on-page cards)
     let grandExpected  = 0;
     let grandPaid      = 0;
     let grandQty       = 0;
+    let grandOutstanding = 0;
+    let grandOverpaid    = 0;
     exportTruckMap.forEach(entries => {
       const perCustMaxSv  = new Map<number, number>();
       const perCustMaxQty = new Map<number, number>();
+      let truckPaidLocal = 0;
       entries.forEach(s => {
         const sv = toNum(s.sales_value);
         const q  = toNum(s.quantity);
         if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
         if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
         grandPaid += toNum(s.payment_amount);
+        truckPaidLocal += toNum(s.payment_amount);
       });
-      perCustMaxSv.forEach(v  => { grandExpected += v; });
+      let truckExp = 0;
+      perCustMaxSv.forEach(v  => { grandExpected += v; truckExp += v; });
       perCustMaxQty.forEach(v => { grandQty      += v; });
+      const truckBal = truckExp - truckPaidLocal;
+      if (truckBal > 0) grandOutstanding += truckBal;
+      else if (truckBal < 0) grandOverpaid += Math.abs(truckBal);
     });
     const grandBalance    = grandExpected - grandPaid;
     const totalTrucks     = exportTruckMap.size;
@@ -985,7 +1011,9 @@ export default function DeliverySalesLedger() {
     aoa.push(['TOTAL TRUCKS',           totalTrucks]);
     aoa.push(['EXPECTED REVENUE (₦)',   n(grandExpected)]);
     aoa.push(['TOTAL PAID (₦)',         n(grandPaid)]);
-    aoa.push(['OUTSTANDING (₦)',        n(grandBalance)]);
+    aoa.push(['NET BALANCE (₦)',        grandBalance === 0 ? 'FULLY SETTLED' : grandBalance > 0 ? n(grandBalance) : `+${n(Math.abs(grandBalance))} OVERPAID`]);
+    if (grandOutstanding > 0) aoa.push(['OUTSTANDING (₦)',  n(grandOutstanding)]);
+    if (grandOverpaid    > 0) aoa.push(['OVERPAID (₦)',     `+${n(grandOverpaid)}`]);
     aoa.push([]);
 
     // Column headers
@@ -1009,29 +1037,59 @@ export default function DeliverySalesLedger() {
       let truckQty      = 0; perCustMaxQty.forEach(v => { truckQty      += v; });
       const truckBalance = truckExpected - truckPaid;
 
-      // Individual entry rows
+      // Individual entry rows — carry-forward suppression:
+      // truck no., date loaded, depot, destination repeat only on first row.
+      // qty & rate repeat only when they actually change across rows.
+      let prevTruckShown  = false;
+      let prevQty         = '';
+      let prevRate        = '';
+
       entries.forEach(s => {
         rowNum += 1;
-        const custName = u(s.customer_name || customerMap.get(s.customer)?.customer_name || '');
-        const balance  = rowBalances.get(s.id) ?? 0;
+        const custName  = u(s.customer_name || customerMap.get(s.customer)?.customer_name || '');
+        const balance   = rowBalances.get(s.id) ?? 0;
+        const thisQty   = toNum(s.quantity) > 0 ? n(toNum(s.quantity))  : '—';
+        const thisRate  = toNum(s.rate)     > 0 ? n(toNum(s.rate))      : '—';
+
+        // Truck-level fields: only on the first row of this truck group
+        const truckCell    = !prevTruckShown ? u(s.truck_number) : '';
+        const dateCell     = !prevTruckShown && s.date_loaded
+                              ? format(parseISO(s.date_loaded), 'dd/MM/yyyy') : '';
+        const depotCell    = !prevTruckShown ? u(s.depot_loaded  || '') : '';
+        const destCell     = !prevTruckShown ? u(s.location      || '') : '';
+
+        // Qty & Rate: show only when value changes from the previous row
+        const qtyCell      = thisQty  !== prevQty  ? thisQty  : '';
+        const rateCell     = thisRate !== prevRate ? thisRate : '';
+
+        const balanceCell  = balance > 0
+          ? n(balance)
+          : balance < 0
+          ? `+${n(Math.abs(balance))} OVERPAID`
+          : 'FULLY PAID';
+
         aoa.push([
           rowNum,
-          u(s.truck_number),
-          s.date_loaded    ? format(parseISO(s.date_loaded),    'dd/MM/yyyy') : '',
-          u(s.depot_loaded  || ''),
-          u(s.location      || ''),
+          truckCell,
+          dateCell,
+          depotCell,
+          destCell,
           custName,
-          toNum(s.quantity)       > 0 ? n(toNum(s.quantity))       : '—',
-          toNum(s.rate)           > 0 ? n(toNum(s.rate))           : '—',
+          qtyCell,
+          rateCell,
           toNum(s.sales_value)    > 0 ? n(toNum(s.sales_value))    : '—',
           toNum(s.payment_amount) > 0 ? n(toNum(s.payment_amount)) : '—',
-          balance !== 0 ? n(Math.abs(balance)) : 'FULLY PAID',
+          balanceCell,
           u(s.payer_name    || ''),
           s.phone_number    || '',
           u(s.bank          || ''),
           s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '',
           u(s.entered_by    || ''),
         ]);
+
+        prevTruckShown = true;
+        prevQty        = thisQty;
+        prevRate       = thisRate;
       });
 
       // Truck subtotal row
@@ -1043,7 +1101,7 @@ export default function DeliverySalesLedger() {
         '',
         n(truckExpected),
         n(truckPaid),
-        truckBalance === 0 ? 'FULLY PAID' : n(truckBalance),
+        truckBalance === 0 ? 'FULLY PAID' : truckBalance > 0 ? n(truckBalance) : `+${n(Math.abs(truckBalance))} OVERPAID`,
         '', '', '', '', '',
       ]);
       // Blank separator between trucks

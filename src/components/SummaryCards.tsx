@@ -6,7 +6,7 @@ export type SummaryCard = {
   value: string;
   description?: string;
   icon: ReactNode;
-  tone?: "neutral" | "green" | "amber" | "red";
+  tone?: "neutral" | "green" | "amber" | "red" | "blue";
   className?: string;
 };
 
@@ -14,7 +14,8 @@ const toneStyles: Record<NonNullable<SummaryCard["tone"]>, { wrap: string; icon:
   neutral: { wrap: "bg-slate-100", icon: "text-slate-900", ring: "ring-slate-200" },
   green: { wrap: "bg-emerald-50", icon: "text-emerald-700", ring: "ring-emerald-100" },
   amber: { wrap: "bg-amber-50", icon: "text-amber-700", ring: "ring-amber-100" },
-  red: { wrap: "bg-red-50", icon: "text-red-700", ring: "ring-red-100" }
+  red: { wrap: "bg-red-50", icon: "text-red-700", ring: "ring-red-100" },
+  blue: { wrap: "bg-blue-50", icon: "text-blue-700", ring: "ring-blue-100" },
 };
 
 export function SummaryCards({ cards }: { cards: SummaryCard[] }) {

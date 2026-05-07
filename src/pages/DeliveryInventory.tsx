@@ -208,7 +208,9 @@ export default function DeliveryInventory() {
   const [selectedTruckIds, setSelectedTruckIds] = useState<Set<number>>(new Set());
   const [truckSearch, setTruckSearch] = useState('');
   const [saving, setSaving] = useState(false);
-  // Customer allocations — each row: one customer + their quantity
+  // Total allocation qty — manually entered or auto-summed from selected trucks' max_capacity
+  const [totalAllocationQty, setTotalAllocationQty] = useState('');
+  // Customer allocations — each row: one customer + their quantity (optional)
   const [customerAllocations, setCustomerAllocations] = useState<CustomerAllocation[]>([makeAllocation()]);
 
   // ── Offload Dialog ─────────────────────────────────────────────────
@@ -302,12 +304,14 @@ export default function DeliveryInventory() {
     return m;
   }, [allPfis]);
 
-  // truck_number → array of { customerName, rate } (deduplicated)
+  // (truck_number + date_loaded) → array of { customerName, rate } for that specific cycle
   const truckSalesMap = useMemo(() => {
     const map = new Map<string, { customerId: number; customerName: string; rates: Set<number> }[]>();
     allSales.forEach(s => {
       if (!s.truck_number) return;
-      const existing = map.get(s.truck_number) || [];
+      // Key by truck + the date it was loaded so each loading cycle is isolated
+      const cycleKey = `${s.truck_number}::${s.date_loaded || ''}`;
+      const existing = map.get(cycleKey) || [];
       const rate = toNum(s.rate);
       const custEntry = existing.find(e => e.customerId === s.customer);
       if (custEntry) {
@@ -319,7 +323,7 @@ export default function DeliveryInventory() {
           rates: rate > 0 ? new Set([rate]) : new Set(),
         });
       }
-      map.set(s.truck_number, existing);
+      map.set(cycleKey, existing);
     });
     return map;
   }, [allSales]);
@@ -565,6 +569,16 @@ export default function DeliveryInventory() {
     [customerAllocations],
   );
 
+  // Auto-sum of selected trucks' max_capacity (used to suggest totalAllocationQty)
+  const autoSumCapacity = useMemo(() => {
+    let total = 0;
+    selectedTruckIds.forEach(id => {
+      const t = allTrucks.find(t => t.id === id);
+      if (t?.max_capacity) total += t.max_capacity;
+    });
+    return total;
+  }, [selectedTruckIds, allTrucks]);
+
   // ═══════════════════════════════════════════════════════════════════
   // Handlers
   // ═══════════════════════════════════════════════════════════════════
@@ -581,6 +595,7 @@ export default function DeliveryInventory() {
     setLoadNotes('');
     setSelectedTruckIds(new Set());
     setTruckSearch('');
+    setTotalAllocationQty('');
     setCustomerAllocations([makeAllocation()]);
     setLoadDialogOpen(true);
   };
@@ -593,6 +608,13 @@ export default function DeliveryInventory() {
       } else {
         next.add(truckId);
       }
+      // Auto-sum max_capacity of newly selected trucks → update total qty field
+      let total = 0;
+      next.forEach(id => {
+        const t = allTrucks.find(t => t.id === id);
+        if (t?.max_capacity) total += t.max_capacity;
+      });
+      if (total > 0) setTotalAllocationQty(formatWithCommas(String(total)));
       return next;
     });
   };
@@ -619,15 +641,17 @@ export default function DeliveryInventory() {
       return;
     }
 
-    // Validate allocations
-    const filledRows = customerAllocations.filter(a => a.customerId || a.qty);
-    if (filledRows.length === 0) {
-      toast({ title: 'Add at least one customer allocation', variant: 'destructive' });
+    const totalQtyNum = Number(stripCommas(totalAllocationQty));
+    if (!totalQtyNum || totalQtyNum <= 0) {
+      toast({ title: 'Enter a total allocation quantity', variant: 'destructive' });
       return;
     }
-    const invalidRow = filledRows.find(a => !a.customerId || !a.qty || Number(stripCommas(a.qty)) <= 0);
+
+    // Customer rows are optional — only validate qty if they entered any data
+    const filledRows = customerAllocations.filter(a => a.customerId || a.qty);
+    const invalidRow = filledRows.find(a => a.qty && Number(stripCommas(a.qty)) <= 0);
     if (invalidRow) {
-      toast({ title: 'Each allocation needs a customer and a quantity > 0', variant: 'destructive' });
+      toast({ title: 'Customer allocation quantities must be > 0', variant: 'destructive' });
       return;
     }
 
@@ -637,21 +661,53 @@ export default function DeliveryInventory() {
       const depot = loadDepot || selectedPfi?.location_name || '';
       const currentUser = localStorage.getItem('fullname') || 'Unknown';
 
-      // For each truck × each customer allocation → one record
+      // Per-truck qty: use the truck's max_capacity if available,
+      // otherwise divide the total equally across all selected trucks.
+      const perTruckFallback = Math.round(totalQtyNum / truckCount);
+
       const promises: Promise<unknown>[] = [];
-      for (const truckId of selectedTruckIds) {
-        const truckObj = allTrucks.find(t => t.id === truckId);
-        for (const alloc of filledRows) {
-          const custObj = customerMap.get(Number(alloc.customerId));
+
+      if (filledRows.length > 0) {
+        // Customer rows provided — create one record per truck × per customer row
+        for (const truckId of selectedTruckIds) {
+          const truckObj = allTrucks.find(t => t.id === truckId);
+          const truckQty = truckObj?.max_capacity || perTruckFallback;
+
+          for (const alloc of filledRows) {
+            const custObj = alloc.customerId ? customerMap.get(Number(alloc.customerId)) : null;
+            // If a per-customer qty was entered, use it; otherwise use truck's qty
+            const allocQty = alloc.qty ? Number(stripCommas(alloc.qty)) : truckQty;
+            promises.push(
+              apiClient.admin.createDeliveryInventory({
+                pfi: loadPfi ? Number(loadPfi) : undefined,
+                truck: truckId,
+                truck_number: truckObj?.plate_number || '',
+                depot: depot || undefined,
+                ...(alloc.customerId ? {
+                  customer: Number(alloc.customerId),
+                  customer_name: custObj?.customer_name || '',
+                } : {}),
+                quantity_allocated: allocQty,
+                date_allocated: format(new Date(), 'yyyy-MM-dd'),
+                loading_status: 'loaded',
+                notes: loadNotes.trim() || undefined,
+                created_by: currentUser,
+              }),
+            );
+          }
+        }
+      } else {
+        // No customer rows — one record per truck using its max_capacity or fallback
+        for (const truckId of selectedTruckIds) {
+          const truckObj = allTrucks.find(t => t.id === truckId);
+          const truckQty = truckObj?.max_capacity || perTruckFallback;
           promises.push(
             apiClient.admin.createDeliveryInventory({
               pfi: loadPfi ? Number(loadPfi) : undefined,
               truck: truckId,
               truck_number: truckObj?.plate_number || '',
               depot: depot || undefined,
-              customer: Number(alloc.customerId),
-              customer_name: custObj?.customer_name || '',
-              quantity_allocated: Number(stripCommas(alloc.qty)),
+              quantity_allocated: truckQty,
               date_allocated: format(new Date(), 'yyyy-MM-dd'),
               loading_status: 'loaded',
               notes: loadNotes.trim() || undefined,
@@ -662,10 +718,11 @@ export default function DeliveryInventory() {
       }
 
       await Promise.all(promises);
-      const totalQtyPerTruck = filledRows.reduce((s, a) => s + Number(stripCommas(a.qty)), 0);
       toast({
-        title: `${truckCount} truck${truckCount > 1 ? 's' : ''} loaded — ${fmtQty(totalQtyPerTruck * truckCount)} L total`,
-        description: `${filledRows.length} customer allocation${filledRows.length > 1 ? 's' : ''} per truck`,
+        title: `${truckCount} truck${truckCount > 1 ? 's' : ''} loaded — ${fmtQty(totalQtyNum)} L total`,
+        description: filledRows.length > 0
+          ? `${filledRows.length} customer row${filledRows.length > 1 ? 's' : ''} per truck`
+          : 'No customer assigned yet — assign in Sales Ledger',
       });
       setLoadDialogOpen(false);
       invalidateAll();
@@ -678,7 +735,7 @@ export default function DeliveryInventory() {
     } finally {
       setSaving(false);
     }
-  }, [selectedTruckIds, customerAllocations, loadPfi, loadDepot, loadNotes, selectedPfi, allTrucks, customerMap, toast, invalidateAll]);
+  }, [selectedTruckIds, totalAllocationQty, customerAllocations, loadPfi, loadDepot, loadNotes, selectedPfi, allTrucks, customerMap, toast, invalidateAll]);
 
   const handleOffload = useCallback(async () => {
     if (!offloadTarget) return;
@@ -1079,7 +1136,8 @@ export default function DeliveryInventory() {
                             {/* Customers from Sales Ledger */}
                             <TableCell>
                               {(() => {
-                                const salesEntries = truckSalesMap.get(r.truckPlate);
+                                const cycleKey = `${r.truckPlate}::${r.date_allocated || ''}`;
+                                const salesEntries = truckSalesMap.get(cycleKey);
                                 if (!salesEntries || salesEntries.length === 0) {
                                   return <span className="text-slate-400 text-xs">—</span>;
                                 }
@@ -1098,7 +1156,8 @@ export default function DeliveryInventory() {
                             {/* Rate(s) from Sales Ledger */}
                             <TableCell>
                               {(() => {
-                                const salesEntries = truckSalesMap.get(r.truckPlate);
+                                const cycleKey = `${r.truckPlate}::${r.date_allocated || ''}`;
+                                const salesEntries = truckSalesMap.get(cycleKey);
                                 if (!salesEntries || salesEntries.length === 0) {
                                   return <span className="text-slate-400 text-xs">—</span>;
                                 }
@@ -1284,7 +1343,7 @@ export default function DeliveryInventory() {
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                   <UserPlus size={15} className="text-slate-500" />
-                  Customer Allocations <span className="text-red-500">*</span>
+                  Customer Allocations <span className="text-xs font-normal text-slate-400">(optional)</span>
                 </Label>
                 <Button
                   type="button"
@@ -1293,7 +1352,7 @@ export default function DeliveryInventory() {
                   className="gap-1.5 text-xs text-blue-600 hover:text-blue-800 h-7 px-2"
                   onClick={addAllocationRow}
                 >
-                  <Plus size={13} /> Add Customer
+                  <Plus size={13} /> Add Row
                 </Button>
               </div>
 
@@ -1313,7 +1372,7 @@ export default function DeliveryInventory() {
                       onChange={e => updateAllocation(alloc.uid, 'customerId', e.target.value)}
                       className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     >
-                      <option value="">Select customer…</option>
+                      <option value="">No customer (optional)…</option>
                       {customers.map(c => (
                         <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
                       ))}
@@ -1364,6 +1423,47 @@ export default function DeliveryInventory() {
                   onChange={e => setLoadNotes(e.target.value)}
                 />
               </div>
+            </div>
+
+            {/* ── Total Allocation Qty ─────────────────────── */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                  <Fuel size={15} className="text-slate-500" />
+                  Total Allocation (Litres) <span className="text-red-500">*</span>
+                </Label>
+                {autoSumCapacity > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTotalAllocationQty(formatWithCommas(String(autoSumCapacity)))}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium underline underline-offset-2"
+                  >
+                    Use trucks' capacity ({fmtQty(autoSumCapacity)} L)
+                  </button>
+                )}
+              </div>
+              <Input
+                type="text"
+                inputMode="decimal"
+                placeholder="e.g. 66,000"
+                value={totalAllocationQty}
+                onChange={e => setTotalAllocationQty(formatWithCommas(e.target.value))}
+                className={`h-10 text-base font-semibold ${!totalAllocationQty ? 'border-red-200 focus-visible:ring-red-300' : ''}`}
+              />
+              {selectedTruckIds.size > 1 && totalAllocationQty && (
+                <p className="text-xs text-slate-500">
+                  ≈ <strong>{fmtQty(Math.round(Number(stripCommas(totalAllocationQty)) / selectedTruckIds.size))} L</strong> per truck
+                  {autoSumCapacity > 0 && Number(stripCommas(totalAllocationQty)) !== autoSumCapacity
+                    ? ` (trucks' combined capacity: ${fmtQty(autoSumCapacity)} L)`
+                    : ''}
+                </p>
+              )}
+              {selectedTruckIds.size === 1 && totalAllocationQty && autoSumCapacity > 0 &&
+                Number(stripCommas(totalAllocationQty)) !== autoSumCapacity && (
+                <p className="text-xs text-amber-600">
+                  Truck capacity is {fmtQty(autoSumCapacity)} L
+                </p>
+              )}
             </div>
 
             {/* ── Select Trucks ────────────────────────────────── */}
@@ -1453,17 +1553,23 @@ export default function DeliveryInventory() {
             </div>
 
             {/* ── Summary ─────────────────────────────────────── */}
-            {selectedTruckIds.size > 0 && allocationTotal > 0 && (
+            {selectedTruckIds.size > 0 && totalAllocationQty && Number(stripCommas(totalAllocationQty)) > 0 && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-xs text-blue-700 font-semibold mb-1">Loading Summary</p>
                 <p className="text-lg font-bold text-slate-800">
-                  {fmtQty(allocationTotal * selectedTruckIds.size)} L total
+                  {fmtQty(Number(stripCommas(totalAllocationQty)))} L total
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({fmtQty(allocationTotal)} L × {selectedTruckIds.size} truck{selectedTruckIds.size !== 1 ? 's' : ''})
+                    across {selectedTruckIds.size} truck{selectedTruckIds.size !== 1 ? 's' : ''}
+                    {selectedTruckIds.size > 1 && ` (≈ ${fmtQty(Math.round(Number(stripCommas(totalAllocationQty)) / selectedTruckIds.size))} L each)`}
                   </span>
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {customerAllocations.filter(a => a.customerId && a.qty).length} customer{customerAllocations.filter(a => a.customerId && a.qty).length !== 1 ? 's' : ''} per truck
+                  {(() => {
+                    const filled = customerAllocations.filter(a => a.customerId);
+                    return filled.length > 0
+                      ? `${filled.length} customer${filled.length !== 1 ? 's' : ''} assigned`
+                      : 'No customers assigned yet — assign later in Sales Ledger';
+                  })()}
                   {selectedPfi ? ` · ${selectedPfi.pfi_number} · ${selectedPfi.product_name || '—'}` : ''}
                 </p>
               </div>
