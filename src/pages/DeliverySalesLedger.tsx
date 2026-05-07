@@ -502,16 +502,41 @@ export default function DeliverySalesLedger() {
     };
   }, [truckPaymentSummary, timeFilteredSales, dateRange]);
 
-  const summaryCards = useMemo((): SummaryCard[] => [
-    { title: 'Qty Sold (Ltrs)', value: totals.totalQty > 0 ? totals.totalQty.toLocaleString() : '0', icon: <Truck size={20} />, tone: 'neutral' },
-    { title: 'Trucks Sold', value: String(totals.truckCount), icon: <FileText size={20} />, tone: 'neutral' },
-    { title: 'Customers', value: String(totals.customerCount), icon: <Building2 size={20} />, tone: 'neutral' },
-    { title: 'Expected Revenue', value: fmt(totals.totalExpected), icon: <TrendingUp size={20} />, tone: 'neutral' },
-    { title: 'Total Payments', value: fmt(totals.totalPaid), icon: <Banknote size={20} />, tone: 'green' },
-    totals.totalOverpaid > 0
-      ? { title: 'Overpaid', value: `+${fmt(totals.totalOverpaid)}`, icon: <Wallet size={20} />, tone: 'blue' as const }
-      : { title: 'Outstanding', value: fmt(totals.totalOutstanding), icon: <Wallet size={20} />, tone: (totals.totalOutstanding > 0 ? ('red' as const) : ('green' as const)) },
-  ], [totals]);
+  const summaryCards = useMemo((): SummaryCard[] => {
+    // totalOutstanding = sum of per-truck deficits (before netting overpayments)
+    // totalOverpaid    = sum of per-truck surpluses
+    // netBalance       = what is truly still owed after offsetting overpayments
+    const netBalance = totals.totalOutstanding - totals.totalOverpaid;
+
+    const cards: SummaryCard[] = [
+      { title: 'Qty Sold (Ltrs)',  value: totals.totalQty > 0 ? totals.totalQty.toLocaleString() : '0', icon: <Truck size={20} />,      tone: 'neutral' },
+      { title: 'Expected Revenue', value: fmt(totals.totalExpected),                                     icon: <TrendingUp size={20} />, tone: 'neutral' },
+      { title: 'Total Paid',       value: fmt(totals.totalPaid),                                         icon: <Banknote size={20} />,   tone: 'green'   },
+      {
+        // Raw outstanding — what trucks still owe before netting any overpayments
+        title: 'Outstanding',
+        value: totals.totalOutstanding > 0 ? fmt(totals.totalOutstanding) : 'Fully Settled',
+        icon:  <Wallet size={20} />,
+        tone:  totals.totalOutstanding > 0 ? ('red' as const) : ('green' as const),
+      },
+      {
+        // How much was overpaid across trucks
+        title: 'Overpaid',
+        value: totals.totalOverpaid > 0 ? `+${fmt(totals.totalOverpaid)}` : '—',
+        icon:  <Banknote size={20} />,
+        tone:  totals.totalOverpaid > 0 ? ('blue' as const) : ('neutral' as const),
+      },
+      {
+        // Net = Outstanding minus Overpaid — the true remaining liability
+        title: 'Net Balance',
+        value: netBalance <= 0 ? (netBalance < 0 ? `+${fmt(Math.abs(netBalance))} excess` : 'Fully Settled') : fmt(netBalance),
+        icon:  <TrendingUp size={20} />,
+        tone:  netBalance <= 0 ? ('blue' as const) : ('red' as const),
+      },
+    ];
+
+    return cards;
+  }, [totals]);
 
   const periodLabel =
     timePreset === 'custom'
@@ -1005,15 +1030,35 @@ export default function DeliverySalesLedger() {
     const aoa: (string | number)[][] = [];
 
     // Grand summary header
+    // Net balance: grandPaid can exceed grandExpected when overpayments offset outstanding
+    const netBalanceLabel = (() => {
+      if (grandBalance === 0) return 'FULLY SETTLED';
+      if (grandBalance < 0)  return `${n(Math.abs(grandBalance))} OVERPAID`;
+      // grandBalance > 0 — some trucks still owed; note if any truck has already overpaid
+      if (grandOverpaid > 0)
+        return `${n(grandBalance)} including ${n(grandOverpaid)} overpaid on ${
+          (() => {
+            let ct = 0;
+            exportTruckMap.forEach(entries => {
+              let exp = 0; let paid = 0;
+              const sv = new Map<number, number>();
+              entries.forEach(s => { if (toNum(s.sales_value) > 0) sv.set(s.customer, Math.max(sv.get(s.customer) ?? 0, toNum(s.sales_value))); paid += toNum(s.payment_amount); });
+              sv.forEach(v => { exp += v; });
+              if (exp - paid < 0) ct++;
+            });
+            return ct;
+          })()
+        } truck${grandOverpaid > 0 ? '(s)' : ''}`;
+      return n(grandBalance);
+    })();
+
     aoa.push(['TRUCK SALES LEDGER — ' + period]);
     aoa.push([]);
     aoa.push(['TOTAL QTY SOLD (LTRS)',  n(grandQty)]);
     aoa.push(['TOTAL TRUCKS',           totalTrucks]);
     aoa.push(['EXPECTED REVENUE (₦)',   n(grandExpected)]);
     aoa.push(['TOTAL PAID (₦)',         n(grandPaid)]);
-    aoa.push(['NET BALANCE (₦)',        grandBalance === 0 ? 'FULLY SETTLED' : grandBalance > 0 ? n(grandBalance) : `+${n(Math.abs(grandBalance))} OVERPAID`]);
-    if (grandOutstanding > 0) aoa.push(['OUTSTANDING (₦)',  n(grandOutstanding)]);
-    if (grandOverpaid    > 0) aoa.push(['OVERPAID (₦)',     `+${n(grandOverpaid)}`]);
+    aoa.push(['BALANCE (₦)',            netBalanceLabel]);
     aoa.push([]);
 
     // Column headers
@@ -1043,6 +1088,7 @@ export default function DeliverySalesLedger() {
       let prevTruckShown  = false;
       let prevQty         = '';
       let prevRate        = '';
+      let prevCustName    = '';
 
       entries.forEach(s => {
         rowNum += 1;
@@ -1060,7 +1106,10 @@ export default function DeliverySalesLedger() {
 
         // Qty & Rate: show only when value changes from the previous row
         const qtyCell      = thisQty  !== prevQty  ? thisQty  : '';
-        const rateCell     = thisRate !== prevRate ? thisRate : '';
+        const rateCell     = thisRate !== prevRate  ? thisRate : '';
+
+        // Customer: show only when it changes (carry-forward suppression)
+        const custCell     = custName !== prevCustName ? custName : '';
 
         const balanceCell  = balance > 0
           ? n(balance)
@@ -1074,7 +1123,7 @@ export default function DeliverySalesLedger() {
           dateCell,
           depotCell,
           destCell,
-          custName,
+          custCell,
           qtyCell,
           rateCell,
           toNum(s.sales_value)    > 0 ? n(toNum(s.sales_value))    : '—',
@@ -1090,6 +1139,7 @@ export default function DeliverySalesLedger() {
         prevTruckShown = true;
         prevQty        = thisQty;
         prevRate       = thisRate;
+        prevCustName   = custName;
       });
 
       // Truck subtotal row
