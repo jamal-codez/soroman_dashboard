@@ -19,7 +19,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import {
   Download, Plus, Search, ArrowUpDown, ArrowUp, ArrowDown,
-  DropletIcon, FileSearch2, Package, Banknote, Loader2, CheckCircle2,
+  DropletIcon, FileSearch2, Package, Banknote, Loader2, CheckCircle2, MapPin, X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
@@ -52,6 +52,9 @@ type BackendPfi = {
   amount?: number | string;
   unit_price?: number | string;
   unitPrice?: number | string;
+  // New fields from the backend after the allowed_locations migration
+  allowed_locations?: number[];
+  allowed_location_names?: string[];
 };
 
 type BackendProduct = { id: number; name: string };
@@ -133,6 +136,11 @@ export default function PFIPage() {
   const [finishConfirm, setFinishConfirm] = useState<FinishConfirmState>({ open: false });
   const [finishing, setFinishing] = useState(false);
 
+  // ── Edit allowed locations ──────────────────────────────────────────
+  const [editLocTarget, setEditLocTarget] = useState<BackendPfi | null>(null);
+  const [editLocSelected, setEditLocSelected] = useState<Set<number>>(new Set());
+  const [editLocSaving, setEditLocSaving] = useState(false);
+
   // ═══════════════════════════════════════════════════════════════════
   // Queries
   // ═══════════════════════════════════════════════════════════════════
@@ -143,6 +151,35 @@ export default function PFIPage() {
     staleTime: 30_000,
     retry: 1,
   });
+
+  // Reuse the same 'all-orders' cache already populated by the Orders page.
+  // We compute sold qty ourselves from only confirmed (paid/released/loaded/sold) orders
+  // because the backend's total_quantity_litres annotation sums ALL orders regardless of status,
+  // which inflates the figure when cancelled or pending orders are present.
+  const ordersQuery = useQuery<{ results?: Array<{ pfi_number?: string | null; quantity?: number | string; status?: string }> }>({
+    queryKey: ['all-orders'],
+    queryFn: async () => apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 }),
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  // Map: pfi_number → confirmed sold qty (litres)
+  const pfiSoldQtyMap = useMemo(() => {
+    const map = new Map<string, number>();
+    const orders = ordersQuery.data?.results ?? [];
+    const CONFIRMED = new Set(['paid', 'released', 'loaded', 'sold']);
+    orders.forEach(o => {
+      const pfiNum = String(o.pfi_number ?? '').trim();
+      if (!pfiNum) return;
+      const status = String(o.status ?? '').toLowerCase();
+      if (!CONFIRMED.has(status)) return;
+      const q = Number(String(o.quantity ?? '').replace(/,/g, ''));
+      if (Number.isFinite(q) && q > 0) {
+        map.set(pfiNum, (map.get(pfiNum) ?? 0) + q);
+      }
+    });
+    return map;
+  }, [ordersQuery.data]);
 
   const productsQuery = useQuery<{ results?: BackendProduct[] } & Record<string, unknown>>({
     queryKey: ['products'],
@@ -188,7 +225,10 @@ export default function PFIPage() {
   const enriched = useMemo(() => {
     return pfis.map(p => {
       const starting = coerceNumber(p.starting_qty_litres);
-      const sold = coerceSoldLitres(p);
+      // Prefer locally-computed sold qty (confirmed orders only) over the backend annotation
+      // which includes cancelled/pending orders and produces inflated figures.
+      const soldFromOrders = pfiSoldQtyMap.get(p.pfi_number);
+      const sold = soldFromOrders !== undefined ? soldFromOrders : coerceSoldLitres(p);
       const remaining = Math.max(0, starting - sold);
       const pct = starting > 0 ? Math.min(100, (sold / starting) * 100) : 0;
       const totalAmount = coerceAmount(p, sold);
@@ -202,7 +242,7 @@ export default function PFIPage() {
         locationLabel, productLabel, createdAtStr, finishedAtStr,
       };
     });
-  }, [pfis]);
+  }, [pfis, pfiSoldQtyMap]);
 
   // Filter
   const filtered = useMemo(() => {
@@ -429,6 +469,28 @@ export default function PFIPage() {
     }
   }, [toast, queryClient]);
 
+  const openEditLocations = (p: BackendPfi) => {
+    setEditLocTarget(p);
+    setEditLocSelected(new Set(p.allowed_locations ?? []));
+  };
+
+  const saveAllowedLocations = useCallback(async () => {
+    if (!editLocTarget) return;
+    setEditLocSaving(true);
+    try {
+      await apiClient.admin.updatePfi(editLocTarget.id, {
+        allowed_locations: Array.from(editLocSelected),
+      });
+      await queryClient.invalidateQueries({ queryKey: ['pfis'] });
+      toast({ title: 'Allowed locations updated', description: editLocSelected.size === 0 ? 'Unrestricted (any location).' : `${editLocSelected.size} location(s) set.` });
+      setEditLocTarget(null);
+    } catch (e) {
+      toast({ title: 'Failed to update', description: (e as Error)?.message || 'Request failed', variant: 'destructive' });
+    } finally {
+      setEditLocSaving(false);
+    }
+  }, [editLocTarget, editLocSelected, queryClient, toast]);
+
   const selectedFinishPfi = useMemo(
     () => enriched.find(p => p.id === finishConfirm.pfiId),
     [finishConfirm.pfiId, enriched],
@@ -603,6 +665,7 @@ export default function PFIPage() {
                           </button>
                         </TableHead>
                         <TableHead className="font-semibold text-slate-700">Action</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Allowed Locations</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -677,6 +740,28 @@ export default function PFIPage() {
                               >
                                 Close PFI
                               </Button>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap gap-1 max-w-[220px]">
+                                  {(p.allowed_location_names ?? []).length > 0
+                                    ? (p.allowed_location_names ?? []).map(name => (
+                                        <span key={name} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-700 border border-blue-100">
+                                          {name}
+                                        </span>
+                                      ))
+                                    : <span className="text-xs text-slate-400 italic">Any location</span>
+                                  }
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-xs gap-1 shrink-0"
+                                  onClick={() => openEditLocations(p)}
+                                >
+                                  <MapPin size={12} /> Edit
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -821,6 +906,93 @@ export default function PFIPage() {
             <Button onClick={onCreate} disabled={creating} className="gap-2">
               {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
               {creating ? 'Creating…' : 'Create PFI'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* Edit Allowed Locations Dialog                                  */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      <Dialog open={!!editLocTarget} onOpenChange={open => { if (!open) setEditLocTarget(null); }}>
+        <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-100">
+                <MapPin className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Allowed Locations</h2>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">
+                  {editLocTarget?.pfi_number} — tick which locations can assign orders to this PFI.
+                  Leave all unticked to allow any location.
+                </p>
+              </div>
+            </DialogTitle>
+            <DialogDescription className="sr-only">Edit allowed locations for this PFI</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 py-2">
+            {/* Clear all shortcut */}
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs text-slate-500">
+                {editLocSelected.size === 0
+                  ? 'Unrestricted — any location can assign orders.'
+                  : `${editLocSelected.size} location${editLocSelected.size !== 1 ? 's' : ''} selected`}
+              </p>
+              {editLocSelected.size > 0 && (
+                <button
+                  type="button"
+                  className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1"
+                  onClick={() => setEditLocSelected(new Set())}
+                >
+                  <X size={12} /> Clear all (unrestrict)
+                </button>
+              )}
+            </div>
+
+            {locationsQuery.isLoading && (
+              <div className="text-sm text-slate-400 py-4 text-center">Loading locations…</div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {locationOptions.map(loc => {
+                const checked = editLocSelected.has(loc.id);
+                return (
+                  <label
+                    key={loc.id}
+                    className={`flex items-center gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors select-none ${
+                      checked
+                        ? 'border-blue-300 bg-blue-50 text-blue-800'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="accent-blue-600"
+                      checked={checked}
+                      onChange={() => {
+                        setEditLocSelected(prev => {
+                          const next = new Set(prev);
+                          next.has(loc.id) ? next.delete(loc.id) : next.add(loc.id);
+                          return next;
+                        });
+                      }}
+                    />
+                    <span className="text-sm">{loc.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setEditLocTarget(null)} disabled={editLocSaving}>
+              Cancel
+            </Button>
+            <Button onClick={saveAllowedLocations} disabled={editLocSaving} className="gap-2">
+              {editLocSaving ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
+              {editLocSaving ? 'Saving…' : 'Save Locations'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -58,7 +58,7 @@ interface Order {
   total_price?: string | number;
   status: string;
   created_at: string;
-  products: Array<{ name?: string }>;
+  products: Array<{ name?: string; unit?: string; unit_label?: string }>;
   quantity?: number | string;
   release_type?: 'pickup' | 'delivery';
   reference?: string;
@@ -423,6 +423,10 @@ const OrdersPFI = () => {
   const getProductsList = (o: Order) =>
     (o.products || []).map(p => p.name).filter(Boolean).join(', ');
 
+  // Use backend-provided unit_label so we never hardcode "Litres"
+  const getUnitLabel = (o: Order): string =>
+    o.products?.[0]?.unit_label || o.products?.[0]?.unit || 'Litres';
+
   const getFilterLabelForFile = () => {
     switch (filterType) {
       case 'today': return 'today';
@@ -482,6 +486,7 @@ const OrdersPFI = () => {
     const totalQtyAll = exportList.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
     const totalAmountAll = exportList.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
     const ordersCountAll = exportList.length;
+    const exportUnitLabel = exportList[0] ? getUnitLabel(exportList[0]) : 'Litres';
 
     // Summary block at the top of the sheet
     const summaryBlock: (string | number)[][] = [
@@ -490,7 +495,7 @@ const OrdersPFI = () => {
       ['PFI', pfiLabelForExport],
       ['Product', productLabel],
       ['Total Orders', ordersCountAll],
-      ['Quantity Sold', `${totalQtyAll.toLocaleString()} Litres`],
+      ['Quantity Sold', `${totalQtyAll.toLocaleString()} ${exportUnitLabel}`],
       ['Total Amount', `N${totalAmountAll.toLocaleString()}`],
       [], // empty row separator
     ];
@@ -952,7 +957,7 @@ const OrdersPFI = () => {
                         </TableCell>
 
                         <TableCell className="text-left font-medium text-slate-950 whitespace-nowrap">
-                          {safeParseNumber(order.quantity).toLocaleString()}
+                          {safeParseNumber(order.quantity).toLocaleString()} {getUnitLabel(order)}
                         </TableCell>
 
                         <TableCell className="text-left font-semibold text-slate-950 whitespace-nowrap">

@@ -21,6 +21,7 @@ import {
   Truck, Wallet, FileText,
   TrendingUp, Banknote, Building2,
   Calendar as CalendarIcon, UserPlus, X, Fuel,
+  MapPin, Users, LayoutGrid, Filter,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -234,6 +235,10 @@ export default function DeliverySalesLedger() {
   const [customTo, setCustomTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [truckFilter, setTruckFilter] = useState<string>('all');
+  const [locationFilter, setLocationFilter] = useState<string>('all');
+  const [customerFilter, setCustomerFilter] = useState<string>('all');
+  const [depotFilter, setDepotFilter] = useState<string>('all');
+  const [cycleFilter, setCycleFilter] = useState<string>('all'); // 'all' | '1' | '2' | ...
 
   // ── Payment Dialog ─────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -316,33 +321,89 @@ export default function DeliverySalesLedger() {
   }, []);
 
   // ═══════════════════════════════════════════════════════════════════
-  // Per-truck aggregation: expected amount & total paid so far
+  // Cycle key — one cycle = one loading event = (truck + date_loaded)
+  // This is the primary grouping unit; replaces bare truck_number so
+  // that two loadings of the same truck are tracked independently.
   // ═══════════════════════════════════════════════════════════════════
 
-  const truckPaymentSummary = useMemo(() => {
-    const map = new Map<string, { totalExpected: number; totalPaid: number; entries: DeliverySale[] }>();
-    // First pass: collect entries and total paid
+  const getCycleKey = (truckNum: string, dateLoaded: string | undefined | null): string =>
+    `${truckNum}||${dateLoaded || ''}`;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Per-cycle aggregation: expected amount & total paid so far
+  // ═══════════════════════════════════════════════════════════════════
+
+  const cyclePaymentSummary = useMemo(() => {
+    const map = new Map<string, {
+      truckNumber: string;
+      dateLoaded: string;
+      totalExpected: number;
+      totalPaid: number;
+      entries: DeliverySale[];
+    }>();
+
+    // First pass: collect entries and total paid per cycle
     allSales.forEach(s => {
-      const key = s.truck_number;
-      const existing = map.get(key) || { totalExpected: 0, totalPaid: 0, entries: [] };
+      const key = getCycleKey(s.truck_number, s.date_loaded);
+      const existing = map.get(key) || {
+        truckNumber: s.truck_number,
+        dateLoaded: s.date_loaded || '',
+        totalExpected: 0,
+        totalPaid: 0,
+        entries: [],
+      };
       existing.totalPaid += toNum(s.payment_amount);
       existing.entries.push(s);
       map.set(key, existing);
     });
-    // Second pass: totalExpected = sum of MAX sales_value per customer per truck
-    // (each customer's sales_value is repeated on every payment row — take max to avoid double-counting)
-    map.forEach((summary) => {
+
+    // Second pass: totalExpected = sum of MAX sales_value per customer WITHIN this cycle
+    map.forEach((cycle) => {
       const perCustMax = new Map<number, number>();
-      summary.entries.forEach(s => {
+      cycle.entries.forEach(s => {
         const sv = toNum(s.sales_value);
-        if (sv > 0) {
-          perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) || 0, sv));
-        }
+        if (sv > 0) perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) || 0, sv));
       });
-      summary.totalExpected = Array.from(perCustMax.values()).reduce((a, b) => a + b, 0);
+      cycle.totalExpected = Array.from(perCustMax.values()).reduce((a, b) => a + b, 0);
     });
+
     return map;
   }, [allSales]);
+
+  // Cycle number per truck: "Cycle 1", "Cycle 2" ... sorted by date_loaded ascending
+  const cycleNumberMap = useMemo(() => {
+    // truck_number → sorted array of dateLoaded strings
+    const truckDates = new Map<string, string[]>();
+    cyclePaymentSummary.forEach((cycle, key) => {
+      const arr = truckDates.get(cycle.truckNumber) || [];
+      arr.push(cycle.dateLoaded);
+      truckDates.set(cycle.truckNumber, arr);
+    });
+    truckDates.forEach((dates, truck) => {
+      dates.sort(); // ascending → Cycle 1 is the earliest load
+      truckDates.set(truck, dates);
+    });
+    const map = new Map<string, { cycleNum: number; totalCycles: number }>();
+    truckDates.forEach((dates, truck) => {
+      dates.forEach((date, idx) => {
+        map.set(getCycleKey(truck, date), { cycleNum: idx + 1, totalCycles: dates.length });
+      });
+    });
+    return map;
+  }, [cyclePaymentSummary]);
+
+  // Keep a truck-level view for the dialog outstanding banner
+  // (shows how much is still owed across ALL cycles of the selected truck)
+  const truckPaymentSummary = useMemo(() => {
+    const map = new Map<string, { totalExpected: number; totalPaid: number }>();
+    cyclePaymentSummary.forEach((cycle) => {
+      const t = map.get(cycle.truckNumber) || { totalExpected: 0, totalPaid: 0 };
+      t.totalExpected += cycle.totalExpected;
+      t.totalPaid     += cycle.totalPaid;
+      map.set(cycle.truckNumber, t);
+    });
+    return map;
+  }, [cyclePaymentSummary]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Date range
@@ -375,6 +436,22 @@ export default function DeliverySalesLedger() {
     if (truckFilter !== 'all') {
       result = result.filter(s => s.truck_number === truckFilter);
     }
+    if (locationFilter !== 'all') {
+      result = result.filter(s => s.location === locationFilter);
+    }
+    if (customerFilter !== 'all') {
+      result = result.filter(s => String(s.customer) === customerFilter);
+    }
+    if (depotFilter !== 'all') {
+      result = result.filter(s => s.depot_loaded === depotFilter);
+    }
+    if (cycleFilter !== 'all') {
+      const targetCycleNum = Number(cycleFilter);
+      result = result.filter(s => {
+        const info = cycleNumberMap.get(getCycleKey(s.truck_number, s.date_loaded));
+        return info?.cycleNum === targetCycleNum;
+      });
+    }
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       result = result.filter(s =>
@@ -392,37 +469,27 @@ export default function DeliverySalesLedger() {
       const dateB = b.date_of_payment || b.date_loaded || '';
       return dateB.localeCompare(dateA);
     });
-  }, [timeFilteredSales, truckFilter, searchQuery, customerMap]);
+  }, [timeFilteredSales, truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, searchQuery, customerMap]);
 
   // ═══════════════════════════════════════════════════════════════════
-  // Running balance per row
+  // Running balance per row — scoped per cycle (truck + date_loaded)
   // ═══════════════════════════════════════════════════════════════════
 
   const rowBalances = useMemo(() => {
-    // Group entries per truck, sorted chronologically
-    const truckEntries = new Map<string, DeliverySale[]>();
-    allSales.forEach(s => {
-      const arr = truckEntries.get(s.truck_number) || [];
-      arr.push(s);
-      truckEntries.set(s.truck_number, arr);
-    });
-
     const balanceMap = new Map<number, number>();
-    truckEntries.forEach((entries) => {
-      const sorted = [...entries].sort((a, b) => {
+
+    cyclePaymentSummary.forEach((cycle) => {
+      const sorted = [...cycle.entries].sort((a, b) => {
         const dateA = a.date_of_payment || a.date_loaded || a.created_at || '';
         const dateB = b.date_of_payment || b.date_loaded || b.created_at || '';
         return dateA.localeCompare(dateB) || a.id - b.id;
       });
 
-      // Total expected = sum of MAX sales_value per customer (not sum of all rows —
-      // each payment row repeats the same customer total, so sum would double-count).
+      // totalExpected within this cycle only
       const perCustMax = new Map<number, number>();
       sorted.forEach(s => {
         const sv = toNum(s.sales_value);
-        if (sv > 0) {
-          perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) || 0, sv));
-        }
+        if (sv > 0) perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) || 0, sv));
       });
       const totalExpected = Array.from(perCustMax.values()).reduce((a, b) => a + b, 0);
 
@@ -434,63 +501,64 @@ export default function DeliverySalesLedger() {
     });
 
     return balanceMap;
-  }, [allSales]);
+  }, [cyclePaymentSummary]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Summaries
   // ═══════════════════════════════════════════════════════════════════
 
   const totals = useMemo(() => {
+    // Build cycle-level aggregates from filteredSales only
+    // so every dropdown/search filter is reflected in the summary cards.
+    const cycleMap = new Map<string, {
+      entries: DeliverySale[];
+      totalPaid: number;
+    }>();
+
+    filteredSales.forEach(s => {
+      const key = getCycleKey(s.truck_number, s.date_loaded);
+      const c = cycleMap.get(key) || { entries: [], totalPaid: 0 };
+      c.entries.push(s);
+      c.totalPaid += toNum(s.payment_amount);
+      cycleMap.set(key, c);
+    });
+
     let totalExpected = 0;
     let totalPaid = 0;
     let totalQty = 0;
     const uniqueTrucks = new Set<string>();
     const uniqueCustomers = new Set<number>();
-
-    truckPaymentSummary.forEach((summary, truckNum) => {
-      const hasEntryInRange = summary.entries.some(s => {
-        const dateField = s.date_of_payment || s.date_loaded;
-        return matchesDateRange(dateField, dateRange.from, dateRange.to);
-      });
-      if (!hasEntryInRange) return;
-
-      // Expected revenue: already correct — truckPaymentSummary takes MAX sales_value
-      // per customer per truck, so FS entries with sales_value = 0 contribute 0 naturally.
-      totalExpected += summary.totalExpected;
-
-      // Total paid: already correct — FS entries with no payment contribute 0 naturally.
-      totalPaid += summary.totalPaid;
-
-      // Count this truck regardless of whether it has FS or regular customers.
-      uniqueTrucks.add(truckNum);
-
-      // Qty: MAX per customer per truck across ALL entries (FS qty is real loaded qty).
-      // Each payment row repeats the same quantity — take MAX to avoid double-counting.
-      const perCustMaxQty = new Map<number, number>();
-      summary.entries.forEach(s => {
-        uniqueCustomers.add(s.customer);
-        const q = toNum(s.quantity);
-        if (q > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-      });
-      perCustMaxQty.forEach(q => { totalQty += q; });
-    });
-
-    // Split outstanding vs overpaid per truck
     let totalOutstanding = 0;
     let totalOverpaid = 0;
-    truckPaymentSummary.forEach((summary, truckNum) => {
-      const hasEntryInRange = summary.entries.some(s => {
-        const dateField = s.date_of_payment || s.date_loaded;
-        return matchesDateRange(dateField, dateRange.from, dateRange.to);
+
+    cycleMap.forEach((cycle, key) => {
+      const truckNum = key.split('||')[0];
+      uniqueTrucks.add(truckNum);
+
+      const perCustMaxSv  = new Map<number, number>();
+      const perCustMaxQty = new Map<number, number>();
+      cycle.entries.forEach(s => {
+        uniqueCustomers.add(s.customer);
+        const sv = toNum(s.sales_value);
+        const q  = toNum(s.quantity);
+        if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
+        if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
       });
-      if (!hasEntryInRange) return;
-      const bal = summary.totalExpected - summary.totalPaid;
+
+      let cycleExp = 0;
+      perCustMaxSv.forEach(v  => { cycleExp   += v; });
+      perCustMaxQty.forEach(v => { totalQty   += v; });
+
+      totalExpected += cycleExp;
+      totalPaid     += cycle.totalPaid;
+
+      const bal = cycleExp - cycle.totalPaid;
       if (bal > 0) totalOutstanding += bal;
       else if (bal < 0) totalOverpaid += Math.abs(bal);
     });
 
     return {
-      entries: timeFilteredSales.length,
+      entries: filteredSales.length,
       totalExpected,
       totalPaid,
       totalQty,
@@ -500,7 +568,7 @@ export default function DeliverySalesLedger() {
       truckCount: uniqueTrucks.size,
       customerCount: uniqueCustomers.size,
     };
-  }, [truckPaymentSummary, timeFilteredSales, dateRange]);
+  }, [filteredSales]);
 
   const summaryCards = useMemo((): SummaryCard[] => {
     // totalOutstanding = sum of per-truck deficits (before netting overpayments)
@@ -543,23 +611,24 @@ export default function DeliverySalesLedger() {
       ? `${customFrom ? format(parseISO(customFrom), 'dd MMM') : '?'} – ${customTo ? format(parseISO(customTo), 'dd MMM yyyy') : '?'}`
       : timePreset === 'all' ? 'All Time' : timePreset.charAt(0).toUpperCase() + timePreset.slice(1);
 
-  // Group filteredSales by truck, preserving sort order within each group
-  const groupedByTruck = useMemo(() => {
+  // Group filteredSales by cycle (truck + date_loaded), preserving sort order within each group
+  const groupedByCycle = useMemo(() => {
     const map = new Map<string, DeliverySale[]>();
     filteredSales.forEach(s => {
-      const arr = map.get(s.truck_number) ?? [];
+      const key = getCycleKey(s.truck_number, s.date_loaded);
+      const arr = map.get(key) ?? [];
       arr.push(s);
-      map.set(s.truck_number, arr);
+      map.set(key, arr);
     });
     return map;
   }, [filteredSales]);
 
-  // Which truck groups are collapsed (default: all expanded)
+  // Which cycle groups are collapsed (default: all expanded)
   const [collapsedTrucks, setCollapsedTrucks] = useState<Set<string>>(new Set());
-  const toggleTruck = (truckNum: string) =>
+  const toggleTruck = (cycleKey: string) =>
     setCollapsedTrucks(prev => {
       const next = new Set(prev);
-      next.has(truckNum) ? next.delete(truckNum) : next.add(truckNum);
+      next.has(cycleKey) ? next.delete(cycleKey) : next.add(cycleKey);
       return next;
     });
 
@@ -570,34 +639,65 @@ export default function DeliverySalesLedger() {
     return Array.from(set).sort();
   }, [allSales]);
 
+  // Unique locations/destinations
+  const uniqueLocations = useMemo(() => {
+    const set = new Set<string>();
+    allSales.forEach(s => { if (s.location) set.add(s.location); });
+    return Array.from(set).sort();
+  }, [allSales]);
+
+  // Unique customers (id→name pairs)
+  const uniqueCustomerOptions = useMemo(() => {
+    const map = new Map<number, string>();
+    allSales.forEach(s => {
+      const name = s.customer_name || customerMap.get(s.customer)?.customer_name || '';
+      if (s.customer && name) map.set(s.customer, name);
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [allSales, customerMap]);
+
+  // Unique depots
+  const uniqueDepots = useMemo(() => {
+    const set = new Set<string>();
+    allSales.forEach(s => { if (s.depot_loaded) set.add(s.depot_loaded); });
+    return Array.from(set).sort();
+  }, [allSales]);
+
+  // Unique cycle numbers across all trucks — e.g. "Cycle 1", "Cycle 2"
+  // Cycle 1 = a truck's first load, Cycle 2 = same truck reloaded, etc.
+  const uniqueCycleOptions = useMemo(() => {
+    const maxCycle = Array.from(cycleNumberMap.values()).reduce((m, v) => Math.max(m, v.cycleNum), 0);
+    if (maxCycle <= 1) return []; // no multi-cycle trucks — hide the filter
+    return Array.from({ length: maxCycle }, (_, i) => i + 1);
+  }, [cycleNumberMap]);
+
   // Loaded trucks for the dialog — show trucks that:
   // 1. Have a truck_number or truck ID, AND
-  // 2. Are NOT (offloaded AND fully paid with no outstanding balance)
+  // 2. Are NOT (offloaded AND fully paid with no outstanding balance for this specific cycle)
   const loadedTrucks = useMemo(() => {
     return allLoadings.filter(t => {
       if (!(t.truck_number || t.truck)) return false;
-      // If offloaded, check if fully paid — hide only when fully settled
       if (t.loading_status === 'offloaded') {
-        const truckNum = t.truck_number || '';
-        const summary = truckPaymentSummary.get(truckNum);
-        if (summary) {
-          const outstanding = summary.totalExpected - summary.totalPaid;
-          // Hide if fully paid (outstanding ≤ 0) and no unrecorded customers
-          if (outstanding <= 0 && summary.totalExpected > 0) return false;
+        const cycleKey = getCycleKey(t.truck_number || '', t.date_allocated || '');
+        const cycle = cyclePaymentSummary.get(cycleKey);
+        if (cycle) {
+          const outstanding = cycle.totalExpected - cycle.totalPaid;
+          if (outstanding <= 0 && cycle.totalExpected > 0) return false;
         }
       }
       return true;
     });
-  }, [allLoadings, truckPaymentSummary]);
+  }, [allLoadings, cyclePaymentSummary]);
 
-  // Per-truck-per-customer locked rate: truckNumber → customerId → rate string
-  const truckCustomerRateMap = useMemo(() => {
+  // Per-cycle-per-customer locked rate: cycleKey → customerId → rate string
+  const cycleCustomerRateMap = useMemo(() => {
     const map = new Map<string, Map<string, string>>();
     allSales.forEach(s => {
       const r = toNum(s.rate);
       if (!r || !s.truck_number || !s.customer) return;
-      if (!map.has(s.truck_number)) map.set(s.truck_number, new Map());
-      const inner = map.get(s.truck_number)!;
+      const cycleKey = getCycleKey(s.truck_number, s.date_loaded);
+      if (!map.has(cycleKey)) map.set(cycleKey, new Map());
+      const inner = map.get(cycleKey)!;
       if (!inner.has(String(s.customer))) {
         inner.set(String(s.customer), formatWithCommas(String(r)));
       }
@@ -660,9 +760,10 @@ export default function DeliverySalesLedger() {
     const destination = loading.location || '';
     const qty = toNum(loading.quantity_allocated);
 
-    // Check for existing rate for this truck+customer combo
-    const truckRates = truckCustomerRateMap.get(loading.truck_number || '');
-    const existingRate = (custId && truckRates?.get(custId)) || '';
+    // Check for existing rate for this cycle+customer combo
+    const cycleKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
+    const cycleRates = cycleCustomerRateMap.get(cycleKey);
+    const existingRate = (custId && cycleRates?.get(custId)) || '';
     const rateLocked = !!existingRate;
 
     const qtyStr = qty > 0 ? formatWithCommas(String(qty)) : '';
@@ -709,11 +810,12 @@ export default function DeliverySalesLedger() {
         ? (field === 'sales_value' ? value : formatWithCommas(value))
         : value };
 
-      // When customer is selected, check if they already have a rate for this truck
+      // When customer is selected, check if they already have a rate for this cycle
       // Also auto-fill phone for filling stations
       if (field === 'customer') {
-        const truckRates = truckCustomerRateMap.get(dialogTruckNumber);
-        const priorRate = value ? truckRates?.get(value) : undefined;
+        const cycleKey = getCycleKey(dialogTruckNumber, dialogDateLoaded);
+        const cycleRates = cycleCustomerRateMap.get(cycleKey);
+        const priorRate = value ? cycleRates?.get(value) : undefined;
         if (priorRate) {
           updated.rate = priorRate;
           updated.rateLocked = true;
@@ -859,7 +961,6 @@ export default function DeliverySalesLedger() {
       setSaving(false);
     }
   }, [dialogTruckNumber, dialogDateLoaded, dialogDepot, dialogTruckLoadingId, saleRows, toast, bankMap, customerMap]);
-
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -976,15 +1077,15 @@ export default function DeliverySalesLedger() {
     const n = (v: number) => v > 0 ? v.toLocaleString('en-NG') : '—';
     const u = (s: string) => (s || '').toUpperCase();
 
-    // ── Build truck groups, each sorted chronologically ─────────────
-    const exportTruckMap = new Map<string, DeliverySale[]>();
+    // ── Build cycle groups (truck + date_loaded), each sorted chronologically ─
+    const exportCycleMap = new Map<string, DeliverySale[]>();
     filteredSales.forEach(s => {
-      const arr = exportTruckMap.get(s.truck_number) ?? [];
+      const key = getCycleKey(s.truck_number, s.date_loaded);
+      const arr = exportCycleMap.get(key) ?? [];
       arr.push(s);
-      exportTruckMap.set(s.truck_number, arr);
+      exportCycleMap.set(key, arr);
     });
-    // Sort entries within each truck by date_of_payment → date_loaded → id
-    exportTruckMap.forEach(entries => {
+    exportCycleMap.forEach(entries => {
       entries.sort((a, b) => {
         const da = a.date_of_payment || a.date_loaded || '';
         const db = b.date_of_payment || b.date_loaded || '';
@@ -992,33 +1093,34 @@ export default function DeliverySalesLedger() {
       });
     });
 
-    // Grand totals (same dedup logic as on-page cards)
+    // Grand totals — per cycle to avoid cross-cycle double-counting
     let grandExpected  = 0;
     let grandPaid      = 0;
     let grandQty       = 0;
     let grandOutstanding = 0;
     let grandOverpaid    = 0;
-    exportTruckMap.forEach(entries => {
+    exportCycleMap.forEach(entries => {
       const perCustMaxSv  = new Map<number, number>();
       const perCustMaxQty = new Map<number, number>();
-      let truckPaidLocal = 0;
+      let cyclePaidLocal = 0;
       entries.forEach(s => {
         const sv = toNum(s.sales_value);
         const q  = toNum(s.quantity);
         if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
         if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-        grandPaid += toNum(s.payment_amount);
-        truckPaidLocal += toNum(s.payment_amount);
+        grandPaid      += toNum(s.payment_amount);
+        cyclePaidLocal += toNum(s.payment_amount);
       });
-      let truckExp = 0;
-      perCustMaxSv.forEach(v  => { grandExpected += v; truckExp += v; });
+      let cycleExp = 0;
+      perCustMaxSv.forEach(v  => { grandExpected += v; cycleExp += v; });
       perCustMaxQty.forEach(v => { grandQty      += v; });
-      const truckBal = truckExp - truckPaidLocal;
-      if (truckBal > 0) grandOutstanding += truckBal;
-      else if (truckBal < 0) grandOverpaid += Math.abs(truckBal);
+      const cycleBal = cycleExp - cyclePaidLocal;
+      if (cycleBal > 0) grandOutstanding += cycleBal;
+      else if (cycleBal < 0) grandOverpaid += Math.abs(cycleBal);
     });
-    const grandBalance    = grandExpected - grandPaid;
-    const totalTrucks     = exportTruckMap.size;
+    const grandBalance = grandExpected - grandPaid;
+    const totalCycles  = exportCycleMap.size;
+    const totalTrucks  = new Set(filteredSales.map(s => s.truck_number)).size;
 
     // ── Build AOA (array-of-arrays) for the sheet ───────────────────
     const COLS = [
@@ -1029,26 +1131,11 @@ export default function DeliverySalesLedger() {
 
     const aoa: (string | number)[][] = [];
 
-    // Grand summary header
-    // Net balance: grandPaid can exceed grandExpected when overpayments offset outstanding
+    // Net balance label
     const netBalanceLabel = (() => {
       if (grandBalance === 0) return 'FULLY SETTLED';
       if (grandBalance < 0)  return `${n(Math.abs(grandBalance))} OVERPAID`;
-      // grandBalance > 0 — some trucks still owed; note if any truck has already overpaid
-      if (grandOverpaid > 0)
-        return `${n(grandBalance)} including ${n(grandOverpaid)} overpaid on ${
-          (() => {
-            let ct = 0;
-            exportTruckMap.forEach(entries => {
-              let exp = 0; let paid = 0;
-              const sv = new Map<number, number>();
-              entries.forEach(s => { if (toNum(s.sales_value) > 0) sv.set(s.customer, Math.max(sv.get(s.customer) ?? 0, toNum(s.sales_value))); paid += toNum(s.payment_amount); });
-              sv.forEach(v => { exp += v; });
-              if (exp - paid < 0) ct++;
-            });
-            return ct;
-          })()
-        } truck${grandOverpaid > 0 ? '(s)' : ''}`;
+      if (grandOverpaid > 0) return `${n(grandBalance)} (${n(grandOverpaid)} overpaid on some cycles)`;
       return n(grandBalance);
     })();
 
@@ -1056,6 +1143,7 @@ export default function DeliverySalesLedger() {
     aoa.push([]);
     aoa.push(['TOTAL QTY SOLD (LTRS)',  n(grandQty)]);
     aoa.push(['TOTAL TRUCKS',           totalTrucks]);
+    aoa.push(['TOTAL CYCLES',           totalCycles]);
     aoa.push(['EXPECTED REVENUE (₦)',   n(grandExpected)]);
     aoa.push(['TOTAL PAID (₦)',         n(grandPaid)]);
     aoa.push(['BALANCE (₦)',            netBalanceLabel]);
@@ -1066,29 +1154,34 @@ export default function DeliverySalesLedger() {
 
     let rowNum = 0;
 
-    exportTruckMap.forEach((entries, truckNum) => {
-      // Per-truck totals
+    exportCycleMap.forEach((entries, cycleKey) => {
+      const firstEntry = entries[0];
+      const truckNum = firstEntry?.truck_number || cycleKey.split('||')[0];
+      const exportCycleInfo = cycleNumberMap.get(cycleKey);
+      const cycleTag = exportCycleInfo && exportCycleInfo.totalCycles > 1
+        ? ` [CYCLE ${exportCycleInfo.cycleNum}/${exportCycleInfo.totalCycles}]`
+        : '';
+
+      // Per-cycle totals
       const perCustMaxSv  = new Map<number, number>();
       const perCustMaxQty = new Map<number, number>();
-      let truckPaid = 0;
+      let cyclePaid = 0;
       entries.forEach(s => {
         const sv = toNum(s.sales_value);
         const q  = toNum(s.quantity);
         if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
         if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-        truckPaid += toNum(s.payment_amount);
+        cyclePaid += toNum(s.payment_amount);
       });
-      let truckExpected = 0; perCustMaxSv.forEach(v  => { truckExpected += v; });
-      let truckQty      = 0; perCustMaxQty.forEach(v => { truckQty      += v; });
-      const truckBalance = truckExpected - truckPaid;
+      let cycleExpected = 0; perCustMaxSv.forEach(v  => { cycleExpected += v; });
+      let cycleQty      = 0; perCustMaxQty.forEach(v => { cycleQty      += v; });
+      const cycleBalance = cycleExpected - cyclePaid;
 
-      // Individual entry rows — carry-forward suppression:
-      // truck no., date loaded, depot, destination repeat only on first row.
-      // qty & rate repeat only when they actually change across rows.
-      let prevTruckShown  = false;
-      let prevQty         = '';
-      let prevRate        = '';
-      let prevCustName    = '';
+      // Individual entry rows — carry-forward suppression within each cycle
+      let prevCycleShown = false;
+      let prevQty        = '';
+      let prevRate       = '';
+      let prevCustName   = '';
 
       entries.forEach(s => {
         rowNum += 1;
@@ -1097,21 +1190,21 @@ export default function DeliverySalesLedger() {
         const thisQty   = toNum(s.quantity) > 0 ? n(toNum(s.quantity))  : '—';
         const thisRate  = toNum(s.rate)     > 0 ? n(toNum(s.rate))      : '—';
 
-        // Truck-level fields: only on the first row of this truck group
-        const truckCell    = !prevTruckShown ? u(s.truck_number) : '';
-        const dateCell     = !prevTruckShown && s.date_loaded
-                              ? format(parseISO(s.date_loaded), 'dd/MM/yyyy') : '';
-        const depotCell    = !prevTruckShown ? u(s.depot_loaded  || '') : '';
-        const destCell     = !prevTruckShown ? u(s.location      || '') : '';
+        // Cycle-level fields: only on the first row of this cycle group
+        const truckCell = !prevCycleShown ? `${u(s.truck_number)}${cycleTag}` : '';
+        const dateCell  = !prevCycleShown && s.date_loaded
+                            ? format(parseISO(s.date_loaded), 'dd/MM/yyyy') : '';
+        const depotCell = !prevCycleShown ? u(s.depot_loaded || '') : '';
+        const destCell  = !prevCycleShown ? u(s.location     || '') : '';
 
-        // Qty & Rate: show only when value changes from the previous row
-        const qtyCell      = thisQty  !== prevQty  ? thisQty  : '';
-        const rateCell     = thisRate !== prevRate  ? thisRate : '';
+        // Qty & Rate: show only when value changes
+        const qtyCell  = thisQty  !== prevQty  ? thisQty  : '';
+        const rateCell = thisRate !== prevRate  ? thisRate : '';
 
-        // Customer: show only when it changes (carry-forward suppression)
-        const custCell     = custName !== prevCustName ? custName : '';
+        // Customer: carry-forward suppression
+        const custCell = custName !== prevCustName ? custName : '';
 
-        const balanceCell  = balance > 0
+        const balanceCell = balance > 0
           ? n(balance)
           : balance < 0
           ? `+${n(Math.abs(balance))} OVERPAID`
@@ -1136,25 +1229,25 @@ export default function DeliverySalesLedger() {
           u(s.entered_by    || ''),
         ]);
 
-        prevTruckShown = true;
+        prevCycleShown = true;
         prevQty        = thisQty;
         prevRate       = thisRate;
         prevCustName   = custName;
       });
 
-      // Truck subtotal row
+      // Cycle subtotal row
       aoa.push([
         '',
-        `SUBTOTAL — ${u(truckNum)}`,
+        `SUBTOTAL — ${u(truckNum)}${cycleTag}`,
         '', '', '', '',
-        n(truckQty),
+        n(cycleQty),
         '',
-        n(truckExpected),
-        n(truckPaid),
-        truckBalance === 0 ? 'FULLY PAID' : truckBalance > 0 ? n(truckBalance) : `+${n(Math.abs(truckBalance))} OVERPAID`,
+        n(cycleExpected),
+        n(cyclePaid),
+        cycleBalance === 0 ? 'FULLY PAID' : cycleBalance > 0 ? n(cycleBalance) : `+${n(Math.abs(cycleBalance))} OVERPAID`,
         '', '', '', '', '',
       ]);
-      // Blank separator between trucks
+      // Blank separator between cycles
       aoa.push([]);
     });
 
@@ -1162,7 +1255,7 @@ export default function DeliverySalesLedger() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Truck Sales Ledger');
     XLSX.writeFile(wb, `TRUCK-SALES-LEDGER-${period}.xlsx`);
-  }, [filteredSales, customerMap, rowBalances, timePreset, customFrom, customTo]);
+  }, [filteredSales, customerMap, rowBalances, cycleNumberMap, timePreset, customFrom, customTo]);
 
   const activeBankAccounts = useMemo(
     () => BANK_ACCOUNTS.filter(b => b.is_active),
@@ -1204,69 +1297,270 @@ export default function DeliverySalesLedger() {
               }
             />
 
-            {/* ── Time Filter ──────────────────────────────────────── */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-              <div className="flex flex-wrap gap-2 items-center">
-                <span className="text-sm font-medium text-slate-600 mr-1">
-                  <CalendarIcon size={14} className="inline mr-1" />
-                  Period:
-                </span>
-                {(['today', 'yesterday', 'week', 'month', 'year', 'all', 'custom'] as TimePreset[]).map(tp => (
+            {/* ══════════════════════════════════════════════════════
+                FILTER PANEL — always visible, one unified card
+            ══════════════════════════════════════════════════════ */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+
+              {/* Card header */}
+              <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
+                <Filter size={15} className="text-slate-500" />
+                <span className="text-sm font-semibold text-slate-700">Filter &amp; Search</span>
+                {/* Active filter count */}
+                {[truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter].filter(v => v !== 'all').length > 0 && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 text-white leading-none">
+                    {[truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter].filter(v => v !== 'all').length} active
+                  </span>
+                )}
+                {/* Clear all — only when filters are active */}
+                {([truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, searchQuery].some(v => v !== 'all' && v !== '')) && (
                   <button
-                    key={tp}
-                    onClick={() => handlePresetChange(tp)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-                      timePreset === tp
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                    }`}
+                    title="Clear all filters"
+                    onClick={() => {
+                      setTruckFilter('all');
+                      setDepotFilter('all');
+                      setLocationFilter('all');
+                      setCustomerFilter('all');
+                      setCycleFilter('all');
+                      setSearchQuery('');
+                    }}
+                    className="ml-auto text-xs text-slate-400 hover:text-red-500 flex items-center gap-1 transition-colors"
                   >
-                    {tp === 'all' ? 'All Time' : tp === 'custom' ? 'Date Range' : tp.charAt(0).toUpperCase() + tp.slice(1)}
+                    <X size={12} /> Clear all filters
                   </button>
-                ))}
+                )}
               </div>
-              {timePreset === 'custom' && (
-                <div className="flex flex-wrap gap-3 mt-3 items-end">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">From</Label>
-                    <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="h-9 w-[160px]" />
+
+              <div className="p-5 space-y-5">
+
+                {/* ── Row 1: Period selector ──────────────────────── */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <CalendarIcon size={12} /> Time Period
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {(['today', 'yesterday', 'week', 'month', 'year', 'all', 'custom'] as TimePreset[]).map(tp => (
+                      <button
+                        key={tp}
+                        title={`Show ${tp === 'all' ? 'all time' : tp === 'custom' ? 'custom date range' : tp}`}
+                        onClick={() => handlePresetChange(tp)}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                          timePreset === tp
+                            ? 'bg-slate-900 text-white border-slate-900'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:bg-slate-50'
+                        }`}
+                      >
+                        {tp === 'all' ? 'All Time' : tp === 'custom' ? 'Custom Range' : tp.charAt(0).toUpperCase() + tp.slice(1)}
+                      </button>
+                    ))}
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">To</Label>
-                    <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="h-9 w-[160px]" />
+                  {timePreset === 'custom' && (
+                    <div className="flex flex-wrap gap-3 mt-2 items-end">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-500">From date</Label>
+                        <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="h-9 w-[160px]" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-500">To date</Label>
+                        <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="h-9 w-[160px]" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Divider ─────────────────────────────────────── */}
+                <div className="border-t border-slate-100" />
+
+                {/* ── Row 2: Dropdown filters ─────────────────────── */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Filter size={12} /> Narrow Down Results
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+
+                    {/* Truck */}
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                        <Truck size={12} className="text-slate-400" /> Truck
+                      </label>
+                      <select
+                        aria-label="Filter by truck"
+                        value={truckFilter}
+                        onChange={e => setTruckFilter(e.target.value)}
+                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
+                          truckFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <option value="all">All Trucks</option>
+                        {uniqueTruckNumbers.map(t => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Depot */}
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                        <Building2 size={12} className="text-slate-400" /> Depot (Loading Point)
+                      </label>
+                      <select
+                        aria-label="Filter by depot"
+                        value={depotFilter}
+                        onChange={e => setDepotFilter(e.target.value)}
+                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
+                          depotFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <option value="all">All Depots</option>
+                        {uniqueDepots.map(d => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Destination */}
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                        <MapPin size={12} className="text-slate-400" /> Destination
+                      </label>
+                      <select
+                        aria-label="Filter by destination"
+                        value={locationFilter}
+                        onChange={e => setLocationFilter(e.target.value)}
+                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
+                          locationFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <option value="all">All Destinations</option>
+                        {uniqueLocations.map(l => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Customer */}
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                        <Users size={12} className="text-slate-400" /> Customer
+                      </label>
+                      <select
+                        aria-label="Filter by customer"
+                        value={customerFilter}
+                        onChange={e => setCustomerFilter(e.target.value)}
+                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
+                          customerFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <option value="all">All Customers</option>
+                        {uniqueCustomerOptions.map(c => (
+                          <option key={c.id} value={String(c.id)}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Cycle — only shown when there are multi-cycle trucks */}
+                    {uniqueCycleOptions.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                          <LayoutGrid size={12} className="text-slate-400" /> Cycle
+                          <span className="text-[10px] text-slate-400 font-normal">(reload #)</span>
+                        </label>
+                        <select
+                          aria-label="Filter by cycle number"
+                          value={cycleFilter}
+                          onChange={e => setCycleFilter(e.target.value)}
+                          className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
+                            cycleFilter !== 'all' ? 'border-blue-600 font-semibold text-blue-900 bg-blue-50' : 'border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <option value="all">All Cycles</option>
+                          {uniqueCycleOptions.map(n => (
+                            <option key={n} value={String(n)}>
+                              Cycle {n} — {n === 1 ? 'First load' : n === 2 ? 'First reload' : `Reload #${n - 1}`}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] text-slate-400 leading-snug">
+                          "Cycle" = how many times the same truck was loaded. Cycle 1 is the first load, Cycle 2 means the truck came back for a second load, etc.
+                        </p>
+                      </div>
+                    ) : (
+                      /* placeholder so grid stays aligned */
+                      <div className="hidden xl:block" />
+                    )}
                   </div>
                 </div>
-              )}
+
+                {/* ── Divider ─────────────────────────────────────── */}
+                <div className="border-t border-slate-100" />
+
+                {/* ── Row 3: Search ───────────────────────────────── */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Search size={12} /> Search (keyword)
+                  </p>
+                  <div className="relative max-w-xl">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                    <Input
+                      placeholder="Type any word — truck number, customer name, payer, bank, remarks…"
+                      className="pl-9 h-9 text-sm"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                    />
+                    {searchQuery && (
+                      <button
+                        title="Clear search"
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Active filter chips ──────────────────────────── */}
+                {[
+                  truckFilter !== 'all' && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('all') },
+                  depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
+                  locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
+                  customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
+                  cycleFilter !== 'all' && { label: `Cycle ${cycleFilter} only`, clear: () => setCycleFilter('all') },
+                  searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
+                ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <span className="text-xs text-slate-400 shrink-0">You're viewing:</span>
+                    {[
+                      truckFilter !== 'all' && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('all') },
+                      depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
+                      locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
+                      customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
+                      cycleFilter !== 'all' && { label: `Cycle ${cycleFilter} only`, clear: () => setCycleFilter('all') },
+                      searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
+                    ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
+                      <span key={chip.label} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-900 text-white">
+                        {chip.label}
+                        <button title={`Remove: ${chip.label}`} onClick={chip.clear} className="hover:text-slate-300 ml-0.5">
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Results summary line ─────────────────────────── */}
+                <p className="text-xs text-slate-400">
+                  {filteredSales.length === allSales.length
+                    ? <>Showing all <strong className="text-slate-600">{allSales.length}</strong> entries for <strong className="text-slate-600">{periodLabel}</strong>.</>
+                    : <>Showing <strong className="text-slate-600">{filteredSales.length}</strong> of <strong className="text-slate-600">{allSales.length}</strong> total entries · <strong className="text-slate-600">{periodLabel}</strong>. Adjust or clear filters to see more.</>
+                  }
+                </p>
+
+              </div>
             </div>
 
             {/* ── Summary Cards ─────────────────────────────────────── */}
             <SummaryCards cards={summaryCards} />
-
-            {/* ── Search + Filters ─────────────────────────────────── */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                  <Input
-                    placeholder="Search by truck, depot, destination, customer, payer, bank…"
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                  />
-                </div>
-                <select
-                  aria-label="Filter by truck"
-                  value={truckFilter}
-                  onChange={e => setTruckFilter(e.target.value)}
-                  className="h-10 w-full sm:w-[220px] rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="all">All Trucks</option>
-                  {uniqueTruckNumbers.map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
 
             {/* ── Table ───────────────────────────────────────────── */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
@@ -1315,31 +1609,36 @@ export default function DeliverySalesLedger() {
                         let globalIdx = 0;
                         const rows: React.ReactNode[] = [];
 
-                        groupedByTruck.forEach((entries, truckNum) => {
-                          const isCollapsed = collapsedTrucks.has(truckNum);
+                        groupedByCycle.forEach((entries, cycleKey) => {
+                          const isCollapsed = collapsedTrucks.has(cycleKey);
+                          const firstEntry = entries[0];
+                          const truckNum = firstEntry?.truck_number || cycleKey.split('||')[0];
+                          const cycleInfo = cycleNumberMap.get(cycleKey);
+                          const cycleLabel = cycleInfo && cycleInfo.totalCycles > 1
+                            ? ` · Cycle ${cycleInfo.cycleNum}/${cycleInfo.totalCycles}`
+                            : '';
 
-                          // Per-truck totals for the group header
+                          // Per-cycle totals for the group header
                           const perCustMaxSv  = new Map<number, number>();
                           const perCustMaxQty = new Map<number, number>();
-                          let truckPaid = 0;
+                          let cyclePaid = 0;
                           entries.forEach(s => {
                             const sv = toNum(s.sales_value);
                             const q  = toNum(s.quantity);
                             if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
                             if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-                            truckPaid += toNum(s.payment_amount);
+                            cyclePaid += toNum(s.payment_amount);
                           });
-                          let truckExpected = 0; perCustMaxSv.forEach(v => { truckExpected += v; });
-                          let truckQty = 0;      perCustMaxQty.forEach(v => { truckQty += v; });
-                          const truckBalance = truckExpected - truckPaid;
-                          const firstEntry = entries[0];
+                          let cycleExpected = 0; perCustMaxSv.forEach(v => { cycleExpected += v; });
+                          let cycleQty = 0;      perCustMaxQty.forEach(v => { cycleQty += v; });
+                          const cycleBalance = cycleExpected - cyclePaid;
 
-                          // ── Truck group header row ──────────────────────────
+                          // ── Cycle group header row ──────────────────────────
                           rows.push(
                             <TableRow
-                              key={`group-${truckNum}`}
+                              key={`group-${cycleKey}`}
                               className="bg-slate-100 hover:bg-slate-200/70 cursor-pointer select-none border-t-2 border-slate-300"
-                              onClick={() => toggleTruck(truckNum)}
+                              onClick={() => toggleTruck(cycleKey)}
                             >
                               <TableCell className="w-[48px]">
                                 <span className="text-slate-500 text-xs">
@@ -1350,6 +1649,11 @@ export default function DeliverySalesLedger() {
                                 <div className="flex items-center gap-2">
                                   <Truck size={14} className="text-slate-500" />
                                   {truckNum}
+                                  {cycleLabel && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200">
+                                      Cycle {cycleInfo?.cycleNum}
+                                    </span>
+                                  )}
                                   <span className="text-xs font-normal text-slate-500 ml-1">
                                     {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
                                   </span>
@@ -1362,23 +1666,23 @@ export default function DeliverySalesLedger() {
                                 {firstEntry?.date_loaded ? format(parseISO(firstEntry.date_loaded), 'dd MMM yyyy') : '—'}
                               </TableCell>
                               <TableCell className="text-slate-500 text-xs italic">
-                                {entries.map(s => s.customer_name || customerMap.get(s.customer)?.customer_name || '').filter(Boolean).join(', ')}
+                                {[...new Set(entries.map(s => s.customer_name || customerMap.get(s.customer)?.customer_name || ''))].filter(Boolean).join(', ')}
                               </TableCell>
                               <TableCell className="text-slate-700 text-sm font-medium">
-                                {truckQty > 0 ? `${fmtQty(truckQty)} L` : '—'}
+                                {cycleQty > 0 ? `${fmtQty(cycleQty)} L` : '—'}
                               </TableCell>
                               <TableCell className="text-right text-slate-400 text-xs" />
                               <TableCell className="text-right font-bold text-slate-800">
-                                {truckExpected > 0 ? fmt(truckExpected) : '—'}
+                                {cycleExpected > 0 ? fmt(cycleExpected) : '—'}
                               </TableCell>
                               <TableCell className="text-right font-bold text-emerald-700">
-                                {truckPaid > 0 ? fmt(truckPaid) : '—'}
+                                {cyclePaid > 0 ? fmt(cyclePaid) : '—'}
                               </TableCell>
                               <TableCell className={`text-right font-bold ${
-                                truckBalance > 0 ? 'text-red-600' : truckBalance < 0 ? 'text-blue-600' : truckExpected > 0 ? 'text-emerald-600' : 'text-slate-400'
+                                cycleBalance > 0 ? 'text-red-600' : cycleBalance < 0 ? 'text-blue-600' : cycleExpected > 0 ? 'text-emerald-600' : 'text-slate-400'
                               }`}>
-                                {truckExpected > 0
-                                  ? (truckBalance === 0 ? 'Fully Paid ✓' : fmt(truckBalance))
+                                {cycleExpected > 0
+                                  ? (cycleBalance === 0 ? 'Fully Paid ✓' : cycleBalance > 0 ? fmt(cycleBalance) : `+${fmt(Math.abs(cycleBalance))} over`)
                                   : '—'}
                               </TableCell>
                               {/* blank cells for remaining columns */}
@@ -1583,16 +1887,35 @@ export default function DeliverySalesLedger() {
                     </span>
                   </div>
                   {(() => {
-                    const summary = truckPaymentSummary.get(dialogTruckNumber);
-                    if (!summary) return null;
-                    const bal = summary.totalExpected - summary.totalPaid;
+                    // Show cycle-specific outstanding, plus truck-total if there are multiple cycles
+                    const cycleKey = getCycleKey(dialogTruckNumber, dialogDateLoaded);
+                    const cycle = cyclePaymentSummary.get(cycleKey);
+                    const truckTotals = truckPaymentSummary.get(dialogTruckNumber);
+                    const cycleInfo = cycleNumberMap.get(cycleKey);
+                    if (!cycle && !truckTotals) return null;
+                    const cycleBal = cycle ? cycle.totalExpected - cycle.totalPaid : null;
+                    const truckBal = truckTotals ? truckTotals.totalExpected - truckTotals.totalPaid : null;
                     return (
-                      <div>
-                        <span className="text-slate-500 text-xs">Outstanding:</span>{' '}
-                        <span className={`font-bold ${bal > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                          {bal > 0 ? fmt(bal) : '✓ Paid'}
-                        </span>
-                      </div>
+                      <>
+                        {cycleBal !== null && (
+                          <div>
+                            <span className="text-slate-500 text-xs">
+                              {cycleInfo && cycleInfo.totalCycles > 1 ? `Cycle ${cycleInfo.cycleNum} Outstanding:` : 'Outstanding:'}
+                            </span>{' '}
+                            <span className={`font-bold ${cycleBal > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                              {cycleBal > 0 ? fmt(cycleBal) : '✓ Paid'}
+                            </span>
+                          </div>
+                        )}
+                        {cycleInfo && cycleInfo.totalCycles > 1 && truckBal !== null && (
+                          <div>
+                            <span className="text-slate-500 text-xs">All {cycleInfo.totalCycles} Cycles Total:</span>{' '}
+                            <span className={`font-bold ${truckBal > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
+                              {truckBal > 0 ? fmt(truckBal) : '✓ Fully settled'}
+                            </span>
+                          </div>
+                        )}
+                      </>
                     );
                   })()}
                 </div>
@@ -1820,8 +2143,10 @@ export default function DeliverySalesLedger() {
                 {(() => {
                   const grandExpected = saleRows.reduce((s, r) => s + (Number(stripCommas(r.sales_value)) || 0), 0);
                   const grandPayment = saleRows.reduce((s, r) => s + (Number(stripCommas(r.payment_amount)) || 0), 0);
-                  const summary = truckPaymentSummary.get(dialogTruckNumber);
-                  const previouslyPaid = summary?.totalPaid || 0;
+                  // Use cycle-scoped previously-paid (not whole-truck)
+                  const cycleKey = getCycleKey(dialogTruckNumber, dialogDateLoaded);
+                  const cycle = cyclePaymentSummary.get(cycleKey);
+                  const previouslyPaid = cycle?.totalPaid || 0;
                   if (!grandExpected && !grandPayment) return null;
                   return (
                     <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mt-1">

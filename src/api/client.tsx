@@ -1083,6 +1083,21 @@ export const apiClient = {
       return response.json();
     },
 
+    /** PATCH /api/admin/pfis/<id>/ — update allowed_locations (and optionally other fields) */
+    updatePfi: async (id: number | string, data: {
+      allowed_locations?: number[];
+      starting_qty_litres?: string;
+      notes?: string;
+    }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/pfis/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
     finishPfi: async (id: number | string) => {
       const response = await safeFetch(`${ADMIN_BASE}/pfis/${id}/finish/`, {
         method: 'POST',

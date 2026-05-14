@@ -60,7 +60,7 @@ interface PaymentOrder {
   };
 
   // Order fields sometimes embedded
-  products?: Array<{ name?: string; unit_price?: string | number; price?: string | number; unitPrice?: string | number }>;
+  products?: Array<{ name?: string; unit_price?: string | number; price?: string | number; unitPrice?: string | number; unit?: string; unit_label?: string }>;
   quantity?: number;
   qty?: number;
   litres?: number;
@@ -189,14 +189,14 @@ function VerifyConfirmModalBody({
   const createdDate = new Date(payment.created_at);
   const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
   const companyName = extractCompanyName(payment);
-  const { product, qty, unitPrice } = extractProductInfo(payment);
+  const { product, qty, unitPrice, unitLabel } = extractProductInfo(payment);
   const paidInto = extractPaidInto(payment);
   const location = extractLocation(payment);
 
   const createdText = Number.isNaN(createdDate.getTime()) ? '—' : createdDate.toLocaleString('en-GB');
   const orderRef = getOrderReference(payment) || payment.order_id;
   const totalAmount = `₦${parseFloat(payment.amount || '0').toLocaleString()}`;
-  const productSummary = [product, qty ? `${qty} Litres` : '']
+  const productSummary = [product, qty ? `${qty} ${unitLabel}` : '']
     .filter(Boolean)
     .join(' × ')
     .trim();
@@ -509,7 +509,7 @@ const extractCustomerDisplay = (p: PaymentOrder): { name: string; phone: string 
   return { name, phone };
 };
 
-const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; unitPrice: string } => {
+const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; unitPrice: string; unitLabel: string } => {
   const products = Array.isArray(p.products) ? p.products : [];
   const product = products
     .map((x) => x?.name)
@@ -549,7 +549,9 @@ const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; un
           return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(rawUnit);
         })();
 
-  return { product, qty, unitPrice };
+  const unitLabel = products?.[0]?.unit_label || products?.[0]?.unit || 'Litres';
+
+  return { product, qty, unitPrice, unitLabel };
 };
 
 const extractCompanyName = (p: PaymentOrder): string => {
@@ -1160,7 +1162,7 @@ export default function PaymentVerification() {
                       const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
                       const companyName = extractCompanyName(payment);
                       const location = extractLocation(payment);
-                      const { product, qty, unitPrice } = extractProductInfo(payment);
+                      const { product, qty, unitPrice, unitLabel } = extractProductInfo(payment);
                       const paidInto = extractPaidInto(payment);
                        return (
                          <TableRow key={payment.id} className="hover:bg-slate-50/50">
@@ -1196,7 +1198,7 @@ export default function PaymentVerification() {
                           <TableCell className="text-slate-700">{product || '—'}</TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="font-semibold text-slate-900">{qty || '—'} Litres</span>
+                              <span className="font-semibold text-slate-900">{qty || '—'} {unitLabel}</span>
                               <span className="text-xs text-slate-500">{unitPrice ? `Unit Price: ₦${unitPrice}` : '—'}</span>
                             </div>
                           </TableCell>

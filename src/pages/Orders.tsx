@@ -54,7 +54,7 @@ interface Order {
   total_price?: string | number;
   status: string;
   created_at: string;
-  products: Array<{ name?: string }>;
+  products: Array<{ name?: string; unit?: string; unit_label?: string }>;
   quantity?: number | string;
   release_type?: 'pickup' | 'delivery';
   reference?: string;
@@ -122,6 +122,9 @@ const getStatusClass = (status: string) => {
       return 'bg-slate-50 text-slate-600 border-slate-200 ring-1 ring-slate-100';
   }
 };
+
+const getUnitLabel = (o: Order): string =>
+  o.products?.[0]?.unit_label || o.products?.[0]?.unit || 'Litres';
 
 const extractUnitPrice = (order: Order): string => {
   const p = order.products?.[0] as Record<string, unknown> | undefined;
@@ -494,6 +497,7 @@ const Orders = () => {
     const totalQtyAll = exportList.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
     const totalAmountAll = exportList.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
     const ordersCountAll = exportList.length;
+    const exportUnitLabel = exportList.length > 0 ? getUnitLabel(exportList[0]) : 'Litres';
 
     // Summary block at the top of the sheet
     const summaryBlock: (string | number)[][] = [
@@ -502,7 +506,7 @@ const Orders = () => {
       ['PFI', pfiLabelForExport],
       ['Product', productLabel],
       ['Total Orders', ordersCountAll],
-      ['Quantity Sold', `${totalQtyAll.toLocaleString()} Litres`],
+      ['Quantity Sold', `${totalQtyAll.toLocaleString()} ${exportUnitLabel}`],
       ['Total Amount', `N${totalAmountAll.toLocaleString()}`],
       [], // empty row separator
     ];
@@ -835,7 +839,7 @@ const Orders = () => {
                         </TableCell>
 
                         <TableCell className="px-3 font-medium text-slate-800 whitespace-nowrap">
-                          {safeParseNumber(order.quantity).toLocaleString()} Litres
+                          {safeParseNumber(order.quantity).toLocaleString()} {getUnitLabel(order)}
                         </TableCell>
 
                         <TableCell className="px-3 font-bold text-slate-900 whitespace-nowrap">

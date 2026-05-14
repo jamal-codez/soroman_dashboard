@@ -59,6 +59,8 @@ interface PaymentOrder {
     unitPrice?: string | number;
     qty?: string | number;
     litres?: string | number;
+    unit?: string;
+    unit_label?: string;
   }>;
 
   quantity?: number | string;
@@ -190,7 +192,7 @@ const getPaymentStatus = (salesValue: number, amountPaid: number | null, narrati
   return { label: 'Unpaid', color: 'bg-red-50 text-red-700 border-red-200' };
 };
 
-const extractProductInfo = (p: PaymentOrder): { product: string; qty: number; unitPrice: number } => {
+const extractProductInfo = (p: PaymentOrder): { product: string; qty: number; unitPrice: number; unitLabel: string } => {
   const products = Array.isArray(p.products) ? p.products : [];
   const product = products
     .map((x) => x?.name)
@@ -220,7 +222,9 @@ const extractProductInfo = (p: PaymentOrder): { product: string; qty: number; un
   const rawUnit = products?.[0]?.unit_price ?? products?.[0]?.unitPrice ?? products?.[0]?.price;
   const unitPrice = toNumber(rawUnit) ?? 0;
 
-  return { product: product || '', qty, unitPrice };
+  const unitLabel = products?.[0]?.unit_label || products?.[0]?.unit || 'Litres';
+
+  return { product: product || '', qty, unitPrice, unitLabel };
 };
 
 const extractPfi = (p: PaymentOrder): string => {
@@ -458,17 +462,19 @@ export default function ConfirmedPayments() {
 
     const totalAmountAll = filtered.reduce((sum, p) => sum + safeToNumber(p.total_price ?? p.amount), 0);
 
+    const exportUnitLabel = filtered.length > 0 ? extractProductInfo(filtered[0]).unitLabel : 'Litres';
+
     const headingBlock: Array<Array<string>> = [
       ['Date', generatedAt],
       ['Location', locationLabel],
       ['Product', productLabel],
-      ['Quantity Sold', `${totalQtyAll.toLocaleString()} Litres`],
+      ['Quantity Sold', `${totalQtyAll.toLocaleString()} ${exportUnitLabel}`],
       ['Number of Orders', String(ordersCountAll)],
       ['Total Amount', `N ${totalAmountAll.toLocaleString()}`],
       [],
     ];
 
-    const headers = ['S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', 'Quantity (Litres)', 'Unit Price', 'Sales Value', 'Paying Company', 'Bank', 'Remarks', 'Balance', 'Status'];
+    const headers = ['S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', `Quantity (${exportUnitLabel})`, 'Unit Price', 'Sales Value', 'Paying Company', 'Bank', 'Remarks', 'Balance', 'Status'];
     // Sort oldest to newest for the exported file
     const exportSorted = [...filtered].sort((a, b) => getPaymentDate(a).getTime() - getPaymentDate(b).getTime());
     const rows = exportSorted.map((p, idx) => {
@@ -727,7 +733,7 @@ export default function ConfirmedPayments() {
                       const ref = getOrderReference(p) || p.reference || p.id;
                       const truckNo = extractTruckNumber(p);
                       const customerName = extractCustomerName(p);
-                      const { product, qty, unitPrice } = extractProductInfo(p);
+                      const { product, qty, unitPrice, unitLabel } = extractProductInfo(p);
                       const salesValue = safeToNumber(p.total_price ?? p.amount);
                       const company = extractCustomerCompany(p);
                       const location = extractLocation(p);
@@ -751,7 +757,7 @@ export default function ConfirmedPayments() {
                             {customerName || '\u2014'}
                           </TableCell>
                           <TableCell className="">
-                            <div className="font-semibold">{qty ? `${qty.toLocaleString()} Litres` : '\u2014'}</div>
+                            <div className="font-semibold">{qty ? `${qty.toLocaleString()} ${unitLabel}` : '\u2014'}</div>
                             {product && <div className="text-xs text-slate-400">{product}</div>}
                           </TableCell>
                           <TableCell className="text-right">

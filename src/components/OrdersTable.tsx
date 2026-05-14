@@ -22,6 +22,8 @@ interface Order {
   products: Array<{
     name: string;
     abbreviation: string;
+    unit?: string;
+    unit_label?: string;
   }>;
   quantity: number;
   created_at: string;
@@ -173,7 +175,7 @@ export const OrdersTable = () => {
                 <td className="p-4 text-sm text-slate-700">
                   {order.products.map(p => p.abbreviation).join(', ')}
                 </td>
-                <td className="p-4 text-sm text-slate-700">{order.quantity.toLocaleString()} L</td>
+                <td className="p-4 text-sm text-slate-700">{order.quantity.toLocaleString()} {order.products?.[0]?.unit_label || order.products?.[0]?.unit || 'L'}</td>
                 <td className="p-4 text-sm text-slate-700">
                   {new Date(order.created_at).toLocaleDateString('en-GB', {
                     day: 'numeric',
