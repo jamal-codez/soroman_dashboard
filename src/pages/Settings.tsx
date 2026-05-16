@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
@@ -37,7 +38,6 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   Search,
   UserPlus,
-  Edit,
   Loader2,
   Users2,
   Ban,
@@ -45,10 +45,12 @@ import {
   Shield,
   Mail,
   Phone,
+  MapPin,
+  Globe,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
-import { SummaryCards } from '@/components/SummaryCards';
+import { ROLES } from '@/roles';
 
 type UserType = {
   id: number;
@@ -62,19 +64,22 @@ type UserType = {
   last_login_user_agent?: string | null;
   label: string;
   location?: string;
+  locations?: number[];       // scoped state IDs sent in PATCH
+  location_names?: string[];  // resolved names returned by GET — use these for display
 };
 
 const roleMap: Record<number, string> = {
-  1: 'ADMIN',
-  2: 'ACCOUNTS',
-  3: 'SALES',
-  4: 'TICKETING',
-  5: 'SECURITY',
-  6: 'TRANSPORT',
-  7: 'RELEASE OFFICER',
-  8: 'AUDITOR',
-  9: 'MARKETING',
-  10: 'LOCATION MANAGER',
+  0: 'Superadmin',
+  1: 'Administration',
+  2: 'Finance',
+  3: 'Sales',
+  4: 'Ticketing',
+  5: 'Security',
+  6: 'Transport',
+  7: 'Release',
+  8: 'Audit',
+  9: 'Marketing',
+  10: 'Location Manager',
 };
 
 const roleColorMap: Record<number, string> = {
@@ -105,6 +110,7 @@ const Settings = () => {
     role: '1',
     suspended: false,
     location: '',
+    locations: [] as number[], // scoped state IDs
   });
   const [errors, setErrors] = useState({
     full_name: '',
@@ -117,6 +123,20 @@ const Settings = () => {
   const [showPassword, setShowPassword] = useState(false);
 
   const { toast } = useToast();
+
+  // Current logged-in user role — only SUPERADMIN can manage location scopes
+  const currentUserRole = Number(localStorage.getItem('role') ?? '-1');
+  const isSuperAdmin = currentUserRole === ROLES.SUPERADMIN;
+
+  // Fetch states from API
+  const { data: statesRaw } = useQuery({
+    queryKey: ['states-settings'],
+    queryFn: () => apiClient.admin.getStates(),
+    staleTime: 5 * 60_000,
+  });
+  const statesList: { id: number; name: string }[] = Array.isArray(statesRaw)
+    ? statesRaw
+    : ((statesRaw as { results?: { id: number; name: string }[] })?.results ?? []);
 
   const formatLastLogin = (value?: string | null) => {
     if (!value) return 'N/A';
@@ -157,7 +177,9 @@ const Settings = () => {
       const matchesRole = roleFilter === 'all' || String(user.role) === roleFilter;
       const matchesLocation =
         locationFilter === 'all' ||
-        (locationFilter === 'none' ? !user.location?.trim() : user.location?.trim().toLowerCase() === locationFilter.toLowerCase());
+        (locationFilter === 'none'
+          ? !user.location?.trim()
+          : user.location?.trim().toLowerCase() === locationFilter.toLowerCase());
       return matchesSearch && matchesRole && matchesLocation;
     })
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
@@ -184,6 +206,7 @@ const Settings = () => {
         role: String(user.role),
         suspended: user.suspended,
         location: user.location || '',
+        locations: user.locations ?? [],
       });
     } else {
       setEditingUser(null);
@@ -195,6 +218,7 @@ const Settings = () => {
         role: '1',
         suspended: false,
         location: '',
+        locations: [],
       });
     }
     setIsDialogOpen(true);
@@ -211,6 +235,7 @@ const Settings = () => {
       role: '1',
       suspended: false,
       location: '',
+      locations: [],
     });
     setErrors({
       full_name: '',
@@ -234,6 +259,10 @@ const Settings = () => {
           role: parseInt(formData.role),
           suspended: formData.suspended,
           location: formData.location.trim() || undefined,
+          // Only SUPERADMIN can change location scope; only send if not a SUPERADMIN target
+          ...(isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+            ? { locations: formData.locations }
+            : {}),
         };
 
         if (formData.password && formData.password !== "********") {
@@ -242,7 +271,26 @@ const Settings = () => {
 
         const response = await apiClient.admin.updateUser(editingUser.id, updatedUser);
 
-        setUsers(users.map(user => user.id === editingUser.id ? { ...user, ...updatedUser } : user));
+        // Resolve location_names from statesList for optimistic display
+        const newLocationNames = isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+          ? formData.locations.map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[]
+          : undefined;
+
+        setUsers(prev => prev.map(user =>
+          user.id === editingUser.id
+            ? {
+                ...user,
+                email: formData.email,
+                full_name: formData.full_name,
+                phone_number: formData.phone_number,
+                role: parseInt(formData.role),
+                suspended: formData.suspended,
+                location: formData.location.trim() || user.location,
+                locations: newLocationNames !== undefined ? formData.locations : user.locations,
+                location_names: newLocationNames !== undefined ? newLocationNames : user.location_names,
+              }
+            : user
+        ));
 
         toast({
           title: "User Updated",
@@ -252,6 +300,9 @@ const Settings = () => {
           })(),
           duration: 2000,
         });
+
+        handleCloseDialog();
+        return; // ← don't fall through to fetchUsers() below
       } else {
         const response = await apiClient.admin.registerUser({
           email: formData.email,
@@ -260,6 +311,9 @@ const Settings = () => {
           phone_number: formData.phone_number,
           role: parseInt(formData.role),
           location: formData.location.trim() || undefined,
+          ...(isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+            ? { locations: formData.locations }
+            : {}),
         });
 
         toast({
@@ -353,15 +407,19 @@ const Settings = () => {
   const fetchUsers = useCallback(async () => {
     try {
       const response = await apiClient.admin.getUsers();
-      // Handle both plain array and paginated { results: [] } responses
-      setUsers(Array.isArray(response) ? response : (response?.results ?? []));
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch users',
-        variant: 'destructive',
-        duration: 1000, // Set toast duration to 1 second
+      const fresh: UserType[] = Array.isArray(response) ? response : (response?.results ?? []);
+      // API now returns `locations` + `location_names` — use them directly.
+      // Fallback: preserve any locally-known locations if the field is still absent.
+      setUsers(prev => {
+        const prevMap = new Map(prev.map(u => [u.id, u]));
+        return fresh.map(u => ({
+          ...u,
+          locations: u.locations ?? prevMap.get(u.id)?.locations ?? [],
+          location_names: u.location_names ?? prevMap.get(u.id)?.location_names ?? [],
+        }));
       });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to fetch users', variant: 'destructive', duration: 1000 });
     }
   }, [toast]);
 
@@ -440,8 +498,8 @@ const Settings = () => {
                   >
                     <option value="all">All Locations</option>
                     <option value="none">No Location</option>
-                    {LOCATIONS.map((loc) => (
-                      <option key={loc} value={loc}>{loc}</option>
+                    {statesList.map((s) => (
+                      <option key={s.id} value={s.name}>{s.name}</option>
                     ))}
                   </select>
                 </div>
@@ -454,18 +512,22 @@ const Settings = () => {
                     <TableHead className="w-[48px]">#</TableHead>
                     <TableHead className="min-w-[180px]">Name</TableHead>
                     <TableHead className="min-w-[180px]">Contact</TableHead>
-                    <TableHead>Location</TableHead>
+                    <TableHead className="min-w-[220px]">Location</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="min-w-[160px]">Last Login</TableHead>
+                    {/* <TableHead className="min-w-[160px]">Last Login</TableHead> */}
                     <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredUsers.map((user, idx) => {
                     const roleName = roleMap[user.role] || user.label || '';
-                    const displayRole = roleName.charAt(0).toUpperCase() + roleName.slice(1).toLowerCase();
-                    const displayLocation = user.location ? (user.location.charAt(0).toUpperCase() + user.location.slice(1).toLowerCase()) : '—';
+                    const displayRole = roleName;
+                    const isSuperAdminUser = user.role === ROLES.SUPERADMIN;
+                    // Prefer location_names (pre-resolved by backend) over local ID lookup
+                    const scopeNames: string[] = user.location_names?.length
+                      ? user.location_names
+                      : (user.locations ?? []).map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[];
                     return (
                     <TableRow key={user.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                       <TableCell className="px-4 text-slate-400 text-center text-xs">{idx + 1}</TableCell>
@@ -482,10 +544,15 @@ const Settings = () => {
                           {user.phone_number}
                         </a>
                       </TableCell>
-                      <TableCell className="px-4 text-sm text-black capitalize">
-                        {displayLocation}
+                      <TableCell className="px-4 text-sm text-slate-700">
+                        {isSuperAdminUser
+                          ? <span className="text-slate-400">—</span>
+                          : scopeNames.length === 0
+                            ? <span className="text-slate-400">Full Access</span>
+                            : <span>{scopeNames.join(', ')}</span>
+                        }
                       </TableCell>
-                      <TableCell className={`px-4 text-sm font-medium capitalize ${roleColorMap[user.role] || 'text-slate-700'}`}>
+                      <TableCell className={`px-4 text-sm font-medium ${roleColorMap[user.role] || 'text-slate-700'}`}>
                         {displayRole}
                       </TableCell>
                       <TableCell className="px-4">
@@ -495,11 +562,7 @@ const Settings = () => {
                           {!user.suspended ? 'Active' : 'Suspended'}
                         </span>
                       </TableCell>
-                      <TableCell className="px-4 text-sm text-slate-500 whitespace-nowrap">{formatLastLogin(user.last_login)}</TableCell>
-                      {/* <TableCell className="max-w-[280px] truncate" title={user.last_login_user_agent || undefined}>
-                        {user.last_login_user_agent || '—'}
-                      </TableCell> */}
-                      {/* <TableCell>{user.last_login_ip || '—'}</TableCell> */}
+                      {/* <TableCell className="px-4 text-sm text-slate-500 whitespace-nowrap">{formatLastLogin(user.last_login)}</TableCell> */}
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button variant="outline" size="sm" onClick={() => handleOpenDialog(user)}>
@@ -543,88 +606,93 @@ const Settings = () => {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingUser ? 'Edit Staff' : 'Add New Staff'}</DialogTitle>
             <DialogDescription>
               {editingUser ? 'Update staff details and permissions.' : 'Fill in the information for the new staff.'}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 py-1">
             <div className="grid gap-4">
-              <div className="space-y-2">
+              {/* Full Name */}
+              <div className="space-y-1.5">
                 <Label htmlFor="full_name">Full Name</Label>
-                <Input 
-                  id="full_name" 
-                  value={formData.full_name} 
+                <Input
+                  id="full_name"
+                  value={formData.full_name}
                   onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                   className={errors.full_name ? 'border-red-500' : ''}
-                  required 
+                  required
                 />
                 {errors.full_name && <p className="text-red-500 text-xs">{errors.full_name}</p>}
               </div>
-              <div className="space-y-2">
+
+              {/* Email */}
+              <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
-                <Input 
-                  id="email" 
-                  type="email" 
-                  value={formData.email} 
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className={errors.email ? 'border-red-500' : ''}
-                  required 
+                  required
                 />
                 {errors.email && <p className="text-red-500 text-xs">{errors.email}</p>}
               </div>
-                <div className="space-y-2">
+
+              {/* Password */}
+              <div className="space-y-1.5">
                 <Label htmlFor="password">Password</Label>
-                <div className="flex items-center">
+                <div className="flex items-center gap-2">
                   <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"} // Toggle between text and password
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className={errors.password ? "border-red-500" : ""}
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className={errors.password ? 'border-red-500' : ''}
                   />
-                  <Button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)} // Toggle visibility
-                  className="ml-2"
-                  >
-                  {showPassword ? "Hide" : "Show"}
+                  <Button type="button" variant="outline" size="sm" onClick={() => setShowPassword(!showPassword)}>
+                    {showPassword ? 'Hide' : 'Show'}
                   </Button>
                 </div>
-                <p className="text-sm text-gray-500">Password must be alphanumeric and at least 8 characters long</p>
+                <p className="text-xs text-slate-500">Alphanumeric, at least 8 characters</p>
                 {errors.password && <p className="text-red-500 text-xs">{errors.password}</p>}
-                </div>
-              <div className="space-y-2">
+              </div>
+
+              {/* Phone */}
+              <div className="space-y-1.5">
                 <Label htmlFor="phone_number">Phone Number</Label>
-                <Input 
-                  id="phone_number" 
-                  type="tel" 
-                  value={formData.phone_number} 
+                <Input
+                  id="phone_number"
+                  type="tel"
+                  value={formData.phone_number}
                   onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
                   className={errors.phone_number ? 'border-red-500' : ''}
-                  required 
+                  required
                 />
                 {errors.phone_number && <p className="text-red-500 text-xs">{errors.phone_number}</p>}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="location">Location</Label>
-                <select
-                  aria-label="Location"
+
+              {/* Location (text label) */}
+              <div className="space-y-1.5">
+                <Label htmlFor="location">Location Label</Label>
+                <Input
+                  id="location"
                   value={formData.location}
                   onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Select location</option>
-                  {LOCATIONS.map((loc) => (
-                    <option key={loc} value={loc}>{loc}</option>
-                  ))}
-                </select>
+                  placeholder="e.g. Calabar"
+                  className="h-10"
+                />
+                <p className="text-xs text-slate-400">Display-only label shown in the Location column.</p>
               </div>
-              <div className="space-y-2">
+
+              {/* Role */}
+              <div className="space-y-1.5">
                 <Label htmlFor="role">Role</Label>
                 <select
+                  id="role"
                   aria-label="Role"
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value })}
@@ -645,6 +713,69 @@ const Settings = () => {
                   </optgroup>
                 </select>
               </div>
+
+              {/* ── Location Scope (SUPERADMIN only, hidden for SUPERADMIN targets) ── */}
+              {isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN && (
+                <div className="space-y-1.5 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <Label className="text-sm font-semibold text-blue-800 flex items-center gap-1.5">
+                    <MapPin size={13} /> Location Scope
+                  </Label>
+                  <p className="text-xs text-blue-600">
+                    Select which locations this user can see data for.
+                    Leave all unchecked for <strong>Full Access</strong> (sees all locations).
+                  </p>
+
+                  {/* Current scope chips */}
+                  <div className="flex flex-wrap gap-1 min-h-[24px]">
+                    {formData.locations.length === 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                        <Globe size={10} /> Full Access
+                      </span>
+                    ) : (
+                      formData.locations.map(id => {
+                        const state = statesList.find(s => s.id === id);
+                        return state ? (
+                          <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200">
+                            <MapPin size={10} /> {state.name}
+                            <button
+                              type="button"
+                              onClick={() => setFormData(f => ({ ...f, locations: f.locations.filter(l => l !== id) }))}
+                              className="ml-0.5 hover:text-red-600"
+                            >×</button>
+                          </span>
+                        ) : null;
+                      })
+                    )}
+                  </div>
+
+                  {/* Checkboxes for each state */}
+                  <div className="grid grid-cols-2 gap-1.5 mt-2 max-h-40 overflow-y-auto pr-1">
+                    {statesList.map(state => {
+                      const checked = formData.locations.includes(state.id);
+                      return (
+                        <label key={state.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer border transition-colors ${
+                          checked ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setFormData(f => ({
+                                ...f,
+                                locations: checked
+                                  ? f.locations.filter(l => l !== state.id)
+                                  : [...f.locations, state.id],
+                              }));
+                            }}
+                            className="w-3.5 h-3.5 accent-blue-600"
+                          />
+                          {state.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             <DialogFooter>

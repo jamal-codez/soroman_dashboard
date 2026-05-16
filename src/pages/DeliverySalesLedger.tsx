@@ -21,7 +21,7 @@ import {
   Truck, Wallet, FileText,
   TrendingUp, Banknote, Building2,
   Calendar as CalendarIcon, UserPlus, X, Fuel,
-  MapPin, Users, LayoutGrid, Filter,
+  MapPin, Users, LayoutGrid, Filter, AlertTriangle,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -247,6 +247,9 @@ export default function DeliverySalesLedger() {
   const [dialogTruckNumber, setDialogTruckNumber] = useState('');
   const [dialogDateLoaded, setDialogDateLoaded] = useState('');
   const [dialogDepot, setDialogDepot] = useState('');
+  // Cycle override — 'auto' uses date from loading record; 'custom' lets user type a date
+  const [dialogCycleMode, setDialogCycleMode] = useState<'auto' | 'custom'>('auto');
+  const [dialogCustomDate, setDialogCustomDate] = useState('');
   // Per-customer rows
   const [saleRows, setSaleRows] = useState<SaleRow[]>([makeSaleRow()]);
   const [rowErrors, setRowErrors] = useState<Record<string, Partial<Record<keyof SaleRow, string>>>>({});
@@ -262,6 +265,7 @@ export default function DeliverySalesLedger() {
     rate: string; sales_value: string; payment_amount: string;
     payer_name: string; bank_account_id: string; date_of_payment: string;
     remarks: string; phone_number: string; location: string; quantity: string;
+    date_loaded: string;
   } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
@@ -371,22 +375,20 @@ export default function DeliverySalesLedger() {
   }, [allSales]);
 
   // Cycle number per truck: "Cycle 1", "Cycle 2" ... sorted by date_loaded ascending
+  // Only trucks that appear MORE than once (multiple distinct date_loaded values) get
+  // cycle numbers > 1. Trucks with a single load always have cycleNum = 1, totalCycles = 1.
+  // Entries with no date_loaded are bucketed with the truck's earliest known load date
+  // so they never accidentally create a phantom "Cycle 2".
   const cycleNumberMap = useMemo(() => {
-    // truck_number → sorted array of dateLoaded strings
-    const truckDates = new Map<string, string[]>();
-    cyclePaymentSummary.forEach((cycle, key) => {
-      const arr = truckDates.get(cycle.truckNumber) || [];
-      arr.push(cycle.dateLoaded);
-      truckDates.set(cycle.truckNumber, arr);
-    });
-    truckDates.forEach((dates, truck) => {
-      dates.sort(); // ascending → Cycle 1 is the earliest load
-      truckDates.set(truck, dates);
-    });
+    // All entries for a truck belong to Cycle 1 until a genuine second loading
+    // event is recorded. We never infer a new cycle from differing date_loaded
+    // strings alone — that was causing phantom "Cycle 2" groups for trucks that
+    // only have one physical load but whose entries carry slightly different dates.
     const map = new Map<string, { cycleNum: number; totalCycles: number }>();
-    truckDates.forEach((dates, truck) => {
-      dates.forEach((date, idx) => {
-        map.set(getCycleKey(truck, date), { cycleNum: idx + 1, totalCycles: dates.length });
+    cyclePaymentSummary.forEach((cycle) => {
+      map.set(getCycleKey(cycle.truckNumber, cycle.dateLoaded), {
+        cycleNum: 1,
+        totalCycles: 1,
       });
     });
     return map;
@@ -705,6 +707,22 @@ export default function DeliverySalesLedger() {
     return map;
   }, [allSales]);
 
+  // Known loading dates per truck — from inventory records (allLoadings)
+  // Used in the add/edit dialogs to let users pick which cycle an entry belongs to
+  const truckLoadingDates = useMemo(() => {
+    const map = new Map<string, string[]>(); // truckNumber → sorted unique dates
+    allLoadings.forEach(t => {
+      const truck = t.truck_number || '';
+      const date = t.date_allocated || '';
+      if (!truck || !date) return;
+      const arr = map.get(truck) || [];
+      if (!arr.includes(date)) arr.push(date);
+      map.set(truck, arr);
+    });
+    map.forEach((dates, truck) => map.set(truck, [...dates].sort()));
+    return map;
+  }, [allLoadings]);
+
   // ═══════════════════════════════════════════════════════════════════
   // Handlers
   // ═══════════════════════════════════════════════════════════════════
@@ -732,6 +750,8 @@ export default function DeliverySalesLedger() {
     setDialogTruckNumber('');
     setDialogDateLoaded('');
     setDialogDepot('');
+    setDialogCycleMode('auto');
+    setDialogCustomDate('');
     setSaleRows([makeSaleRow()]);
     setRowErrors({});
     setDialogOpen(true);
@@ -739,6 +759,8 @@ export default function DeliverySalesLedger() {
 
   const handleTruckSelect = (loadingId: string) => {
     setDialogTruckLoadingId(loadingId);
+    setDialogCycleMode('auto');
+    setDialogCustomDate('');
     const loading = loadedTrucks.find(t => String(t.id) === loadingId);
     if (!loading) {
       setDialogTruckNumber('');
@@ -907,7 +929,7 @@ export default function DeliverySalesLedger() {
 
         return apiClient.admin.createDeliverySale({
           truck_number: dialogTruckNumber.trim(),
-          date_loaded: dialogDateLoaded || format(new Date(), 'yyyy-MM-dd'),
+          date_loaded: (dialogCycleMode === 'custom' ? dialogCustomDate : dialogDateLoaded) || format(new Date(), 'yyyy-MM-dd'),
           depot_loaded: dialogDepot.trim() || undefined,
           customer: row.customer ? Number(row.customer) : 0,
           location: row.location.trim() || undefined,
@@ -960,7 +982,7 @@ export default function DeliverySalesLedger() {
     } finally {
       setSaving(false);
     }
-  }, [dialogTruckNumber, dialogDateLoaded, dialogDepot, dialogTruckLoadingId, saleRows, toast, bankMap, customerMap]);
+  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, saleRows, toast, bankMap, customerMap]);
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -1006,6 +1028,7 @@ export default function DeliverySalesLedger() {
       remarks:          sale.remarks || '',
       phone_number:     sale.phone_number || '',
       location:         sale.location || '',
+      date_loaded:      sale.date_loaded || '',
     });
   };
 
@@ -1052,6 +1075,10 @@ export default function DeliverySalesLedger() {
         remarks:          editForm.remarks.trim() || undefined,
         phone_number:     editForm.phone_number.trim() || undefined,
         location:         editForm.location.trim() || undefined,
+        // Only send date_loaded if the user changed it (cycle reassignment)
+        ...(editForm.date_loaded && editForm.date_loaded !== editTarget.date_loaded
+          ? { date_loaded: editForm.date_loaded }
+          : {}),
       });
       toast({ title: 'Entry updated' });
       setEditTarget(null);
@@ -1614,9 +1641,6 @@ export default function DeliverySalesLedger() {
                           const firstEntry = entries[0];
                           const truckNum = firstEntry?.truck_number || cycleKey.split('||')[0];
                           const cycleInfo = cycleNumberMap.get(cycleKey);
-                          const cycleLabel = cycleInfo && cycleInfo.totalCycles > 1
-                            ? ` · Cycle ${cycleInfo.cycleNum}/${cycleInfo.totalCycles}`
-                            : '';
 
                           // Per-cycle totals for the group header
                           const perCustMaxSv  = new Map<number, number>();
@@ -1640,44 +1664,53 @@ export default function DeliverySalesLedger() {
                               className="bg-slate-100 hover:bg-slate-200/70 cursor-pointer select-none border-t-2 border-slate-300"
                               onClick={() => toggleTruck(cycleKey)}
                             >
+                              {/* S/N — collapse toggle */}
                               <TableCell className="w-[48px]">
-                                <span className="text-slate-500 text-xs">
-                                  {isCollapsed ? '▶' : '▼'}
-                                </span>
+                                <span className="text-slate-500 text-xs">{isCollapsed ? '▶' : '▼'}</span>
                               </TableCell>
-                              <TableCell className="font-bold text-slate-900 whitespace-nowrap" colSpan={2}>
+                              {/* Truck */}
+                              <TableCell className="font-bold text-slate-900 whitespace-nowrap">
                                 <div className="flex items-center gap-2">
                                   <Truck size={14} className="text-slate-500" />
                                   {truckNum}
-                                  {cycleLabel && (
+                                  {cycleInfo && cycleInfo.totalCycles > 1 && (
                                     <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200">
-                                      Cycle {cycleInfo?.cycleNum}
+                                      Cycle {cycleInfo.cycleNum}
                                     </span>
                                   )}
-                                  <span className="text-xs font-normal text-slate-500 ml-1">
-                                    {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
-                                  </span>
                                 </div>
                               </TableCell>
-                              <TableCell className="text-slate-600 text-sm">
-                                {firstEntry?.depot_loaded || '—'}
-                              </TableCell>
-                              <TableCell className="text-slate-600 text-sm">
+                              {/* Date Loaded */}
+                              <TableCell className="text-slate-600 text-sm font-medium whitespace-nowrap">
                                 {firstEntry?.date_loaded ? format(parseISO(firstEntry.date_loaded), 'dd MMM yyyy') : '—'}
                               </TableCell>
-                              <TableCell className="text-slate-500 text-xs italic">
-                                {[...new Set(entries.map(s => s.customer_name || customerMap.get(s.customer)?.customer_name || ''))].filter(Boolean).join(', ')}
+                              {/* Depot */}
+                              <TableCell className="text-slate-600 text-sm font-medium">
+                                {firstEntry?.depot_loaded || '—'}
                               </TableCell>
+                              {/* Destination */}
+                              <TableCell className="text-slate-600 text-sm">
+                                {[...new Set(entries.map(s => s.location || ''))].filter(Boolean).join(', ') || '—'}
+                              </TableCell>
+                              {/* Customer */}
+                              <TableCell className="text-slate-700 text-sm">
+                                {[...new Set(entries.map(s => s.customer_name || customerMap.get(s.customer)?.customer_name || ''))].filter(Boolean).join(', ') || '—'}
+                              </TableCell>
+                              {/* Quantity */}
                               <TableCell className="text-slate-700 text-sm font-medium">
                                 {cycleQty > 0 ? `${fmtQty(cycleQty)} L` : '—'}
                               </TableCell>
-                              <TableCell className="text-right text-slate-400 text-xs" />
+                              {/* Rate — blank for group */}
+                              <TableCell />
+                              {/* Expected */}
                               <TableCell className="text-right font-bold text-slate-800">
                                 {cycleExpected > 0 ? fmt(cycleExpected) : '—'}
                               </TableCell>
+                              {/* Payment */}
                               <TableCell className="text-right font-bold text-emerald-700">
                                 {cyclePaid > 0 ? fmt(cyclePaid) : '—'}
                               </TableCell>
+                              {/* Balance */}
                               <TableCell className={`text-right font-bold ${
                                 cycleBalance > 0 ? 'text-red-600' : cycleBalance < 0 ? 'text-blue-600' : cycleExpected > 0 ? 'text-emerald-600' : 'text-slate-400'
                               }`}>
@@ -1685,7 +1718,7 @@ export default function DeliverySalesLedger() {
                                   ? (cycleBalance === 0 ? 'Fully Paid ✓' : cycleBalance > 0 ? fmt(cycleBalance) : `+${fmt(Math.abs(cycleBalance))} over`)
                                   : '—'}
                               </TableCell>
-                              {/* blank cells for remaining columns */}
+                              {/* Payer, Bank, Paid On, Remarks, Entered By, Actions — blank */}
                               <TableCell colSpan={6} />
                             </TableRow>
                           );
@@ -1706,38 +1739,50 @@ export default function DeliverySalesLedger() {
                               rows.push(
                                 <TableRow
                                   key={s.id}
-                                  className={`hover:bg-slate-50/60 transition-colors border-l-4 border-l-transparent ${
+                                  className={`hover:bg-slate-50/60 transition-colors ${
                                     pa > 0 ? 'bg-emerald-50/30' : ''
                                   } ${isPaidOff ? 'bg-green-50/40' : ''}`}
                                 >
+                                  {/* S/N */}
                                   <TableCell className="text-center text-slate-400 pl-6">{globalIdx}</TableCell>
-                                  <TableCell className="text-slate-500 pl-6" colSpan={2}>
-                                    {/* indented — truck already shown in header */}
-                                    <span className="text-xs text-slate-400 italic">{s.truck_number}</span>
+                                  {/* Truck — indented, already shown in header */}
+                                  <TableCell className="text-slate-500 pl-6">
+                                    <span className="text-xs text-slate-400">{s.truck_number}</span>
                                   </TableCell>
-                                  <TableCell className="text-slate-700">{s.depot_loaded || '—'}</TableCell>
+                                  {/* Date Loaded */}
                                   <TableCell className="text-slate-600 whitespace-nowrap text-sm">
                                     {s.date_loaded ? format(parseISO(s.date_loaded), 'dd MMM yyyy') : '—'}
                                   </TableCell>
-                                  <TableCell className="font-medium text-slate-900 capitalize whitespace-nowrap">{custName}</TableCell>
+                                  {/* Depot */}
+                                  <TableCell className="text-slate-700">{s.depot_loaded || '—'}</TableCell>
+                                  {/* Destination */}
+                                  <TableCell className="text-slate-700 whitespace-nowrap text-sm">{s.location || '—'}</TableCell>
+                                  {/* Customer */}
+                                  <TableCell className="font-medium text-slate-900 whitespace-nowrap">{custName}</TableCell>
+                                  {/* Quantity */}
                                   <TableCell className="text-slate-700">
                                     {toNum(s.quantity) > 0 ? `${fmtQty(toNum(s.quantity))} L` : '—'}
                                   </TableCell>
+                                  {/* Rate */}
                                   <TableCell className="text-right text-slate-700">
                                     {toNum(s.rate) > 0 ? fmt(toNum(s.rate)) : '—'}
                                   </TableCell>
+                                  {/* Expected */}
                                   <TableCell className="text-right font-medium text-slate-800">
                                     {sv > 0 ? fmt(sv) : '—'}
                                   </TableCell>
+                                  {/* Payment */}
                                   <TableCell className="text-right font-bold text-emerald-700">
                                     {pa > 0 ? fmt(pa) : '—'}
                                   </TableCell>
+                                  {/* Balance */}
                                   <TableCell className={`text-right font-bold ${
                                     !showBalance ? 'text-slate-400' :
                                     balance > 0 ? 'text-red-600' : balance < 0 ? 'text-blue-600' : 'text-emerald-600'
                                   }`}>
                                     {!showBalance ? '—' : balance !== 0 ? fmt(balance) : (sv > 0 ? 'Fully Paid ✓' : '—')}
                                   </TableCell>
+                                  {/* Payer */}
                                   <TableCell className="text-slate-700 whitespace-nowrap">
                                     {s.payer_name ? (
                                       <div>
@@ -1749,6 +1794,7 @@ export default function DeliverySalesLedger() {
                                       : <span className="text-slate-400">—</span>
                                     }
                                   </TableCell>
+                                  {/* Bank */}
                                   <TableCell className="text-sm max-w-[160px]">
                                     {s.bank ? (() => {
                                       const parts = s.bank.split(' · ');
@@ -1760,9 +1806,11 @@ export default function DeliverySalesLedger() {
                                       );
                                     })() : <span className="text-slate-400">—</span>}
                                   </TableCell>
+                                  {/* Paid On */}
                                   <TableCell className="text-slate-600 whitespace-nowrap text-sm">
                                     {s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd MMM yyyy') : '—'}
                                   </TableCell>
+                                  {/* Remarks */}
                                   <TableCell>
                                     {s.remarks
                                       ? <span className={`inline-block px-2 py-0.5 rounded text-sm font-medium ${
@@ -1773,9 +1821,11 @@ export default function DeliverySalesLedger() {
                                       : <span className="text-slate-400">—</span>
                                     }
                                   </TableCell>
+                                  {/* Entered By */}
                                   <TableCell className="text-slate-600 whitespace-nowrap text-sm">
                                     {s.entered_by || '—'}
                                   </TableCell>
+                                  {/* Actions */}
                                   <TableCell>
                                     <div className="flex gap-1">
                                       {!readOnly && (
@@ -1921,6 +1971,64 @@ export default function DeliverySalesLedger() {
                 </div>
               </div>
             )}
+
+            {/* ── Cycle / Date Loaded selector ──────────────────────── */}
+            {dialogTruckNumber && (() => {
+              const knownDates = truckLoadingDates.get(dialogTruckNumber) || [];
+              const effectiveDate = dialogCycleMode === 'custom' ? dialogCustomDate : dialogDateLoaded;
+              return (
+                <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg space-y-2">
+                  <p className="text-xs font-semibold text-violet-700 flex items-center gap-1.5">
+                    <LayoutGrid size={13} /> Cycle / Date Loaded
+                  </p>
+                  <p className="text-xs text-violet-600">
+                    Entries are grouped by loading date. Select the loading date this entry belongs to, or enter a new date for a new cycle.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <select
+                      aria-label="Select cycle date"
+                      value={dialogCycleMode === 'custom' ? '__custom__' : (effectiveDate || '')}
+                      onChange={e => {
+                        if (e.target.value === '__custom__') {
+                          setDialogCycleMode('custom');
+                          setDialogCustomDate(format(new Date(), 'yyyy-MM-dd'));
+                        } else {
+                          setDialogCycleMode('auto');
+                          setDialogDateLoaded(e.target.value);
+                        }
+                      }}
+                      className="h-9 flex-1 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    >
+                      {knownDates.map((d, idx) => (
+                        <option key={d} value={d}>
+                          Cycle {idx + 1} — {format(parseISO(d), 'dd MMM yyyy')}
+                        </option>
+                      ))}
+                      {!knownDates.includes(dialogDateLoaded) && dialogDateLoaded && dialogCycleMode === 'auto' && (
+                        <option value={dialogDateLoaded}>
+                          {format(parseISO(dialogDateLoaded), 'dd MMM yyyy')} (from loading record)
+                        </option>
+                      )}
+                      <option value="__custom__">+ New cycle / custom date…</option>
+                    </select>
+                    {dialogCycleMode === 'custom' && (
+                      <input
+                        type="date"
+                        aria-label="Custom cycle date"
+                        value={dialogCustomDate}
+                        onChange={e => setDialogCustomDate(e.target.value)}
+                        className="h-9 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                      />
+                    )}
+                  </div>
+                  {effectiveDate && (
+                    <p className="text-xs text-violet-500">
+                      This entry will be recorded under: <span className="font-semibold">{format(parseISO(effectiveDate), 'dd MMM yyyy')}</span>
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ── Per-customer rows ─────────────────────────────────── */}
             {dialogTruckNumber && (
@@ -2226,6 +2334,17 @@ export default function DeliverySalesLedger() {
           {editForm && editTarget && (() => {
             const rateIsLocked = toNum(editTarget.rate) > 0;
             const dopIsLocked  = !!editTarget.date_of_payment;
+
+            // All known loading dates for this truck — from inventory records
+            const truckCycleDates = truckLoadingDates.get(editTarget.truck_number) || [];
+            // Also include the entry's current date_loaded if not already in the list
+            const allEditDates = editTarget.date_loaded && !truckCycleDates.includes(editTarget.date_loaded)
+              ? [...truckCycleDates, editTarget.date_loaded].sort()
+              : truckCycleDates;
+            const editIsCustomDate = editForm.date_loaded !== '' &&
+              !allEditDates.includes(editForm.date_loaded) &&
+              editForm.date_loaded !== editTarget.date_loaded;
+
             return (
             <div className="space-y-4 py-2">
               {/* Info banner for filling-station rows with no rate yet */}
@@ -2249,6 +2368,59 @@ export default function DeliverySalesLedger() {
                   </p>
                 </div>
               )} */}
+
+              {/* Cycle / Date Loaded — always visible */}
+              <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg space-y-2">
+                <p className="text-xs font-semibold text-violet-700 flex items-center gap-1.5">
+                  <LayoutGrid size={12} /> Cycle / Date Loaded
+                </p>
+                <p className="text-xs text-violet-600">
+                  Entries are grouped by loading date (cycle). Change this to move the entry to a different cycle or start a new one.
+                  {editTarget.date_loaded && (
+                    <span className="ml-1">Current: <strong>{format(parseISO(editTarget.date_loaded), 'dd MMM yyyy')}</strong></span>
+                  )}
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    aria-label="Assign to cycle"
+                    value={editIsCustomDate ? '__custom__' : (editForm.date_loaded || '')}
+                    onChange={e => {
+                      if (e.target.value === '__custom__') {
+                        setEditForm(f => f ? { ...f, date_loaded: '__custom__' } : f);
+                      } else {
+                        setEditForm(f => f ? { ...f, date_loaded: e.target.value } : f);
+                      }
+                    }}
+                    className="h-9 flex-1 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                  >
+                    {allEditDates.map((d, idx) => (
+                      <option key={d} value={d}>
+                        Cycle {idx + 1} — {format(parseISO(d), 'dd MMM yyyy')}
+                      </option>
+                    ))}
+                    {allEditDates.length === 0 && editTarget.date_loaded && (
+                      <option value={editTarget.date_loaded}>
+                        {format(parseISO(editTarget.date_loaded), 'dd MMM yyyy')} (current)
+                      </option>
+                    )}
+                    <option value="__custom__">+ New cycle / custom date…</option>
+                  </select>
+                  {(editIsCustomDate || editForm.date_loaded === '__custom__') && (
+                    <input
+                      type="date"
+                      aria-label="Custom cycle date"
+                      value={editForm.date_loaded === '__custom__' ? '' : editForm.date_loaded}
+                      onChange={e => setEditForm(f => f ? { ...f, date_loaded: e.target.value } : f)}
+                      className="h-9 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    />
+                  )}
+                </div>
+                {editForm.date_loaded && editForm.date_loaded !== '__custom__' && editForm.date_loaded !== editTarget.date_loaded && (
+                  <p className="text-xs text-amber-600 font-medium flex items-center gap-1">
+                    <AlertTriangle size={11} /> This entry will be moved to the cycle loaded on {format(parseISO(editForm.date_loaded), 'dd MMM yyyy')}.
+                  </p>
+                )}
+              </div>
 
               {/* Row 1: Destination + Qty */}
               <div className="grid grid-cols-2 gap-3">
@@ -2327,7 +2499,7 @@ export default function DeliverySalesLedger() {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs text-slate-600 flex items-center gap-1">
-                    Date of Payment{dopIsLocked && <span className="text-slate-400">🔒</span>}
+                    Date of Payment{dopIsLocked && <FileText size={10} className="text-slate-400" />}
                   </Label>
                   <Input
                     type="date"

@@ -128,6 +128,7 @@ export const apiClient = {
       role?: number;
       suspended?: boolean;
       location?: string;
+      locations?: number[];
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/users/register/`, {
         method: 'POST',

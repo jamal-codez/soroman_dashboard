@@ -67,6 +67,8 @@ const Login = () => {
         localStorage.setItem('role', response.user.role);
         localStorage.setItem('label',  response.user.label);
         localStorage.setItem('fullname', response.user.full_name);
+        localStorage.setItem('locations', JSON.stringify(response.user.locations ?? []));
+        localStorage.setItem('location_names', JSON.stringify(response.user.location_names ?? []));
         setFullName(response.user.full_name);
 
         resetSessionExpiredGuard();
