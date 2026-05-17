@@ -479,6 +479,32 @@ export const apiClient = {
       return response.json();
     },
 
+    // Upload payment proof files for an order
+    // POST /api/admin/orders/<orderId>/payment-files/  (multipart/form-data, field: "files")
+    uploadPaymentFiles: async (orderId: number | string, files: File[]) => {
+      const form = new FormData();
+      files.forEach((f) => form.append('files', f));
+      const headers = getHeaders();
+      // Remove Content-Type so the browser sets it with the correct multipart boundary
+      delete (headers as Record<string, string>)['Content-Type'];
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/payment-files/`, {
+        method: 'POST',
+        headers,
+        body: form,
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    // GET /api/admin/orders/<orderId>/payment-files/  — list uploaded files
+    getPaymentFiles: async (orderId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/payment-files/`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<Array<{ id: number; file: string; file_name: string; uploaded_at: string }>>;
+    },
+
     // Confirmed Payments (paid + released orders)
     getConfirmedPayments: async (params?: {
       search?: string;

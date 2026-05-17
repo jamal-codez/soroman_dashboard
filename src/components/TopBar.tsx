@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { MapPin, Clock } from 'lucide-react';
+import React from 'react';
+import { MapPin } from 'lucide-react';
 import { ROLES } from '@/roles';
 
 export const TopBar = React.memo(function TopBar() {
@@ -13,19 +13,22 @@ export const TopBar = React.memo(function TopBar() {
 
   const isSuperAdmin = role === ROLES.SUPERADMIN;
 
-  // Live clock — ticks every second
-  const [now, setNow] = useState(new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const dateStr = now.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const handleLogout = async () => {
+    try {
+      const { apiClient } = await import('@/api/client');
+      await apiClient.admin.logoutUser();
+    } catch { /* ignore */ }
+    localStorage.removeItem('token');
+    localStorage.removeItem('role');
+    localStorage.removeItem('fullname');
+    localStorage.removeItem('label');
+    localStorage.removeItem('locations');
+    localStorage.removeItem('location_names');
+    window.location.href = '/login';
+  };
 
   return (
-    <div className="hidden sm:flex items-center h-16 px-4 sm:px-6 bg-white border-b border-slate-200 gap-4">
-      {/* Greeting */}
+    <div className="hidden sm:flex items-center h-16 px-4 sm:px-6 bg-white border-b border-slate-200 gap-3">
       <div className="min-w-0">
         <div className="text-[1rem] font-normal text-slate-900">
           Hello
@@ -33,22 +36,32 @@ export const TopBar = React.memo(function TopBar() {
         </div>
       </div>
 
-      {/* Live date + time */}
-      <div className="flex items-center gap-1.5 text-xs text-slate-400 border-l border-slate-200 pl-4">
-        <Clock size={13} className="shrink-0" />
-        <span>{dateStr}</span>
-        <span className="font-mono tracking-tight">{timeStr}</span>
-      </div>
-
-      {/* Active scope — far right, hidden for SUPERADMIN */}
+      {/* Active scope badge — hidden for SUPERADMIN (they always see everything) */}
       {!isSuperAdmin && (
-        <div className="ml-auto flex items-center gap-1 text-xs text-slate-400">
-          <MapPin size={13} className="shrink-0" />
-          <span>{scopeNames.length === 0 ? 'Full Access' : scopeNames.join(', ')}</span>
+        <div className="flex items-center gap-1.5 ml-1 flex-wrap">
+          {scopeNames.length === 0 ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <MapPin size={10} /> Full Access
+            </span>
+          ) : (
+            scopeNames.map(name => (
+              <span key={name} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                <MapPin size={10} /> {name}
+              </span>
+            ))
+          )}
         </div>
       )}
 
-      {isSuperAdmin && <div className="ml-auto" />}
+      <div className="ml-auto">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="inline-flex items-center rounded-md border border-slate-200 bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"
+        >
+          Logout
+        </button>
+      </div>
     </div>
   );
 });

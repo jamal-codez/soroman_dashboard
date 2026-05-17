@@ -17,7 +17,7 @@ import { apiClient, fetchAllPages } from '@/api/client';
 import { isCurrentUserReadOnly } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
 import * as XLSX from 'xlsx';
-import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, Calendar, MapPin, Package, Building2, User, Banknote, CalendarDays, X, Fuel, Clock } from 'lucide-react';
+import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, Calendar, MapPin, Package, Building2, User, Banknote, CalendarDays, X, Fuel, Clock, Paperclip, FileText, ImageIcon, Trash2 } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -141,7 +141,7 @@ function VerifyConfirmModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (narration: string) => void;
+  onConfirm: (narration: string, files: File[]) => void;
   payment: PaymentOrder | null;
   bankAccounts: BankAccount[];
 }) {
@@ -156,7 +156,6 @@ function VerifyConfirmModal({
       bankAccounts={bankAccounts}
     />
   );
-
 }
 
 function VerifyConfirmModalBody({
@@ -168,17 +167,19 @@ function VerifyConfirmModalBody({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (narration: string) => void;
+  onConfirm: (narration: string, files: File[]) => void;
   payment: PaymentOrder;
   bankAccounts: BankAccount[];
 }) {
   const [narration, setNarration] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
-  // Reset narration and amount paid whenever the modal opens or a different payment is selected.
+  // Reset state whenever the modal opens or a different payment is selected.
   useEffect(() => {
     if (isOpen) {
       setNarration('');
+      setAttachedFiles([]);
       // Pre-fill with the expected amount
       const expected = parseFloat(payment.amount || '0');
       setAmountPaid(expected > 0 ? String(expected) : '');
@@ -349,6 +350,44 @@ function VerifyConfirmModalBody({
             />
           </div>
 
+          {/* File attachments */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-500 flex items-center gap-1.5">
+              <Paperclip size={12} /> Payment Proof / Attachments
+            </label>
+            <label className="flex items-center justify-center gap-2 w-full h-20 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors text-sm text-slate-500">
+              <Paperclip size={15} className="text-slate-400" />
+              <span>Click to attach files — any type, any size, multiple allowed</span>
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files ?? []);
+                  if (picked.length) setAttachedFiles(prev => [...prev, ...picked]);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            {attachedFiles.length > 0 && (
+              <ul className="mt-2 space-y-1.5">
+                {attachedFiles.map((f, i) => {
+                  const isImage = f.type.startsWith('image/');
+                  return (
+                    <li key={i} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm">
+                      {isImage ? <ImageIcon size={14} className="shrink-0 text-blue-400" /> : <FileText size={14} className="shrink-0 text-slate-400" />}
+                      <span className="flex-1 truncate text-slate-700">{f.name}</span>
+                      <span className="text-xs text-slate-400 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                      <button type="button" title="Remove file" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="shrink-0 text-slate-400 hover:text-red-500">
+                        <Trash2 size={13} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
           {/* Warning */}
           {/* <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
             ⚠️ Do not confirm unless payment has been verified. This action allows releasing for loading.
@@ -360,7 +399,7 @@ function VerifyConfirmModalBody({
           <Button onClick={() => {
               const paidNum = parseFloat(amountPaid || '0');
               const prefix = Number.isFinite(paidNum) && paidNum > 0 ? `[PAID:${paidNum}] ` : '';
-              onConfirm(`${prefix}${narration}`.trim());
+              onConfirm(`${prefix}${narration}`.trim(), attachedFiles);
             }} disabled={!isPending} className="gap-1.5">
             <CheckCheck size={16} />
             Confirm & Release
@@ -708,10 +747,14 @@ export default function PaymentVerification() {
   }, [allPayments, searchQuery, filterType, locationFilter, productFilter, dateRange]);
 
   const updatePaymentMutation = useMutation({
-    mutationFn: async (args: { orderId: number; narration: string }) => {
+    mutationFn: async (args: { orderId: number; narration: string; files: File[] }) => {
       setUpdatingPaymentId(args.orderId);
       try {
         await apiClient.admin.confirmPayment(args.orderId, { narration: args.narration?.trim() || undefined });
+        // Upload files after confirming — fire-and-forget if there are any
+        if (args.files.length > 0) {
+          await apiClient.admin.uploadPaymentFiles(args.orderId, args.files);
+        }
       } finally {
         setUpdatingPaymentId(null);
       }
@@ -803,7 +846,7 @@ export default function PaymentVerification() {
     setIsCancelModalOpen(true);
   };
 
-  const handleConfirm = async (narration: string) => {
+  const handleConfirm = async (narration: string, files: File[]) => {
     if (!selectedPayment?.order_id) return;
 
     const status = String(selectedPayment.status || '').toLowerCase();
@@ -834,7 +877,7 @@ export default function PaymentVerification() {
     }
 
     try {
-      await updatePaymentMutation.mutateAsync({ orderId, narration });
+      await updatePaymentMutation.mutateAsync({ orderId, narration, files });
     } finally {
       setIsConfirmModalOpen(false);
       setSelectedPayment(null);

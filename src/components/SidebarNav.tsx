@@ -161,17 +161,6 @@ export const SidebarNav = React.memo(function SidebarNav() {
   const location = useLocation();
   const role = parseInt(localStorage.getItem('role') || '-1');
 
-  const scopeNames: string[] = (() => {
-    try { return JSON.parse(localStorage.getItem('location_names') || '[]'); } catch { return []; }
-  })();
-  const isSuperAdmin = role === 0; // ROLES.SUPERADMIN
-  // Plain-text scope label shown under the user's role label
-  const scopeLabel = isSuperAdmin
-    ? null
-    : scopeNames.length === 0
-      ? 'Full Access'
-      : scopeNames.join(', ');
-
   const handleLogout = async () => {
     try { await apiClient.admin.logoutUser(); } catch { /* ignore — clear locally regardless */ }
     localStorage.removeItem('token');
@@ -364,12 +353,10 @@ export const SidebarNav = React.memo(function SidebarNav() {
                 .map((name) => name[0])
                 .join('')
                 .slice(0, 2) || 'AA'}
-            </div>              <div className="min-w-0">
+            </div>
+            <div className="min-w-0">
               <div className="truncate text-sm font-medium text-white">{localStorage.getItem('fullname') || ''}</div>
               <div className="truncate text-xs text-white/60">{localStorage.getItem('label') || ''}</div>
-              {/* {scopeLabel && (
-                <div className="truncate text-xs text-white/40 mt-0.5">{scopeLabel}</div>
-              )} */}
             </div>
           </div>
         ) : null}

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Download, Search, ShoppingCart, Droplets, Banknote, Coins, Pencil, CalendarDays, X, Truck, Users, TrendingUp } from 'lucide-react';
+import { Download, Search, ShoppingCart, Droplets, Banknote, Coins, Pencil, CalendarDays, X, Truck, Users, TrendingUp, Paperclip, FileText, ImageIcon, ExternalLink } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -73,6 +73,9 @@ interface PaymentOrder {
 
   // narration fallback if present
   narration?: string | null;
+
+  // Payment proof files uploaded at confirm time
+  payment_files?: Array<{ id: number; file: string; file_name: string; uploaded_at: string }>;
 
   truck_number?: string | null;
   customer_details?: Record<string, unknown> | null;
@@ -272,6 +275,27 @@ export default function ConfirmedPayments() {
   const [editRemarks, setEditRemarks] = useState('');
   const [editAmountPaid, setEditAmountPaid] = useState('');
   const [editStatus, setEditStatus] = useState('');
+
+  // File viewer state
+  const [filesOrder, setFilesOrder] = useState<PaymentOrder | null>(null);
+  const [fetchedFiles, setFetchedFiles] = useState<Array<{ id: number; file: string; file_name: string; uploaded_at: string }>>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+
+  const openFilesModal = async (p: PaymentOrder) => {
+    setFilesOrder(p);
+    setFetchedFiles(p.payment_files ?? []);
+    // Always fetch fresh from the API
+    setFilesLoading(true);
+    try {
+      const orderId = Number(p.id);
+      const files = await apiClient.admin.getPaymentFiles(orderId);
+      setFetchedFiles(files);
+    } catch {
+      // silently fall back to whatever was on the order object
+    } finally {
+      setFilesLoading(false);
+    }
+  };
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -805,9 +829,14 @@ export default function ConfirmedPayments() {
                             )}
                           </TableCell>
                           <TableCell>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditModal(p)} title="Edit">
-                              <Pencil size={14} />
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditModal(p)} title="Edit">
+                                <Pencil size={14} />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500 hover:text-blue-700" onClick={() => openFilesModal(p)} title="View files">
+                                <Paperclip size={14} />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -899,6 +928,72 @@ export default function ConfirmedPayments() {
                   <Button onClick={handleSaveEdit} disabled={updateNarrationMutation.isPending} className="gap-1.5">
                     {updateNarrationMutation.isPending ? 'Saving...' : 'Save Changes'}
                   </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            {/* ── File Viewer Dialog ── */}
+            <Dialog open={!!filesOrder} onOpenChange={(v) => { if (!v) { setFilesOrder(null); setFetchedFiles([]); } }}>
+              <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Paperclip size={16} /> Payment Files
+                  </DialogTitle>
+                  <DialogDescription>
+                    {filesOrder ? `Order ${getOrderReference(filesOrder) || filesOrder.id}` : ''}
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="py-2">
+                  {filesLoading ? (
+                    <div className="flex items-center justify-center py-10 text-slate-400 text-sm gap-2">
+                      <span className="animate-spin inline-block w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full" />
+                      Loading files…
+                    </div>
+                  ) : fetchedFiles.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-slate-400 gap-2">
+                      <Paperclip size={32} className="opacity-30" />
+                      <p className="text-sm">No files attached to this payment.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      {fetchedFiles.map((f) => {
+                        const isImage = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(f.file_name ?? f.file);
+                        const uploadedDate = f.uploaded_at ? new Date(f.uploaded_at).toLocaleString() : '';
+                        return (
+                          <div key={f.id} className="rounded-lg border border-slate-200 overflow-hidden bg-white hover:shadow-sm transition-shadow">
+                            {isImage ? (
+                              <a href={f.file} target="_blank" rel="noopener noreferrer">
+                                <img
+                                  src={f.file}
+                                  alt={f.file_name}
+                                  className="w-full h-36 object-cover bg-slate-100"
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                />
+                              </a>
+                            ) : (
+                              <div className="w-full h-36 bg-slate-50 flex items-center justify-center">
+                                <FileText size={40} className="text-slate-300" />
+                              </div>
+                            )}
+                            <div className="px-3 py-2">
+                              <div className="text-sm font-medium text-slate-700 truncate" title={f.file_name}>{f.file_name}</div>
+                              {uploadedDate && <div className="text-xs text-slate-400 mt-0.5">{uploadedDate}</div>}
+                              <a
+                                href={f.file}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                download={f.file_name}
+                                className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                              >
+                                <ExternalLink size={11} /> Open / Download
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </DialogContent>
             </Dialog>
