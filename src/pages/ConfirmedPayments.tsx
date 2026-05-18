@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Download, Search, ShoppingCart, Droplets, Banknote, Coins, Pencil, CalendarDays, X, Truck, Users, TrendingUp, Paperclip, FileText, ImageIcon, ExternalLink } from 'lucide-react';
+import { Download, Search, ShoppingCart, Droplets, Banknote, Coins, Pencil, CalendarDays, X, Truck, Users, TrendingUp, Paperclip, FileText, ImageIcon, ExternalLink, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -264,7 +264,7 @@ const getPaymentDate = (p: PaymentOrder): Date => {
 
 export default function ConfirmedPayments() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'today' | 'yesterday' | 'week' | 'month' | 'year' | null>(null);
+  const [filterType, setFilterType] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'year'>('today');
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [productFilter, setProductFilter] = useState<string | null>(null);
   const [pfiFilter, setPfiFilter] = useState<string | null>(null);
@@ -275,11 +275,13 @@ export default function ConfirmedPayments() {
   const [editRemarks, setEditRemarks] = useState('');
   const [editAmountPaid, setEditAmountPaid] = useState('');
   const [editStatus, setEditStatus] = useState('');
+  const [editAttachedFiles, setEditAttachedFiles] = useState<File[]>([]);
 
   // File viewer state
   const [filesOrder, setFilesOrder] = useState<PaymentOrder | null>(null);
   const [fetchedFiles, setFetchedFiles] = useState<Array<{ id: number; file: string; file_name: string; uploaded_at: string }>>([]);
   const [filesLoading, setFilesLoading] = useState(false);
+  const [deletingFileId, setDeletingFileId] = useState<number | null>(null);
 
   const openFilesModal = async (p: PaymentOrder) => {
     setFilesOrder(p);
@@ -294,6 +296,19 @@ export default function ConfirmedPayments() {
       // silently fall back to whatever was on the order object
     } finally {
       setFilesLoading(false);
+    }
+  };
+
+  const handleDeleteFile = async (fileId: number) => {
+    setDeletingFileId(fileId);
+    try {
+      await apiClient.admin.deletePaymentFile(fileId);
+      setFetchedFiles((prev) => prev.filter((f) => f.id !== fileId));
+      await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
+    } catch (err) {
+      toast({ title: 'Error', description: (err as Error).message, variant: 'destructive' });
+    } finally {
+      setDeletingFileId(null);
     }
   };
 
@@ -312,16 +327,22 @@ export default function ConfirmedPayments() {
     setEditRemarks(remarks);
     setEditAmountPaid(amountPaid !== null ? String(amountPaid) : String(salesValue));
     setEditStatus(status.label === '\u2014' ? 'Fully Paid' : status.label);
+    setEditAttachedFiles([]);
   };
 
   const updateNarrationMutation = useMutation({
-    mutationFn: async ({ orderId, narration }: { orderId: number; narration: string }) => {
-      return apiClient.admin.updateNarration(orderId, narration);
+    mutationFn: async ({ orderId, narration, files }: { orderId: number; narration: string; files: File[] }) => {
+      await apiClient.admin.updateNarration(orderId, narration);
+      // Upload files after updating narration — fire-and-forget if there are any
+      if (files.length > 0) {
+        await apiClient.admin.uploadPaymentFiles(orderId, files);
+      }
     },
     onSuccess: async () => {
       await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
       toast({ title: 'Updated', description: 'Payment details updated successfully.' });
       setEditOrder(null);
+      setEditAttachedFiles([]);
     },
     onError: (err: Error) => {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -334,7 +355,7 @@ export default function ConfirmedPayments() {
     const prefix = Number.isFinite(paidNum) && paidNum > 0 ? `[PAID:${paidNum}] ` : '';
     const statusTag = editStatus ? `[STATUS:${editStatus}] ` : '';
     const fullNarration = `${prefix}${statusTag}${editRemarks}`.trim();
-    updateNarrationMutation.mutate({ orderId: editOrder.id, narration: fullNarration });
+    updateNarrationMutation.mutate({ orderId: editOrder.id, narration: fullNarration, files: editAttachedFiles });
   };
 
   const listQuery = useQuery<OrderResponse>({
@@ -397,11 +418,11 @@ export default function ConfirmedPayments() {
     return Array.from(new Set(pfis)).sort();
   }, [confirmedPayments]);
 
-  const hasActiveFilters = !!(locationFilter || productFilter || pfiFilter || filterType || dateRange.from);
+  const hasActiveFilters = !!(locationFilter || productFilter || pfiFilter || filterType !== 'today' || dateRange.from);
 
   const clearAllFilters = () => {
     setSearchQuery('');
-    setFilterType(null);
+    setFilterType('today');
     setLocationFilter(null);
     setProductFilter(null);
     setPfiFilter(null);
@@ -422,7 +443,7 @@ export default function ConfirmedPayments() {
         return ref.includes(q) || company.includes(q) || customer.includes(q) || location.includes(q) || pfi.includes(q) || truck.includes(q);
       })
       .filter((p) => {
-        if (!filterType) return true;
+        if (filterType === 'all') return true;
         const d = getPaymentDate(p);
         if (filterType === 'today') return isToday(d);
         if (filterType === 'yesterday') return isYesterday(d);
@@ -609,18 +630,18 @@ export default function ConfirmedPayments() {
                     />
                   </div>
                   <div className="flex gap-1.5 flex-wrap">
-                    {(['today', 'yesterday', 'week', 'month', 'year'] as const).map((tf) => (
+                    {(['all', 'today', 'yesterday', 'week', 'month', 'year'] as const).map((tf) => (
                       <Button
                         key={tf}
                         size="sm"
                         variant={filterType === tf ? 'default' : 'outline'}
                         className="h-9 text-xs capitalize"
                         onClick={() => {
-                          setFilterType(filterType === tf ? null : tf);
+                          setFilterType(tf);
                           setDateRange({ from: null, to: null });
                         }}
                       >
-                        {tf}
+                        {tf === 'all' ? 'All Time' : tf}
                       </Button>
                     ))}
                   </div>
@@ -728,24 +749,23 @@ export default function ConfirmedPayments() {
                     <TableHead className="min-w-[140px]">Paying Company</TableHead>
                     <TableHead className="min-w-[110px]">Location</TableHead>
                     <TableHead className="min-w-[100px]">Bank</TableHead>
-                    <TableHead className="min-w-[180px]">Remarks</TableHead>
                     <TableHead className="min-w-[110px] text-right">Balance</TableHead>
                     <TableHead className="min-w-[110px]">Status</TableHead>
-                    <TableHead className="w-[60px]"></TableHead>
+                    <TableHead className="w-[160px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     [...Array(6)].map((_, idx) => (
                       <TableRow key={idx}>
-                        {[...Array(15)].map((_, ci) => (
+                        {[...Array(14)].map((_, ci) => (
                           <TableCell key={ci}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={15} className="text-center h-24 text-slate-500">
+                      <TableCell colSpan={14} className="text-center h-24 text-slate-500">
                         No confirmed payments found
                       </TableCell>
                     </TableRow>
@@ -763,10 +783,10 @@ export default function ConfirmedPayments() {
                       const location = extractLocation(p);
                       const { bankName: bank, acctNo: bankAcctNo } = extractBankInfo(p, bankAccounts);
                       const rawNarration = String(p.payment_narration ?? p.narration ?? '');
-                      const remarks = cleanNarration(rawNarration);
                       const amountPaid = parseAmountPaid(rawNarration);
                       const balance = amountPaid !== null ? salesValue - amountPaid : 0;
                       const status = getPaymentStatus(salesValue, amountPaid, rawNarration);
+                      const proofCount = Array.isArray(p.payment_files) ? p.payment_files.length : 0;
 
                       return (
                         <TableRow key={p.id} className="hover:bg-slate-50/60">
@@ -775,7 +795,7 @@ export default function ConfirmedPayments() {
                             <div className="text-sm">{dateStr}</div>
                             <div className="text-xs text-slate-400">{timeStr}</div>
                           </TableCell>
-                          <TableCell className="text-slate-950">{ref}</TableCell>
+                          <TableCell className="text-slate-950 font-semibold">{ref}</TableCell>
                           <TableCell className="text-sm">{truckNo || '\u2014'}</TableCell>
                           <TableCell className="uppercase font-semibold max-w-[140px]" title={customerName || undefined}>
                             {customerName || '\u2014'}
@@ -796,19 +816,9 @@ export default function ConfirmedPayments() {
                           <TableCell className="text-sm" title={location || undefined}>
                             {location || '\u2014'}
                           </TableCell>
-                          <TableCell className="max-w-[140px] text-sm">
-                            <div className="font-medium" title={bank || undefined}>{bank || '\u2014'}</div>
-                            {bankAcctNo && <div className="text-xs text-slate-600">{bankAcctNo}</div>}
-                          </TableCell>
-                          <TableCell className="max-w-[220px]">
-                            <div className="text-sm text-slate-600" title={remarks || undefined}>
-                              {remarks || <span className="text-xs text-slate-400">No remarks</span>}
-                            </div>
-                            {amountPaid !== null && (
-                              <div className="text-xs text-slate-400 mt-0.5">
-                                Paid: {'\u20A6'}{amountPaid.toLocaleString()}
-                              </div>
-                            )}
+                          <TableCell className="max-w-[140px]">
+                            {bankAcctNo && <div className="text-sm font-semibold text-slate-700">{bankAcctNo}</div>}
+                            <div className="font-normal text-xs" title={bank || undefined}>{bank || '\u2014'}</div>
                           </TableCell>
                           <TableCell className="text-right font-semibold">
                             {amountPaid !== null ? (
@@ -829,12 +839,14 @@ export default function ConfirmedPayments() {
                             )}
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditModal(p)} title="Edit">
-                                <Pencil size={14} />
+                            <div className="flex items-center gap-2">
+                              <Button className="h-8 gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white" size="sm" onClick={() => openEditModal(p)}>
+                                <Pencil size={12} />
+                                Edit
                               </Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500 hover:text-blue-700" onClick={() => openFilesModal(p)} title="View files">
-                                <Paperclip size={14} />
+                              <Button className={`h-8 gap-1.5 text-xs font-semibold text-white ${proofCount > 0 ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'}`} size="sm" onClick={() => openFilesModal(p)}>
+                                <Paperclip size={12} />
+                                View Receipt
                               </Button>
                             </div>
                           </TableCell>
@@ -848,19 +860,21 @@ export default function ConfirmedPayments() {
 
             {/* Edit Payment Details Dialog */}
             <Dialog open={!!editOrder} onOpenChange={(v) => { if (!v) setEditOrder(null); }}>
-              <DialogContent className="sm:max-w-[480px]">
-                <DialogHeader>
-                  <DialogTitle>Edit Payment Details</DialogTitle>
-                  <DialogDescription>
-                    {editOrder ? `Order ${getOrderReference(editOrder) || editOrder.id}` : ''}
-                    {editOrder ? ` \u2014 Sales Value: \u20A6${safeToNumber(editOrder.total_price ?? editOrder.amount).toLocaleString()}` : ''}
-                  </DialogDescription>
-                </DialogHeader>
+              <DialogContent className="sm:max-w-[520px] border border-slate-300 shadow-xl p-0">
+                <div className="border-b border-slate-800 bg-slate-900 px-6 py-4">
+                  <DialogHeader className="space-y-1">
+                    <DialogTitle className="text-white">Edit Payment Details</DialogTitle>
+                    <DialogDescription className="text-slate-200">
+                      {editOrder ? `Order ${getOrderReference(editOrder) || editOrder.id}` : ''}
+                      {editOrder ? ` \u2014 Sales Value: \u20A6${safeToNumber(editOrder.total_price ?? editOrder.amount).toLocaleString()}` : ''}
+                    </DialogDescription>
+                  </DialogHeader>
+                </div>
 
-                <div className="space-y-4 py-2">
+                <div className="space-y-4 bg-white px-6 py-5">
                   {/* Amount Paid */}
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700">Amount Paid (N)</label>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Amount Paid (₦)</label>
                     <Input
                       type="text"
                       inputMode="numeric"
@@ -870,7 +884,7 @@ export default function ConfirmedPayments() {
                         setEditAmountPaid(raw);
                       }}
                       placeholder="Enter amount paid"
-                      className="h-10"
+                      className="h-10 border-slate-300 text-slate-900 font-medium"
                     />
                     {editOrder && (() => {
                       const sv = safeToNumber(editOrder.total_price ?? editOrder.amount);
@@ -878,18 +892,18 @@ export default function ConfirmedPayments() {
                       const bal = sv - paid;
                       if (Number.isNaN(paid)) return null;
                       if (bal > 0) return (
-                        <div className="mt-1.5 flex items-center justify-between rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm">
-                          <span className="text-red-700">Outstanding Balance</span>
-                          <span className="font-bold text-red-800">{'\u20A6'}{bal.toLocaleString()}</span>
+                        <div className="mt-1.5 flex items-center justify-between rounded-md border border-red-300 bg-red-100 px-3 py-2 text-sm">
+                          <span className="text-red-900 font-medium">Outstanding Balance</span>
+                          <span className="font-bold text-red-950">{'\u20A6'}{bal.toLocaleString()}</span>
                         </div>
                       );
                       if (bal === 0) return (
-                        <div className="mt-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 font-medium">
+                        <div className="mt-1.5 rounded-md border border-emerald-300 bg-emerald-100 px-3 py-2 text-sm text-emerald-900 font-semibold">
                           {'\u2713'} Fully paid
                         </div>
                       );
                       return (
-                        <div className="mt-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                        <div className="mt-1.5 rounded-md border border-blue-300 bg-blue-100 px-3 py-2 text-sm text-blue-900 font-medium">
                           Overpaid by {'\u20A6'}{Math.abs(bal).toLocaleString()}
                         </div>
                       );
@@ -898,10 +912,10 @@ export default function ConfirmedPayments() {
 
                   {/* Status */}
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700">Payment Status</label>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Payment Status</label>
                     <select
                       aria-label="Payment status"
-                      className="h-10 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                      className="h-10 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-slate-400"
                       value={editStatus}
                       onChange={(e) => setEditStatus(e.target.value)}
                     >
@@ -913,17 +927,56 @@ export default function ConfirmedPayments() {
 
                   {/* Remarks */}
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700">Remarks</label>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Remarks</label>
                     <Textarea
                       value={editRemarks}
                       onChange={(e) => setEditRemarks(e.target.value)}
                       placeholder="e.g. part payment, bank transfer details..."
-                      className="min-h-[80px] resize-none"
+                      className="min-h-[80px] resize-none border-slate-300 text-slate-900 font-medium"
                     />
+                  </div>
+
+                  {/* Payment Proof Files */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Paperclip size={12} /> Payment Proof
+                    </label>
+                    <label className="flex items-center justify-center gap-2 w-full h-20 border-2 border-dashed border-slate-400 rounded-lg cursor-pointer hover:border-slate-600 hover:bg-slate-100 transition-colors text-sm text-slate-700 bg-slate-50">
+                      <Paperclip size={15} className="text-slate-700" />
+                      <span className="font-medium">Click to attach payment receipts</span>
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          const picked = Array.from(e.target.files ?? []);
+                          if (picked.length) setEditAttachedFiles(prev => [...prev, ...picked]);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    <p className="mt-1 text-xs text-slate-600">You can upload images or PDFs</p>
+                    {editAttachedFiles.length > 0 && (
+                      <ul className="mt-2 space-y-1.5">
+                        {editAttachedFiles.map((f, i) => {
+                          const isImage = f.type.startsWith('image/');
+                          return (
+                            <li key={i} className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm">
+                              {isImage ? <ImageIcon size={14} className="shrink-0 text-blue-400" /> : <FileText size={14} className="shrink-0 text-slate-400" />}
+                              <span className="flex-1 truncate text-slate-800 font-medium">{f.name}</span>
+                              <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                              <button type="button" title="Remove file" onClick={() => setEditAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="shrink-0 text-slate-500 hover:text-red-600">
+                                <Trash2 size={13} />
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-3 pt-2">
+                <div className="flex items-center justify-end gap-3 border-t border-slate-300 bg-slate-100 px-6 py-4">
                   <Button variant="outline" onClick={() => setEditOrder(null)}>Cancel</Button>
                   <Button onClick={handleSaveEdit} disabled={updateNarrationMutation.isPending} className="gap-1.5">
                     {updateNarrationMutation.isPending ? 'Saving...' : 'Save Changes'}
@@ -979,15 +1032,27 @@ export default function ConfirmedPayments() {
                             <div className="px-3 py-2">
                               <div className="text-sm font-medium text-slate-700 truncate" title={f.file_name}>{f.file_name}</div>
                               {uploadedDate && <div className="text-xs text-slate-400 mt-0.5">{uploadedDate}</div>}
-                              <a
-                                href={f.file}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                download={f.file_name}
-                                className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                              >
-                                <ExternalLink size={11} /> Open / Download
-                              </a>
+                              <div className="mt-2 flex items-center justify-between">
+                                <a
+                                  href={f.file}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  download={f.file_name}
+                                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                                >
+                                  <ExternalLink size={11} /> Open / Download
+                                </a>
+                                <button
+                                  onClick={() => handleDeleteFile(f.id)}
+                                  disabled={deletingFileId === f.id}
+                                  className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-700 disabled:opacity-40"
+                                  title="Delete file"
+                                >
+                                  {deletingFileId === f.id
+                                    ? <span className="animate-spin inline-block w-3 h-3 border border-red-400 border-t-transparent rounded-full" />
+                                    : <Trash2 size={13} />}
+                                </button>
+                              </div>
                             </div>
                           </div>
                         );

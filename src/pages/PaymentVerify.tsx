@@ -20,7 +20,6 @@ import * as XLSX from 'xlsx';
 import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, Calendar, MapPin, Package, Building2, User, Banknote, CalendarDays, X, Fuel, Clock, Paperclip, FileText, ImageIcon, Trash2 } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, isAfter, isBefore, isSameDay, addDays, parseISO } from 'date-fns';
 import { PageHeader } from '@/components/PageHeader';
@@ -113,6 +112,8 @@ interface PaymentOrder {
   companyName?: string;
   company_name?: string;
   company?: string;
+  pfi_id?: number | null;
+  pfi?: number | string | null;
   customer_details?: Record<string, unknown>;
 }
 
@@ -138,12 +139,18 @@ function VerifyConfirmModal({
   onConfirm,
   payment,
   bankAccounts,
+  pfiOptions,
+  selectedPfiId,
+  onChangePfiId,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (narration: string, files: File[]) => void;
+  onConfirm: (narration: string, files: File[], pfiId?: number) => void;
   payment: PaymentOrder | null;
   bankAccounts: BankAccount[];
+  pfiOptions: Array<{ id: number; label: string }>;
+  selectedPfiId: number | '';
+  onChangePfiId: (value: number | '') => void;
 }) {
   if (!payment) return null;
 
@@ -154,6 +161,9 @@ function VerifyConfirmModal({
       onConfirm={onConfirm}
       payment={payment}
       bankAccounts={bankAccounts}
+      pfiOptions={pfiOptions}
+      selectedPfiId={selectedPfiId}
+      onChangePfiId={onChangePfiId}
     />
   );
 }
@@ -164,29 +174,30 @@ function VerifyConfirmModalBody({
   onConfirm,
   payment,
   bankAccounts,
+  pfiOptions,
+  selectedPfiId,
+  onChangePfiId,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (narration: string, files: File[]) => void;
+  onConfirm: (narration: string, files: File[], pfiId?: number) => void;
   payment: PaymentOrder;
   bankAccounts: BankAccount[];
+  pfiOptions: Array<{ id: number; label: string }>;
+  selectedPfiId: number | '';
+  onChangePfiId: (value: number | '') => void;
 }) {
-  const [narration, setNarration] = useState('');
-  const [amountPaid, setAmountPaid] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
   // Reset state whenever the modal opens or a different payment is selected.
   useEffect(() => {
     if (isOpen) {
-      setNarration('');
       setAttachedFiles([]);
-      // Pre-fill with the expected amount
-      const expected = parseFloat(payment.amount || '0');
-      setAmountPaid(expected > 0 ? String(expected) : '');
     }
-  }, [isOpen, payment.id, payment.amount]);
+  }, [isOpen, payment.id]);
 
   const isPending = String(payment.status || '').toLowerCase() === 'pending';
+  const canConfirm = isPending && typeof selectedPfiId === 'number';
   const createdDate = new Date(payment.created_at);
   const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
   const companyName = extractCompanyName(payment);
@@ -196,168 +207,140 @@ function VerifyConfirmModalBody({
 
   const createdText = Number.isNaN(createdDate.getTime()) ? '—' : createdDate.toLocaleString('en-GB');
   const orderRef = getOrderReference(payment) || payment.order_id;
-  const totalAmount = `₦${parseFloat(payment.amount || '0').toLocaleString()}`;
+  const expectedAmountValue = parseFloat(payment.amount || '0');
+  const totalAmount = `₦${expectedAmountValue.toLocaleString()}`;
   const productSummary = [product, qty ? `${qty} ${unitLabel}` : '']
     .filter(Boolean)
     .join(' × ')
     .trim();
   return (
     <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
-      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto p-0">
-        <div className="border-b border-slate-200 bg-slate-50 px-6 pt-6 pb-4">
+      <DialogContent className="sm:max-w-[620px] max-h-[90vh] overflow-y-auto p-0 border border-slate-300 shadow-xl">
+        <div className="border-b border-slate-800 bg-slate-900 px-6 pt-6 pb-4">
           <DialogHeader className="space-y-1">
-            <DialogTitle className="text-lg text-slate-950">Confirm Payment & Release Order</DialogTitle>
-            <DialogDescription className="text-sm text-slate-500">
-              Review the details below before confirming. This will release the order for loading.
+            <DialogTitle className="text-lg text-white">Confirm Payment</DialogTitle>
+            <DialogDescription className="text-sm text-slate-200">
+              Review the order details below and upload proof if available.
             </DialogDescription>
           </DialogHeader>
         </div>
 
-        <div className="space-y-3 px-6 py-5 text-sm">
+        <div className="space-y-4 bg-white px-6 py-5 text-sm">
           {/* Date & Order Ref */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
-              <Calendar size={15} className="mt-0.5 shrink-0 text-slate-400" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <Calendar size={15} className="mt-0.5 shrink-0 text-slate-700" />
               <div>
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Date</div>
-                <div className="font-medium text-slate-900">{createdText}</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Date</div>
+                <div className="font-semibold text-slate-900">{createdText}</div>
               </div>
             </div>
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
-              <Search size={15} className="mt-0.5 shrink-0 text-slate-400" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <Search size={15} className="mt-0.5 shrink-0 text-slate-700" />
               <div className="min-w-0">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Order Ref</div>
-                <div className="truncate font-semibold text-slate-950">{orderRef}</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Order Ref</div>
+                <div className="truncate font-bold text-slate-950">{orderRef}</div>
               </div>
             </div>
           </div>
 
           {/* Location & Product */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
-              <MapPin size={15} className="mt-0.5 shrink-0 text-slate-400" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <MapPin size={15} className="mt-0.5 shrink-0 text-slate-700" />
               <div>
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Location</div>
-                <div className="font-medium text-slate-900">{location || '—'}</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Location</div>
+                <div className="font-semibold text-slate-900">{location || '—'}</div>
               </div>
             </div>
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
-              <Package size={15} className="mt-0.5 shrink-0 text-slate-400" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <Package size={15} className="mt-0.5 shrink-0 text-slate-700" />
               <div>
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Product & Qty</div>
-                <div className="font-medium text-slate-900">{productSummary || '—'}</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Product & Qty</div>
+                <div className="font-semibold text-slate-900">{productSummary || '—'}</div>
               </div>
             </div>
           </div>
 
           {/* Company & Facilitator */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
-              <Building2 size={15} className="mt-0.5 shrink-0 text-slate-400" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <Building2 size={15} className="mt-0.5 shrink-0 text-slate-700" />
               <div>
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Company</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Company</div>
                 <div className="font-semibold uppercase text-slate-900">{companyName || '—'}</div>
               </div>
             </div>
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3">
-              <User size={15} className="mt-0.5 shrink-0 text-slate-400" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
+              <User size={15} className="mt-0.5 shrink-0 text-slate-700" />
               <div>
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Facilitator</div>
-                <div className="font-medium uppercase text-slate-900">{customerName || '—'}</div>
-                {customerPhone ? <div className="text-xs text-slate-500">{customerPhone}</div> : null}
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Facilitator</div>
+                <div className="font-semibold uppercase text-slate-900">{customerName || '—'}</div>
+                {customerPhone ? <div className="text-sm text-slate-700">{customerPhone}</div> : null}
               </div>
             </div>
           </div>
 
           {/* Bank Details */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+          <div className="rounded-lg border border-slate-300 bg-slate-100 p-3">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
               <Banknote size={14} />
               Paid Into
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <div className="text-[11px] text-slate-400">Account No.</div>
+                <div className="text-[11px] text-slate-600">Account No.</div>
                 <div className="font-semibold text-slate-900">{paidInto.account_number || '—'}</div>
               </div>
               <div>
-                <div className="text-[11px] text-slate-400">Bank</div>
+                <div className="text-[11px] text-slate-600">Bank</div>
                 <div className="font-medium uppercase text-slate-900">{paidInto.bank_name || '—'}</div>
               </div>
               <div>
-                <div className="text-[11px] text-slate-400">Account Name</div>
+                <div className="text-[11px] text-slate-600">Account Name</div>
                 <div className="font-medium uppercase text-slate-900">{paidInto.account_name || '—'}</div>
               </div>
             </div>
           </div>
 
           {/* Amount */}
-          <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
-            <span className="text-sm font-medium text-emerald-800">Expected Amount</span>
-            <span className="text-lg font-bold text-emerald-900">{totalAmount}</span>
+          <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-100 px-4 py-3">
+            <span className="text-sm font-semibold text-emerald-900">Expected Amount</span>
+            <span className="text-lg font-bold text-emerald-950">{totalAmount}</span>
           </div>
 
-          {/* Amount Paid */}
+          {/* PFI Assignment */}
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-500">Amount Paid (₦)</label>
-            <Input
-              type="text"
-              inputMode="numeric"
-              value={amountPaid ? Number(amountPaid).toLocaleString() : ''}
-              onChange={(e) => {
-                const raw = e.target.value.replace(/[^0-9.]/g, '');
-                setAmountPaid(raw);
-              }}
-              placeholder="Enter the amount the customer actually paid"
-              className="h-10"
-            />
-            {(() => {
-              const expected = parseFloat(payment.amount || '0');
-              const paid = parseFloat(amountPaid || '0');
-              const bal = expected - paid;
-              if (!amountPaid || Number.isNaN(paid)) return null;
-              if (bal > 0) {
-                return (
-                  <div className="mt-1.5 flex items-center justify-between rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm">
-                    <span className="text-red-700">Outstanding Balance</span>
-                    <span className="font-bold text-red-800">₦{bal.toLocaleString()}</span>
-                  </div>
-                );
-              }
-              if (bal === 0) {
-                return (
-                  <div className="mt-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 font-medium">
-                    ✓ Fully paid
-                  </div>
-                );
-              }
-              return (
-                <div className="mt-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-                  Overpaid by ₦{Math.abs(bal).toLocaleString()}
-                </div>
-              );
-            })()}
+            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Assign to PFI</label>
+            <select
+              aria-label="Select PFI"
+              required
+              className="w-full h-10 px-3 rounded-md border border-slate-300 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              value={selectedPfiId === '' ? '' : String(selectedPfiId)}
+              onChange={(e) => onChangePfiId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">Select PFI</option>
+              {pfiOptions.map((opt) => (
+                <option key={opt.id} value={String(opt.id)}>{opt.label}</option>
+              ))}
+            </select>
+            {!canConfirm ? (
+              <p className="mt-1 text-xs text-amber-700">Select a PFI to continue.</p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-600">PFI will be assigned when payment is confirmed.</p>
+            )}
           </div>
 
-          {/* Narration */}
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-500">Any Remarks</label>
-            <Textarea
-              value={narration}
-              onChange={(e) => setNarration(e.target.value)}
-              placeholder="e.g. part payment, short payment, lump sum, bank transfer details…"
-              className="min-h-[60px] resize-none"
-            />
-          </div>
+          {/* Amount entry intentionally removed to keep this dialog simple and focused. */}
 
           {/* File attachments */}
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-500 flex items-center gap-1.5">
-              <Paperclip size={12} /> Payment Proof / Attachments
+            <label className="mb-1.5 block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <Paperclip size={12} /> Payment Proof
             </label>
-            <label className="flex items-center justify-center gap-2 w-full h-20 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors text-sm text-slate-500">
-              <Paperclip size={15} className="text-slate-400" />
-              <span>Click to attach files — any type, any size, multiple allowed</span>
+            <label className="flex items-center justify-center gap-2 w-full h-20 border-2 border-dashed border-slate-400 rounded-lg cursor-pointer hover:border-slate-600 hover:bg-slate-100 transition-colors text-sm text-slate-700 bg-slate-50">
+              <Paperclip size={15} className="text-slate-700" />
+              <span className="font-medium">Click to attach payment receipts</span>
               <input
                 type="file"
                 multiple
@@ -369,16 +352,17 @@ function VerifyConfirmModalBody({
                 }}
               />
             </label>
+            <p className="mt-1 text-xs text-slate-600">You can upload images or PDFs</p>
             {attachedFiles.length > 0 && (
               <ul className="mt-2 space-y-1.5">
                 {attachedFiles.map((f, i) => {
                   const isImage = f.type.startsWith('image/');
                   return (
-                    <li key={i} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm">
+                    <li key={i} className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm">
                       {isImage ? <ImageIcon size={14} className="shrink-0 text-blue-400" /> : <FileText size={14} className="shrink-0 text-slate-400" />}
-                      <span className="flex-1 truncate text-slate-700">{f.name}</span>
-                      <span className="text-xs text-slate-400 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
-                      <button type="button" title="Remove file" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="shrink-0 text-slate-400 hover:text-red-500">
+                      <span className="flex-1 truncate text-slate-800 font-medium">{f.name}</span>
+                      <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                      <button type="button" title="Remove file" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="shrink-0 text-slate-500 hover:text-red-600">
                         <Trash2 size={13} />
                       </button>
                     </li>
@@ -387,20 +371,15 @@ function VerifyConfirmModalBody({
               </ul>
             )}
           </div>
-
-          {/* Warning */}
-          {/* <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
-            ⚠️ Do not confirm unless payment has been verified. This action allows releasing for loading.
-          </div> */}
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-300 bg-slate-100 px-6 py-4">
+          <p className="text-xs text-slate-700 font-medium">This action triggers the order for release.</p>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={() => {
-              const paidNum = parseFloat(amountPaid || '0');
-              const prefix = Number.isFinite(paidNum) && paidNum > 0 ? `[PAID:${paidNum}] ` : '';
-              onConfirm(`${prefix}${narration}`.trim(), attachedFiles);
-            }} disabled={!isPending} className="gap-1.5">
+              const prefix = Number.isFinite(expectedAmountValue) && expectedAmountValue > 0 ? `[PAID:${expectedAmountValue}] ` : '';
+              onConfirm(prefix.trim(), attachedFiles, typeof selectedPfiId === 'number' ? selectedPfiId : undefined);
+            }} disabled={!canConfirm} className="gap-1.5">
             <CheckCheck size={16} />
             Confirm & Release
           </Button>
@@ -628,6 +607,7 @@ export default function PaymentVerification() {
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentOrder | null>(null);
+  const [selectedPfiId, setSelectedPfiId] = useState<number | ''>('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const { toast } = useToast();
 
@@ -667,6 +647,22 @@ export default function PaymentVerification() {
       ? bankAccountsResponse
       : (bankAccountsResponse.results || []);
   }, [bankAccountsResponse]);
+
+  const pfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number?: string | number; pfi_no?: string | number }> } & Record<string, unknown>>({
+    queryKey: ['pfis', 'active'],
+    queryFn: async () => apiClient.admin.getPfis({ status: 'active', page: 1, page_size: 500 }),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const pfiOptions = useMemo(() => {
+    const rec = (pfiQuery.data && typeof pfiQuery.data === 'object') ? (pfiQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
+    const list = (raw || []) as Array<{ id: number; pfi_number?: string | number; pfi_no?: string | number }>;
+    return list
+      .filter((p) => p && typeof p.id === 'number')
+      .map((p) => ({ id: p.id, label: String(p.pfi_number ?? p.pfi_no ?? `PFI-${p.id}`) }));
+  }, [pfiQuery.data]);
 
   const uniqueLocations = useMemo(() => {
     const locs = allPayments
@@ -747,10 +743,13 @@ export default function PaymentVerification() {
   }, [allPayments, searchQuery, filterType, locationFilter, productFilter, dateRange]);
 
   const updatePaymentMutation = useMutation({
-    mutationFn: async (args: { orderId: number; narration: string; files: File[] }) => {
+    mutationFn: async (args: { orderId: number; narration: string; files: File[]; pfiId?: number }) => {
       setUpdatingPaymentId(args.orderId);
       try {
-        await apiClient.admin.confirmPayment(args.orderId, { narration: args.narration?.trim() || undefined });
+        await apiClient.admin.confirmPayment(args.orderId, {
+          narration: args.narration?.trim() || undefined,
+          pfi_id: args.pfiId,
+        });
         // Upload files after confirming — fire-and-forget if there are any
         if (args.files.length > 0) {
           await apiClient.admin.uploadPaymentFiles(args.orderId, args.files);
@@ -838,6 +837,7 @@ export default function PaymentVerification() {
     }
 
     setSelectedPayment(payment);
+    setSelectedPfiId(payment.pfi_id && Number.isFinite(Number(payment.pfi_id)) ? Number(payment.pfi_id) : '');
     setIsConfirmModalOpen(true);
   };
 
@@ -846,8 +846,18 @@ export default function PaymentVerification() {
     setIsCancelModalOpen(true);
   };
 
-  const handleConfirm = async (narration: string, files: File[]) => {
+  const handleConfirm = async (narration: string, files: File[], pfiId?: number) => {
     if (!selectedPayment?.order_id) return;
+
+    if (!Number.isFinite(Number(pfiId))) {
+      toast({
+        title: 'PFI required',
+        description: 'Select an active PFI before confirming payment.',
+        variant: 'destructive',
+        duration: 3000,
+      });
+      return;
+    }
 
     const status = String(selectedPayment.status || '').toLowerCase();
     if (!isConfirmableStatus(status)) {
@@ -877,10 +887,11 @@ export default function PaymentVerification() {
     }
 
     try {
-      await updatePaymentMutation.mutateAsync({ orderId, narration, files });
+      await updatePaymentMutation.mutateAsync({ orderId, narration, files, pfiId: Number(pfiId) });
     } finally {
       setIsConfirmModalOpen(false);
       setSelectedPayment(null);
+      setSelectedPfiId('');
     }
   };
 
@@ -1302,10 +1313,14 @@ export default function PaymentVerification() {
               onClose={() => {
                 setIsConfirmModalOpen(false);
                 setSelectedPayment(null);
+                setSelectedPfiId('');
               }}
               onConfirm={handleConfirm}
               payment={selectedPayment}
               bankAccounts={bankAccounts}
+              pfiOptions={pfiOptions}
+              selectedPfiId={selectedPfiId}
+              onChangePfiId={setSelectedPfiId}
             />
 
             {/* Cancel/Delete confirmation modal */}

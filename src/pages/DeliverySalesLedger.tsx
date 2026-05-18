@@ -1,5 +1,4 @@
-// filepath: /Users/sableboxx/soroman_dashboard-2/src/pages/DeliverySalesLedger.tsx
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -21,7 +20,7 @@ import {
   Truck, Wallet, FileText,
   TrendingUp, Banknote, Building2,
   Calendar as CalendarIcon, UserPlus, X, Fuel,
-  MapPin, Users, LayoutGrid, Filter, AlertTriangle,
+  MapPin, Users, LayoutGrid, Filter, AlertTriangle, Tag,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -240,6 +239,21 @@ export default function DeliverySalesLedger() {
   const [depotFilter, setDepotFilter] = useState<string>('all');
   const [cycleFilter, setCycleFilter] = useState<string>('all'); // 'all' | '1' | '2' | ...
 
+  // ── Trip Codes (localStorage-managed) ────────────────────────────
+  const [tripCodes, setTripCodes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('dsl_trip_codes') || '[]'); } catch { return []; }
+  });
+  const [saleTripMap, setSaleTripMap] = useState<Record<number, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('dsl_sale_trip_map') || '{}'); } catch { return {}; }
+  });
+  const [tripCodeFilter, setTripCodeFilter] = useState<string>('all');
+  const [dialogTripCode, setDialogTripCode] = useState<string>('');
+  const [editTripCode, setEditTripCode] = useState<string>('');
+  const [showTripCodeManager, setShowTripCodeManager] = useState(false);
+  const [newTripCodeInput, setNewTripCodeInput] = useState<string>('');
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  const [bulkTripCode, setBulkTripCode] = useState<string>('');
+
   // ── Payment Dialog ─────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
   // Shared truck-level fields
@@ -268,6 +282,18 @@ export default function DeliverySalesLedger() {
     date_loaded: string;
   } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Persist trip codes to localStorage
+  // ═══════════════════════════════════════════════════════════════════
+
+  useEffect(() => {
+    localStorage.setItem('dsl_trip_codes', JSON.stringify(tripCodes));
+  }, [tripCodes]);
+
+  useEffect(() => {
+    localStorage.setItem('dsl_sale_trip_map', JSON.stringify(saleTripMap));
+  }, [saleTripMap]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Queries
@@ -454,6 +480,9 @@ export default function DeliverySalesLedger() {
         return info?.cycleNum === targetCycleNum;
       });
     }
+    if (tripCodeFilter !== 'all') {
+      result = result.filter(s => saleTripMap[s.id] === tripCodeFilter);
+    }
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       result = result.filter(s =>
@@ -463,7 +492,8 @@ export default function DeliverySalesLedger() {
         (s.payer_name || '').toLowerCase().includes(q) ||
         (s.bank || '').toLowerCase().includes(q) ||
         (s.customer_name || customerMap.get(s.customer)?.customer_name || '').toLowerCase().includes(q) ||
-        (s.remarks || '').toLowerCase().includes(q),
+        (s.remarks || '').toLowerCase().includes(q) ||
+        (saleTripMap[s.id] || '').toLowerCase().includes(q),
       );
     }
     return result.sort((a, b) => {
@@ -471,7 +501,7 @@ export default function DeliverySalesLedger() {
       const dateB = b.date_of_payment || b.date_loaded || '';
       return dateB.localeCompare(dateA);
     });
-  }, [timeFilteredSales, truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, searchQuery, customerMap]);
+  }, [timeFilteredSales, truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter, searchQuery, customerMap, saleTripMap, cycleNumberMap]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Running balance per row — scoped per cycle (truck + date_loaded)
@@ -734,6 +764,53 @@ export default function DeliverySalesLedger() {
     qc.invalidateQueries({ queryKey: ['delivery-inventory'] });
   };
 
+  // ── Trip Code Management ───────────────────────────────────────────
+
+  const addTripCode = () => {
+    const code = newTripCodeInput.trim().toUpperCase().replace(/\s+/g, '-');
+    if (!code) {
+      toast({ title: 'Enter a code first', variant: 'destructive' });
+      return;
+    }
+    if (tripCodes.includes(code)) {
+      toast({ title: `Code "${code}" already exists`, variant: 'destructive' });
+      return;
+    }
+    setTripCodes(prev => [...prev, code].sort());
+    setNewTripCodeInput('');
+    toast({ title: `Trip code "${code}" created` });
+  };
+
+  const deleteTripCode = (code: string) => {
+    setTripCodes(prev => prev.filter(c => c !== code));
+    setSaleTripMap(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(k => { if (next[Number(k)] === code) delete next[Number(k)]; });
+      return next;
+    });
+    if (tripCodeFilter === code) setTripCodeFilter('all');
+    toast({ title: `Trip code "${code}" deleted` });
+  };
+
+  const bulkAssignTripCode = () => {
+    if (!bulkTripCode || selectedRows.size === 0) return;
+    const count = selectedRows.size;
+    if (bulkTripCode === '__remove__') {
+      setSaleTripMap(prev => {
+        const next = { ...prev };
+        selectedRows.forEach(id => delete next[id]);
+        return next;
+      });
+    } else {
+      const updates: Record<number, string> = {};
+      selectedRows.forEach(id => { updates[id] = bulkTripCode; });
+      setSaleTripMap(prev => ({ ...prev, ...updates }));
+    }
+    setSelectedRows(new Set());
+    setBulkTripCode('');
+    toast({ title: `${count} ${count === 1 ? 'entry' : 'entries'} updated` });
+  };
+
   const handlePresetChange = (preset: TimePreset) => {
     setTimePreset(preset);
     if (preset !== 'custom') { setCustomFrom(''); setCustomTo(''); }
@@ -752,6 +829,7 @@ export default function DeliverySalesLedger() {
     setDialogDepot('');
     setDialogCycleMode('auto');
     setDialogCustomDate('');
+    setDialogTripCode('');
     setSaleRows([makeSaleRow()]);
     setRowErrors({});
     setDialogOpen(true);
@@ -946,7 +1024,19 @@ export default function DeliverySalesLedger() {
         });
       });
 
-      await Promise.all(promises);
+      const savedEntries = await Promise.all(promises);
+
+      // Store trip code mapping for new entries if a trip code was selected
+      if (dialogTripCode) {
+        const updates: Record<number, string> = {};
+        savedEntries.forEach((r: unknown) => {
+          const record = r as { id?: number };
+          if (record?.id) updates[record.id] = dialogTripCode;
+        });
+        if (Object.keys(updates).length > 0) {
+          setSaleTripMap(prev => ({ ...prev, ...updates }));
+        }
+      }
 
       // Write customer(s) & destination(s) back to the inventory entry
       // For multi-row, update the inventory entry with the first row's customer/location
@@ -982,7 +1072,7 @@ export default function DeliverySalesLedger() {
     } finally {
       setSaving(false);
     }
-  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, saleRows, toast, bankMap, customerMap]);
+  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, dialogTripCode, saleRows, toast, bankMap, customerMap]);
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -1013,6 +1103,7 @@ export default function DeliverySalesLedger() {
 
   const openEditDialog = (sale: DeliverySale) => {
     setEditTarget(sale);
+    setEditTripCode(saleTripMap[sale.id] || '');
     const rate = toNum(sale.rate);
     const sv = toNum(sale.sales_value);
     const pa = toNum(sale.payment_amount);
@@ -1080,6 +1171,13 @@ export default function DeliverySalesLedger() {
           ? { date_loaded: editForm.date_loaded }
           : {}),
       });
+
+      // Persist trip code assignment locally
+      if (editTripCode) {
+        setSaleTripMap(prev => ({ ...prev, [editTarget.id]: editTripCode }));
+      } else {
+        setSaleTripMap(prev => { const next = { ...prev }; delete next[editTarget.id]; return next; });
+      }
       toast({ title: 'Entry updated' });
       setEditTarget(null);
       setEditForm(null);
@@ -1093,7 +1191,7 @@ export default function DeliverySalesLedger() {
     } finally {
       setEditSaving(false);
     }
-  }, [editTarget, editForm, toast]);
+  }, [editTarget, editForm, editTripCode, toast]);
 
   const exportExcel = useCallback(() => {
     if (!filteredSales.length) return;
@@ -1151,7 +1249,7 @@ export default function DeliverySalesLedger() {
 
     // ── Build AOA (array-of-arrays) for the sheet ───────────────────
     const COLS = [
-      'S/N', 'TRUCK NO.', 'DATE LOADED', 'DEPOT', 'DESTINATION', 'CUSTOMER',
+      'S/N', 'TRUCK NO.', 'TRIP CODE', 'DATE LOADED', 'DEPOT', 'DESTINATION', 'CUSTOMER',
       'QTY (LTRS)', 'RATE (₦)', 'EXPECTED (₦)', 'PAYMENT (₦)', 'BALANCE (₦)',
       'PAYER', 'CONTACT', 'BANK', 'PAYMENT DATE', 'ENTERED BY',
     ] as const;
@@ -1240,6 +1338,7 @@ export default function DeliverySalesLedger() {
         aoa.push([
           rowNum,
           truckCell,
+          !prevCycleShown ? (saleTripMap[s.id] || '') : '',   // TRIP CODE — only on first row of cycle
           dateCell,
           depotCell,
           destCell,
@@ -1266,7 +1365,7 @@ export default function DeliverySalesLedger() {
       aoa.push([
         '',
         `SUBTOTAL — ${u(truckNum)}${cycleTag}`,
-        '', '', '', '',
+        '', '', '', '', '',
         n(cycleQty),
         '',
         n(cycleExpected),
@@ -1282,7 +1381,7 @@ export default function DeliverySalesLedger() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Truck Sales Ledger');
     XLSX.writeFile(wb, `TRUCK-SALES-LEDGER-${period}.xlsx`);
-  }, [filteredSales, customerMap, rowBalances, cycleNumberMap, timePreset, customFrom, customTo]);
+  }, [filteredSales, customerMap, rowBalances, saleTripMap, cycleNumberMap, timePreset, customFrom, customTo]);
 
   const activeBankAccounts = useMemo(
     () => BANK_ACCOUNTS.filter(b => b.is_active),
@@ -1325,6 +1424,9 @@ export default function DeliverySalesLedger() {
             />
 
             {/* ══════════════════════════════════════════════════════
+                TRIP CODE MANAGER — create / delete trip identifiers
+            ══════════════════════════════════════════════════════ */}
+            {/* ══════════════════════════════════════════════════════
                 FILTER PANEL — always visible, one unified card
             ══════════════════════════════════════════════════════ */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -1334,13 +1436,13 @@ export default function DeliverySalesLedger() {
                 <Filter size={15} className="text-slate-500" />
                 <span className="text-sm font-semibold text-slate-700">Filter &amp; Search</span>
                 {/* Active filter count */}
-                {[truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter].filter(v => v !== 'all').length > 0 && (
+                {[truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter].filter(v => v !== 'all').length > 0 && (
                   <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 text-white leading-none">
-                    {[truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter].filter(v => v !== 'all').length} active
+                    {[truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter].filter(v => v !== 'all').length} active
                   </span>
                 )}
                 {/* Clear all — only when filters are active */}
-                {([truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, searchQuery].some(v => v !== 'all' && v !== '')) && (
+                {([truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter, searchQuery].some(v => v !== 'all' && v !== '')) && (
                   <button
                     title="Clear all filters"
                     onClick={() => {
@@ -1349,6 +1451,7 @@ export default function DeliverySalesLedger() {
                       setLocationFilter('all');
                       setCustomerFilter('all');
                       setCycleFilter('all');
+                      setTripCodeFilter('all');
                       setSearchQuery('');
                     }}
                     className="ml-auto text-xs text-slate-400 hover:text-red-500 flex items-center gap-1 transition-colors"
@@ -1485,6 +1588,31 @@ export default function DeliverySalesLedger() {
                       </select>
                     </div>
 
+                    {/* Trip Code */}
+                    {tripCodes.length > 0 && (
+                      <div className="space-y-1.5">
+                        <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                          <Tag size={12} className="text-purple-400" /> Trip Code
+                        </label>
+                        <select
+                          aria-label="Filter by trip code"
+                          value={tripCodeFilter}
+                          onChange={e => setTripCodeFilter(e.target.value)}
+                          className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-purple-300 ${
+                            tripCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <option value="all">All Trip Codes</option>
+                          {tripCodes.map(code => {
+                            const count = Object.values(saleTripMap).filter(v => v === code).length;
+                            return (
+                              <option key={code} value={code}>{code}{count > 0 ? ` (${count} entries)` : ''}</option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    )}
+
                     {/* Cycle — only shown when there are multi-cycle trucks */}
                     {uniqueCycleOptions.length > 0 ? (
                       <div className="space-y-1.5">
@@ -1553,6 +1681,7 @@ export default function DeliverySalesLedger() {
                   locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                   customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
                   cycleFilter !== 'all' && { label: `Cycle ${cycleFilter} only`, clear: () => setCycleFilter('all') },
+                  tripCodeFilter !== 'all' && { label: `Trip: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
                   searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                 ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1563,9 +1692,12 @@ export default function DeliverySalesLedger() {
                       locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                       customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
                       cycleFilter !== 'all' && { label: `Cycle ${cycleFilter} only`, clear: () => setCycleFilter('all') },
+                      tripCodeFilter !== 'all' && { label: `Trip: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
                       searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                     ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
-                      <span key={chip.label} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-900 text-white">
+                      <span key={chip.label} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
+                        chip.label.startsWith('Trip:') ? 'bg-purple-700 text-white' : 'bg-slate-900 text-white'
+                      }`}>
                         {chip.label}
                         <button title={`Remove: ${chip.label}`} onClick={chip.clear} className="hover:text-slate-300 ml-0.5">
                           <X size={10} />
@@ -1574,6 +1706,66 @@ export default function DeliverySalesLedger() {
                     ))}
                   </div>
                 )}
+
+                {/* ── Results summary line ─────────────────────────── */}
+                {/* ── Trip Codes ───────────────────────────────────── */}
+                <div className="border-t border-slate-100" />
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
+                      <Tag size={11} className="text-purple-400" /> Trip Codes
+                    </span>
+                    {tripCodes.map(code => {
+                      const count = Object.values(saleTripMap).filter(v => v === code).length;
+                      return (
+                        <span key={code} className="inline-flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setTripCodeFilter(prev => prev === code ? 'all' : code)}
+                            className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors ${
+                              tripCodeFilter === code
+                                ? 'bg-purple-700 text-white border-purple-700'
+                                : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+                            }`}
+                          >
+                            {code}{count > 0 ? ` · ${count}` : ''}
+                          </button>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              onClick={() => deleteTripCode(code)}
+                              title={`Delete ${code}`}
+                              className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
+                            >
+                              <X size={10} />
+                            </button>
+                          )}
+                        </span>
+                      );
+                    })}
+                    {tripCodes.length === 0 && (
+                      <span className="text-xs text-slate-400 italic">No codes yet</span>
+                    )}
+                    {!readOnly && (
+                      <span className="inline-flex items-center gap-1 ml-1">
+                        <input
+                          placeholder="+ new code"
+                          className="h-6 px-2 text-xs rounded border border-dashed border-slate-300 bg-transparent focus:outline-none focus:border-purple-400 w-24 uppercase"
+                          value={newTripCodeInput}
+                          onChange={e => setNewTripCodeInput(e.target.value.toUpperCase())}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTripCode(); } }}
+                        />
+                        <button
+                          type="button"
+                          onClick={addTripCode}
+                          className="text-xs text-purple-500 hover:text-purple-700 font-medium transition-colors"
+                        >
+                          Add
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                </div>
 
                 {/* ── Results summary line ─────────────────────────── */}
                 <p className="text-xs text-slate-400">
@@ -1608,12 +1800,61 @@ export default function DeliverySalesLedger() {
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                  {selectedRows.size > 0 && (
+                    <div className="bg-purple-50 border-b border-purple-200 px-4 py-2.5 flex flex-wrap items-center gap-3">
+                      <span className="text-xs font-semibold text-purple-700">
+                        {selectedRows.size} {selectedRows.size === 1 ? 'entry' : 'entries'} selected
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-purple-600">Assign trip code:</span>
+                        <select
+                          title="Assign trip code"
+                          value={bulkTripCode}
+                          onChange={e => setBulkTripCode(e.target.value)}
+                          className="h-7 text-xs rounded border border-purple-300 bg-white px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                        >
+                          <option value="">Select…</option>
+                          {tripCodes.map(c => <option key={c} value={c}>{c}</option>)}
+                          <option value="__remove__">— Remove tag</option>
+                        </select>
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs bg-purple-600 hover:bg-purple-700 px-3 py-0"
+                          disabled={!bulkTripCode}
+                          onClick={bulkAssignTripCode}
+                        >
+                          Apply
+                        </Button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRows(new Set())}
+                        className="ml-auto text-xs text-purple-500 hover:text-purple-700 flex items-center gap-1 transition-colors"
+                      >
+                        <X size={11} /> Deselect all
+                      </button>
+                    </div>
+                  )}
+                  <div className="overflow-x-auto">
                   <Table className="text-sm">
                     <TableHeader>
                       <TableRow className="bg-slate-50/80">
+                        <TableHead className="w-[36px] pl-3">
+                          <input
+                            type="checkbox"
+                            className="rounded border-slate-300 cursor-pointer"
+                            checked={filteredSales.length > 0 && filteredSales.every(s => selectedRows.has(s.id))}
+                            onChange={e => {
+                              if (e.target.checked) setSelectedRows(new Set(filteredSales.map(s => s.id)));
+                              else setSelectedRows(new Set());
+                            }}
+                            title="Select all visible"
+                          />
+                        </TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[48px]">S/N</TableHead>
                         <TableHead className="font-semibold text-slate-700">Truck</TableHead>
+                        <TableHead className="font-semibold text-purple-700">Trip Code</TableHead>
                         <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead>
                         <TableHead className="font-semibold text-slate-700">Depot</TableHead>
                         <TableHead className="font-semibold text-slate-700">Destination</TableHead>
@@ -1664,6 +1905,23 @@ export default function DeliverySalesLedger() {
                               className="bg-slate-100 hover:bg-slate-200/70 cursor-pointer select-none border-t-2 border-slate-300"
                               onClick={() => toggleTruck(cycleKey)}
                             >
+                              {/* Checkbox — group select */}
+                              <TableCell className="pl-3" onClick={e => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  className="rounded border-slate-300 cursor-pointer"
+                                  checked={entries.length > 0 && entries.every(s => selectedRows.has(s.id))}
+                                  onChange={e => {
+                                    setSelectedRows(prev => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) entries.forEach(s => next.add(s.id));
+                                      else entries.forEach(s => next.delete(s.id));
+                                      return next;
+                                    });
+                                  }}
+                                  title="Select all in this group"
+                                />
+                              </TableCell>
                               {/* S/N — collapse toggle */}
                               <TableCell className="w-[48px]">
                                 <span className="text-slate-500 text-xs">{isCollapsed ? '▶' : '▼'}</span>
@@ -1679,6 +1937,30 @@ export default function DeliverySalesLedger() {
                                     </span>
                                   )}
                                 </div>
+                              </TableCell>
+                              {/* Trip Code */}
+                              <TableCell>
+                                {(() => {
+                                  const cycleTripCode = entries.find(s => saleTripMap[s.id])
+                                    ? (saleTripMap[entries.find(s => saleTripMap[s.id])!.id] || '')
+                                    : '';
+                                  return cycleTripCode
+                                    ? (
+                                      <button
+                                        type="button"
+                                        onClick={e => { e.stopPropagation(); setTripCodeFilter(prev => prev === cycleTripCode ? 'all' : cycleTripCode); }}
+                                        title={`Filter by trip code ${cycleTripCode}`}
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border transition-colors ${
+                                          tripCodeFilter === cycleTripCode
+                                            ? 'bg-purple-700 text-white border-purple-700'
+                                            : 'bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-200'
+                                        }`}
+                                      >
+                                        <Tag size={10} /> {cycleTripCode}
+                                      </button>
+                                    )
+                                    : <span className="text-slate-400 text-xs">—</span>;
+                                })()}
                               </TableCell>
                               {/* Date Loaded */}
                               <TableCell className="text-slate-600 text-sm font-medium whitespace-nowrap">
@@ -1743,11 +2025,38 @@ export default function DeliverySalesLedger() {
                                     pa > 0 ? 'bg-emerald-50/30' : ''
                                   } ${isPaidOff ? 'bg-green-50/40' : ''}`}
                                 >
+                                  {/* Checkbox */}
+                                  <TableCell className="pl-3">
+                                    <input
+                                      type="checkbox"
+                                      title="Select row"
+                                      className="rounded border-slate-300 cursor-pointer"
+                                      checked={selectedRows.has(s.id)}
+                                      onChange={e => {
+                                        setSelectedRows(prev => {
+                                          const next = new Set(prev);
+                                          if (e.target.checked) next.add(s.id); else next.delete(s.id);
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                  </TableCell>
                                   {/* S/N */}
                                   <TableCell className="text-center text-slate-400 pl-6">{globalIdx}</TableCell>
                                   {/* Truck — indented, already shown in header */}
                                   <TableCell className="text-slate-500 pl-6">
                                     <span className="text-xs text-slate-400">{s.truck_number}</span>
+                                  </TableCell>
+                                  {/* Trip Code */}
+                                  <TableCell>
+                                    {saleTripMap[s.id]
+                                      ? (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700">
+                                          <Tag size={9} /> {saleTripMap[s.id]}
+                                        </span>
+                                      )
+                                      : <span className="text-slate-300 text-xs">—</span>
+                                    }
                                   </TableCell>
                                   {/* Date Loaded */}
                                   <TableCell className="text-slate-600 whitespace-nowrap text-sm">
@@ -1856,6 +2165,7 @@ export default function DeliverySalesLedger() {
                     </TableBody>
                   </Table>
                 </div>
+                </>
               )}
             </div>
 
@@ -1973,62 +2283,33 @@ export default function DeliverySalesLedger() {
             )}
 
             {/* ── Cycle / Date Loaded selector ──────────────────────── */}
-            {dialogTruckNumber && (() => {
-              const knownDates = truckLoadingDates.get(dialogTruckNumber) || [];
-              const effectiveDate = dialogCycleMode === 'custom' ? dialogCustomDate : dialogDateLoaded;
-              return (
-                <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg space-y-2">
-                  <p className="text-xs font-semibold text-violet-700 flex items-center gap-1.5">
-                    <LayoutGrid size={13} /> Cycle / Date Loaded
+            {/* ── Trip Code selector ─────────────────────────────── */}
+            {dialogTruckNumber && tripCodes.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                  <Tag size={14} className="text-purple-500" /> Trip Code
+                  <span className="text-xs text-slate-400 font-normal">(optional — tag these entries with a trip ID)</span>
+                </Label>
+                <select
+                  aria-label="Select trip code"
+                  value={dialogTripCode}
+                  onChange={e => setDialogTripCode(e.target.value)}
+                  className={`h-10 w-full rounded-md border bg-background px-3 py-2 text-sm ${
+                    dialogTripCode ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold' : 'border-input'
+                  }`}
+                >
+                  <option value="">No trip code (skip)</option>
+                  {tripCodes.map(code => (
+                    <option key={code} value={code}>{code}</option>
+                  ))}
+                </select>
+                {dialogTripCode && (
+                  <p className="text-xs text-purple-600 flex items-center gap-1">
+                    <Tag size={10} /> All entries in this batch will be tagged as <strong>{dialogTripCode}</strong>.
                   </p>
-                  <p className="text-xs text-violet-600">
-                    Entries are grouped by loading date. Select the loading date this entry belongs to, or enter a new date for a new cycle.
-                  </p>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <select
-                      aria-label="Select cycle date"
-                      value={dialogCycleMode === 'custom' ? '__custom__' : (effectiveDate || '')}
-                      onChange={e => {
-                        if (e.target.value === '__custom__') {
-                          setDialogCycleMode('custom');
-                          setDialogCustomDate(format(new Date(), 'yyyy-MM-dd'));
-                        } else {
-                          setDialogCycleMode('auto');
-                          setDialogDateLoaded(e.target.value);
-                        }
-                      }}
-                      className="h-9 flex-1 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                    >
-                      {knownDates.map((d, idx) => (
-                        <option key={d} value={d}>
-                          Cycle {idx + 1} — {format(parseISO(d), 'dd MMM yyyy')}
-                        </option>
-                      ))}
-                      {!knownDates.includes(dialogDateLoaded) && dialogDateLoaded && dialogCycleMode === 'auto' && (
-                        <option value={dialogDateLoaded}>
-                          {format(parseISO(dialogDateLoaded), 'dd MMM yyyy')} (from loading record)
-                        </option>
-                      )}
-                      <option value="__custom__">+ New cycle / custom date…</option>
-                    </select>
-                    {dialogCycleMode === 'custom' && (
-                      <input
-                        type="date"
-                        aria-label="Custom cycle date"
-                        value={dialogCustomDate}
-                        onChange={e => setDialogCustomDate(e.target.value)}
-                        className="h-9 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                      />
-                    )}
-                  </div>
-                  {effectiveDate && (
-                    <p className="text-xs text-violet-500">
-                      This entry will be recorded under: <span className="font-semibold">{format(parseISO(effectiveDate), 'dd MMM yyyy')}</span>
-                    </p>
-                  )}
-                </div>
-              );
-            })()}
+                )}
+              </div>
+            )}
 
             {/* ── Per-customer rows ─────────────────────────────────── */}
             {dialogTruckNumber && (
@@ -2370,58 +2651,6 @@ export default function DeliverySalesLedger() {
               )} */}
 
               {/* Cycle / Date Loaded — always visible */}
-              <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg space-y-2">
-                <p className="text-xs font-semibold text-violet-700 flex items-center gap-1.5">
-                  <LayoutGrid size={12} /> Cycle / Date Loaded
-                </p>
-                <p className="text-xs text-violet-600">
-                  Entries are grouped by loading date (cycle). Change this to move the entry to a different cycle or start a new one.
-                  {editTarget.date_loaded && (
-                    <span className="ml-1">Current: <strong>{format(parseISO(editTarget.date_loaded), 'dd MMM yyyy')}</strong></span>
-                  )}
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <select
-                    aria-label="Assign to cycle"
-                    value={editIsCustomDate ? '__custom__' : (editForm.date_loaded || '')}
-                    onChange={e => {
-                      if (e.target.value === '__custom__') {
-                        setEditForm(f => f ? { ...f, date_loaded: '__custom__' } : f);
-                      } else {
-                        setEditForm(f => f ? { ...f, date_loaded: e.target.value } : f);
-                      }
-                    }}
-                    className="h-9 flex-1 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                  >
-                    {allEditDates.map((d, idx) => (
-                      <option key={d} value={d}>
-                        Cycle {idx + 1} — {format(parseISO(d), 'dd MMM yyyy')}
-                      </option>
-                    ))}
-                    {allEditDates.length === 0 && editTarget.date_loaded && (
-                      <option value={editTarget.date_loaded}>
-                        {format(parseISO(editTarget.date_loaded), 'dd MMM yyyy')} (current)
-                      </option>
-                    )}
-                    <option value="__custom__">+ New cycle / custom date…</option>
-                  </select>
-                  {(editIsCustomDate || editForm.date_loaded === '__custom__') && (
-                    <input
-                      type="date"
-                      aria-label="Custom cycle date"
-                      value={editForm.date_loaded === '__custom__' ? '' : editForm.date_loaded}
-                      onChange={e => setEditForm(f => f ? { ...f, date_loaded: e.target.value } : f)}
-                      className="h-9 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                    />
-                  )}
-                </div>
-                {editForm.date_loaded && editForm.date_loaded !== '__custom__' && editForm.date_loaded !== editTarget.date_loaded && (
-                  <p className="text-xs text-amber-600 font-medium flex items-center gap-1">
-                    <AlertTriangle size={11} /> This entry will be moved to the cycle loaded on {format(parseISO(editForm.date_loaded), 'dd MMM yyyy')}.
-                  </p>
-                )}
-              </div>
-
               {/* Row 1: Destination + Qty */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -2450,6 +2679,28 @@ export default function DeliverySalesLedger() {
                   />
                 </div>
               </div>
+
+              {/* Trip Code */}
+              {tripCodes.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600 flex items-center gap-1.5">
+                    <Tag size={11} className="text-purple-500" /> Trip Code
+                  </Label>
+                  <select
+                    aria-label="Trip code"
+                    value={editTripCode}
+                    onChange={e => setEditTripCode(e.target.value)}
+                    className={`h-9 w-full rounded-md border bg-background px-3 py-1 text-sm ${
+                      editTripCode ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold' : 'border-input'
+                    }`}
+                  >
+                    <option value="">No trip code</option>
+                    {tripCodes.map(code => (
+                      <option key={code} value={code}>{code}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Row 2: Rate + Expected */}
               <div className="grid grid-cols-2 gap-3">

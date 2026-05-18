@@ -29,6 +29,7 @@ import {
   ShieldCheck, ListFilter, RefreshCw,
   FuelIcon,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import {
   format, parseISO, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear,
   addDays, isAfter, isBefore, isSameDay, startOfDay, endOfDay,
@@ -136,6 +137,9 @@ const getPhone = (o: Order): string =>
 
 const getProductName = (o: Order): string =>
   o.products?.[0]?.name || '—';
+
+const getPfiNumber = (o: Order): string =>
+  o.pfi_number || '—';
 
 const getUnitPrice = (o: Order): number => {
   const p = o.products?.[0] as Record<string, unknown> | undefined;
@@ -348,6 +352,7 @@ export default function DepotView() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [locationFilter, setLocationFilter] = useState('all');
   const [productFilter, setProductFilter]   = useState('all');
+  const [pfiFilter, setPfiFilter] = useState('all');
   const [releaseTypeFilter, setReleaseTypeFilter] = useState('all');
 
   // ── Detail dialog ─────────────────────────────────────────────────
@@ -375,6 +380,12 @@ export default function DepotView() {
   const uniqueProducts = useMemo(() => {
     const s = new Set<string>();
     allOrders.forEach(o => { const p = getProductName(o); if (p !== '—') s.add(p); });
+    return Array.from(s).sort();
+  }, [allOrders]);
+
+  const uniquePfis = useMemo(() => {
+    const s = new Set<string>();
+    allOrders.forEach(o => { const pfi = getPfiNumber(o); if (pfi !== '—') s.add(pfi); });
     return Array.from(s).sort();
   }, [allOrders]);
 
@@ -410,6 +421,9 @@ export default function DepotView() {
       // Product
       if (productFilter !== 'all' && getProductName(o) !== productFilter) return false;
 
+      // PFI
+      if (pfiFilter !== 'all' && getPfiNumber(o) !== pfiFilter) return false;
+
       // Release type
       if (releaseTypeFilter !== 'all' && o.release_type !== releaseTypeFilter) return false;
 
@@ -432,7 +446,7 @@ export default function DepotView() {
 
       return true;
     }).sort((a, b) => b.created_at.localeCompare(a.created_at));
-  }, [allOrders, timePreset, customFrom, customTo, statusFilter, locationFilter, productFilter, releaseTypeFilter, searchQuery]);
+  }, [allOrders, timePreset, customFrom, customTo, statusFilter, locationFilter, productFilter, pfiFilter, releaseTypeFilter, searchQuery]);
 
   // ── Summary cards ─────────────────────────────────────────────────
   const summaryCards = useMemo((): SummaryCard[] => {
@@ -457,9 +471,117 @@ export default function DepotView() {
     ];
   }, [filteredOrders]);
 
+  const handleExportExcel = () => {
+    if (filteredOrders.length === 0) return;
+
+    const generatedAt = format(new Date(), 'dd MMM yyyy, HH:mm');
+    const dateRangeLabel = timePreset === 'custom' && calRange.from
+      ? calRange.to
+        ? `${format(calRange.from, 'dd MMM yyyy')} - ${format(calRange.to, 'dd MMM yyyy')}`
+        : format(calRange.from, 'dd MMM yyyy')
+      : PRESETS.find(p => p.key === timePreset)?.label || 'All Time';
+
+    const summaryWs = XLSX.utils.aoa_to_sheet([
+      ['DEPOT VIEW REPORT'],
+      [''],
+      ['GENERATED AT', generatedAt.toUpperCase()],
+      ['DATE PERIOD', String(dateRangeLabel).toUpperCase()],
+      ['STATUS', statusFilter === 'all' ? 'ALL ORDERS' : (STATUS_MAP[statusFilter]?.label ?? statusFilter).toUpperCase()],
+      ['LOCATION', locationFilter === 'all' ? 'ALL LOCATIONS' : String(locationFilter).toUpperCase()],
+      ['PRODUCT', productFilter === 'all' ? 'ALL PRODUCTS' : String(productFilter).toUpperCase()],
+      ['PFI', pfiFilter === 'all' ? 'ALL PFIS' : String(pfiFilter).toUpperCase()],
+      ['RELEASE TYPE', releaseTypeFilter === 'all' ? 'ALL TYPES' : String(releaseTypeFilter).toUpperCase()],
+      ['SEARCH', searchQuery ? String(searchQuery).toUpperCase() : '—'],
+      [''],
+      ['SUMMARY'],
+      ['METRIC', 'VALUE'],
+      ['TOTAL ORDERS', filteredOrders.length],
+      ['TOTAL QTY (L)', filteredOrders.reduce((sum, order) => sum + toNum(order.quantity), 0)],
+      ['TOTAL AMOUNT (₦)', filteredOrders.reduce((sum, order) => sum + toNum(order.total_price), 0)],
+      ['PAID & RELEASED', filteredOrders.filter(order => ['paid', 'released', 'loaded', 'sold'].includes(order.status?.toLowerCase())).length],
+      ['PAYMENT NOT CONFIRMED', filteredOrders.filter(order => order.status?.toLowerCase() === 'pending').length],
+      ['RELEASED QTY (L)', filteredOrders.filter(order => order.status?.toLowerCase() === 'released').reduce((sum, order) => sum + toNum(order.quantity), 0)],
+      ['LOADED QTY (L)', filteredOrders.filter(order => order.status?.toLowerCase() === 'loaded').reduce((sum, order) => sum + toNum(order.quantity), 0)],
+    ]);
+
+    const ordersWs = XLSX.utils.aoa_to_sheet([
+      ['DEPOT VIEW ORDERS REPORT'],
+      [''],
+      ['REFERENCE', 'DATE', 'CUSTOMER', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS', 'RELEASE TYPE', 'DRIVER', 'PHONE'],
+      ...filteredOrders.map(order => {
+        const qty = toNum(order.quantity);
+        const unitPrice = getUnitPrice(order);
+        const amount = toNum(order.total_price);
+        const customer = getCustomerName(order).toUpperCase();
+        const location = getLocation(order).toUpperCase();
+        const pfi = getPfiNumber(order).toUpperCase();
+        const truck = getTruckNumber(order).toUpperCase();
+        const product = getProductName(order).toUpperCase();
+        const status = String(order.status || '').toUpperCase();
+        const releaseType = String(order.release_type || '—').toUpperCase();
+        const driver = getDriverName(order).toUpperCase();
+        const phone = getPhone(order).toUpperCase();
+
+        return [
+          String(getOrderReference(order) || order.id).toUpperCase(),
+          fmtDateTime(order.created_at).toUpperCase(),
+          customer,
+          location,
+          pfi,
+          truck,
+          product,
+          qty,
+          unitPrice,
+          amount,
+          status,
+          releaseType,
+          driver,
+          phone,
+        ];
+      }),
+    ]);
+
+    summaryWs['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
+      { s: { r: 11, c: 0 }, e: { r: 11, c: 1 } },
+    ];
+    ordersWs['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 13 } },
+    ];
+
+    summaryWs['!cols'] = [{ wch: 24 }, { wch: 28 }];
+    ordersWs['!cols'] = [
+      { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 20 }, { wch: 18 }, { wch: 16 },
+      { wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 16 },
+      { wch: 18 }, { wch: 16 },
+    ];
+
+    [14, 15, 16, 17, 18, 19].forEach((rowNumber) => {
+      const cell = summaryWs[`B${rowNumber}`];
+      if (cell && typeof cell.v === 'number') {
+        cell.z = '#,##0.00';
+      }
+    });
+
+    for (let rowIndex = 3; rowIndex < ordersWs['!ref'] ? filteredOrders.length + 3 : 0; rowIndex += 1) {
+      const row = rowIndex + 1;
+      const qtyCell = ordersWs[`H${row}`];
+      const unitPriceCell = ordersWs[`I${row}`];
+      const amountCell = ordersWs[`J${row}`];
+      if (qtyCell) qtyCell.z = '#,##0';
+      if (unitPriceCell) unitPriceCell.z = '#,##0.00';
+      if (amountCell) amountCell.z = '#,##0.00';
+    }
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, summaryWs, 'SUMMARY');
+    XLSX.utils.book_append_sheet(workbook, ordersWs, 'ORDERS');
+    XLSX.writeFile(workbook, `depot-view-report-${format(new Date(), 'yyyyMMdd-HHmm')}.xlsx`);
+  };
+
   const hasFilters = searchQuery || statusFilter !== 'all' || locationFilter !== 'all' ||
     productFilter !== 'all' || releaseTypeFilter !== 'all' ||
-    timePreset !== 'today' || customFrom || customTo;
+    pfiFilter !== 'all' || timePreset !== 'today' || customFrom || customTo;
 
   const clearFilters = () => {
     setTimePreset('today');
@@ -469,6 +591,7 @@ export default function DepotView() {
     setStatusFilter('all');
     setLocationFilter('all');
     setProductFilter('all');
+    setPfiFilter('all');
     setReleaseTypeFilter('all');
   };
 
@@ -499,16 +622,28 @@ export default function DepotView() {
               title="Orders Overview"
               description="Live overview of all orders — status, quantities, customers, trucks and PFI assignments."
               actions={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => refetch()}
-                  disabled={isFetching}
-                >
-                  <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} />
-                  Refresh
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={handleExportExcel}
+                    disabled={filteredOrders.length === 0}
+                  >
+                    <FileText size={15} />
+                    Export Excel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => refetch()}
+                    disabled={isFetching}
+                  >
+                    <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} />
+                    Refresh
+                  </Button>
+                </div>
               }
             />
 
@@ -600,7 +735,7 @@ export default function DepotView() {
               <div className="border-t border-slate-100" />
 
               {/* Filter rows */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
 
                 {/* Order Status */}
                 <div className="space-y-1.5">
@@ -658,6 +793,24 @@ export default function DepotView() {
                   </select>
                 </div>
 
+                {/* PFI */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText size={12} /> PFI
+                  </p>
+                  <select
+                    aria-label="Filter by PFI"
+                    value={pfiFilter}
+                    onChange={e => setPfiFilter(e.target.value)}
+                    className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                  >
+                    <option value="all">All PFIs</option>
+                    {uniquePfis.map(pfi => (
+                      <option key={pfi} value={pfi}>{pfi}</option>
+                    ))}
+                  </select>
+                </div>
+
               </div>
 
               {/* Bottom bar: active filter summary + clear */}
@@ -691,6 +844,12 @@ export default function DepotView() {
                     <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full">
                       <Fuel size={10} />{productFilter}
                       <button onClick={() => setProductFilter('all')} title="Remove product filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
+                    </span>
+                  )}
+                  {pfiFilter !== 'all' && (
+                    <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full">
+                      <FileText size={10} />{pfiFilter}
+                      <button onClick={() => setPfiFilter('all')} title="Remove PFI filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
                     </span>
                   )}
                   {releaseTypeFilter !== 'all' && (

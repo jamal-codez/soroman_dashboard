@@ -452,7 +452,7 @@ export const apiClient = {
     },
 
     // Confirm payment & release order (requires CanConfirmPayments permission)
-    confirmPayment: async (orderId: number | string, payload?: { narration?: string }) => {
+    confirmPayment: async (orderId: number | string, payload?: { narration?: string; pfi_id?: number }) => {
       const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/confirm-payment/`, {
         method: 'POST',
         headers: getHeaders(),
@@ -503,6 +503,15 @@ export const apiClient = {
       });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json() as Promise<Array<{ id: number; file: string; file_name: string; uploaded_at: string }>>;
+    },
+
+    // DELETE /api/admin/payment-files/<fileId>/  — remove a single payment file
+    deletePaymentFile: async (fileId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/payment-files/${fileId}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
     },
 
     // Confirmed Payments (paid + released orders)
