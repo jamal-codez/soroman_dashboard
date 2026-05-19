@@ -26,6 +26,7 @@ import {
   FileText,
   Package,
   ClipboardList,
+  Fuel,
   FileArchiveIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -88,6 +89,7 @@ const navCategories: NavCategory[] = [
       { title: "Inventory", icon: Package, path: "/delivery-inventory", allowedRoles: [0,1,3,6,8] },
       { title: "Delivery Customers", icon: UserCheck, path: "/delivery-customers-db", allowedRoles: [0,1,3,6,8] },
       { title: "Sales Ledger", icon: ClipboardList, path: "/delivery-sales-ledger", allowedRoles: [0,1,3,8] },
+      { title: "Filling Stations", icon: Fuel, path: "/filling-stations", allowedRoles: [0,1,3,8] },
     ],
   },
   {

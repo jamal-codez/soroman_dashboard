@@ -47,6 +47,7 @@ const Documents = lazy(() => import("./pages/SubmitRecord"));
 const Records = lazy(() => import("./pages/Records"));
 const DeliveryCustomersDB = lazy(() => import("./pages/DeliveryCustomersDB"));
 const DeliverySalesLedger = lazy(() => import("./pages/DeliverySalesLedger"));
+const FillingStations = lazy(() => import("./pages/FillingStations"));
 const DeliveryInventory = lazy(() => import("./pages/DeliveryInventory"));
 const ConfirmRelease = lazy(() => import("./pages/ConfirmRelease"));
 const ReleasedOrders = lazy(() => import("./pages/ReleasedOrders"));
@@ -130,6 +131,7 @@ const App = () => (
               <Route path="/records" element={<Protected><Records /></Protected>} />
               <Route path="/delivery-customers-db" element={<Protected><DeliveryCustomersDB /></Protected>} />
               <Route path="/delivery-sales-ledger" element={<Protected><DeliverySalesLedger /></Protected>} />
+              <Route path="/filling-stations" element={<Protected><FillingStations /></Protected>} />
               <Route path="/delivery-inventory" element={<Protected><DeliveryInventory /></Protected>} />
               <Route path="/confirm-release" element={<Protected><ConfirmRelease /></Protected>} />
               <Route path="/released-orders" element={<Protected><ReleasedOrders /></Protected>} />
