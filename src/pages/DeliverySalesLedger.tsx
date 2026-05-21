@@ -21,6 +21,7 @@ import {
   TrendingUp, Banknote, Building2,
   Calendar as CalendarIcon, UserPlus, X, Fuel,
   MapPin, Users, LayoutGrid, Filter, AlertTriangle, Tag,
+  Clock, Link2, ArrowRightLeft,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -113,6 +114,33 @@ interface SaleRow {
   date_of_payment: string;
   phone_number: string;
   remarks: string;
+}
+
+interface LedgerGroup {
+  key: string;
+  loadingId?: number;
+  truckNumber: string;
+  dateLoaded: string;
+  depot: string;
+  location: string;
+  customerId: number | null;
+  customerName: string;
+  quantity: number;
+  rate: number;
+  expected: number;
+  totalPaid: number;
+  balance: number;
+  pfiNumber: string;
+  code: string;
+  payments: DeliverySale[];
+  isFillingStation: boolean;
+}
+
+interface QuickPaymentForm {
+  payment_amount: string;
+  payer_name: string;
+  phone_number: string;
+  bank_account_id: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -219,6 +247,29 @@ const makeSaleRow = (): SaleRow => ({
   remarks: '',
 });
 
+const CODE_PALETTE = [
+  { row: 'bg-sky-50/60 border-l-sky-300', badge: 'bg-sky-100 text-sky-800 border-sky-200' },
+  { row: 'bg-emerald-50/60 border-l-emerald-300', badge: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+  { row: 'bg-orange-50/60 border-l-orange-300', badge: 'bg-orange-100 text-orange-800 border-orange-200' },
+  { row: 'bg-violet-50/60 border-l-violet-300', badge: 'bg-violet-100 text-violet-800 border-violet-200' },
+  { row: 'bg-pink-50/60 border-l-pink-300', badge: 'bg-pink-100 text-pink-800 border-pink-200' },
+  { row: 'bg-amber-50/60 border-l-amber-300', badge: 'bg-amber-100 text-amber-800 border-amber-200' },
+  { row: 'bg-teal-50/60 border-l-teal-300', badge: 'bg-teal-100 text-teal-800 border-teal-200' },
+  { row: 'bg-indigo-50/60 border-l-indigo-300', badge: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
+];
+
+const getCodeTheme = (code: string) => {
+  if (!code) return null;
+  let hash = 0;
+  for (let index = 0; index < code.length; index += 1) {
+    hash = (hash * 31 + code.charCodeAt(index)) >>> 0;
+  }
+  return CODE_PALETTE[hash % CODE_PALETTE.length];
+};
+
+const normalizeText = (value: string | undefined | null) =>
+  (value || '').trim().toLowerCase();
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════════════════════════════
@@ -229,7 +280,7 @@ export default function DeliverySalesLedger() {
   const readOnly = isCurrentUserReadOnly();
 
   // ── Filters ────────────────────────────────────────────────────────
-  const [timePreset, setTimePreset] = useState<TimePreset>('month');
+  const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -243,6 +294,9 @@ export default function DeliverySalesLedger() {
   const [tripCodes, setTripCodes] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('dsl_trip_codes') || '[]'); } catch { return []; }
   });
+  const [loadingCodeMap, setLoadingCodeMap] = useState<Record<number, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('dsl_loading_code_map') || '{}'); } catch { return {}; }
+  });
   const [saleTripMap, setSaleTripMap] = useState<Record<number, string>>(() => {
     try { return JSON.parse(localStorage.getItem('dsl_sale_trip_map') || '{}'); } catch { return {}; }
   });
@@ -253,6 +307,19 @@ export default function DeliverySalesLedger() {
   const [newTripCodeInput, setNewTripCodeInput] = useState<string>('');
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [bulkTripCode, setBulkTripCode] = useState<string>('');
+
+  // ── Custom PFI labels (localStorage) — map system PFI number → your internal code ──
+  const [pfiCodeMap, setPfiCodeMap] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('dsl_pfi_codes') || '{}'); } catch { return {}; }
+  });
+  const [pfiLabelInput, setPfiLabelInput] = useState<{ pfi: string; label: string }>({ pfi: '', label: '' });
+
+  // ── Cycle aliases — merge two cycle groups (frontend-only, no API call) ─────────────
+  const [cycleAliasMap, setCycleAliasMap] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('dsl_cycle_aliases') || '{}'); } catch { return {}; }
+  });
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergePrimary, setMergePrimary] = useState<string | null>(null);
 
   // ── Payment Dialog ─────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -268,9 +335,31 @@ export default function DeliverySalesLedger() {
   const [saleRows, setSaleRows] = useState<SaleRow[]>([makeSaleRow()]);
   const [rowErrors, setRowErrors] = useState<Record<string, Partial<Record<keyof SaleRow, string>>>>({});
   const [saving, setSaving] = useState(false);
+  const [assignMode, setAssignMode] = useState(false); // assign customer to cycle without recording payment
+  const [quickPaymentTarget, setQuickPaymentTarget] = useState<LedgerGroup | null>(null);
+  const [quickPaymentForm, setQuickPaymentForm] = useState<QuickPaymentForm>({
+    payment_amount: '',
+    payer_name: '',
+    phone_number: '',
+    bank_account_id: '',
+  });
+  const [quickPaymentSaving, setQuickPaymentSaving] = useState(false);
+  const [setupTarget, setSetupTarget] = useState<LedgerGroup | null>(null);
+  const [setupCustomer, setSetupCustomer] = useState('');
+  const [setupDestination, setSetupDestination] = useState('');
+  const [setupCode, setSetupCode] = useState('');
+  const [setupSaving, setSetupSaving] = useState(false);
+  const [setupTransferTargetKey, setSetupTransferTargetKey] = useState('');
+  const [setupTransferAmount, setSetupTransferAmount] = useState('');
+  const [setupTransferSaving, setSetupTransferSaving] = useState(false);
 
   // ── Delete ─────────────────────────────────────────────────────────
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    ids: number[];
+    loadingId?: number;
+    mode: 'entry' | 'truck';
+    label: string;
+  } | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   // ── Edit ───────────────────────────────────────────────────────────
@@ -294,6 +383,18 @@ export default function DeliverySalesLedger() {
   useEffect(() => {
     localStorage.setItem('dsl_sale_trip_map', JSON.stringify(saleTripMap));
   }, [saleTripMap]);
+
+  useEffect(() => {
+    localStorage.setItem('dsl_loading_code_map', JSON.stringify(loadingCodeMap));
+  }, [loadingCodeMap]);
+
+  useEffect(() => {
+    localStorage.setItem('dsl_pfi_codes', JSON.stringify(pfiCodeMap));
+  }, [pfiCodeMap]);
+
+  useEffect(() => {
+    localStorage.setItem('dsl_cycle_aliases', JSON.stringify(cycleAliasMap));
+  }, [cycleAliasMap]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Queries
@@ -356,8 +457,21 @@ export default function DeliverySalesLedger() {
   // that two loadings of the same truck are tracked independently.
   // ═══════════════════════════════════════════════════════════════════
 
+  const normalizeCycleDate = (dateValue: string | undefined | null): string => {
+    if (!dateValue) return '';
+    const raw = String(dateValue).trim();
+    if (!raw) return '';
+    // Normalized yyyy-MM-dd prevents splitting one physical load into fake cycles.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    try {
+      return format(parseISO(raw), 'yyyy-MM-dd');
+    } catch {
+      return raw.split('T')[0] || raw;
+    }
+  };
+
   const getCycleKey = (truckNum: string, dateLoaded: string | undefined | null): string =>
-    `${truckNum}||${dateLoaded || ''}`;
+    `${(truckNum || '').trim().toUpperCase()}||${normalizeCycleDate(dateLoaded)}`;
 
   // ═══════════════════════════════════════════════════════════════════
   // Per-cycle aggregation: expected amount & total paid so far
@@ -400,25 +514,45 @@ export default function DeliverySalesLedger() {
     return map;
   }, [allSales]);
 
-  // Cycle number per truck: "Cycle 1", "Cycle 2" ... sorted by date_loaded ascending
-  // Only trucks that appear MORE than once (multiple distinct date_loaded values) get
-  // cycle numbers > 1. Trucks with a single load always have cycleNum = 1, totalCycles = 1.
-  // Entries with no date_loaded are bucketed with the truck's earliest known load date
-  // so they never accidentally create a phantom "Cycle 2".
+  // Cycle number per truck: Cycle 1, Cycle 2... based on real loading dates.
   const cycleNumberMap = useMemo(() => {
-    // All entries for a truck belong to Cycle 1 until a genuine second loading
-    // event is recorded. We never infer a new cycle from differing date_loaded
-    // strings alone — that was causing phantom "Cycle 2" groups for trucks that
-    // only have one physical load but whose entries carry slightly different dates.
+    const truckDatesMap = new Map<string, Set<string>>();
+
+    allLoadings.forEach(loading => {
+      const truck = (loading.truck_number || '').trim().toUpperCase();
+      const date = normalizeCycleDate(loading.date_allocated || '');
+      if (!truck || !date) return;
+      if (!truckDatesMap.has(truck)) truckDatesMap.set(truck, new Set());
+      truckDatesMap.get(truck)!.add(date);
+    });
+
+    allSales.forEach(sale => {
+      const truck = (sale.truck_number || '').trim().toUpperCase();
+      const date = normalizeCycleDate(sale.date_loaded || '');
+      if (!truck || !date) return;
+      if (!truckDatesMap.has(truck)) truckDatesMap.set(truck, new Set());
+      truckDatesMap.get(truck)!.add(date);
+    });
+
+    const truckDateList = new Map<string, string[]>();
+    truckDatesMap.forEach((dates, truck) => {
+      truckDateList.set(truck, Array.from(dates).sort((a, b) => a.localeCompare(b)));
+    });
+
     const map = new Map<string, { cycleNum: number; totalCycles: number }>();
     cyclePaymentSummary.forEach((cycle) => {
+      const truck = (cycle.truckNumber || '').trim().toUpperCase();
+      const date = normalizeCycleDate(cycle.dateLoaded || '');
+      const dates = truckDateList.get(truck) || (date ? [date] : []);
+      const idx = date ? dates.indexOf(date) : -1;
       map.set(getCycleKey(cycle.truckNumber, cycle.dateLoaded), {
-        cycleNum: 1,
-        totalCycles: 1,
+        cycleNum: idx >= 0 ? idx + 1 : 1,
+        totalCycles: Math.max(dates.length, 1),
       });
     });
+
     return map;
-  }, [cyclePaymentSummary]);
+  }, [cyclePaymentSummary, allLoadings, allSales]);
 
   // Keep a truck-level view for the dialog outstanding banner
   // (shows how much is still owed across ALL cycles of the selected truck)
@@ -539,105 +673,6 @@ export default function DeliverySalesLedger() {
   // Summaries
   // ═══════════════════════════════════════════════════════════════════
 
-  const totals = useMemo(() => {
-    // Build cycle-level aggregates from filteredSales only
-    // so every dropdown/search filter is reflected in the summary cards.
-    const cycleMap = new Map<string, {
-      entries: DeliverySale[];
-      totalPaid: number;
-    }>();
-
-    filteredSales.forEach(s => {
-      const key = getCycleKey(s.truck_number, s.date_loaded);
-      const c = cycleMap.get(key) || { entries: [], totalPaid: 0 };
-      c.entries.push(s);
-      c.totalPaid += toNum(s.payment_amount);
-      cycleMap.set(key, c);
-    });
-
-    let totalExpected = 0;
-    let totalPaid = 0;
-    let totalQty = 0;
-    const uniqueTrucks = new Set<string>();
-    const uniqueCustomers = new Set<number>();
-    let totalOutstanding = 0;
-    let totalOverpaid = 0;
-
-    cycleMap.forEach((cycle, key) => {
-      const truckNum = key.split('||')[0];
-      uniqueTrucks.add(truckNum);
-
-      const perCustMaxSv  = new Map<number, number>();
-      const perCustMaxQty = new Map<number, number>();
-      cycle.entries.forEach(s => {
-        uniqueCustomers.add(s.customer);
-        const sv = toNum(s.sales_value);
-        const q  = toNum(s.quantity);
-        if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
-        if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-      });
-
-      let cycleExp = 0;
-      perCustMaxSv.forEach(v  => { cycleExp   += v; });
-      perCustMaxQty.forEach(v => { totalQty   += v; });
-
-      totalExpected += cycleExp;
-      totalPaid     += cycle.totalPaid;
-
-      const bal = cycleExp - cycle.totalPaid;
-      if (bal > 0) totalOutstanding += bal;
-      else if (bal < 0) totalOverpaid += Math.abs(bal);
-    });
-
-    return {
-      entries: filteredSales.length,
-      totalExpected,
-      totalPaid,
-      totalQty,
-      outstanding: totalExpected - totalPaid,
-      totalOutstanding,
-      totalOverpaid,
-      truckCount: uniqueTrucks.size,
-      customerCount: uniqueCustomers.size,
-    };
-  }, [filteredSales]);
-
-  const summaryCards = useMemo((): SummaryCard[] => {
-    // totalOutstanding = sum of per-truck deficits (before netting overpayments)
-    // totalOverpaid    = sum of per-truck surpluses
-    // netBalance       = what is truly still owed after offsetting overpayments
-    const netBalance = totals.totalOutstanding - totals.totalOverpaid;
-
-    const cards: SummaryCard[] = [
-      { title: 'Qty Sold (Ltrs)',  value: totals.totalQty > 0 ? totals.totalQty.toLocaleString() : '0', icon: <Truck size={20} />,      tone: 'neutral' },
-      { title: 'Expected Revenue', value: fmt(totals.totalExpected),                                     icon: <TrendingUp size={20} />, tone: 'neutral' },
-      { title: 'Total Paid',       value: fmt(totals.totalPaid),                                         icon: <Banknote size={20} />,   tone: 'green'   },
-      {
-        // Raw outstanding — what trucks still owe before netting any overpayments
-        title: 'Outstanding',
-        value: totals.totalOutstanding > 0 ? fmt(totals.totalOutstanding) : 'Fully Settled',
-        icon:  <Wallet size={20} />,
-        tone:  totals.totalOutstanding > 0 ? ('red' as const) : ('green' as const),
-      },
-      {
-        // How much was overpaid across trucks
-        title: 'Overpaid',
-        value: totals.totalOverpaid > 0 ? `+${fmt(totals.totalOverpaid)}` : '—',
-        icon:  <Banknote size={20} />,
-        tone:  totals.totalOverpaid > 0 ? ('blue' as const) : ('neutral' as const),
-      },
-      {
-        // Net = Outstanding minus Overpaid — the true remaining liability
-        title: 'Net Balance',
-        value: netBalance <= 0 ? (netBalance < 0 ? `+${fmt(Math.abs(netBalance))} excess` : 'Fully Settled') : fmt(netBalance),
-        icon:  <TrendingUp size={20} />,
-        tone:  netBalance <= 0 ? ('blue' as const) : ('red' as const),
-      },
-    ];
-
-    return cards;
-  }, [totals]);
-
   const periodLabel =
     timePreset === 'custom'
       ? `${customFrom ? format(parseISO(customFrom), 'dd MMM') : '?'} – ${customTo ? format(parseISO(customTo), 'dd MMM yyyy') : '?'}`
@@ -647,13 +682,15 @@ export default function DeliverySalesLedger() {
   const groupedByCycle = useMemo(() => {
     const map = new Map<string, DeliverySale[]>();
     filteredSales.forEach(s => {
-      const key = getCycleKey(s.truck_number, s.date_loaded);
+      const rawKey = getCycleKey(s.truck_number, s.date_loaded);
+      // If this cycle has been aliased (merged into another), use the canonical key
+      const key = cycleAliasMap[rawKey] || rawKey;
       const arr = map.get(key) ?? [];
       arr.push(s);
       map.set(key, arr);
     });
     return map;
-  }, [filteredSales]);
+  }, [filteredSales, cycleAliasMap]);
 
   // Which cycle groups are collapsed (default: all expanded)
   const [collapsedTrucks, setCollapsedTrucks] = useState<Set<string>>(new Set());
@@ -703,6 +740,290 @@ export default function DeliverySalesLedger() {
     return Array.from({ length: maxCycle }, (_, i) => i + 1);
   }, [cycleNumberMap]);
 
+  const ledgerGroups = useMemo(() => {
+    const groups: LedgerGroup[] = [];
+    const matchedSaleIds = new Set<number>();
+    const salesByCycle = new Map<string, DeliverySale[]>();
+    // Truck-only map: for loadings with no date_allocated, we fall back to matching
+    // unmatched sales by truck_number alone (so a sale created with today's date doesn't
+    // land in a separate orphan group when the inventory row has no date).
+    const salesByTruck = new Map<string, DeliverySale[]>();
+
+    allSales.forEach(sale => {
+      const cycleKey = getCycleKey(sale.truck_number, sale.date_loaded);
+      const existing = salesByCycle.get(cycleKey) ?? [];
+      existing.push(sale);
+      salesByCycle.set(cycleKey, existing);
+
+      const truckKey = (sale.truck_number || '').trim().toUpperCase();
+      const byTruck = salesByTruck.get(truckKey) ?? [];
+      byTruck.push(sale);
+      salesByTruck.set(truckKey, byTruck);
+    });
+
+    const sortPayments = (payments: DeliverySale[]) => [...payments].sort((a, b) => {
+      const dateA = a.date_of_payment || a.created_at || a.date_loaded || '';
+      const dateB = b.date_of_payment || b.created_at || b.date_loaded || '';
+      return dateA.localeCompare(dateB) || a.id - b.id;
+    });
+
+    // Process dated loadings first so they claim their matching sales before
+    // undated loadings fall back to a truck-only search.
+    const filteredLoadings = allLoadings
+      .filter(loading => !!(loading.truck || loading.truck_number || loading.loading_status));
+    const sortedLoadings = [
+      ...filteredLoadings.filter(l => !!(l.date_allocated)),
+      ...filteredLoadings.filter(l => !(l.date_allocated)),
+    ];
+
+    sortedLoadings.forEach(loading => {
+        const cycleKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
+        const cycleSales = salesByCycle.get(cycleKey) || [];
+        let payments = cycleSales.filter(sale => {
+          if (matchedSaleIds.has(sale.id)) return false;
+          const customerMatches = loading.customer ? sale.customer === loading.customer : true;
+          const locationMatches = loading.location
+            ? normalizeText(sale.location) === normalizeText(loading.location)
+            : true;
+          return customerMatches && locationMatches;
+        });
+
+        if (payments.length === 0 && loading.customer) {
+          payments = cycleSales.filter(sale => !matchedSaleIds.has(sale.id) && sale.customer === loading.customer);
+        }
+
+        // Fallback for undated loadings: claim any unmatched sales for this truck
+        // (handles the case where the sale was saved with today's date because
+        // date_allocated was empty, so the cycle key doesn't match)
+        if (payments.length === 0 && !loading.date_allocated) {
+          const truckKey = (loading.truck_number || '').trim().toUpperCase();
+          const truckSales = salesByTruck.get(truckKey) || [];
+          payments = truckSales.filter(sale => {
+            if (matchedSaleIds.has(sale.id)) return false;
+            const customerMatches = loading.customer ? sale.customer === loading.customer : true;
+            return customerMatches;
+          });
+        }
+
+        payments = sortPayments(payments);
+        payments.forEach(payment => matchedSaleIds.add(payment.id));
+
+        const firstPayment = payments[0];
+        const customerId = loading.customer ?? firstPayment?.customer ?? null;
+        const customerObj = customerId ? customerMap.get(customerId) : null;
+        const expected = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
+        const rate = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0);
+        const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
+        const paymentQuantity = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.quantity)), 0);
+        const quantity = paymentQuantity > 0 ? paymentQuantity : toNum(loading.quantity_allocated);
+        const pfiNumber = loading.pfi_number || '';
+        const derivedCode = loadingCodeMap[loading.id]
+          || payments.map(sale => saleTripMap[sale.id]).find(Boolean)
+          || (pfiNumber ? pfiCodeMap[pfiNumber] : '')
+          || '';
+
+        groups.push({
+          key: `loading:${loading.id}`,
+          loadingId: loading.id,
+          truckNumber: loading.truck_number || '',
+          dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
+          depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
+          location: loading.location || firstPayment?.location || '',
+          customerId,
+          customerName: loading.customer_name || customerObj?.customer_name || firstPayment?.customer_name || '',
+          quantity,
+          rate,
+          expected,
+          totalPaid,
+          balance: expected - totalPaid,
+          pfiNumber,
+          code: derivedCode,
+          payments,
+          isFillingStation: isFillingStation(customerObj),
+        });
+      });
+
+    const unmatchedGroups = new Map<string, DeliverySale[]>();
+    allSales.forEach(sale => {
+      if (matchedSaleIds.has(sale.id)) return;
+      const key = [
+        getCycleKey(sale.truck_number, sale.date_loaded),
+        String(sale.customer || ''),
+        normalizeText(sale.location),
+      ].join('::');
+      const existing = unmatchedGroups.get(key) ?? [];
+      existing.push(sale);
+      unmatchedGroups.set(key, existing);
+    });
+
+    unmatchedGroups.forEach((payments, key) => {
+      const sorted = sortPayments(payments);
+      const firstPayment = sorted[0];
+      const customerObj = firstPayment.customer ? customerMap.get(firstPayment.customer) : null;
+      const expected = sorted.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
+      const totalPaid = sorted.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
+      groups.push({
+        key: `sale:${key}`,
+        truckNumber: firstPayment.truck_number,
+        dateLoaded: firstPayment.date_loaded || '',
+        depot: firstPayment.depot_loaded || '',
+        location: firstPayment.location || '',
+        customerId: firstPayment.customer || null,
+        customerName: firstPayment.customer_name || customerObj?.customer_name || '',
+        quantity: toNum(firstPayment.quantity),
+        rate: sorted.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0),
+        expected,
+        totalPaid,
+        balance: expected - totalPaid,
+        pfiNumber: '',
+        code: sorted.map(sale => saleTripMap[sale.id]).find(Boolean) || '',
+        payments: sorted,
+        isFillingStation: isFillingStation(customerObj),
+      });
+    });
+
+    return groups;
+  }, [allLoadings, allSales, customerMap, loadingCodeMap, pfiCodeMap, saleTripMap]);
+
+  const filteredLedgerGroups = useMemo(() => {
+    let result = [...ledgerGroups];
+
+    result = result.filter(group => {
+      // Always surface inventory-linked rows regardless of date,
+      // so every loaded/planned truck remains visible in the ledger.
+      const isInventoryLinked = !!group.loadingId;
+      if (isInventoryLinked) return true;
+
+      return (
+        matchesDateRange(group.dateLoaded, dateRange.from, dateRange.to)
+        || group.payments.some(payment => matchesDateRange(payment.date_of_payment || payment.created_at || payment.date_loaded, dateRange.from, dateRange.to))
+      );
+    });
+
+    if (truckFilter !== 'all') {
+      result = result.filter(group => group.truckNumber === truckFilter);
+    }
+    if (locationFilter !== 'all') {
+      result = result.filter(group => group.location === locationFilter);
+    }
+    if (customerFilter !== 'all') {
+      result = result.filter(group => String(group.customerId || '') === customerFilter);
+    }
+    if (depotFilter !== 'all') {
+      result = result.filter(group => group.depot === depotFilter);
+    }
+    if (tripCodeFilter !== 'all') {
+      result = result.filter(group => group.code === tripCodeFilter);
+    }
+
+    const query = searchQuery.trim().toLowerCase();
+    if (query) {
+      result = result.filter(group =>
+        group.truckNumber.toLowerCase().includes(query)
+        || group.depot.toLowerCase().includes(query)
+        || group.location.toLowerCase().includes(query)
+        || group.customerName.toLowerCase().includes(query)
+        || group.code.toLowerCase().includes(query)
+        || group.pfiNumber.toLowerCase().includes(query)
+        || group.payments.some(payment =>
+          (payment.payer_name || '').toLowerCase().includes(query)
+          || (payment.bank || '').toLowerCase().includes(query),
+        )
+      );
+    }
+
+    const codeOrder = new Map<string, number>();
+    tripCodes.forEach((code, index) => codeOrder.set(code, index));
+
+    return result.sort((left, right) => {
+      const leftRank = left.code ? (codeOrder.get(left.code) ?? 10_000) : 99_999;
+      const rightRank = right.code ? (codeOrder.get(right.code) ?? 10_000) : 99_999;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      const codeDiff = (left.code || '').localeCompare(right.code || '');
+      if (codeDiff !== 0) return codeDiff;
+      const truckDiff = (left.truckNumber || '').localeCompare(right.truckNumber || '');
+      if (truckDiff !== 0) return truckDiff;
+      return (right.dateLoaded || '').localeCompare(left.dateLoaded || '');
+    });
+  }, [ledgerGroups, dateRange, truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter, searchQuery, tripCodes]);
+
+  const totals = useMemo(() => {
+    let totalExpected = 0;
+    let totalPaid = 0;
+    let totalQty = 0;
+    let totalOutstanding = 0;
+    let totalOverpaid = 0;
+    let entries = 0;
+
+    const uniqueTrucks = new Set<string>();
+    const uniqueCustomers = new Set<number>();
+
+    filteredLedgerGroups.forEach(group => {
+      if (group.truckNumber) uniqueTrucks.add(group.truckNumber);
+      if (group.customerId) uniqueCustomers.add(group.customerId);
+
+      totalQty += Math.max(0, toNum(group.quantity));
+      totalExpected += Math.max(0, toNum(group.expected));
+      totalPaid += toNum(group.totalPaid);
+      entries += group.payments.length;
+
+      const bal = toNum(group.balance);
+      if (bal > 0) totalOutstanding += bal;
+      else if (bal < 0) totalOverpaid += Math.abs(bal);
+    });
+
+    return {
+      entries,
+      totalExpected,
+      totalPaid,
+      totalQty,
+      outstanding: totalExpected - totalPaid,
+      totalOutstanding,
+      totalOverpaid,
+      truckCount: uniqueTrucks.size,
+      customerCount: uniqueCustomers.size,
+    };
+  }, [filteredLedgerGroups]);
+
+  const summaryCards = useMemo((): SummaryCard[] => {
+    const netBalance = totals.totalOutstanding - totals.totalOverpaid;
+
+    const cards: SummaryCard[] = [
+      { title: 'Qty Sold (Ltrs)',  value: totals.totalQty > 0 ? totals.totalQty.toLocaleString() : '0', icon: <Truck size={20} />,      tone: 'neutral' },
+      { title: 'Expected Revenue', value: fmt(totals.totalExpected),                                     icon: <TrendingUp size={20} />, tone: 'neutral' },
+      { title: 'Total Paid',       value: fmt(totals.totalPaid),                                         icon: <Banknote size={20} />,   tone: 'green'   },
+      {
+        title: 'Outstanding',
+        value: totals.totalOutstanding > 0 ? fmt(totals.totalOutstanding) : '₦0',
+        icon:  <Wallet size={20} />,
+        tone:  totals.totalOutstanding > 0 ? ('red' as const) : ('green' as const),
+      },
+      {
+        title: 'Overpaid',
+        value: totals.totalOverpaid > 0 ? `${fmt(totals.totalOverpaid)}` : '₦0',
+        icon:  <Banknote size={20} />,
+        tone:  totals.totalOverpaid > 0 ? ('blue' as const) : ('neutral' as const),
+      },
+      {
+        title: 'Net Balance',
+        value: netBalance <= 0 ? (netBalance < 0 ? `+${fmt(Math.abs(netBalance))}` : '₦0') : fmt(netBalance),
+        icon:  <TrendingUp size={20} />,
+        tone:  netBalance <= 0 ? ('blue' as const) : ('red' as const),
+      },
+    ];
+
+    return cards;
+  }, [totals]);
+
+  const saleToLoadingMap = useMemo(() => {
+    const map = new Map<number, number>();
+    ledgerGroups.forEach(group => {
+      if (!group.loadingId) return;
+      group.payments.forEach(payment => map.set(payment.id, group.loadingId as number));
+    });
+    return map;
+  }, [ledgerGroups]);
+
   // Loaded trucks for the dialog — show trucks that:
   // 1. Have a truck_number or truck ID, AND
   // 2. Are NOT (offloaded AND fully paid with no outstanding balance for this specific cycle)
@@ -718,8 +1039,30 @@ export default function DeliverySalesLedger() {
         }
       }
       return true;
+    }).sort((a, b) => {
+      const truckA = (a.truck_number || '').toUpperCase();
+      const truckB = (b.truck_number || '').toUpperCase();
+      if (truckA !== truckB) return truckA.localeCompare(truckB);
+      const dateA = normalizeCycleDate(a.date_allocated || '');
+      const dateB = normalizeCycleDate(b.date_allocated || '');
+      return dateB.localeCompare(dateA);
     });
   }, [allLoadings, cyclePaymentSummary]);
+
+  const loadingCycleMeta = useMemo(() => {
+    const map = new Map<string, { pfi: string; depot: string; dateAllocated: string }>();
+    allLoadings.forEach(loading => {
+      const key = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
+      if (!key) return;
+      if (map.has(key)) return;
+      map.set(key, {
+        pfi: (loading.pfi_number || '').trim(),
+        depot: (loading.depot || loading.pfi_location || loading.location || '').trim(),
+        dateAllocated: normalizeCycleDate(loading.date_allocated || ''),
+      });
+    });
+    return map;
+  }, [allLoadings]);
 
   // Per-cycle-per-customer locked rate: cycleKey → customerId → rate string
   const cycleCustomerRateMap = useMemo(() => {
@@ -792,6 +1135,51 @@ export default function DeliverySalesLedger() {
     toast({ title: `Trip code "${code}" deleted` });
   };
 
+  // ── Custom PFI label management ────────────────────────────────────
+
+  const savePfiLabel = () => {
+    const pfi = pfiLabelInput.pfi.trim();
+    const label = pfiLabelInput.label.trim().toUpperCase();
+    if (!pfi || !label) {
+      toast({ title: 'Enter both PFI number and your internal code', variant: 'destructive' });
+      return;
+    }
+    setPfiCodeMap(prev => ({ ...prev, [pfi]: label }));
+    setPfiLabelInput({ pfi: '', label: '' });
+    toast({ title: `PFI "${pfi}" → labelled as "${label}"` });
+  };
+
+  const deletePfiLabel = (pfi: string) => {
+    setPfiCodeMap(prev => { const next = { ...prev }; delete next[pfi]; return next; });
+    toast({ title: 'PFI label removed' });
+  };
+
+  // ── Cycle merge (alias-based, purely frontend) ─────────────────────
+
+  const handleMerge = (targetCycleKey: string) => {
+    if (!mergePrimary) {
+      setMergePrimary(targetCycleKey);
+      return;
+    }
+    if (mergePrimary === targetCycleKey) {
+      setMergePrimary(null);
+      return;
+    }
+    // Alias the target into the primary so all its entries appear under primary
+    setCycleAliasMap(prev => ({ ...prev, [targetCycleKey]: mergePrimary }));
+    toast({
+      title: 'Cycles merged',
+      description: 'Entries from the secondary cycle will now appear under the primary cycle group.',
+    });
+    setMergeMode(false);
+    setMergePrimary(null);
+  };
+
+  const unmergeCycle = (aliasKey: string) => {
+    setCycleAliasMap(prev => { const next = { ...prev }; delete next[aliasKey]; return next; });
+    toast({ title: 'Cycle un-merged — entries restored to their original group' });
+  };
+
   const bulkAssignTripCode = () => {
     if (!bulkTripCode || selectedRows.size === 0) return;
     const count = selectedRows.size;
@@ -822,7 +1210,7 @@ export default function DeliverySalesLedger() {
     return q * r > 0 ? formatWithCommas(String(q * r)) : '';
   };
 
-  const openPaymentDialog = () => {
+  const openPaymentDialog = (preSelectLoadingId?: string, inAssignMode = false) => {
     setDialogTruckLoadingId('');
     setDialogTruckNumber('');
     setDialogDateLoaded('');
@@ -832,7 +1220,10 @@ export default function DeliverySalesLedger() {
     setDialogTripCode('');
     setSaleRows([makeSaleRow()]);
     setRowErrors({});
+    setAssignMode(inAssignMode);
     setDialogOpen(true);
+    // Pre-select a truck if provided (state updates are batched — handleTruckSelect wins)
+    if (preSelectLoadingId) handleTruckSelect(preSelectLoadingId);
   };
 
   const handleTruckSelect = (loadingId: string) => {
@@ -864,7 +1255,7 @@ export default function DeliverySalesLedger() {
     const cycleKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
     const cycleRates = cycleCustomerRateMap.get(cycleKey);
     const existingRate = (custId && cycleRates?.get(custId)) || '';
-    const rateLocked = !!existingRate;
+    const rateLocked = !!existingRate && !isFillingStation(custObj);
 
     const qtyStr = qty > 0 ? formatWithCommas(String(qty)) : '';
     const sv = existingRate && qtyStr
@@ -916,7 +1307,8 @@ export default function DeliverySalesLedger() {
         const cycleKey = getCycleKey(dialogTruckNumber, dialogDateLoaded);
         const cycleRates = cycleCustomerRateMap.get(cycleKey);
         const priorRate = value ? cycleRates?.get(value) : undefined;
-        if (priorRate) {
+        const selectedCustomer = value ? customerMap.get(Number(value)) : null;
+        if (priorRate && !isFillingStation(selectedCustomer)) {
           updated.rate = priorRate;
           updated.rateLocked = true;
           const q = Number(stripCommas(updated.quantity)) || 0;
@@ -926,11 +1318,10 @@ export default function DeliverySalesLedger() {
           updated.rateLocked = false;
         }
         // Auto-fill phone number and payer name from customer profile for filling stations
-        const selectedCust = value ? customerMap.get(Number(value)) : null;
-        if (selectedCust && isFillingStation(selectedCust)) {
-          if (selectedCust.contact_person) updated.payer_name = selectedCust.contact_person;
-          if (selectedCust.contact_person_phone) updated.phone_number = selectedCust.contact_person_phone;
-          else if (selectedCust.phone_number) updated.phone_number = selectedCust.phone_number;
+        if (selectedCustomer && isFillingStation(selectedCustomer)) {
+          if (selectedCustomer.contact_person) updated.payer_name = selectedCustomer.contact_person;
+          if (selectedCustomer.contact_person_phone) updated.phone_number = selectedCustomer.contact_person_phone;
+          else if (selectedCustomer.phone_number) updated.phone_number = selectedCustomer.phone_number;
         }
       }
 
@@ -975,8 +1366,7 @@ export default function DeliverySalesLedger() {
       if (!row.customer) e.customer = 'Customer is required';
       if (!row.location.trim()) e.location = 'Destination is required';
 
-      // Filling stations: only qty needed — rate/bank/date optional (entered later)
-      if (!isFS) {
+      if (!assignMode && !isFS) {
         if (!row.rate || Number(stripCommas(row.rate)) <= 0) e.rate = 'Rate is required';
         if (!row.bank_account_id) e.bank_account_id = 'Select a bank account';
         if (!row.date_of_payment) e.date_of_payment = 'Payment date is required';
@@ -1012,12 +1402,12 @@ export default function DeliverySalesLedger() {
           customer: row.customer ? Number(row.customer) : 0,
           location: row.location.trim() || undefined,
           quantity: Number(stripCommas(row.quantity)) || undefined,
-          rate: Number(stripCommas(row.rate)) || undefined,
-          sales_value: Number(stripCommas(row.sales_value)) || undefined,
-          payment_amount: Number(stripCommas(row.payment_amount)) || undefined,
-          payer_name: row.payer_name.trim() || undefined,
-          bank: bankStr || undefined,
-          date_of_payment: row.date_of_payment || undefined,
+          rate: !assignMode ? (Number(stripCommas(row.rate)) || undefined) : undefined,
+          sales_value: !assignMode ? (Number(stripCommas(row.sales_value)) || undefined) : undefined,
+          payment_amount: !assignMode ? (Number(stripCommas(row.payment_amount)) || undefined) : undefined,
+          payer_name: !assignMode ? (row.payer_name.trim() || undefined) : undefined,
+          bank: !assignMode ? (bankStr || undefined) : undefined,
+          date_of_payment: !assignMode ? (row.date_of_payment || undefined) : undefined,
           phone_number: row.phone_number.trim() || undefined,
           remarks: row.remarks.trim() || undefined,
           entered_by: currentUser,
@@ -1058,7 +1448,9 @@ export default function DeliverySalesLedger() {
       }
 
       toast({
-        title: `${filledRows.length} entry${filledRows.length > 1 ? ' entries' : ''} recorded`,
+        title: assignMode
+          ? `${filledRows.length} customer${filledRows.length > 1 ? 's' : ''} assigned to cycle`
+          : `${filledRows.length} entr${filledRows.length > 1 ? 'ies' : 'y'} recorded`,
         description: `Truck ${dialogTruckNumber} · ${filledRows.length} customer${filledRows.length > 1 ? 's' : ''}`,
       });
       setDialogOpen(false);
@@ -1072,13 +1464,39 @@ export default function DeliverySalesLedger() {
     } finally {
       setSaving(false);
     }
-  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, dialogTripCode, saleRows, toast, bankMap, customerMap]);
+  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, dialogTripCode, saleRows, toast, bankMap, customerMap, assignMode]);
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await apiClient.admin.deleteDeliverySale(deleteTarget.id);
-      toast({ title: 'Entry deleted' });
+      if (deleteTarget.ids.length > 0) {
+        await Promise.all(deleteTarget.ids.map(id => apiClient.admin.deleteDeliverySale(id)));
+      }
+      if (deleteTarget.mode === 'truck' && deleteTarget.loadingId) {
+        await apiClient.admin.deleteDeliveryInventory(deleteTarget.loadingId);
+      }
+
+      if (deleteTarget.ids.length > 0) {
+        setSaleTripMap(prev => {
+          const next = { ...prev };
+          deleteTarget.ids.forEach(id => { delete next[id]; });
+          return next;
+        });
+      }
+      if (deleteTarget.mode === 'truck' && deleteTarget.loadingId) {
+        setLoadingCodeMap(prev => {
+          const next = { ...prev };
+          delete next[deleteTarget.loadingId as number];
+          return next;
+        });
+      }
+
+      toast({
+        title: deleteTarget.mode === 'truck' ? 'Truck record deleted' : 'Entry deleted',
+        description: deleteTarget.mode === 'truck'
+          ? 'Truck row and linked records removed from ledger'
+          : undefined,
+      });
       setDeleteTarget(null);
       invalidateAll();
     } catch (err: unknown) {
@@ -1101,9 +1519,282 @@ export default function DeliverySalesLedger() {
     return match ? String(match.id) : '';
   };
 
+  const openQuickPaymentDialog = (group: LedgerGroup) => {
+    if (!group.customerId || !group.location || !group.quantity || (!group.expected && !group.isFillingStation)) {
+      if (group.loadingId) {
+        openPaymentDialog(String(group.loadingId));
+        toast({
+          title: 'Complete the first entry details first',
+          description: 'This row still needs customer, destination, quantity or rate information before follow-up payments can use the short form.',
+        });
+      } else {
+        toast({
+          title: 'This row needs a full setup first',
+          variant: 'destructive',
+        });
+      }
+      return;
+    }
+
+    const customer = group.customerId ? customerMap.get(group.customerId) : null;
+    setQuickPaymentTarget(group);
+    setQuickPaymentForm({
+      payment_amount: '',
+      payer_name: '',
+      phone_number: customer?.contact_person_phone || customer?.phone_number || '',
+      bank_account_id: '',
+    });
+  };
+
+  const openSetupDialog = (group: LedgerGroup) => {
+    setSetupTarget(group);
+    setSetupCustomer(group.customerId ? String(group.customerId) : '');
+    setSetupDestination(group.location || '');
+    setSetupCode(group.code || '');
+    setSetupTransferTargetKey('');
+    setSetupTransferAmount(group.balance < 0 ? formatWithCommas(String(Math.abs(group.balance))) : '');
+  };
+
+  const handleSaveSetup = async () => {
+    if (!setupTarget) return;
+
+    const normalized = setupCode.trim().toUpperCase().replace(/\s+/g, '-');
+    if (normalized && !tripCodes.includes(normalized)) {
+      toast({ title: 'Create this code in Inventory first', variant: 'destructive' });
+      return;
+    }
+
+    setSetupSaving(true);
+    try {
+      const customerId = setupCustomer ? Number(setupCustomer) : null;
+      const customerName = customerId ? (customerMap.get(customerId)?.customer_name || '') : '';
+
+      if (setupTarget.loadingId) {
+        // ── Inventory-linked row: update the loading record ──────────
+        await apiClient.admin.updateDeliveryInventory(setupTarget.loadingId, {
+          ...(customerId ? { customer: customerId, customer_name: customerName } : {}),
+          ...(setupDestination.trim() ? { location: setupDestination.trim() } : {}),
+        });
+
+        setLoadingCodeMap(prev => {
+          const next = { ...prev };
+          if (!normalized) delete next[setupTarget.loadingId as number];
+          else next[setupTarget.loadingId as number] = normalized;
+          return next;
+        });
+      } else {
+        // ── Unmatched row (no inventory entry yet): update each sale ─
+        if (setupTarget.payments.length > 0) {
+          await Promise.all(
+            setupTarget.payments.map(p =>
+              apiClient.admin.updateDeliverySale(p.id, {
+                ...(customerId ? { customer: customerId } : {}),
+                ...(setupDestination.trim() ? { location: setupDestination.trim() } : {}),
+              }),
+            ),
+          );
+        }
+
+        // Assign code via saleTripMap for each payment in this group
+        if (normalized) {
+          setSaleTripMap(prev => {
+            const next = { ...prev };
+            setupTarget.payments.forEach(p => { next[p.id] = normalized; });
+            return next;
+          });
+        } else {
+          setSaleTripMap(prev => {
+            const next = { ...prev };
+            setupTarget.payments.forEach(p => { delete next[p.id]; });
+            return next;
+          });
+        }
+      }
+
+      toast({ title: 'Row setup saved' });
+      setSetupTarget(null);
+      invalidateAll();
+    } catch (err: unknown) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to save setup',
+        variant: 'destructive',
+      });
+    } finally {
+      setSetupSaving(false);
+    }
+  };
+
+  const handleQuickPaymentSave = useCallback(async () => {
+    if (!quickPaymentTarget) return;
+
+    const paymentAmount = Number(stripCommas(quickPaymentForm.payment_amount));
+    const payerName = quickPaymentForm.payer_name.trim();
+    const payerValid = !payerName || /^[A-Za-z\s'\-.]+$/.test(payerName);
+
+    if (!paymentAmount || paymentAmount <= 0) {
+      toast({ title: 'Enter a valid payment amount', variant: 'destructive' });
+      return;
+    }
+    if (!quickPaymentForm.bank_account_id) {
+      toast({ title: 'Select a bank account', variant: 'destructive' });
+      return;
+    }
+    if (!payerValid) {
+      toast({ title: 'Payer name should contain letters only', variant: 'destructive' });
+      return;
+    }
+
+    setQuickPaymentSaving(true);
+    try {
+      const bankAcct = bankMap.get(Number(quickPaymentForm.bank_account_id));
+      const bankStr = bankAcct ? `${bankAcct.account_number} · ${bankAcct.bank_name}` : undefined;
+      const currentUser = localStorage.getItem('fullname') || 'Unknown';
+      const record = await apiClient.admin.createDeliverySale({
+        truck_number: quickPaymentTarget.truckNumber,
+        date_loaded: quickPaymentTarget.dateLoaded || format(new Date(), 'yyyy-MM-dd'),
+        depot_loaded: quickPaymentTarget.depot || undefined,
+        customer: quickPaymentTarget.customerId || 0,
+        location: quickPaymentTarget.location || undefined,
+        quantity: quickPaymentTarget.quantity || undefined,
+        rate: quickPaymentTarget.rate || undefined,
+        sales_value: quickPaymentTarget.expected || undefined,
+        payment_amount: paymentAmount,
+        payer_name: payerName || undefined,
+        bank: bankStr,
+        date_of_payment: format(new Date(), 'yyyy-MM-dd'),
+        phone_number: quickPaymentForm.phone_number.trim() || undefined,
+        entered_by: currentUser,
+      }) as { id?: number };
+
+      if (record?.id && quickPaymentTarget.code) {
+        setSaleTripMap(prev => ({ ...prev, [record.id as number]: quickPaymentTarget.code }));
+      }
+
+      toast({
+        title: 'Payment recorded',
+        description: `${quickPaymentTarget.truckNumber} · ${fmt(paymentAmount)}`,
+      });
+      setQuickPaymentTarget(null);
+      setQuickPaymentForm({ payment_amount: '', payer_name: '', phone_number: '', bank_account_id: '' });
+      invalidateAll();
+    } catch (err: unknown) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to record payment',
+        variant: 'destructive',
+      });
+    } finally {
+      setQuickPaymentSaving(false);
+    }
+  }, [quickPaymentTarget, quickPaymentForm, toast, bankMap]);
+
+  const runTransfer = useCallback(async (
+    source: LedgerGroup,
+    targetKey: string,
+    amountInput: string,
+    onDone?: () => void,
+  ) => {
+    const target = ledgerGroups.find(group => group.key === targetKey);
+    const amount = Number(stripCommas(amountInput));
+
+    if (!target) {
+      toast({ title: 'Select a target truck row', variant: 'destructive' });
+      return;
+    }
+    if (!amount || amount <= 0) {
+      toast({ title: 'Enter a valid transfer amount', variant: 'destructive' });
+      return;
+    }
+    const maxTransfer = Math.abs(source.balance);
+    if (amount > maxTransfer) {
+      toast({ title: `Transfer exceeds available overpayment (${fmt(maxTransfer)})`, variant: 'destructive' });
+      return;
+    }
+    if (!source.customerId || !source.location || !target.customerId || !target.location) {
+      toast({ title: 'Both source and target rows must have customer and destination set', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const currentUser = localStorage.getItem('fullname') || 'Unknown';
+
+      const [sourceRecord, targetRecord] = await Promise.all([
+        apiClient.admin.createDeliverySale({
+          truck_number: source.truckNumber,
+          date_loaded: source.dateLoaded || today,
+          depot_loaded: source.depot || undefined,
+          customer: source.customerId,
+          location: source.location || undefined,
+          quantity: source.quantity || undefined,
+          rate: source.rate || undefined,
+          sales_value: source.expected || undefined,
+          payment_amount: -amount,
+          payer_name: `TRANSFER TO ${target.truckNumber}`,
+          bank: 'INTERNAL TRANSFER',
+          date_of_payment: today,
+          remarks: `Overpayment moved to ${target.truckNumber}`,
+          entered_by: currentUser,
+        }),
+        apiClient.admin.createDeliverySale({
+          truck_number: target.truckNumber,
+          date_loaded: target.dateLoaded || today,
+          depot_loaded: target.depot || undefined,
+          customer: target.customerId,
+          location: target.location || undefined,
+          quantity: target.quantity || undefined,
+          rate: target.rate || undefined,
+          sales_value: target.expected || undefined,
+          payment_amount: amount,
+          payer_name: `TRANSFER FROM ${source.truckNumber}`,
+          bank: 'INTERNAL TRANSFER',
+          date_of_payment: today,
+          remarks: `Overpayment received from ${source.truckNumber}`,
+          entered_by: currentUser,
+        }),
+      ]) as Array<{ id?: number }>;
+
+      const updates: Record<number, string> = {};
+      if (sourceRecord?.id && source.code) updates[sourceRecord.id] = source.code;
+      if (targetRecord?.id && target.code) updates[targetRecord.id] = target.code;
+      if (Object.keys(updates).length > 0) {
+        setSaleTripMap(prev => ({ ...prev, ...updates }));
+      }
+
+      toast({
+        title: 'Overpayment transferred',
+        description: `${fmt(amount)} moved from ${source.truckNumber} to ${target.truckNumber}`,
+      });
+      onDone?.();
+      invalidateAll();
+    } catch (err: unknown) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to transfer overpayment',
+        variant: 'destructive',
+      });
+    }
+  }, [ledgerGroups, toast]);
+
+  const handleSetupTransfer = async () => {
+    if (!setupTarget || setupTarget.balance >= 0) return;
+    setSetupTransferSaving(true);
+    try {
+      await runTransfer(setupTarget, setupTransferTargetKey, setupTransferAmount, () => {
+        setSetupTransferTargetKey('');
+        setSetupTransferAmount('');
+        setSetupTarget(null);
+      });
+    } finally {
+      setSetupTransferSaving(false);
+    }
+  };
+
   const openEditDialog = (sale: DeliverySale) => {
     setEditTarget(sale);
-    setEditTripCode(saleTripMap[sale.id] || '');
+    const linkedLoadingId = saleToLoadingMap.get(sale.id);
+    setEditTripCode((linkedLoadingId ? loadingCodeMap[linkedLoadingId] : '') || saleTripMap[sale.id] || '');
     const rate = toNum(sale.rate);
     const sv = toNum(sale.sales_value);
     const pa = toNum(sale.payment_amount);
@@ -1129,7 +1820,6 @@ export default function DeliverySalesLedger() {
 
     // Determine lock states at save time (same logic as the form UI)
     const editRateIsLocked = toNum(editTarget.rate) > 0;
-    const editDopIsLocked  = !!editTarget.date_of_payment;
 
     try {
       const bankAcct = editForm.bank_account_id
@@ -1150,11 +1840,6 @@ export default function DeliverySalesLedger() {
       // Auto-compute sales_value if qty + rate are set but sv wasn't manually entered
       const computedSv = qty && rate && !sv ? qty * rate : sv;
 
-      // Only send date_of_payment if it wasn't already set
-      const dop = editDopIsLocked
-        ? (editTarget.date_of_payment || undefined)
-        : (editForm.date_of_payment || undefined);
-
       await apiClient.admin.updateDeliverySale(editTarget.id, {
         quantity:         qty,
         rate:             rate,
@@ -1162,7 +1847,7 @@ export default function DeliverySalesLedger() {
         payment_amount:   pa,
         payer_name:       editForm.payer_name.trim() || undefined,
         bank:             bankStr,
-        date_of_payment:  dop,
+        date_of_payment:  editForm.date_of_payment || undefined,
         remarks:          editForm.remarks.trim() || undefined,
         phone_number:     editForm.phone_number.trim() || undefined,
         location:         editForm.location.trim() || undefined,
@@ -1173,10 +1858,17 @@ export default function DeliverySalesLedger() {
       });
 
       // Persist trip code assignment locally
+      const linkedLoadingId = saleToLoadingMap.get(editTarget.id);
       if (editTripCode) {
         setSaleTripMap(prev => ({ ...prev, [editTarget.id]: editTripCode }));
+        if (linkedLoadingId) {
+          setLoadingCodeMap(prev => ({ ...prev, [linkedLoadingId]: editTripCode }));
+        }
       } else {
         setSaleTripMap(prev => { const next = { ...prev }; delete next[editTarget.id]; return next; });
+        if (linkedLoadingId) {
+          setLoadingCodeMap(prev => { const next = { ...prev }; delete next[linkedLoadingId]; return next; });
+        }
       }
       toast({ title: 'Entry updated' });
       setEditTarget(null);
@@ -1191,197 +1883,226 @@ export default function DeliverySalesLedger() {
     } finally {
       setEditSaving(false);
     }
-  }, [editTarget, editForm, editTripCode, toast]);
+  }, [editTarget, editForm, editTripCode, toast, saleToLoadingMap, loadingCodeMap]);
 
   const exportExcel = useCallback(() => {
-    if (!filteredSales.length) return;
+    if (!filteredLedgerGroups.length) return;
     const period = timePreset === 'custom'
       ? `${customFrom || '?'}_TO_${customTo || '?'}`
       : timePreset.toUpperCase();
 
     const n = (v: number) => v > 0 ? v.toLocaleString('en-NG') : '—';
     const u = (s: string) => (s || '').toUpperCase();
+    const safeFmtDate = (d: string | null | undefined): string => {
+      if (!d) return '';
+      try { return format(parseISO(d), 'dd/MM/yyyy'); } catch { return d.split('T')[0] || d; }
+    };
 
-    // ── Build cycle groups (truck + date_loaded), each sorted chronologically ─
-    const exportCycleMap = new Map<string, DeliverySale[]>();
-    filteredSales.forEach(s => {
-      const key = getCycleKey(s.truck_number, s.date_loaded);
-      const arr = exportCycleMap.get(key) ?? [];
-      arr.push(s);
-      exportCycleMap.set(key, arr);
-    });
-    exportCycleMap.forEach(entries => {
-      entries.sort((a, b) => {
-        const da = a.date_of_payment || a.date_loaded || '';
-        const db = b.date_of_payment || b.date_loaded || '';
-        return da.localeCompare(db) || a.id - b.id;
-      });
+    // Sort groups by trip code order (tripCodes), then by truck number asc, then by group index (for serials)
+    const tripCodeOrder = new Map<string, number>();
+    tripCodes.forEach((code, idx) => tripCodeOrder.set(code, idx));
+    const sortedGroups = [...filteredLedgerGroups].sort((a, b) => {
+      const aCode = a.code || '';
+      const bCode = b.code || '';
+      const aIdx = tripCodeOrder.has(aCode) ? tripCodeOrder.get(aCode) : 9999;
+      const bIdx = tripCodeOrder.has(bCode) ? tripCodeOrder.get(bCode) : 9999;
+      if (aIdx !== bIdx) return aIdx - bIdx;
+      // Within trip code, sort by truck number asc
+      const truckDiff = (a.truckNumber || '').localeCompare(b.truckNumber || '');
+      if (truckDiff !== 0) return truckDiff;
+      // If same truck, preserve original order (serial)
+      return 0;
     });
 
-    // Grand totals — per cycle to avoid cross-cycle double-counting
-    let grandExpected  = 0;
-    let grandPaid      = 0;
-    let grandQty       = 0;
+    // Grand totals and per-trip code quantities
+    let grandExpected    = 0;
+    let grandPaid        = 0;
+    let grandQty         = 0;
     let grandOutstanding = 0;
     let grandOverpaid    = 0;
-    exportCycleMap.forEach(entries => {
-      const perCustMaxSv  = new Map<number, number>();
-      const perCustMaxQty = new Map<number, number>();
-      let cyclePaidLocal = 0;
-      entries.forEach(s => {
-        const sv = toNum(s.sales_value);
-        const q  = toNum(s.quantity);
-        if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
-        if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-        grandPaid      += toNum(s.payment_amount);
-        cyclePaidLocal += toNum(s.payment_amount);
-      });
-      let cycleExp = 0;
-      perCustMaxSv.forEach(v  => { grandExpected += v; cycleExp += v; });
-      perCustMaxQty.forEach(v => { grandQty      += v; });
-      const cycleBal = cycleExp - cyclePaidLocal;
-      if (cycleBal > 0) grandOutstanding += cycleBal;
-      else if (cycleBal < 0) grandOverpaid += Math.abs(cycleBal);
+    const truckSet = new Set<string>();
+    const tripCodeQty: Record<string, number> = {};
+    tripCodes.forEach(code => { tripCodeQty[code] = 0; });
+    let unassignedQty = 0;
+    sortedGroups.forEach(group => {
+      if (group.truckNumber) truckSet.add(group.truckNumber);
+      const qty = group.quantity > 0 ? group.quantity : 0;
+      grandQty      += qty;
+      grandExpected += group.expected > 0 ? group.expected : 0;
+      grandPaid     += group.totalPaid;
+      const bal = group.balance;
+      if (bal > 0) grandOutstanding += bal;
+      else if (bal < 0) grandOverpaid += Math.abs(bal);
+      const code = group.code || '';
+      if (tripCodeQty.hasOwnProperty(code)) tripCodeQty[code] += qty;
+      else unassignedQty += qty;
     });
     const grandBalance = grandExpected - grandPaid;
-    const totalCycles  = exportCycleMap.size;
-    const totalTrucks  = new Set(filteredSales.map(s => s.truck_number)).size;
+    const totalTrucks  = truckSet.size;
 
-    // ── Build AOA (array-of-arrays) for the sheet ───────────────────
     const COLS = [
-      'S/N', 'TRUCK NO.', 'TRIP CODE', 'DATE LOADED', 'DEPOT', 'DESTINATION', 'CUSTOMER',
-      'QTY (LTRS)', 'RATE (₦)', 'EXPECTED (₦)', 'PAYMENT (₦)', 'BALANCE (₦)',
-      'PAYER', 'CONTACT', 'BANK', 'PAYMENT DATE', 'ENTERED BY',
+      'S/N', 'PFI', 'TRUCK NO.', 'CUSTOMER', 'DESTINATION', 
+      'QTY (LTRS)', 'RATE (₦)', 'AMOUNT (₦)', 'PAYMENT (₦)', 'BALANCE (₦)',
+      'PAYER', 'BANK', 'PAYMENT DATE',
     ] as const;
 
     const aoa: (string | number)[][] = [];
 
-    // Net balance label
     const netBalanceLabel = (() => {
       if (grandBalance === 0) return 'FULLY SETTLED';
       if (grandBalance < 0)  return `${n(Math.abs(grandBalance))} OVERPAID`;
-      if (grandOverpaid > 0) return `${n(grandBalance)} (${n(grandOverpaid)} overpaid on some cycles)`;
+      if (grandOverpaid > 0) return `${n(grandBalance)} (${n(grandOverpaid)} overpaid on some entries)`;
       return n(grandBalance);
     })();
 
-    aoa.push(['TRUCK SALES LEDGER — ' + period]);
+    aoa.push(['DELIVERY SALES LEDGER']);
     aoa.push([]);
-    aoa.push(['TOTAL QTY SOLD (LTRS)',  n(grandQty)]);
-    aoa.push(['TOTAL TRUCKS',           totalTrucks]);
-    aoa.push(['TOTAL CYCLES',           totalCycles]);
-    aoa.push(['EXPECTED REVENUE (₦)',   n(grandExpected)]);
-    aoa.push(['TOTAL PAID (₦)',         n(grandPaid)]);
-    aoa.push(['BALANCE (₦)',            netBalanceLabel]);
+    aoa.push(['TOTAL TRUCKS', totalTrucks]);
+    aoa.push(['QUANTITY SOLD', n(grandQty) + ' LITRES']);
+    tripCodes.forEach(code => {
+      aoa.push([`(${code}) - QUANTITY SOLD`, n(tripCodeQty[code]) + ' LITRES']);
+    });
+    if (unassignedQty > 0) {
+      aoa.push(['TOTAL UNSOLD', n(unassignedQty) + ' LITRES']);
+    }
     aoa.push([]);
-
-    // Column headers
+    aoa.push(['EXPECTED REVENUE',   `₦ ${n(grandExpected)}`]);
+    aoa.push(['TOTAL PAID',         `₦ ${n(grandPaid)}`]);
+    aoa.push(['BALANCE',            netBalanceLabel]);
+    aoa.push([]);
     aoa.push([...COLS]);
 
+
     let rowNum = 0;
+    // For serial numbering of repeated trucks within a trip code
+    let lastTripCode = null;
+    let truckSerialMap: Record<string, number> = {};
 
-    exportCycleMap.forEach((entries, cycleKey) => {
-      const firstEntry = entries[0];
-      const truckNum = firstEntry?.truck_number || cycleKey.split('||')[0];
-      const exportCycleInfo = cycleNumberMap.get(cycleKey);
-      const cycleTag = exportCycleInfo && exportCycleInfo.totalCycles > 1
-        ? ` [CYCLE ${exportCycleInfo.cycleNum}/${exportCycleInfo.totalCycles}]`
-        : '';
+    sortedGroups.forEach(group => {
+      const truckNum      = u(group.truckNumber || '');
+      const pfi           = group.pfiNumber || '';
+      const tripCode      = group.code || '';
+      const dateLoadedStr = safeFmtDate(group.dateLoaded);
+      const depot         = u(group.depot || '');
+      const dest          = u(group.location || '');
+      const custNameGroup = u(group.customerName || '');
 
-      // Per-cycle totals
-      const perCustMaxSv  = new Map<number, number>();
-      const perCustMaxQty = new Map<number, number>();
-      let cyclePaid = 0;
-      entries.forEach(s => {
-        const sv = toNum(s.sales_value);
-        const q  = toNum(s.quantity);
-        if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
-        if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-        cyclePaid += toNum(s.payment_amount);
-      });
-      let cycleExpected = 0; perCustMaxSv.forEach(v  => { cycleExpected += v; });
-      let cycleQty      = 0; perCustMaxQty.forEach(v => { cycleQty      += v; });
-      const cycleBalance = cycleExpected - cyclePaid;
+      // Reset serial map if trip code changes
+      if (tripCode !== lastTripCode) {
+        truckSerialMap = {};
+        lastTripCode = tripCode;
+      }
+      // Serial for this truck in this trip code
+      const truckKey = truckNum;
+      truckSerialMap[truckKey] = (truckSerialMap[truckKey] || 0) + 1;
+      const serial = truckSerialMap[truckKey];
 
-      // Individual entry rows — carry-forward suppression within each cycle
-      let prevCycleShown = false;
-      let prevQty        = '';
-      let prevRate       = '';
-      let prevCustName   = '';
+      // Add serial to truck number if repeated
+      const truckNumWithSerial = Object.values(truckSerialMap).filter(v => v > 1).length > 0
+        ? `${truckNum}${serial > 1 ? ` (${serial})` : ''}`
+        : truckNum;
 
-      entries.forEach(s => {
+      if (group.payments.length === 0) {
         rowNum += 1;
-        const custName  = u(s.customer_name || customerMap.get(s.customer)?.customer_name || '');
-        const balance   = rowBalances.get(s.id) ?? 0;
-        const thisQty   = toNum(s.quantity) > 0 ? n(toNum(s.quantity))  : '—';
-        const thisRate  = toNum(s.rate)     > 0 ? n(toNum(s.rate))      : '—';
-
-        // Cycle-level fields: only on the first row of this cycle group
-        const truckCell = !prevCycleShown ? `${u(s.truck_number)}${cycleTag}` : '';
-        const dateCell  = !prevCycleShown && s.date_loaded
-                            ? format(parseISO(s.date_loaded), 'dd/MM/yyyy') : '';
-        const depotCell = !prevCycleShown ? u(s.depot_loaded || '') : '';
-        const destCell  = !prevCycleShown ? u(s.location     || '') : '';
-
-        // Qty & Rate: show only when value changes
-        const qtyCell  = thisQty  !== prevQty  ? thisQty  : '';
-        const rateCell = thisRate !== prevRate  ? thisRate : '';
-
-        // Customer: carry-forward suppression
-        const custCell = custName !== prevCustName ? custName : '';
-
-        const balanceCell = balance > 0
-          ? n(balance)
-          : balance < 0
-          ? `+${n(Math.abs(balance))} OVERPAID`
-          : 'FULLY PAID';
-
         aoa.push([
           rowNum,
-          truckCell,
-          !prevCycleShown ? (saleTripMap[s.id] || '') : '',   // TRIP CODE — only on first row of cycle
-          dateCell,
-          depotCell,
-          destCell,
-          custCell,
-          qtyCell,
-          rateCell,
-          toNum(s.sales_value)    > 0 ? n(toNum(s.sales_value))    : '—',
-          toNum(s.payment_amount) > 0 ? n(toNum(s.payment_amount)) : '—',
-          balanceCell,
-          u(s.payer_name    || ''),
-          s.phone_number    || '',
-          u(s.bank          || ''),
-          s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '',
-          u(s.entered_by    || ''),
+          tripCode,
+          truckNumWithSerial || '',
+          custNameGroup,
+          dest,
+          // pfi,
+          // dateLoadedStr,
+          // depot,
+          group.quantity > 0 ? n(group.quantity) : '',
+          '', '', '', '', '', '', '', '', '',
         ]);
+      } else {
+        // Sort payments chronologically within group
+        const sortedPayments = [...group.payments].sort((a, b) => {
+          const da = a.date_of_payment || a.date_loaded || '';
+          const db = b.date_of_payment || b.date_loaded || '';
+          return da.localeCompare(db) || a.id - b.id;
+        });
 
-        prevCycleShown = true;
-        prevQty        = thisQty;
-        prevRate       = thisRate;
-        prevCustName   = custName;
-      });
+        let cumulativePaid = 0;
+        let prevQty = '';
+        let prevRate = '';
 
-      // Cycle subtotal row
-      aoa.push([
-        '',
-        `SUBTOTAL — ${u(truckNum)}${cycleTag}`,
-        '', '', '', '', '',
-        n(cycleQty),
-        '',
-        n(cycleExpected),
-        n(cyclePaid),
-        cycleBalance === 0 ? 'FULLY PAID' : cycleBalance > 0 ? n(cycleBalance) : `+${n(Math.abs(cycleBalance))} OVERPAID`,
-        '', '', '', '', '',
-      ]);
-      // Blank separator between cycles
+        sortedPayments.forEach((s, idx) => {
+          rowNum += 1;
+          cumulativePaid += toNum(s.payment_amount);
+          const runningBalance = group.expected - cumulativePaid;
+          const custName = u(s.customer_name || customerMap.get(s.customer)?.customer_name || '');
+          const thisQty  = toNum(s.quantity) > 0 ? n(toNum(s.quantity)) : '';
+          const thisRate = toNum(s.rate)     > 0 ? n(toNum(s.rate))     : '';
+
+          // First row of group: emit truck/loading fields; subsequent: blank
+          const isFirst = idx === 0;
+
+          // Qty & Rate: show only on change
+          const qtyCell  = thisQty  !== prevQty  ? thisQty  : '';
+          const rateCell = thisRate !== prevRate  ? thisRate : '';
+
+          let balanceCell = '';
+          if (typeof runningBalance === 'number') {
+            if (runningBalance > 0) balanceCell = n(runningBalance);
+            else if (runningBalance < 0) balanceCell = `+${n(Math.abs(runningBalance))} OVERPAID`;
+            else balanceCell = 'FULLY PAID';
+          }
+
+          aoa.push([
+            rowNum,
+            isFirst ? tripCode      : '',
+            isFirst ? truckNumWithSerial : '',
+            // isFirst ? pfi           : '',
+            // isFirst ? dateLoadedStr : '',
+            // isFirst ? depot         : '',
+            isFirst ? custName : '',
+            isFirst ? dest          : '',
+            qtyCell,
+            rateCell,
+            isFirst && toNum(s.sales_value) > 0 ? n(toNum(s.sales_value)) : '',
+            toNum(s.payment_amount) > 0 ? n(toNum(s.payment_amount)) : '',
+            balanceCell,
+            u(s.payer_name  || ''),
+            // s.phone_number  || '',
+            u(s.bank        || ''),
+            safeFmtDate(s.date_of_payment),
+            // u(s.entered_by  || ''),
+          ]);
+
+          prevQty  = thisQty;
+          prevRate = thisRate;
+        });
+
+        // Subtotal row
+        aoa.push([
+          '',
+          '', '', '', '', '',
+          // group.quantity > 0 ? n(group.quantity) : '',
+          '',
+          group.expected  > 0 ? n(group.expected)  : '',
+          group.totalPaid > 0 ? n(group.totalPaid) : '',
+          group.balance === 0
+            ? 'FULLY PAID'
+            : group.balance > 0
+            ? n(group.balance)
+            : group.balance < 0
+            ? `+${n(Math.abs(group.balance))} OVERPAID`
+            : '',
+          '', '', '', '', '',
+        ]);
+      }
+
+      // Blank separator between groups
       aoa.push([]);
     });
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Truck Sales Ledger');
-    XLSX.writeFile(wb, `TRUCK-SALES-LEDGER-${period}.xlsx`);
-  }, [filteredSales, customerMap, rowBalances, saleTripMap, cycleNumberMap, timePreset, customFrom, customTo]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Delivery Sales Ledger');
+    XLSX.writeFile(wb, `DELIVERY SALES LEDGER.xlsx`);
+  }, [filteredLedgerGroups, customerMap, timePreset, customFrom, customTo]);
 
   const activeBankAccounts = useMemo(
     () => BANK_ACCOUNTS.filter(b => b.is_active),
@@ -1408,17 +2129,17 @@ export default function DeliverySalesLedger() {
             {/* Header */}
             <PageHeader
               title="Delivery Sales Ledger"
-              description="Track payments against loaded trucks. Select a truck, set the rate, and record partial or full payments."
+              description="Manage loaded truck and add incremental payments under each truck."
               actions={
                 <>
-                  <Button variant="outline" className="gap-2" onClick={exportExcel} disabled={filteredSales.length === 0}>
+                  <Button variant="default" className="gap-2" onClick={exportExcel} disabled={filteredSales.length === 0}>
                     <Download size={16} /> Download Report
                   </Button>
-                  {!readOnly && (
-                    <Button className="gap-2" onClick={openPaymentDialog}>
+                  {/* {!readOnly && (
+                    <Button className="gap-2" onClick={() => openPaymentDialog()}>
                       <Plus size={16} /> Record Payment
                     </Button>
-                  )}
+                  )} */}
                 </>
               }
             />
@@ -1432,17 +2153,17 @@ export default function DeliverySalesLedger() {
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
 
               {/* Card header */}
-              <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
-                <Filter size={15} className="text-slate-500" />
-                <span className="text-sm font-semibold text-slate-700">Filter &amp; Search</span>
+              {/* <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-slate-50/60"> */}
+                {/* <Filter size={15} className="text-slate-500" /> */}
+                {/* <span className="text-sm font-semibold text-slate-700">Filter &amp; Search</span> */}
                 {/* Active filter count */}
-                {[truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter].filter(v => v !== 'all').length > 0 && (
-                  <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 text-white leading-none">
-                    {[truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter].filter(v => v !== 'all').length} active
-                  </span>
-                )}
+                {/* {[truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter].filter(v => v !== 'all').length > 0 && ( */}
+                  {/* <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 text-white leading-none">
+                    {[truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter].filter(v => v !== 'all').length} active
+                  </span> */}
+                {/* )} */}
                 {/* Clear all — only when filters are active */}
-                {([truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter, searchQuery].some(v => v !== 'all' && v !== '')) && (
+                {/* {([truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter, searchQuery].some(v => v !== 'all' && v !== '')) && (
                   <button
                     title="Clear all filters"
                     onClick={() => {
@@ -1450,7 +2171,6 @@ export default function DeliverySalesLedger() {
                       setDepotFilter('all');
                       setLocationFilter('all');
                       setCustomerFilter('all');
-                      setCycleFilter('all');
                       setTripCodeFilter('all');
                       setSearchQuery('');
                     }}
@@ -1459,11 +2179,33 @@ export default function DeliverySalesLedger() {
                     <X size={12} /> Clear all filters
                   </button>
                 )}
-              </div>
+              </div> */}
 
               <div className="p-5 space-y-5">
 
-                {/* ── Row 1: Period selector ──────────────────────── */}
+                {/* Search */}
+                <div>
+                  <div className="relative w-full">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                    <Input
+                      placeholder="Search by truck number, customer name, PFI, etc…"
+                      className="pl-9 h-9 text-sm"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                    />
+                    {searchQuery && (
+                      <button
+                        title="Clear search"
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Time Period */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                     <CalendarIcon size={12} /> Time Period
@@ -1472,6 +2214,7 @@ export default function DeliverySalesLedger() {
                     {(['today', 'yesterday', 'week', 'month', 'year', 'all', 'custom'] as TimePreset[]).map(tp => (
                       <button
                         key={tp}
+                        type="button"
                         title={`Show ${tp === 'all' ? 'all time' : tp === 'custom' ? 'custom date range' : tp}`}
                         onClick={() => handlePresetChange(tp)}
                         className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
@@ -1498,15 +2241,14 @@ export default function DeliverySalesLedger() {
                   )}
                 </div>
 
-                {/* ── Divider ─────────────────────────────────────── */}
-                <div className="border-t border-slate-100" />
+                <div className="border-t border-slate-100" />            
 
-                {/* ── Row 2: Dropdown filters ─────────────────────── */}
+                {/* Dropdown filters */}
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                  {/* <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                     <Filter size={12} /> Narrow Down Results
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+                  </p> */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-3">
 
                     {/* Truck */}
                     <div className="space-y-1.5">
@@ -1529,7 +2271,7 @@ export default function DeliverySalesLedger() {
                     </div>
 
                     {/* Depot */}
-                    <div className="space-y-1.5">
+                    {/* <div className="space-y-1.5">
                       <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
                         <Building2 size={12} className="text-slate-400" /> Depot (Loading Point)
                       </label>
@@ -1546,10 +2288,10 @@ export default function DeliverySalesLedger() {
                           <option key={d} value={d}>{d}</option>
                         ))}
                       </select>
-                    </div>
+                    </div> */}
 
                     {/* Destination */}
-                    <div className="space-y-1.5">
+                    {/* <div className="space-y-1.5">
                       <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
                         <MapPin size={12} className="text-slate-400" /> Destination
                       </label>
@@ -1566,7 +2308,7 @@ export default function DeliverySalesLedger() {
                           <option key={l} value={l}>{l}</option>
                         ))}
                       </select>
-                    </div>
+                    </div> */}
 
                     {/* Customer */}
                     <div className="space-y-1.5">
@@ -1588,21 +2330,21 @@ export default function DeliverySalesLedger() {
                       </select>
                     </div>
 
-                    {/* Trip Code */}
+                    {/* Code */}
                     {tripCodes.length > 0 && (
                       <div className="space-y-1.5">
                         <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                          <Tag size={12} className="text-purple-400" /> Trip Code
+                          <Tag size={12} className="text-purple-400" /> PFI
                         </label>
                         <select
-                          aria-label="Filter by trip code"
+                          aria-label="Filter by PFI"
                           value={tripCodeFilter}
                           onChange={e => setTripCodeFilter(e.target.value)}
                           className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-purple-300 ${
                             tripCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-700'
                           }`}
                         >
-                          <option value="all">All Trip Codes</option>
+                          <option value="all">All PFIs</option>
                           {tripCodes.map(code => {
                             const count = Object.values(saleTripMap).filter(v => v === code).length;
                             return (
@@ -1612,67 +2354,12 @@ export default function DeliverySalesLedger() {
                         </select>
                       </div>
                     )}
-
-                    {/* Cycle — only shown when there are multi-cycle trucks */}
-                    {uniqueCycleOptions.length > 0 ? (
-                      <div className="space-y-1.5">
-                        <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                          <LayoutGrid size={12} className="text-slate-400" /> Cycle
-                          <span className="text-[10px] text-slate-400 font-normal">(reload #)</span>
-                        </label>
-                        <select
-                          aria-label="Filter by cycle number"
-                          value={cycleFilter}
-                          onChange={e => setCycleFilter(e.target.value)}
-                          className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
-                            cycleFilter !== 'all' ? 'border-blue-600 font-semibold text-blue-900 bg-blue-50' : 'border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          <option value="all">All Cycles</option>
-                          {uniqueCycleOptions.map(n => (
-                            <option key={n} value={String(n)}>
-                              Cycle {n} — {n === 1 ? 'First load' : n === 2 ? 'First reload' : `Reload #${n - 1}`}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-[11px] text-slate-400 leading-snug">
-                          "Cycle" = how many times the same truck was loaded. Cycle 1 is the first load, Cycle 2 means the truck came back for a second load, etc.
-                        </p>
-                      </div>
-                    ) : (
-                      /* placeholder so grid stays aligned */
-                      <div className="hidden xl:block" />
-                    )}
                   </div>
                 </div>
 
                 {/* ── Divider ─────────────────────────────────────── */}
-                <div className="border-t border-slate-100" />
+                {/* <div className="border-t border-slate-100" /> */}
 
-                {/* ── Row 3: Search ───────────────────────────────── */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <Search size={12} /> Search (keyword)
-                  </p>
-                  <div className="relative max-w-xl">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                    <Input
-                      placeholder="Type any word — truck number, customer name, payer, bank, remarks…"
-                      className="pl-9 h-9 text-sm"
-                      value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)}
-                    />
-                    {searchQuery && (
-                      <button
-                        title="Clear search"
-                        onClick={() => setSearchQuery('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
 
                 {/* ── Active filter chips ──────────────────────────── */}
                 {[
@@ -1680,8 +2367,7 @@ export default function DeliverySalesLedger() {
                   depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
                   locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                   customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
-                  cycleFilter !== 'all' && { label: `Cycle ${cycleFilter} only`, clear: () => setCycleFilter('all') },
-                  tripCodeFilter !== 'all' && { label: `Trip: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
+                  tripCodeFilter !== 'all' && { label: `Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
                   searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                 ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1691,12 +2377,11 @@ export default function DeliverySalesLedger() {
                       depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
                       locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                       customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
-                      cycleFilter !== 'all' && { label: `Cycle ${cycleFilter} only`, clear: () => setCycleFilter('all') },
-                      tripCodeFilter !== 'all' && { label: `Trip: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
+                      tripCodeFilter !== 'all' && { label: `Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
                       searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                     ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
                       <span key={chip.label} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        chip.label.startsWith('Trip:') ? 'bg-purple-700 text-white' : 'bg-slate-900 text-white'
+                        chip.label.startsWith('Code:') ? 'bg-purple-700 text-white' : 'bg-slate-900 text-white'
                       }`}>
                         {chip.label}
                         <button title={`Remove: ${chip.label}`} onClick={chip.clear} className="hover:text-slate-300 ml-0.5">
@@ -1708,12 +2393,218 @@ export default function DeliverySalesLedger() {
                 )}
 
                 {/* ── Results summary line ─────────────────────────── */}
-                {/* ── Trip Codes ───────────────────────────────────── */}
+                {/* ── Custom PFI Labels ────────────────────────────── */}
+                {/* <div className="border-t border-slate-100" />
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
+                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
+                    </span>
+                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
+                      <span key={pfi} className="inline-flex items-center gap-0.5">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {pfi} → {label}
+                        </span>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => deletePfiLabel(pfi)}
+                            title={`Remove label for PFI "${pfi}"`}
+                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {Object.keys(pfiCodeMap).length === 0 && (
+                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
+                    )}
+                    {!readOnly && (
+                      <span className="inline-flex items-center gap-1 ml-1">
+                        <input
+                          placeholder="PFI no."
                 <div className="border-t border-slate-100" />
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                     <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
-                      <Tag size={11} className="text-purple-400" /> Trip Codes
+                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
+                    </span>
+                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
+                      <span key={pfi} className="inline-flex items-center gap-0.5">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {pfi} → {label}
+                        </span>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => deletePfiLabel(pfi)}
+                            title={`Remove label for PFI "${pfi}"`}
+                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {Object.keys(pfiCodeMap).length === 0 && (
+                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
+                    )}
+                    {!readOnly && (
+                      <span className="inline-flex items-center gap-1 ml-1">
+                        <input
+                          placeholder="PFI no."
+                <div className="border-t border-slate-100" />
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
+                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
+                    </span>
+                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
+                      <span key={pfi} className="inline-flex items-center gap-0.5">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {pfi} → {label}
+                        </span>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => deletePfiLabel(pfi)}
+                            title={`Remove label for PFI "${pfi}"`}
+                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {Object.keys(pfiCodeMap).length === 0 && (
+                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
+                    )}
+                    {!readOnly && (
+                      <span className="inline-flex items-center gap-1 ml-1">
+                        <input
+                          placeholder="PFI no."
+                <div className="border-t border-slate-100" />
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
+                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
+                    </span>
+                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
+                      <span key={pfi} className="inline-flex items-center gap-0.5">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {pfi} → {label}
+                        </span>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => deletePfiLabel(pfi)}
+                            title={`Remove label for PFI "${pfi}"`}
+                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {Object.keys(pfiCodeMap).length === 0 && (
+                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
+                    )}
+                    {!readOnly && (
+                      <span className="inline-flex items-center gap-1 ml-1">
+                        <input
+                          placeholder="PFI no."
+                <div className="border-t border-slate-100" />
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
+                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
+                    </span>
+                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
+                      <span key={pfi} className="inline-flex items-center gap-0.5">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {pfi} → {label}
+                        </span>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => deletePfiLabel(pfi)}
+                            title={`Remove label for PFI "${pfi}"`}
+                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {Object.keys(pfiCodeMap).length === 0 && (
+                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
+                    )}
+                    {!readOnly && (
+                      <span className="inline-flex items-center gap-1 ml-1">
+                        <input
+                          placeholder="PFI no."
+                <div className="border-t border-slate-100" />
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
+                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
+                    </span>
+                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
+                      <span key={pfi} className="inline-flex items-center gap-0.5">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {pfi} → {label}
+                        </span>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => deletePfiLabel(pfi)}
+                            title={`Remove label for PFI "${pfi}"`}
+                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {Object.keys(pfiCodeMap).length === 0 && (
+                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
+                    )}
+                    {!readOnly && (
+                      <span className="inline-flex items-center gap-1 ml-1">
+                        <input
+                          placeholder="PFI no."
+                          className="h-6 px-2 text-xs rounded border border-dashed border-slate-300 bg-transparent focus:outline-none focus:border-indigo-400 w-16"
+                          value={pfiLabelInput.pfi}
+                          onChange={e => setPfiLabelInput(prev => ({ ...prev, pfi: e.target.value }))}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); savePfiLabel(); } }}
+                        />
+                        <span className="text-slate-400 text-xs">→</span>
+                        <input
+                          placeholder="your code"
+                          className="h-6 px-2 text-xs rounded border border-dashed border-slate-300 bg-transparent focus:outline-none focus:border-indigo-400 w-24 uppercase"
+                          value={pfiLabelInput.label}
+                          onChange={e => setPfiLabelInput(prev => ({ ...prev, label: e.target.value.toUpperCase() }))}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); savePfiLabel(); } }}
+                        />
+                        <button
+                          type="button"
+                          onClick={savePfiLabel}
+                          className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors"
+                        >
+                          Add
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                </div> */}
+
+                {/* ── Codes ────────────────────────────────────────── */}
+                {/* <div className="border-t border-slate-100" />
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
+                      <Tag size={11} className="text-purple-400" /> PFI Codes
                     </span>
                     {tripCodes.map(code => {
                       const count = Object.values(saleTripMap).filter(v => v === code).length;
@@ -1744,7 +2635,7 @@ export default function DeliverySalesLedger() {
                       );
                     })}
                     {tripCodes.length === 0 && (
-                      <span className="text-xs text-slate-400 italic">No codes yet</span>
+                      <span className="text-xs text-slate-400">No codes yet</span>
                     )}
                     {!readOnly && (
                       <span className="inline-flex items-center gap-1 ml-1">
@@ -1765,15 +2656,17 @@ export default function DeliverySalesLedger() {
                       </span>
                     )}
                   </div>
-                </div>
+                </div> */}
 
                 {/* ── Results summary line ─────────────────────────── */}
-                <p className="text-xs text-slate-400">
-                  {filteredSales.length === allSales.length
-                    ? <>Showing all <strong className="text-slate-600">{allSales.length}</strong> entries for <strong className="text-slate-600">{periodLabel}</strong>.</>
-                    : <>Showing <strong className="text-slate-600">{filteredSales.length}</strong> of <strong className="text-slate-600">{allSales.length}</strong> total entries · <strong className="text-slate-600">{periodLabel}</strong>. Adjust or clear filters to see more.</>
+                {/* <p className="text-xs text-slate-400">
+                  {filteredLedgerGroups.length === ledgerGroups.length
+                    ? <>Showing all <strong className="text-slate-600">{ledgerGroups.length}</strong> rows for <strong className="text-slate-600">{periodLabel}</strong>.</>
+                    : <>Showing <strong className="text-slate-600">{filteredLedgerGroups.length}</strong> of <strong className="text-slate-600">{ledgerGroups.length}</strong> total rows · <strong className="text-slate-600">{periodLabel}</strong>. Adjust or clear filters to see more.</>
                   }
-                </p>
+                </p> */}
+
+                
 
               </div>
             </div>
@@ -1789,383 +2682,238 @@ export default function DeliverySalesLedger() {
                     <Skeleton key={i} className="h-12 w-full rounded" />
                   ))}
                 </div>
-              ) : filteredSales.length === 0 ? (
+              ) : filteredLedgerGroups.length === 0 ? (
                 <div className="p-10 text-center">
                   <Truck className="mx-auto text-slate-300 mb-3" size={40} />
-                  <p className="text-slate-500 font-medium">No payment entries found</p>
+                  <p className="text-slate-500 font-medium">No sales ledger rows found</p>
                   <p className="text-sm text-slate-400 mt-1">
-                    {allSales.length > 0
+                    {ledgerGroups.length > 0
                       ? 'Adjust your filters or period.'
-                      : 'Click "Record Payment" to add the first entry.'}
+                      : 'Allocate trucks in inventory or click "Record Payment" to create the first row.'}
                   </p>
                 </div>
               ) : (
-                <>
-                  {selectedRows.size > 0 && (
-                    <div className="bg-purple-50 border-b border-purple-200 px-4 py-2.5 flex flex-wrap items-center gap-3">
-                      <span className="text-xs font-semibold text-purple-700">
-                        {selectedRows.size} {selectedRows.size === 1 ? 'entry' : 'entries'} selected
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-purple-600">Assign trip code:</span>
-                        <select
-                          title="Assign trip code"
-                          value={bulkTripCode}
-                          onChange={e => setBulkTripCode(e.target.value)}
-                          className="h-7 text-xs rounded border border-purple-300 bg-white px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
-                        >
-                          <option value="">Select…</option>
-                          {tripCodes.map(c => <option key={c} value={c}>{c}</option>)}
-                          <option value="__remove__">— Remove tag</option>
-                        </select>
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs bg-purple-600 hover:bg-purple-700 px-3 py-0"
-                          disabled={!bulkTripCode}
-                          onClick={bulkAssignTripCode}
-                        >
-                          Apply
-                        </Button>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRows(new Set())}
-                        className="ml-auto text-xs text-purple-500 hover:text-purple-700 flex items-center gap-1 transition-colors"
-                      >
-                        <X size={11} /> Deselect all
-                      </button>
-                    </div>
-                  )}
                   <div className="overflow-x-auto">
-                  <Table className="text-sm">
-                    <TableHeader>
-                      <TableRow className="bg-slate-50/80">
-                        <TableHead className="w-[36px] pl-3">
-                          <input
-                            type="checkbox"
-                            className="rounded border-slate-300 cursor-pointer"
-                            checked={filteredSales.length > 0 && filteredSales.every(s => selectedRows.has(s.id))}
-                            onChange={e => {
-                              if (e.target.checked) setSelectedRows(new Set(filteredSales.map(s => s.id)));
-                              else setSelectedRows(new Set());
-                            }}
-                            title="Select all visible"
-                          />
-                        </TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[48px]">S/N</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Truck</TableHead>
-                        <TableHead className="font-semibold text-purple-700">Trip Code</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Depot</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Destination</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Customer</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Quantity</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-right">Rate</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-right">Expected</TableHead>
-                        <TableHead className="font-semibold text-emerald-700 text-right">Payment</TableHead>
-                        <TableHead className="font-semibold text-red-700 text-right">Balance</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Payer</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Bank</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Paid On</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Remarks</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Entered By</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[80px]">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(() => {
-                        let globalIdx = 0;
-                        const rows: React.ReactNode[] = [];
+                    <Table className="text-sm">
+                      <TableHeader>
+                        <TableRow className="bg-slate-50/80">
+                          <TableHead className="font-semibold text-slate-700 w-[48px] min-w-[48px] whitespace-nowrap">S/N</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[110px] min-w-[110px] whitespace-nowrap">PFI</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Truck No.</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Customer</TableHead>
+                          {/* <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead> */}
+                          {/* <TableHead className="font-semibold text-slate-700">Depot</TableHead> */}
+                          <TableHead className="font-semibold text-slate-700 w-[150px] min-w-[150px] whitespace-nowrap">Destination</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[130px] min-w-[130px] whitespace-nowrap">Quantity</TableHead>
+                          <TableHead className="font-semibold text-slate-700 text-right w-[120px] min-w-[120px] whitespace-nowrap">Rate</TableHead>
+                          <TableHead className="font-semibold text-slate-700 text-right w-[130px] min-w-[130px] whitespace-nowrap">Expected</TableHead>
+                          <TableHead className="font-semibold text-emerald-700 text-right w-[130px] min-w-[130px] whitespace-nowrap">Payment</TableHead>
+                          <TableHead className="font-semibold text-red-700 text-right w-[130px] min-w-[130px] whitespace-nowrap">Balance</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">Payer</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Bank</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Paid On</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(() => {
+                          let serial = 0;
+                          const rows: React.ReactNode[] = [];
 
-                        groupedByCycle.forEach((entries, cycleKey) => {
-                          const isCollapsed = collapsedTrucks.has(cycleKey);
-                          const firstEntry = entries[0];
-                          const truckNum = firstEntry?.truck_number || cycleKey.split('||')[0];
-                          const cycleInfo = cycleNumberMap.get(cycleKey);
+                          filteredLedgerGroups.forEach(group => {
+                            const theme = getCodeTheme(group.code);
+                            const hasSetupDetails = !!(group.customerId && group.location && group.quantity && (group.expected > 0 || group.isFillingStation));
 
-                          // Per-cycle totals for the group header
-                          const perCustMaxSv  = new Map<number, number>();
-                          const perCustMaxQty = new Map<number, number>();
-                          let cyclePaid = 0;
-                          entries.forEach(s => {
-                            const sv = toNum(s.sales_value);
-                            const q  = toNum(s.quantity);
-                            if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
-                            if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-                            cyclePaid += toNum(s.payment_amount);
-                          });
-                          let cycleExpected = 0; perCustMaxSv.forEach(v => { cycleExpected += v; });
-                          let cycleQty = 0;      perCustMaxQty.forEach(v => { cycleQty += v; });
-                          const cycleBalance = cycleExpected - cyclePaid;
-
-                          // ── Cycle group header row ──────────────────────────
-                          rows.push(
-                            <TableRow
-                              key={`group-${cycleKey}`}
-                              className="bg-slate-100 hover:bg-slate-200/70 cursor-pointer select-none border-t-2 border-slate-300"
-                              onClick={() => toggleTruck(cycleKey)}
-                            >
-                              {/* Checkbox — group select */}
-                              <TableCell className="pl-3" onClick={e => e.stopPropagation()}>
-                                <input
-                                  type="checkbox"
-                                  className="rounded border-slate-300 cursor-pointer"
-                                  checked={entries.length > 0 && entries.every(s => selectedRows.has(s.id))}
-                                  onChange={e => {
-                                    setSelectedRows(prev => {
-                                      const next = new Set(prev);
-                                      if (e.target.checked) entries.forEach(s => next.add(s.id));
-                                      else entries.forEach(s => next.delete(s.id));
-                                      return next;
-                                    });
-                                  }}
-                                  title="Select all in this group"
-                                />
-                              </TableCell>
-                              {/* S/N — collapse toggle */}
-                              <TableCell className="w-[48px]">
-                                <span className="text-slate-500 text-xs">{isCollapsed ? '▶' : '▼'}</span>
-                              </TableCell>
-                              {/* Truck */}
-                              <TableCell className="font-bold text-slate-900 whitespace-nowrap">
-                                <div className="flex items-center gap-2">
-                                  <Truck size={14} className="text-slate-500" />
-                                  {truckNum}
-                                  {cycleInfo && cycleInfo.totalCycles > 1 && (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200">
-                                      Cycle {cycleInfo.cycleNum}
+                            serial += 1;
+                            rows.push(
+                              <TableRow
+                                key={`${group.key}-main`}
+                                className={`hover:bg-slate-50/50 border-b border-slate-200/70 border-l-[3px] ${theme ? theme.row : 'border-l-transparent'}`}
+                              >
+                                <TableCell className="text-slate-500 text-center w-[48px] min-w-[48px] whitespace-nowrap">{serial}</TableCell>
+                                <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap">
+                                  {group.code ? (
+                                    <span className="text-sm font-semibold text-slate-700">{group.code}</span>
+                                  ) : <span className="text-slate-300">—</span>}
+                                </TableCell>
+                                <TableCell className="font-semibold text-slate-900 w-[120px] min-w-[120px] whitespace-nowrap">
+                                  <div className="flex items-center gap-1.5">
+                                    <Truck size={13} className="text-amber-700" />
+                                    {group.truckNumber || '—'}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="font-semibold text-slate-900 uppercase w-[180px] min-w-[180px] whitespace-nowrap">{group.customerName || '—'}</TableCell>
+                                <TableCell className="text-slate-700 text-sm w-[150px] min-w-[150px] uppercase whitespace-nowrap">{group.location || '—'}</TableCell>
+                                <TableCell className="text-slate-700 w-[130px] min-w-[130px] whitespace-nowrap">{group.quantity > 0 ? `${fmtQty(group.quantity)} Litres` : '—'}</TableCell>
+                                <TableCell className="text-right text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">{group.rate > 0 ? fmt(group.rate) : '—'}</TableCell>
+                                <TableCell className="text-right font-medium text-slate-800 w-[130px] min-w-[130px] whitespace-nowrap">{group.expected > 0 ? fmt(group.expected) : ' '}</TableCell>
+                                <TableCell className="text-right font-bold text-emerald-700 w-[130px] min-w-[130px] whitespace-nowrap">
+                                  {fmt(toNum(group.totalPaid))}
+                                </TableCell>
+                                <TableCell className={`text-right font-bold w-[130px] min-w-[130px] whitespace-nowrap ${group.balance > 0 ? 'text-red-600' : group.balance < 0 ? 'text-blue-600' : group.expected > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                  {group.expected > 0
+                                    ? (group.balance === 0 ? '₦0' : group.balance > 0 ? fmt(group.balance) : `+${fmt(Math.abs(group.balance))}`)
+                                    : (group.isFillingStation ? ' ' : ' ')}
+                                </TableCell>
+                                <TableCell className="text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">
+                                  {group.payments.length === 0 ? (
+                                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                                      No payment yet
                                     </span>
-                                  )}
-                                </div>
-                              </TableCell>
-                              {/* Trip Code */}
-                              <TableCell>
-                                {(() => {
-                                  const cycleTripCode = entries.find(s => saleTripMap[s.id])
-                                    ? (saleTripMap[entries.find(s => saleTripMap[s.id])!.id] || '')
-                                    : '';
-                                  return cycleTripCode
-                                    ? (
-                                      <button
-                                        type="button"
-                                        onClick={e => { e.stopPropagation(); setTripCodeFilter(prev => prev === cycleTripCode ? 'all' : cycleTripCode); }}
-                                        title={`Filter by trip code ${cycleTripCode}`}
-                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border transition-colors ${
-                                          tripCodeFilter === cycleTripCode
-                                            ? 'bg-purple-700 text-white border-purple-700'
-                                            : 'bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-200'
-                                        }`}
-                                      >
-                                        <Tag size={10} /> {cycleTripCode}
-                                      </button>
-                                    )
-                                    : <span className="text-slate-400 text-xs">—</span>;
-                                })()}
-                              </TableCell>
-                              {/* Date Loaded */}
-                              <TableCell className="text-slate-600 text-sm font-medium whitespace-nowrap">
-                                {firstEntry?.date_loaded ? format(parseISO(firstEntry.date_loaded), 'dd MMM yyyy') : '—'}
-                              </TableCell>
-                              {/* Depot */}
-                              <TableCell className="text-slate-600 text-sm font-medium">
-                                {firstEntry?.depot_loaded || '—'}
-                              </TableCell>
-                              {/* Destination */}
-                              <TableCell className="text-slate-600 text-sm">
-                                {[...new Set(entries.map(s => s.location || ''))].filter(Boolean).join(', ') || '—'}
-                              </TableCell>
-                              {/* Customer */}
-                              <TableCell className="text-slate-700 text-sm">
-                                {[...new Set(entries.map(s => s.customer_name || customerMap.get(s.customer)?.customer_name || ''))].filter(Boolean).join(', ') || '—'}
-                              </TableCell>
-                              {/* Quantity */}
-                              <TableCell className="text-slate-700 text-sm font-medium">
-                                {cycleQty > 0 ? `${fmtQty(cycleQty)} L` : '—'}
-                              </TableCell>
-                              {/* Rate — blank for group */}
-                              <TableCell />
-                              {/* Expected */}
-                              <TableCell className="text-right font-bold text-slate-800">
-                                {cycleExpected > 0 ? fmt(cycleExpected) : '—'}
-                              </TableCell>
-                              {/* Payment */}
-                              <TableCell className="text-right font-bold text-emerald-700">
-                                {cyclePaid > 0 ? fmt(cyclePaid) : '—'}
-                              </TableCell>
-                              {/* Balance */}
-                              <TableCell className={`text-right font-bold ${
-                                cycleBalance > 0 ? 'text-red-600' : cycleBalance < 0 ? 'text-blue-600' : cycleExpected > 0 ? 'text-emerald-600' : 'text-slate-400'
-                              }`}>
-                                {cycleExpected > 0
-                                  ? (cycleBalance === 0 ? 'Fully Paid ✓' : cycleBalance > 0 ? fmt(cycleBalance) : `+${fmt(Math.abs(cycleBalance))} over`)
-                                  : '—'}
-                              </TableCell>
-                              {/* Payer, Bank, Paid On, Remarks, Entered By, Actions — blank */}
-                              <TableCell colSpan={6} />
-                            </TableRow>
-                          );
+                                  ) : ' '}
+                                </TableCell>
+                                <TableCell className="text-sm w-[180px] min-w-[180px] whitespace-nowrap"> </TableCell>
+                                <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm"> </TableCell>
+                                <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap">
+                                  <div className="flex gap-1 items-center">
+                                    {!readOnly && (
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-8 text-xs gap-1 border-red-200 text-red-600 hover:bg-red-50"
+                                          title="Delete truck from records (including linked payments)"
+                                          onClick={() => {
+                                            if (!group.loadingId && group.payments.length === 0) {
+                                              toast({ title: 'No linked records found for this truck row', variant: 'destructive' });
+                                              return;
+                                            }
+                                            setDeleteTarget({
+                                              ids: group.payments.map(p => p.id),
+                                              loadingId: group.loadingId,
+                                              mode: 'truck',
+                                              label: `${group.truckNumber} — delete truck${group.payments.length > 0 ? ` and ${group.payments.length} payment${group.payments.length > 1 ? 's' : ''}` : ''}`,
+                                            });
+                                          }}
+                                        >
+                                          <Trash2 size={12} /> Delete
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-8 text-xs gap-1 border-slate-300"
+                                          onClick={() => openSetupDialog(group)}
+                                          title="Assign customer, destination, code and transfer options"
+                                        >
+                                          <UserPlus size={12} /> Set Up
+                                        </Button>
+                                        {hasSetupDetails ? (
+                                          <>
+                                            <Button
+                                              size="sm"
+                                              className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                              onClick={() => openQuickPaymentDialog(group)}
+                                              title="Quick payment for this customer"
+                                            >
+                                              <Plus size={12} /> Add Payment
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="h-8 text-xs gap-1"
+                                              onClick={() => group.loadingId ? openPaymentDialog(String(group.loadingId)) : openPaymentDialog()}
+                                              title="Add a different customer to this truck cycle"
+                                            >
+                                              <UserPlus size={12} /> New Customer
+                                            </Button>
+                                          </>
+                                        ) : (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8 text-xs gap-1"
+                                            onClick={() => group.loadingId ? openPaymentDialog(String(group.loadingId)) : openPaymentDialog()}
+                                          >
+                                            <Plus size={12} /> Add Payment
+                                          </Button>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
 
-                          // ── Individual entry rows (hidden when collapsed) ───
-                          if (!isCollapsed) {
-                            entries.forEach(s => {
-                              globalIdx += 1;
-                              const custName = s.customer_name || customerMap.get(s.customer)?.customer_name || `#${s.customer}`;
-                              const custObj  = customerMap.get(s.customer);
-                              const isFSRow  = isFillingStation(custObj);
-                              const sv       = toNum(s.sales_value);
-                              const pa       = toNum(s.payment_amount);
-                              const balance  = rowBalances.get(s.id) ?? (sv - pa);
-                              const showBalance = !(isFSRow && sv === 0);
-                              const isPaidOff   = balance <= 0 && sv > 0;
+                            let cumulative = 0;
+                            group.payments.forEach(payment => {
+                              cumulative += toNum(payment.payment_amount);
+                              const balanceAfter = group.expected - cumulative;
+                              const bankParts = payment.bank ? payment.bank.split(' · ') : null;
 
                               rows.push(
                                 <TableRow
-                                  key={s.id}
-                                  className={`hover:bg-slate-50/60 transition-colors ${
-                                    pa > 0 ? 'bg-emerald-50/30' : ''
-                                  } ${isPaidOff ? 'bg-green-50/40' : ''}`}
+                                  key={`payment-${payment.id}`}
+                                  className={`bg-slate-50/40 hover:bg-slate-100/60 border-b border-slate-200/60 border-l-[3px] ${theme ? theme.row : 'border-l-transparent'}`}
                                 >
-                                  {/* Checkbox */}
-                                  <TableCell className="pl-3">
-                                    <input
-                                      type="checkbox"
-                                      title="Select row"
-                                      className="rounded border-slate-300 cursor-pointer"
-                                      checked={selectedRows.has(s.id)}
-                                      onChange={e => {
-                                        setSelectedRows(prev => {
-                                          const next = new Set(prev);
-                                          if (e.target.checked) next.add(s.id); else next.delete(s.id);
-                                          return next;
-                                        });
-                                      }}
-                                    />
+                                  <TableCell className="text-slate-500 text-center w-[48px] min-w-[48px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="font-semibold text-slate-900 w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="font-semibold text-slate-900 uppercase w-[180px] min-w-[180px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="text-slate-700 text-sm w-[150px] min-w-[150px] uppercase whitespace-nowrap"></TableCell>
+                                  <TableCell className="text-slate-700 w-[130px] min-w-[130px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="text-right text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="text-right font-medium text-slate-800 w-[130px] min-w-[130px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="text-right font-bold text-emerald-700 w-[130px] min-w-[130px] whitespace-nowrap">{fmt(toNum(payment.payment_amount))}</TableCell>
+                                  <TableCell className={`text-right font-bold w-[130px] min-w-[130px] whitespace-nowrap ${balanceAfter > 0 ? 'text-red-600' : balanceAfter < 0 ? 'text-blue-600' : group.expected > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                    {group.expected > 0
+                                      ? (balanceAfter === 0 ? '₦0' : balanceAfter > 0 ? fmt(balanceAfter) : `+${fmt(Math.abs(balanceAfter))}`)
+                                      : (group.isFillingStation ? 'Open' : ' ')}
                                   </TableCell>
-                                  {/* S/N */}
-                                  <TableCell className="text-center text-slate-400 pl-6">{globalIdx}</TableCell>
-                                  {/* Truck — indented, already shown in header */}
-                                  <TableCell className="text-slate-500 pl-6">
-                                    <span className="text-xs text-slate-400">{s.truck_number}</span>
-                                  </TableCell>
-                                  {/* Trip Code */}
-                                  <TableCell>
-                                    {saleTripMap[s.id]
-                                      ? (
-                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700">
-                                          <Tag size={9} /> {saleTripMap[s.id]}
-                                        </span>
-                                      )
-                                      : <span className="text-slate-300 text-xs">—</span>
-                                    }
-                                  </TableCell>
-                                  {/* Date Loaded */}
-                                  <TableCell className="text-slate-600 whitespace-nowrap text-sm">
-                                    {s.date_loaded ? format(parseISO(s.date_loaded), 'dd MMM yyyy') : '—'}
-                                  </TableCell>
-                                  {/* Depot */}
-                                  <TableCell className="text-slate-700">{s.depot_loaded || '—'}</TableCell>
-                                  {/* Destination */}
-                                  <TableCell className="text-slate-700 whitespace-nowrap text-sm">{s.location || '—'}</TableCell>
-                                  {/* Customer */}
-                                  <TableCell className="font-medium text-slate-900 whitespace-nowrap">{custName}</TableCell>
-                                  {/* Quantity */}
-                                  <TableCell className="text-slate-700">
-                                    {toNum(s.quantity) > 0 ? `${fmtQty(toNum(s.quantity))} L` : '—'}
-                                  </TableCell>
-                                  {/* Rate */}
-                                  <TableCell className="text-right text-slate-700">
-                                    {toNum(s.rate) > 0 ? fmt(toNum(s.rate)) : '—'}
-                                  </TableCell>
-                                  {/* Expected */}
-                                  <TableCell className="text-right font-medium text-slate-800">
-                                    {sv > 0 ? fmt(sv) : '—'}
-                                  </TableCell>
-                                  {/* Payment */}
-                                  <TableCell className="text-right font-bold text-emerald-700">
-                                    {pa > 0 ? fmt(pa) : '—'}
-                                  </TableCell>
-                                  {/* Balance */}
-                                  <TableCell className={`text-right font-bold ${
-                                    !showBalance ? 'text-slate-400' :
-                                    balance > 0 ? 'text-red-600' : balance < 0 ? 'text-blue-600' : 'text-emerald-600'
-                                  }`}>
-                                    {!showBalance ? '—' : balance !== 0 ? fmt(balance) : (sv > 0 ? 'Fully Paid ✓' : '—')}
-                                  </TableCell>
-                                  {/* Payer */}
-                                  <TableCell className="text-slate-700 whitespace-nowrap">
-                                    {s.payer_name ? (
+                                  <TableCell className="text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">
+                                    {payment.payer_name ? (
                                       <div>
-                                        <p className="font-medium uppercase">{s.payer_name}</p>
-                                        {s.phone_number && <p className="text-xs text-slate-500">{s.phone_number}</p>}
+                                        <p className="font-medium uppercase">{payment.payer_name}</p>
+                                        {payment.phone_number && <p className="text-xs text-slate-500">{payment.phone_number}</p>}
                                       </div>
-                                    ) : s.phone_number
-                                      ? <span className="text-xs text-slate-500">{s.phone_number}</span>
-                                      : <span className="text-slate-400">—</span>
-                                    }
+                                    ) : payment.phone_number ? <span className="text-xs text-slate-500">{payment.phone_number}</span> : ' '}
                                   </TableCell>
-                                  {/* Bank */}
-                                  <TableCell className="text-sm max-w-[160px]">
-                                    {s.bank ? (() => {
-                                      const parts = s.bank.split(' · ');
-                                      return (
-                                        <div>
-                                          <p className="font-semibold text-black">{parts[0]}</p>
-                                          {parts[1] && <p className="text-xs text-slate-600">{parts[1]}</p>}
-                                        </div>
-                                      );
-                                    })() : <span className="text-slate-400">—</span>}
+                                  <TableCell className="text-sm w-[180px] min-w-[180px] whitespace-nowrap">
+                                    {bankParts ? (
+                                      <div>
+                                        <p className="font-semibold text-black">{bankParts[0]}</p>
+                                        {bankParts[1] && <p className="text-xs text-slate-600">{bankParts[1]}</p>}
+                                      </div>
+                                    ) : ' '}
                                   </TableCell>
-                                  {/* Paid On */}
-                                  <TableCell className="text-slate-600 whitespace-nowrap text-sm">
-                                    {s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd MMM yyyy') : '—'}
+                                  <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm">
+                                    {payment.date_of_payment ? format(parseISO(payment.date_of_payment), 'dd MMM yyyy') : ' '}
                                   </TableCell>
-                                  {/* Remarks */}
-                                  <TableCell>
-                                    {s.remarks
-                                      ? <span className={`inline-block px-2 py-0.5 rounded text-sm font-medium ${
-                                          s.remarks.toLowerCase().includes('full') ? 'text-emerald-700 bg-emerald-50' :
-                                          s.remarks.toLowerCase().includes('partial') ? 'text-amber-700 bg-amber-50' :
-                                          'text-slate-600 bg-slate-50'
-                                        }`}>{s.remarks}</span>
-                                      : <span className="text-slate-400">—</span>
-                                    }
-                                  </TableCell>
-                                  {/* Entered By */}
-                                  <TableCell className="text-slate-600 whitespace-nowrap text-sm">
-                                    {s.entered_by || '—'}
-                                  </TableCell>
-                                  {/* Actions */}
-                                  <TableCell>
-                                    <div className="flex gap-1">
+                                  <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap">
+                                    <div className="flex gap-1 items-center">
                                       {!readOnly && (
-                                        <Button size="sm" variant="ghost"
-                                          className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
-                                          title="Edit entry" onClick={() => openEditDialog(s)}>
-                                          <Pencil size={14} />
-                                        </Button>
-                                      )}
-                                      {!readOnly && (
-                                        <Button size="sm" variant="ghost"
-                                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                          title="Delete entry"
-                                          onClick={() => setDeleteTarget({ id: s.id, label: `${s.truck_number} — ${pa > 0 ? fmt(pa) : 'entry'}` })}>
-                                          <Trash2 size={14} />
-                                        </Button>
+                                        <>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8 text-xs gap-1 border-slate-300"
+                                            title="Edit entry"
+                                            onClick={() => openEditDialog(payment)}
+                                          >
+                                            <Pencil size={12} /> Edit
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8 text-xs gap-1 border-red-200 text-red-600 hover:bg-red-50"
+                                            title="Delete entry"
+                                            onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} — ${fmt(toNum(payment.payment_amount))}` })}
+                                          >
+                                            <Trash2 size={12} /> Delete
+                                          </Button>
+                                        </>
                                       )}
                                     </div>
                                   </TableCell>
                                 </TableRow>
                               );
                             });
-                          }
-                        });
+                          });
 
-                        return rows;
-                      })()}
-                    </TableBody>
-                  </Table>
-                </div>
-                </>
+                          return rows;
+                        })()}
+                      </TableBody>
+                    </Table>
+                  </div>
               )}
             </div>
 
@@ -2185,13 +2933,42 @@ export default function DeliverySalesLedger() {
         <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-100">
-                <Banknote className="w-5 h-5 text-emerald-600" />
+              <div className={`p-2 rounded-lg ${assignMode ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+                {assignMode
+                  ? <UserPlus className="w-5 h-5 text-amber-600" />
+                  : <Banknote className="w-5 h-5 text-emerald-600" />}
               </div>
-              <div>
-                <h2 className="text-lg font-semibold">Record Payment</h2>
+              <div className="flex-1">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h2 className="text-lg font-semibold">
+                    {assignMode ? 'Assign Customer to Cycle' : 'Record Payment'}
+                  </h2>
+                  {/* Mode toggle */}
+                  <div className="flex items-center rounded-md border border-slate-200 overflow-hidden text-xs font-medium shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setAssignMode(false)}
+                      className={`px-3 py-1.5 transition-colors ${
+                        !assignMode ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Record Payment
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssignMode(true)}
+                      className={`px-3 py-1.5 transition-colors ${
+                        assignMode ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      Assign Only
+                    </button>
+                  </div>
+                </div>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  Select a loaded truck, then add one row per customer with their rate and payment details.
+                  {assignMode
+                    ? 'Link customers to this truck cycle now — add rate & payment later when they pay.'
+                    : 'Select a loaded truck, then add one row per customer with their rate and payment details.'}
                 </p>
               </div>
             </DialogTitle>
@@ -2216,9 +2993,21 @@ export default function DeliverySalesLedger() {
                   const custName = t.customer_name || (t.customer ? customerMap.get(t.customer)?.customer_name : '') || '';
                   const qty = toNum(t.quantity_allocated);
                   const statusLabel = t.loading_status === 'offloaded' ? ' [Offloaded]' : '';
+                  const cycleKey = getCycleKey(t.truck_number || '', t.date_allocated || '');
+                  const cycleInfo = cycleNumberMap.get(cycleKey);
+                  const cycle = cyclePaymentSummary.get(cycleKey);
+                  const outstanding = cycle ? cycle.totalExpected - cycle.totalPaid : null;
+                  const cycleLabel = cycleInfo
+                    ? `C${cycleInfo.cycleNum}/${cycleInfo.totalCycles}`
+                    : 'C1/1';
+                  const dateLabel = normalizeCycleDate(t.date_allocated || '');
+                  const pfiLabel = t.pfi_number ? ` | ${t.pfi_number}` : '';
+                  const outstandingLabel = outstanding !== null
+                    ? (outstanding > 0 ? ` | O/S ${fmt(outstanding)}` : ' | Settled')
+                    : '';
                   return (
                     <option key={t.id} value={String(t.id)}>
-                      {plate} — {fmtQty(qty)} L{custName ? ` → ${custName}` : ''}{statusLabel}
+                      {plate} | {cycleLabel} | {dateLabel || '-'}{pfiLabel} | {fmtQty(qty)} L{custName ? ` → ${custName}` : ''}{outstandingLabel}{statusLabel}
                     </option>
                   );
                 })}
@@ -2283,22 +3072,22 @@ export default function DeliverySalesLedger() {
             )}
 
             {/* ── Cycle / Date Loaded selector ──────────────────────── */}
-            {/* ── Trip Code selector ─────────────────────────────── */}
+            {/* ── Code selector ──────────────────────────────────── */}
             {dialogTruckNumber && tripCodes.length > 0 && (
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Tag size={14} className="text-purple-500" /> Trip Code
-                  <span className="text-xs text-slate-400 font-normal">(optional — tag these entries with a trip ID)</span>
+                  <Tag size={14} className="text-purple-500" /> Code
+                  <span className="text-xs text-slate-400 font-normal">(optional — group these entries under a shared code)</span>
                 </Label>
                 <select
-                  aria-label="Select trip code"
+                  aria-label="Select code"
                   value={dialogTripCode}
                   onChange={e => setDialogTripCode(e.target.value)}
                   className={`h-10 w-full rounded-md border bg-background px-3 py-2 text-sm ${
                     dialogTripCode ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold' : 'border-input'
                   }`}
                 >
-                  <option value="">No trip code (skip)</option>
+                  <option value="">No code (skip)</option>
                   {tripCodes.map(code => (
                     <option key={code} value={code}>{code}</option>
                   ))}
@@ -2403,18 +3192,28 @@ export default function DeliverySalesLedger() {
                       </div>
                     </div>
 
-                    {/* Filling station hint — no rate/payment fields shown */}
-                    {isFS && (
+                    {/* Assign-only hint */}
+                    {assignMode && (
                       <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
-                        <Fuel size={14} className="text-amber-500 mt-0.5 shrink-0" />
+                        <UserPlus size={14} className="text-amber-500 mt-0.5 shrink-0" />
                         <p className="text-xs text-amber-700">
-                          <span className="font-semibold">Filling Station</span> — only quantity is recorded now. You can edit this entry later to add the rate, total revenue and payment details once the station has sold.
+                          <><span className="font-semibold">Assign Only</span> — customer linked to this cycle now. Edit the entry later to add rate and payment once they pay.</>
+
+                                            {/* Filling-station hint (non-assign mode) */}
+                                            {!assignMode && isFS && (
+                                              <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                                                <Fuel size={14} className="text-amber-500 mt-0.5 shrink-0" />
+                                                <p className="text-xs text-amber-700">
+                                                  <span className="font-semibold">Filling Station</span> — quantity allocated here. Rate and daily payments are recorded on the Filling Stations page.
+                                                </p>
+                                              </div>
+                                            )}
                         </p>
                       </div>
                     )}
 
-                    {/* Rate + Expected + Payment — regular customers only */}
-                    {!isFS && (
+                    {/* Rate + Expected + Payment — payment mode */}
+                    {!assignMode && !isFS && (
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-slate-600 flex items-center gap-1">
@@ -2455,8 +3254,8 @@ export default function DeliverySalesLedger() {
                       </div>
                     )}
 
-                    {/* Payment date + Payer + Bank — regular customers only */}
-                    {!isFS && (
+                    {/* Payment date + Payer + Bank — payment mode */}
+                    {!assignMode && !isFS && (
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-slate-600">
@@ -2592,6 +3391,214 @@ export default function DeliverySalesLedger() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!setupTarget} onOpenChange={open => { if (!open) setSetupTarget(null); }}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-amber-100">
+                <UserPlus className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Row Setup</h2>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">
+                  {setupTarget ? `${setupTarget.truckNumber} · ${setupTarget.dateLoaded ? format(parseISO(setupTarget.dateLoaded), 'dd MMM yyyy') : 'No date'}` : 'Assign customer and destination'}
+                </p>
+              </div>
+            </DialogTitle>
+            <DialogDescription className="sr-only">Setup customer, destination, code and transfer for selected row</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Customer</Label>
+                <select
+                  aria-label="Setup customer"
+                  value={setupCustomer}
+                  onChange={e => setSetupCustomer(e.target.value)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select customer…</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label>Destination</Label>
+                <Input
+                  value={setupDestination}
+                  onChange={e => setSetupDestination(e.target.value)}
+                  placeholder="e.g. Kano, Abuja"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Code</Label>
+              <select
+                aria-label="Setup code"
+                value={setupCode}
+                onChange={e => setSetupCode(e.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">No code</option>
+                {tripCodes.map(code => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+              </select>
+            </div>
+
+            {setupTarget && setupTarget.balance < 0 && (
+              <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Transfer Overpayment</p>
+                <p className="text-xs text-blue-700">Available: {fmt(Math.abs(setupTarget.balance))}</p>
+                <div className="space-y-1">
+                  <Label>Transfer To</Label>
+                  <select
+                    aria-label="Setup transfer target"
+                    value={setupTransferTargetKey}
+                    onChange={e => setSetupTransferTargetKey(e.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Select target row…</option>
+                    {ledgerGroups
+                      .filter(group => group.key !== setupTarget.key)
+                      .map(group => (
+                        <option key={group.key} value={group.key}>
+                          {group.truckNumber} · {group.customerName || 'Customer pending'} · Bal {group.expected > 0 ? fmt(group.balance) : '—'}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Transfer Amount</Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={setupTransferAmount}
+                    onChange={e => setSetupTransferAmount(formatWithCommas(e.target.value))}
+                    placeholder="e.g. 1,000,000"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    onClick={handleSetupTransfer}
+                    disabled={setupTransferSaving}
+                    className="gap-2 bg-blue-600 hover:bg-blue-700"
+                  >
+                    {setupTransferSaving ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
+                    {setupTransferSaving ? 'Transferring…' : 'Transfer Now'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSetupTarget(null)} disabled={setupSaving}>Cancel</Button>
+            <Button onClick={handleSaveSetup} disabled={setupSaving} className="gap-2">
+              {setupSaving ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+              {setupSaving ? 'Saving…' : 'Save Setup'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!quickPaymentTarget} onOpenChange={open => { if (!open) setQuickPaymentTarget(null); }}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-100">
+                <Banknote className="w-5 h-5 text-emerald-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Add Payment</h2>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">
+                  {quickPaymentTarget
+                    ? `${quickPaymentTarget.truckNumber} · ${quickPaymentTarget.customerName || 'Customer pending'}${quickPaymentTarget.code ? ` · ${quickPaymentTarget.code}` : ''}`
+                    : 'Record another payment for this row'}
+                </p>
+              </div>
+            </DialogTitle>
+            <DialogDescription className="sr-only">Record a follow-up payment for an existing row</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {quickPaymentTarget && (
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-slate-400">Expected</p>
+                  <p className="font-semibold text-slate-800">{quickPaymentTarget.expected > 0 ? fmt(quickPaymentTarget.expected) : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Current Balance</p>
+                  <p className={`font-semibold ${quickPaymentTarget.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                    {quickPaymentTarget.expected > 0 ? (quickPaymentTarget.balance > 0 ? fmt(quickPaymentTarget.balance) : 'Fully Paid ✓') : '—'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <Label>Amount Paid</Label>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={quickPaymentForm.payment_amount}
+                onChange={e => setQuickPaymentForm(prev => ({ ...prev, payment_amount: formatWithCommas(e.target.value) }))}
+                placeholder="e.g. 5,000,000"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Payer's Name</Label>
+                <Input
+                  value={quickPaymentForm.payer_name}
+                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, payer_name: e.target.value.replace(/[0-9]/g, '') }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Phone Number</Label>
+                <Input
+                  value={quickPaymentForm.phone_number}
+                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, phone_number: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Bank Account</Label>
+              <select
+                aria-label="Quick payment bank account"
+                value={quickPaymentForm.bank_account_id}
+                onChange={e => setQuickPaymentForm(prev => ({ ...prev, bank_account_id: e.target.value }))}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Select account…</option>
+                {activeBankAccounts.map(b => (
+                  <option key={b.id} value={String(b.id)}>
+                    {b.account_number} · {b.bank_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickPaymentTarget(null)} disabled={quickPaymentSaving}>
+              Cancel
+            </Button>
+            <Button onClick={handleQuickPaymentSave} disabled={quickPaymentSaving} className="gap-2">
+              {quickPaymentSaving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+              {quickPaymentSaving ? 'Saving…' : 'Save Payment'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ═══════════════════════════════════════════════════════════════ */}
       {/* Edit Entry Dialog                                              */}
       {/* ═══════════════════════════════════════════════════════════════ */}
@@ -2614,7 +3621,6 @@ export default function DeliverySalesLedger() {
 
           {editForm && editTarget && (() => {
             const rateIsLocked = toNum(editTarget.rate) > 0;
-            const dopIsLocked  = !!editTarget.date_of_payment;
 
             // All known loading dates for this truck — from inventory records
             const truckCycleDates = truckLoadingDates.get(editTarget.truck_number) || [];
@@ -2680,21 +3686,21 @@ export default function DeliverySalesLedger() {
                 </div>
               </div>
 
-              {/* Trip Code */}
+              {/* Code */}
               {tripCodes.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs text-slate-600 flex items-center gap-1.5">
-                    <Tag size={11} className="text-purple-500" /> Trip Code
+                    <Tag size={11} className="text-purple-500" /> Code
                   </Label>
                   <select
-                    aria-label="Trip code"
+                    aria-label="Code"
                     value={editTripCode}
                     onChange={e => setEditTripCode(e.target.value)}
                     className={`h-9 w-full rounded-md border bg-background px-3 py-1 text-sm ${
                       editTripCode ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold' : 'border-input'
                     }`}
                   >
-                    <option value="">No trip code</option>
+                    <option value="">No code</option>
                     {tripCodes.map(code => (
                       <option key={code} value={code}>{code}</option>
                     ))}
@@ -2750,17 +3756,13 @@ export default function DeliverySalesLedger() {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs text-slate-600 flex items-center gap-1">
-                    Date of Payment{dopIsLocked && <FileText size={10} className="text-slate-400" />}
+                    Date of Payment
                   </Label>
                   <Input
                     type="date"
                     value={editForm.date_of_payment}
-                    disabled={dopIsLocked}
-                    onChange={e => {
-                      if (dopIsLocked) return;
-                      setEditForm(f => f ? { ...f, date_of_payment: e.target.value } : f);
-                    }}
-                    className={`h-9 text-sm ${dopIsLocked ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : ''}`}
+                    onChange={e => setEditForm(f => f ? { ...f, date_of_payment: e.target.value } : f)}
+                    className="h-9 text-sm"
                   />
                 </div>
               </div>
@@ -2821,9 +3823,14 @@ export default function DeliverySalesLedger() {
                 (() => {
                   const sv = Number(stripCommas(editForm.sales_value)) || 0;
                   const pa = Number(stripCommas(editForm.payment_amount)) || 0;
-                  // Sum all other payments for this truck+customer (excluding this entry)
+                  // Sum all other payments for this truck+customer within the same cycle only.
+                  const currentCycleKey = getCycleKey(editTarget.truck_number, editTarget.date_loaded);
                   const otherPaid = allSales
-                    .filter(s => s.id !== editTarget.id && s.truck_number === editTarget.truck_number && s.customer === editTarget.customer)
+                    .filter(s =>
+                      s.id !== editTarget.id &&
+                      s.customer === editTarget.customer &&
+                      getCycleKey(s.truck_number, s.date_loaded) === currentCycleKey,
+                    )
                     .reduce((sum, s) => sum + toNum(s.payment_amount), 0);
                   const bal = sv - pa - otherPaid;
                   return (

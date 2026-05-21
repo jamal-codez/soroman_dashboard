@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -105,6 +105,7 @@ type TruckRecord = InventoryEntry & {
   pfiLabel: string;
   product: string;
   qty: number;
+  code: string;
 };
 
 /** One customer row in the Load Trucks dialog */
@@ -182,6 +183,26 @@ const makeAllocation = (): CustomerAllocation => ({
   qty: '',
 });
 
+const CODE_PALETTE = [
+  { row: 'bg-sky-50/60 border-l-sky-300', badge: 'bg-sky-100 text-sky-800 border-sky-200' },
+  { row: 'bg-emerald-50/60 border-l-emerald-300', badge: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+  { row: 'bg-orange-50/60 border-l-orange-300', badge: 'bg-orange-100 text-orange-800 border-orange-200' },
+  { row: 'bg-violet-50/60 border-l-violet-300', badge: 'bg-violet-100 text-violet-800 border-violet-200' },
+  { row: 'bg-pink-50/60 border-l-pink-300', badge: 'bg-pink-100 text-pink-800 border-pink-200' },
+  { row: 'bg-amber-50/60 border-l-amber-300', badge: 'bg-amber-100 text-amber-800 border-amber-200' },
+  { row: 'bg-teal-50/60 border-l-teal-300', badge: 'bg-teal-100 text-teal-800 border-teal-200' },
+  { row: 'bg-indigo-50/60 border-l-indigo-300', badge: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
+];
+
+const getCodeTheme = (code: string) => {
+  if (!code) return null;
+  let hash = 0;
+  for (let index = 0; index < code.length; index += 1) {
+    hash = (hash * 31 + code.charCodeAt(index)) >>> 0;
+  }
+  return CODE_PALETTE[hash % CODE_PALETTE.length];
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════════════════════════════
@@ -199,10 +220,17 @@ export default function DeliveryInventory() {
   const [pfiFilter, setPfiFilter] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
   const [truckFilter, setTruckFilter] = useState('');
+  const [deliveryCodes, setDeliveryCodes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('dsl_trip_codes') || '[]'); } catch { return []; }
+  });
+  const [loadingCodeMap, setLoadingCodeMap] = useState<Record<number, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('dsl_loading_code_map') || '{}'); } catch { return {}; }
+  });
 
   // ── Load Trucks Dialog ──────────────────────────────────────────
   const [loadDialogOpen, setLoadDialogOpen] = useState(false);
   const [loadPfi, setLoadPfi] = useState('');
+  const [loadCode, setLoadCode] = useState('');
   const [loadDepot, setLoadDepot] = useState('');
   const [loadNotes, setLoadNotes] = useState('');
   const [selectedTruckIds, setSelectedTruckIds] = useState<Set<number>>(new Set());
@@ -221,6 +249,14 @@ export default function DeliveryInventory() {
   // ── Delete Dialog ──────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('dsl_trip_codes', JSON.stringify(deliveryCodes));
+  }, [deliveryCodes]);
+
+  useEffect(() => {
+    localStorage.setItem('dsl_loading_code_map', JSON.stringify(loadingCodeMap));
+  }, [loadingCodeMap]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Queries
@@ -351,9 +387,10 @@ export default function DeliveryInventory() {
           pfiLabel: entry.pfi_number || pfi?.pfi_number || '',
           product: entry.pfi_product || pfi?.product_name || '',
           qty: toNum(entry.quantity_allocated),
+          code: loadingCodeMap[entry.id] || '',
         };
       });
-  }, [allEntries, truckMap, customerMap, pfiMap]);
+  }, [allEntries, truckMap, customerMap, pfiMap, loadingCodeMap]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Filtering & Sorting — single unified list
@@ -414,14 +451,25 @@ export default function DeliveryInventory() {
         e.destination.toLowerCase().includes(q) ||
         e.depotDisplay.toLowerCase().includes(q) ||
         e.custName.toLowerCase().includes(q) ||
+        e.code.toLowerCase().includes(q) ||
         e.pfiLabel.toLowerCase().includes(q) ||
         e.product.toLowerCase().includes(q) ||
         (e.notes || '').toLowerCase().includes(q),
       );
     }
 
-    // Sort: Active (loaded) first, then delivered, each group by most recent date
+    const codeOrder = new Map<string, number>();
+    deliveryCodes.forEach((code, index) => codeOrder.set(code, index));
+
+    // Sort: code first, then truck alphabetically, then latest activity
     return list.sort((a, b) => {
+      const aRank = a.code ? (codeOrder.get(a.code) ?? 10_000) : 99_999;
+      const bRank = b.code ? (codeOrder.get(b.code) ?? 10_000) : 99_999;
+      if (aRank !== bRank) return aRank - bRank;
+      const codeDiff = (a.code || '').localeCompare(b.code || '');
+      if (codeDiff !== 0) return codeDiff;
+      const truckDiff = a.truckPlate.localeCompare(b.truckPlate);
+      if (truckDiff !== 0) return truckDiff;
       const statusOrder = { loaded: 0, offloaded: 1, empty: 2 };
       const statusDiff = statusOrder[a.status] - statusOrder[b.status];
       if (statusDiff !== 0) return statusDiff;
@@ -429,7 +477,7 @@ export default function DeliveryInventory() {
       const dateB = b.date_offloaded || b.date_allocated || '';
       return dateB.localeCompare(dateA);
     });
-  }, [truckRecords, statusFilter, pfiFilter, customerFilter, truckFilter, dateFrom, dateTo, searchQuery]);
+  }, [truckRecords, statusFilter, pfiFilter, customerFilter, truckFilter, dateFrom, dateTo, searchQuery, deliveryCodes]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Summaries
@@ -591,6 +639,7 @@ export default function DeliveryInventory() {
 
   const openLoadDialog = () => {
     setLoadPfi('');
+    setLoadCode('');
     setLoadDepot('');
     setLoadNotes('');
     setSelectedTruckIds(new Set());
@@ -660,6 +709,10 @@ export default function DeliveryInventory() {
     try {
       const depot = loadDepot || selectedPfi?.location_name || '';
       const currentUser = localStorage.getItem('fullname') || 'Unknown';
+      const normalizedCode = loadCode.trim().toUpperCase().replace(/\s+/g, '-');
+      if (normalizedCode && !deliveryCodes.includes(normalizedCode)) {
+        setDeliveryCodes(prev => [...prev, normalizedCode].sort());
+      }
 
       // Per-truck qty: use the truck's max_capacity if available,
       // otherwise divide the total equally across all selected trucks.
@@ -717,7 +770,19 @@ export default function DeliveryInventory() {
         }
       }
 
-      await Promise.all(promises);
+      const createdRecords = await Promise.all(promises);
+
+      if (normalizedCode) {
+        const updates: Record<number, string> = {};
+        createdRecords.forEach(record => {
+          const created = record as { id?: number };
+          if (created?.id) updates[created.id] = normalizedCode;
+        });
+        if (Object.keys(updates).length > 0) {
+          setLoadingCodeMap(prev => ({ ...prev, ...updates }));
+        }
+      }
+
       toast({
         title: `${truckCount} truck${truckCount > 1 ? 's' : ''} loaded — ${fmtQty(totalQtyNum)} L total`,
         description: filledRows.length > 0
@@ -735,7 +800,7 @@ export default function DeliveryInventory() {
     } finally {
       setSaving(false);
     }
-  }, [selectedTruckIds, totalAllocationQty, customerAllocations, loadPfi, loadDepot, loadNotes, selectedPfi, allTrucks, customerMap, toast, invalidateAll]);
+  }, [selectedTruckIds, totalAllocationQty, customerAllocations, loadPfi, loadCode, loadDepot, loadNotes, selectedPfi, allTrucks, customerMap, toast, invalidateAll, deliveryCodes]);
 
   const handleOffload = useCallback(async () => {
     if (!offloadTarget) return;
@@ -1066,6 +1131,7 @@ export default function DeliveryInventory() {
                     <TableHeader>
                       <TableRow className="bg-slate-50/80">
                         <TableHead className="font-semibold text-slate-700 w-[48px]">S/N</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Code</TableHead>
                         <TableHead className="font-semibold text-slate-700">Truck</TableHead>
                         <TableHead className="font-semibold text-slate-700">Quantity</TableHead>
                         <TableHead className="font-semibold text-slate-700">Depot</TableHead>
@@ -1087,15 +1153,24 @@ export default function DeliveryInventory() {
                       {filtered.map((r, idx) => {
                         const badge = statusBadge[r.status];
                         const Icon = badge?.icon;
+                        const theme = getCodeTheme(r.code);
 
                         return (
                           <TableRow
                             key={r.id}
-                            className={`hover:bg-slate-50/60 transition-colors ${
+                            className={`hover:bg-slate-50/60 transition-colors border-l-[3px] ${theme ? theme.row : 'border-l-transparent'} ${
                               r.status === 'loaded' ? 'bg-blue-50/20' : ''
                             }`}
                           >
                             <TableCell className="text-slate-500">{idx + 1}</TableCell>
+
+                            <TableCell>
+                              {r.code ? (
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                                  {r.code}
+                                </span>
+                              ) : <span className="text-slate-300">—</span>}
+                            </TableCell>
 
                             {/* Truck */}
                             <TableCell>
@@ -1275,7 +1350,7 @@ export default function DeliveryInventory() {
               <div>
                 <h2 className="text-lg font-semibold">Load Trucks</h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  Select PFI, enter quantity, pick trucks, and assign customers.
+                  Select PFI, assign a code, enter quantity, pick trucks, and assign customers.
                 </p>
               </div>
             </DialogTitle>
@@ -1307,6 +1382,36 @@ export default function DeliveryInventory() {
                   <option key={o.id} value={String(o.id)}>{o.label}</option>
                 ))}
               </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                <Package size={15} className="text-slate-500" />
+                Code <span className="text-xs font-normal text-slate-400">(existing or new)</span>
+              </Label>
+              <Input
+                placeholder="e.g. PFI-14B"
+                value={loadCode}
+                onChange={e => setLoadCode(e.target.value.toUpperCase())}
+                className="h-10"
+              />
+              {deliveryCodes.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {deliveryCodes.map(code => {
+                    const theme = getCodeTheme(code);
+                    return (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setLoadCode(code)}
+                        className={`px-2 py-1 rounded text-xs font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'} ${loadCode === code ? 'ring-2 ring-slate-300' : ''}`}
+                      >
+                        {code}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* ── PFI details ─────────────────────────────────── */}
