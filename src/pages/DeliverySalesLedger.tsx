@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
@@ -40,7 +40,7 @@ interface TruckLoading {
   id: number;
   truck: number | null;
   truck_number?: string;
-  pfi: number | null;
+  pfi?: number | null;
   pfi_number?: string;
   pfi_product?: string;
   depot?: string;
@@ -141,6 +141,20 @@ interface QuickPaymentForm {
   payer_name: string;
   phone_number: string;
   bank_account_id: string;
+}
+
+interface BackendPfi {
+  id: number;
+  pfi_number: string;
+}
+
+interface DeliveryLedgerSettings {
+  key?: string;
+  trip_codes?: string[];
+  pfi_code_map?: Record<string, string>;
+  loading_code_map?: Record<string, string>;
+  sale_trip_map?: Record<string, string>;
+  cycle_alias_map?: Record<string, string>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -270,6 +284,37 @@ const getCodeTheme = (code: string) => {
 const normalizeText = (value: string | undefined | null) =>
   (value || '').trim().toLowerCase();
 
+const LEDGER_SETTINGS_KEY = 'default';
+
+const normalizeCodes = (values: unknown): string[] => {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => String(value || '').trim().toUpperCase())
+    .filter(Boolean);
+};
+
+const normalizeStringMap = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<string, string> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([k, v]) => {
+    const key = String(k || '').trim();
+    const val = String(v || '').trim();
+    if (key && val) out[key] = val;
+  });
+  return out;
+};
+
+const normalizeIdMap = (value: unknown): Record<number, string> => {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<number, string> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([k, v]) => {
+    const id = Number(k);
+    const code = String(v || '').trim().toUpperCase();
+    if (Number.isFinite(id) && code) out[id] = code;
+  });
+  return out;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════════════════════════════
@@ -290,16 +335,10 @@ export default function DeliverySalesLedger() {
   const [depotFilter, setDepotFilter] = useState<string>('all');
   const [cycleFilter, setCycleFilter] = useState<string>('all'); // 'all' | '1' | '2' | ...
 
-  // ── Trip Codes (localStorage-managed) ────────────────────────────
-  const [tripCodes, setTripCodes] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('dsl_trip_codes') || '[]'); } catch { return []; }
-  });
-  const [loadingCodeMap, setLoadingCodeMap] = useState<Record<number, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('dsl_loading_code_map') || '{}'); } catch { return {}; }
-  });
-  const [saleTripMap, setSaleTripMap] = useState<Record<number, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('dsl_sale_trip_map') || '{}'); } catch { return {}; }
-  });
+  // ── Trip Codes (server-managed) ─────────────────────────────────
+  const [tripCodes, setTripCodes] = useState<string[]>([]);
+  const [loadingCodeMap, setLoadingCodeMap] = useState<Record<number, string>>({});
+  const [saleTripMap, setSaleTripMap] = useState<Record<number, string>>({});
   const [tripCodeFilter, setTripCodeFilter] = useState<string>('all');
   const [dialogTripCode, setDialogTripCode] = useState<string>('');
   const [editTripCode, setEditTripCode] = useState<string>('');
@@ -308,18 +347,16 @@ export default function DeliverySalesLedger() {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [bulkTripCode, setBulkTripCode] = useState<string>('');
 
-  // ── Custom PFI labels (localStorage) — map system PFI number → your internal code ──
-  const [pfiCodeMap, setPfiCodeMap] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('dsl_pfi_codes') || '{}'); } catch { return {}; }
-  });
+  // ── Custom PFI labels (server-managed) — map system PFI number → your internal code ──
+  const [pfiCodeMap, setPfiCodeMap] = useState<Record<string, string>>({});
   const [pfiLabelInput, setPfiLabelInput] = useState<{ pfi: string; label: string }>({ pfi: '', label: '' });
 
-  // ── Cycle aliases — merge two cycle groups (frontend-only, no API call) ─────────────
-  const [cycleAliasMap, setCycleAliasMap] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('dsl_cycle_aliases') || '{}'); } catch { return {}; }
-  });
+  // ── Cycle aliases — merge two cycle groups (server-managed) ─────────────────────────
+  const [cycleAliasMap, setCycleAliasMap] = useState<Record<string, string>>({});
   const [mergeMode, setMergeMode] = useState(false);
   const [mergePrimary, setMergePrimary] = useState<string | null>(null);
+  const ledgerSettingsHydratedRef = useRef(false);
+  const lastSavedLedgerSignatureRef = useRef('');
 
   // ── Payment Dialog ─────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -372,29 +409,90 @@ export default function DeliverySalesLedger() {
   } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Persist trip codes to localStorage
-  // ═══════════════════════════════════════════════════════════════════
+  const ledgerSettingsQuery = useQuery({
+    queryKey: ['delivery-ledger-settings', LEDGER_SETTINGS_KEY],
+    queryFn: async () => apiClient.admin.getDeliveryLedgerSettings({ key: LEDGER_SETTINGS_KEY }) as Promise<DeliveryLedgerSettings>,
+    staleTime: 30_000,
+  });
+
+  const updateLedgerSettingsMutation = useMutation({
+    mutationFn: async (payload: DeliveryLedgerSettings) =>
+      apiClient.admin.updateDeliveryLedgerSettings(payload, { key: LEDGER_SETTINGS_KEY }),
+  });
 
   useEffect(() => {
-    localStorage.setItem('dsl_trip_codes', JSON.stringify(tripCodes));
-  }, [tripCodes]);
+    if (!ledgerSettingsQuery.data || ledgerSettingsHydratedRef.current) return;
+    const settings = ledgerSettingsQuery.data;
+    const nextTripCodes = normalizeCodes(settings.trip_codes);
+    const nextPfiCodeMap = normalizeStringMap(settings.pfi_code_map);
+    const nextLoadingCodeMap = normalizeIdMap(settings.loading_code_map);
+    const nextSaleTripMap = normalizeIdMap(settings.sale_trip_map);
+    const nextCycleAliasMap = normalizeStringMap(settings.cycle_alias_map);
+
+    setTripCodes(nextTripCodes);
+    setPfiCodeMap(nextPfiCodeMap);
+    setLoadingCodeMap(nextLoadingCodeMap);
+    setSaleTripMap(nextSaleTripMap);
+    setCycleAliasMap(nextCycleAliasMap);
+
+    lastSavedLedgerSignatureRef.current = JSON.stringify({
+      trip_codes: nextTripCodes,
+      pfi_code_map: nextPfiCodeMap,
+      loading_code_map: nextLoadingCodeMap,
+      sale_trip_map: nextSaleTripMap,
+      cycle_alias_map: nextCycleAliasMap,
+    });
+    ledgerSettingsHydratedRef.current = true;
+  }, [ledgerSettingsQuery.data]);
 
   useEffect(() => {
-    localStorage.setItem('dsl_sale_trip_map', JSON.stringify(saleTripMap));
-  }, [saleTripMap]);
+    if (!ledgerSettingsHydratedRef.current) return;
 
-  useEffect(() => {
-    localStorage.setItem('dsl_loading_code_map', JSON.stringify(loadingCodeMap));
-  }, [loadingCodeMap]);
+    const payload: DeliveryLedgerSettings = {
+      key: LEDGER_SETTINGS_KEY,
+      trip_codes: normalizeCodes(tripCodes),
+      pfi_code_map: Object.fromEntries(
+        Object.entries(pfiCodeMap)
+          .map(([pfi, code]) => [String(pfi).trim(), String(code || '').trim().toUpperCase()])
+          .filter(([pfi, code]) => pfi && code),
+      ),
+      loading_code_map: Object.fromEntries(
+        Object.entries(loadingCodeMap)
+          .map(([id, code]) => [String(id), String(code || '').trim().toUpperCase()])
+          .filter(([id, code]) => id && code),
+      ),
+      sale_trip_map: Object.fromEntries(
+        Object.entries(saleTripMap)
+          .map(([id, code]) => [String(id), String(code || '').trim().toUpperCase()])
+          .filter(([id, code]) => id && code),
+      ),
+      cycle_alias_map: Object.fromEntries(
+        Object.entries(cycleAliasMap)
+          .map(([from, to]) => [String(from || '').trim(), String(to || '').trim()])
+          .filter(([from, to]) => from && to),
+      ),
+    };
 
-  useEffect(() => {
-    localStorage.setItem('dsl_pfi_codes', JSON.stringify(pfiCodeMap));
-  }, [pfiCodeMap]);
+    const signature = JSON.stringify(payload);
+    if (signature === lastSavedLedgerSignatureRef.current) return;
 
-  useEffect(() => {
-    localStorage.setItem('dsl_cycle_aliases', JSON.stringify(cycleAliasMap));
-  }, [cycleAliasMap]);
+    const timer = setTimeout(() => {
+      updateLedgerSettingsMutation.mutate(payload, {
+        onSuccess: () => {
+          lastSavedLedgerSignatureRef.current = signature;
+        },
+        onError: (error) => {
+          toast({
+            title: 'Failed to save ledger settings',
+            description: error instanceof Error ? error.message : 'Please retry.',
+            variant: 'destructive',
+          });
+        },
+      });
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [tripCodes, pfiCodeMap, loadingCodeMap, saleTripMap, cycleAliasMap, toast, updateLedgerSettingsMutation]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Queries
@@ -411,6 +509,22 @@ export default function DeliverySalesLedger() {
   const allLoadings = useMemo(() => {
     return truckLoadingsQuery.data?.results || [];
   }, [truckLoadingsQuery.data]);
+
+  const pfisQuery = useQuery({
+    queryKey: ['delivery-pfis'],
+    queryFn: async () =>
+      safePaged<BackendPfi>(
+        await apiClient.admin.getPfis({ page: 1, page_size: 5000 }),
+      ),
+    staleTime: 60_000,
+  });
+  const pfiMap = useMemo(() => {
+    const map = new Map<number, BackendPfi>();
+    (pfisQuery.data?.results || []).forEach((pfi) => {
+      map.set(pfi.id, pfi);
+    });
+    return map;
+  }, [pfisQuery.data]);
 
   const customersQuery = useQuery({
     queryKey: ['delivery-customers-list'],
@@ -450,6 +564,13 @@ export default function DeliverySalesLedger() {
     BANK_ACCOUNTS.forEach(b => m.set(b.id, b));
     return m;
   }, []);
+
+  const getLoadingPfiNumber = useCallback((loading: TruckLoading): string => {
+    const direct = String(loading.pfi_number || '').trim();
+    if (direct) return direct;
+    const resolved = loading.pfi ? pfiMap.get(loading.pfi)?.pfi_number : '';
+    return String(resolved || '').trim();
+  }, [pfiMap]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Cycle key — one cycle = one loading event = (truck + date_loaded)
@@ -816,7 +937,7 @@ export default function DeliverySalesLedger() {
         const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
         const paymentQuantity = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.quantity)), 0);
         const quantity = paymentQuantity > 0 ? paymentQuantity : toNum(loading.quantity_allocated);
-        const pfiNumber = loading.pfi_number || '';
+        const pfiNumber = getLoadingPfiNumber(loading);
         const derivedCode = loadingCodeMap[loading.id]
           || payments.map(sale => saleTripMap[sale.id]).find(Boolean)
           || (pfiNumber ? pfiCodeMap[pfiNumber] : '')
@@ -883,7 +1004,7 @@ export default function DeliverySalesLedger() {
     });
 
     return groups;
-  }, [allLoadings, allSales, customerMap, loadingCodeMap, pfiCodeMap, saleTripMap]);
+  }, [allLoadings, allSales, customerMap, loadingCodeMap, pfiCodeMap, saleTripMap, getLoadingPfiNumber]);
 
   const filteredLedgerGroups = useMemo(() => {
     let result = [...ledgerGroups];
@@ -1056,13 +1177,13 @@ export default function DeliverySalesLedger() {
       if (!key) return;
       if (map.has(key)) return;
       map.set(key, {
-        pfi: (loading.pfi_number || '').trim(),
+        pfi: getLoadingPfiNumber(loading),
         depot: (loading.depot || loading.pfi_location || loading.location || '').trim(),
         dateAllocated: normalizeCycleDate(loading.date_allocated || ''),
       });
     });
     return map;
-  }, [allLoadings]);
+  }, [allLoadings, getLoadingPfiNumber]);
 
   // Per-cycle-per-customer locked rate: cycleKey → customerId → rate string
   const cycleCustomerRateMap = useMemo(() => {
@@ -2600,7 +2721,7 @@ export default function DeliverySalesLedger() {
                 </div> */}
 
                 {/* ── Codes ────────────────────────────────────────── */}
-                {/* <div className="border-t border-slate-100" />
+                <div className="border-t border-slate-100" />
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                     <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
@@ -2656,7 +2777,7 @@ export default function DeliverySalesLedger() {
                       </span>
                     )}
                   </div>
-                </div> */}
+                </div>
 
                 {/* ── Results summary line ─────────────────────────── */}
                 {/* <p className="text-xs text-slate-400">
@@ -3001,7 +3122,8 @@ export default function DeliverySalesLedger() {
                     ? `C${cycleInfo.cycleNum}/${cycleInfo.totalCycles}`
                     : 'C1/1';
                   const dateLabel = normalizeCycleDate(t.date_allocated || '');
-                  const pfiLabel = t.pfi_number ? ` | ${t.pfi_number}` : '';
+                  const pfiValue = getLoadingPfiNumber(t);
+                  const pfiLabel = pfiValue ? ` | ${pfiValue}` : '';
                   const outstandingLabel = outstanding !== null
                     ? (outstanding > 0 ? ` | O/S ${fmt(outstanding)}` : ' | Settled')
                     : '';

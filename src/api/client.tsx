@@ -1734,6 +1734,38 @@ export const apiClient = {
     // Delivery Sales Ledger
     // =====================================================================
 
+    /** GET /api/admin/delivery/ledger-settings/ */
+    getDeliveryLedgerSettings: async (params?: { key?: string }) => {
+      const url = new URL(`${ADMIN_BASE}/delivery/ledger-settings/`);
+      if (params?.key) url.searchParams.set('key', params.key);
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PATCH /api/admin/delivery/ledger-settings/ */
+    updateDeliveryLedgerSettings: async (
+      data: {
+        key?: string;
+        trip_codes?: string[];
+        pfi_code_map?: Record<string, string>;
+        loading_code_map?: Record<string, string>;
+        sale_trip_map?: Record<string, string>;
+        cycle_alias_map?: Record<string, string>;
+      },
+      params?: { key?: string }
+    ) => {
+      const url = new URL(`${ADMIN_BASE}/delivery/ledger-settings/`);
+      if (params?.key) url.searchParams.set('key', params.key);
+      const response = await safeFetch(url.toString(), {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
     /** GET /api/admin/delivery/sales/ */
     getDeliverySales: async (params?: {
       search?: string;
