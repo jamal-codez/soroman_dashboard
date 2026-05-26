@@ -21,7 +21,7 @@ import {
   TrendingUp, Banknote, Building2,
   Calendar as CalendarIcon, UserPlus, X, Fuel,
   MapPin, Users, LayoutGrid, Filter, AlertTriangle, Tag,
-  Clock, Link2, ArrowRightLeft,
+  Clock, Link2, ArrowRightLeft, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -52,6 +52,7 @@ interface TruckLoading {
   loading_status?: 'loaded' | 'offloaded' | 'empty';
   location?: string;
   pfi_location?: string;
+  allocation_code?: string;
 }
 
 interface DeliveryCustomer {
@@ -93,6 +94,7 @@ interface DeliverySale {
   entered_by?: string;
   created_at?: string;
   updated_at?: string;
+  allocation_code?: string;
 }
 
 type PagedResponse<T> = { count: number; results: T[] };
@@ -131,6 +133,7 @@ interface LedgerGroup {
   totalPaid: number;
   balance: number;
   pfiNumber: string;
+  allocationCode: string;
   code: string;
   payments: DeliverySale[];
   isFillingStation: boolean;
@@ -335,8 +338,21 @@ export default function DeliverySalesLedger() {
   const [depotFilter, setDepotFilter] = useState<string>('all');
   const [cycleFilter, setCycleFilter] = useState<string>('all'); // 'all' | '1' | '2' | ...
 
-  // ── Trip Codes (server-managed) ─────────────────────────────────
-  const [tripCodes, setTripCodes] = useState<string[]>([]);
+  // ── Allocation & Trip Codes (now loaded from localStorage, shared with Inventory) ──
+  const [tripCodes, setTripCodes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('dsl_trip_codes') || '[]'); } catch { return []; }
+  });
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
+
+  const toggleGroupExpanded = useCallback((key: string) => {
+    setExpandedGroupKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   const [loadingCodeMap, setLoadingCodeMap] = useState<Record<number, string>>({});
   const [saleTripMap, setSaleTripMap] = useState<Record<number, string>>({});
   const [tripCodeFilter, setTripCodeFilter] = useState<string>('all');
@@ -423,7 +439,8 @@ export default function DeliverySalesLedger() {
   useEffect(() => {
     if (!ledgerSettingsQuery.data || ledgerSettingsHydratedRef.current) return;
     const settings = ledgerSettingsQuery.data;
-    const nextTripCodes = normalizeCodes(settings.trip_codes);
+    const localCodes = (() => { try { return JSON.parse(localStorage.getItem('dsl_trip_codes') || '[]'); } catch { return []; } })();
+    const nextTripCodes = Array.from(new Set([...normalizeCodes(settings.trip_codes), ...localCodes])).sort();
     const nextPfiCodeMap = normalizeStringMap(settings.pfi_code_map);
     const nextLoadingCodeMap = normalizeIdMap(settings.loading_code_map);
     const nextSaleTripMap = normalizeIdMap(settings.sale_trip_map);
@@ -938,10 +955,7 @@ export default function DeliverySalesLedger() {
         const paymentQuantity = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.quantity)), 0);
         const quantity = paymentQuantity > 0 ? paymentQuantity : toNum(loading.quantity_allocated);
         const pfiNumber = getLoadingPfiNumber(loading);
-        const derivedCode = loadingCodeMap[loading.id]
-          || payments.map(sale => saleTripMap[sale.id]).find(Boolean)
-          || (pfiNumber ? pfiCodeMap[pfiNumber] : '')
-          || '';
+        const allocationCode = loading.allocation_code || payments.map(sale => sale.allocation_code).find(Boolean) || '';
 
         groups.push({
           key: `loading:${loading.id}`,
@@ -958,7 +972,8 @@ export default function DeliverySalesLedger() {
           totalPaid,
           balance: expected - totalPaid,
           pfiNumber,
-          code: derivedCode,
+          allocationCode,
+          code: allocationCode,
           payments,
           isFillingStation: isFillingStation(customerObj),
         });
@@ -983,6 +998,7 @@ export default function DeliverySalesLedger() {
       const customerObj = firstPayment.customer ? customerMap.get(firstPayment.customer) : null;
       const expected = sorted.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
       const totalPaid = sorted.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
+      const allocationCode = firstPayment.allocation_code || sorted.map(sale => sale.allocation_code).find(Boolean) || '';
       groups.push({
         key: `sale:${key}`,
         truckNumber: firstPayment.truck_number,
@@ -997,24 +1013,20 @@ export default function DeliverySalesLedger() {
         totalPaid,
         balance: expected - totalPaid,
         pfiNumber: '',
-        code: sorted.map(sale => saleTripMap[sale.id]).find(Boolean) || '',
+        allocationCode,
+        code: allocationCode,
         payments: sorted,
         isFillingStation: isFillingStation(customerObj),
       });
     });
 
     return groups;
-  }, [allLoadings, allSales, customerMap, loadingCodeMap, pfiCodeMap, saleTripMap, getLoadingPfiNumber]);
+  }, [allLoadings, allSales, customerMap, getLoadingPfiNumber]);
 
   const filteredLedgerGroups = useMemo(() => {
     let result = [...ledgerGroups];
 
     result = result.filter(group => {
-      // Always surface inventory-linked rows regardless of date,
-      // so every loaded/planned truck remains visible in the ledger.
-      const isInventoryLinked = !!group.loadingId;
-      if (isInventoryLinked) return true;
-
       return (
         matchesDateRange(group.dateLoaded, dateRange.from, dateRange.to)
         || group.payments.some(payment => matchesDateRange(payment.date_of_payment || payment.created_at || payment.date_loaded, dateRange.from, dateRange.to))
@@ -1044,6 +1056,7 @@ export default function DeliverySalesLedger() {
         || group.depot.toLowerCase().includes(query)
         || group.location.toLowerCase().includes(query)
         || group.customerName.toLowerCase().includes(query)
+        || group.allocationCode.toLowerCase().includes(query)
         || group.code.toLowerCase().includes(query)
         || group.pfiNumber.toLowerCase().includes(query)
         || group.payments.some(payment =>
@@ -1509,6 +1522,13 @@ export default function DeliverySalesLedger() {
     setSaving(true);
     try {
       const currentUser = localStorage.getItem('fullname') || 'Unknown';
+      // Resolve the allocation_code from the selected loading record so every
+      // manually-created sale is stored with the correct code in the database.
+      const selectedLoading = dialogTruckLoadingId
+        ? allLoadings.find(l => String(l.id) === dialogTruckLoadingId)
+        : undefined;
+      const dialogAllocationCode = selectedLoading?.allocation_code || undefined;
+
       const promises = filledRows.map(row => {
         const bankAcct = row.bank_account_id ? bankMap.get(Number(row.bank_account_id)) : null;
         const bankStr = bankAcct
@@ -1521,6 +1541,7 @@ export default function DeliverySalesLedger() {
           date_loaded: (dialogCycleMode === 'custom' ? dialogCustomDate : dialogDateLoaded) || format(new Date(), 'yyyy-MM-dd'),
           depot_loaded: dialogDepot.trim() || undefined,
           customer: row.customer ? Number(row.customer) : 0,
+          allocation_code: dialogTripCode || dialogAllocationCode || undefined,
           location: row.location.trim() || undefined,
           quantity: Number(stripCommas(row.quantity)) || undefined,
           rate: !assignMode ? (Number(stripCommas(row.rate)) || undefined) : undefined,
@@ -1535,19 +1556,7 @@ export default function DeliverySalesLedger() {
         });
       });
 
-      const savedEntries = await Promise.all(promises);
-
-      // Store trip code mapping for new entries if a trip code was selected
-      if (dialogTripCode) {
-        const updates: Record<number, string> = {};
-        savedEntries.forEach((r: unknown) => {
-          const record = r as { id?: number };
-          if (record?.id) updates[record.id] = dialogTripCode;
-        });
-        if (Object.keys(updates).length > 0) {
-          setSaleTripMap(prev => ({ ...prev, ...updates }));
-        }
-      }
+      await Promise.all(promises);
 
       // Write customer(s) & destination(s) back to the inventory entry
       // For multi-row, update the inventory entry with the first row's customer/location
@@ -1585,7 +1594,7 @@ export default function DeliverySalesLedger() {
     } finally {
       setSaving(false);
     }
-  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, dialogTripCode, saleRows, toast, bankMap, customerMap, assignMode]);
+  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, dialogTripCode, saleRows, toast, bankMap, customerMap, assignMode, allLoadings]);
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -1691,44 +1700,37 @@ export default function DeliverySalesLedger() {
       const customerName = customerId ? (customerMap.get(customerId)?.customer_name || '') : '';
 
       if (setupTarget.loadingId) {
-        // ── Inventory-linked row: update the loading record ──────────
+        // ── Inventory-linked row: update the loading record AND all linked sales ──
         await apiClient.admin.updateDeliveryInventory(setupTarget.loadingId, {
-          ...(customerId ? { customer: customerId, customer_name: customerName } : {}),
-          ...(setupDestination.trim() ? { location: setupDestination.trim() } : {}),
+          customer: customerId || undefined,
+          customer_name: customerName || undefined,
+          location: setupDestination.trim() || undefined,
+          allocation_code: normalized || null,
         });
 
-        setLoadingCodeMap(prev => {
-          const next = { ...prev };
-          if (!normalized) delete next[setupTarget.loadingId as number];
-          else next[setupTarget.loadingId as number] = normalized;
-          return next;
-        });
+        if (setupTarget.payments.length > 0) {
+          await Promise.all(
+            setupTarget.payments.map(p =>
+              apiClient.admin.updateDeliverySale(p.id, {
+                customer: customerId || 0,
+                location: setupDestination.trim() || undefined,
+                allocation_code: normalized || null,
+              }),
+            ),
+          );
+        }
       } else {
         // ── Unmatched row (no inventory entry yet): update each sale ─
         if (setupTarget.payments.length > 0) {
           await Promise.all(
             setupTarget.payments.map(p =>
               apiClient.admin.updateDeliverySale(p.id, {
-                ...(customerId ? { customer: customerId } : {}),
-                ...(setupDestination.trim() ? { location: setupDestination.trim() } : {}),
+                customer: customerId || 0,
+                location: setupDestination.trim() || undefined,
+                allocation_code: normalized || null,
               }),
             ),
           );
-        }
-
-        // Assign code via saleTripMap for each payment in this group
-        if (normalized) {
-          setSaleTripMap(prev => {
-            const next = { ...prev };
-            setupTarget.payments.forEach(p => { next[p.id] = normalized; });
-            return next;
-          });
-        } else {
-          setSaleTripMap(prev => {
-            const next = { ...prev };
-            setupTarget.payments.forEach(p => { delete next[p.id]; });
-            return next;
-          });
         }
       }
 
@@ -1776,6 +1778,7 @@ export default function DeliverySalesLedger() {
         date_loaded: quickPaymentTarget.dateLoaded || format(new Date(), 'yyyy-MM-dd'),
         depot_loaded: quickPaymentTarget.depot || undefined,
         customer: quickPaymentTarget.customerId || 0,
+        allocation_code: quickPaymentTarget.allocationCode || undefined,
         location: quickPaymentTarget.location || undefined,
         quantity: quickPaymentTarget.quantity || undefined,
         rate: quickPaymentTarget.rate || undefined,
@@ -1847,6 +1850,7 @@ export default function DeliverySalesLedger() {
           date_loaded: source.dateLoaded || today,
           depot_loaded: source.depot || undefined,
           customer: source.customerId,
+          allocation_code: source.allocationCode || undefined,
           location: source.location || undefined,
           quantity: source.quantity || undefined,
           rate: source.rate || undefined,
@@ -1863,6 +1867,7 @@ export default function DeliverySalesLedger() {
           date_loaded: target.dateLoaded || today,
           depot_loaded: target.depot || undefined,
           customer: target.customerId,
+          allocation_code: target.allocationCode || undefined,
           location: target.location || undefined,
           quantity: target.quantity || undefined,
           rate: target.rate || undefined,
@@ -2455,21 +2460,21 @@ export default function DeliverySalesLedger() {
                     {tripCodes.length > 0 && (
                       <div className="space-y-1.5">
                         <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                          <Tag size={12} className="text-purple-400" /> PFI
+                          <Tag size={12} className="text-purple-400" /> Allocation Code
                         </label>
                         <select
-                          aria-label="Filter by PFI"
+                          aria-label="Filter by Allocation Code"
                           value={tripCodeFilter}
                           onChange={e => setTripCodeFilter(e.target.value)}
                           className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-purple-300 ${
                             tripCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-700'
                           }`}
                         >
-                          <option value="all">All PFIs</option>
+                          <option value="all">All Allocation Codes</option>
                           {tripCodes.map(code => {
-                            const count = Object.values(saleTripMap).filter(v => v === code).length;
+                            const count = ledgerGroups.filter(g => g.allocationCode === code).length;
                             return (
-                              <option key={code} value={code}>{code}{count > 0 ? ` (${count} entries)` : ''}</option>
+                              <option key={code} value={code}>{code}{count > 0 ? ` (${count} rows)` : ''}</option>
                             );
                           })}
                         </select>
@@ -2488,7 +2493,7 @@ export default function DeliverySalesLedger() {
                   depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
                   locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                   customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
-                  tripCodeFilter !== 'all' && { label: `Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
+                  tripCodeFilter !== 'all' && { label: `Allocation Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
                   searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                 ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -2498,11 +2503,11 @@ export default function DeliverySalesLedger() {
                       depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
                       locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                       customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
-                      tripCodeFilter !== 'all' && { label: `Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
+                      tripCodeFilter !== 'all' && { label: `Allocation Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
                       searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                     ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
                       <span key={chip.label} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        chip.label.startsWith('Code:') ? 'bg-purple-700 text-white' : 'bg-slate-900 text-white'
+                        chip.label.startsWith('Allocation Code:') ? 'bg-purple-700 text-white' : 'bg-slate-900 text-white'
                       }`}>
                         {chip.label}
                         <button title={`Remove: ${chip.label}`} onClick={chip.clear} className="hover:text-slate-300 ml-0.5">
@@ -2820,6 +2825,7 @@ export default function DeliverySalesLedger() {
                         <TableRow className="bg-slate-50/80">
                           <TableHead className="font-semibold text-slate-700 w-[48px] min-w-[48px] whitespace-nowrap">S/N</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[110px] min-w-[110px] whitespace-nowrap">PFI</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[160px] min-w-[160px] whitespace-nowrap">Allocation Code</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Truck No.</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Customer</TableHead>
                           {/* <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead> */}
@@ -2833,7 +2839,7 @@ export default function DeliverySalesLedger() {
                           <TableHead className="font-semibold text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">Payer</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Bank</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Paid On</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Actions</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[100px] min-w-[100px] whitespace-nowrap text-center">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -2849,12 +2855,18 @@ export default function DeliverySalesLedger() {
                             rows.push(
                               <TableRow
                                 key={`${group.key}-main`}
-                                className={`hover:bg-slate-50/50 border-b border-slate-200/70 border-l-[3px] ${theme ? theme.row : 'border-l-transparent'}`}
+                                className={`cursor-pointer hover:bg-slate-50/80 border-b border-slate-200/70 border-l-[3px] transition-colors ${theme ? theme.row : 'border-l-transparent'} ${expandedGroupKeys.has(group.key) ? 'bg-slate-50/50' : ''}`}
+                                onClick={() => toggleGroupExpanded(group.key)}
                               >
                                 <TableCell className="text-slate-500 text-center w-[48px] min-w-[48px] whitespace-nowrap">{serial}</TableCell>
                                 <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap">
-                                  {group.code ? (
-                                    <span className="text-sm font-semibold text-slate-700">{group.code}</span>
+                                  {group.pfiNumber ? (
+                                    <span className="text-sm font-semibold text-slate-700">{group.pfiNumber}</span>
+                                  ) : <span className="text-slate-300">—</span>}
+                                </TableCell>
+                                <TableCell className="w-[160px] min-w-[160px] whitespace-nowrap">
+                                  {group.allocationCode ? (
+                                    <span className="text-sm font-semibold text-slate-700">{group.allocationCode}</span>
                                   ) : <span className="text-slate-300">—</span>}
                                 </TableCell>
                                 <TableCell className="font-semibold text-slate-900 w-[120px] min-w-[120px] whitespace-nowrap">
@@ -2885,75 +2897,158 @@ export default function DeliverySalesLedger() {
                                 </TableCell>
                                 <TableCell className="text-sm w-[180px] min-w-[180px] whitespace-nowrap"> </TableCell>
                                 <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm"> </TableCell>
-                                <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap">
-                                  <div className="flex gap-1 items-center">
-                                    {!readOnly && (
-                                      <>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-8 text-xs gap-1 border-red-200 text-red-600 hover:bg-red-50"
-                                          title="Delete truck from records (including linked payments)"
-                                          onClick={() => {
-                                            if (!group.loadingId && group.payments.length === 0) {
-                                              toast({ title: 'No linked records found for this truck row', variant: 'destructive' });
-                                              return;
-                                            }
-                                            setDeleteTarget({
-                                              ids: group.payments.map(p => p.id),
-                                              loadingId: group.loadingId,
-                                              mode: 'truck',
-                                              label: `${group.truckNumber} — delete truck${group.payments.length > 0 ? ` and ${group.payments.length} payment${group.payments.length > 1 ? 's' : ''}` : ''}`,
-                                            });
-                                          }}
-                                        >
-                                          <Trash2 size={12} /> Delete
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-8 text-xs gap-1 border-slate-300"
-                                          onClick={() => openSetupDialog(group)}
-                                          title="Assign customer, destination, code and transfer options"
-                                        >
-                                          <UserPlus size={12} /> Set Up
-                                        </Button>
-                                        {hasSetupDetails ? (
-                                          <>
-                                            <Button
-                                              size="sm"
-                                              className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                                              onClick={() => openQuickPaymentDialog(group)}
-                                              title="Quick payment for this customer"
-                                            >
-                                              <Plus size={12} /> Add Payment
-                                            </Button>
-                                            <Button
-                                              size="sm"
-                                              variant="outline"
-                                              className="h-8 text-xs gap-1"
-                                              onClick={() => group.loadingId ? openPaymentDialog(String(group.loadingId)) : openPaymentDialog()}
-                                              title="Add a different customer to this truck cycle"
-                                            >
-                                              <UserPlus size={12} /> New Customer
-                                            </Button>
-                                          </>
-                                        ) : (
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-8 text-xs gap-1"
-                                            onClick={() => group.loadingId ? openPaymentDialog(String(group.loadingId)) : openPaymentDialog()}
-                                          >
-                                            <Plus size={12} /> Add Payment
-                                          </Button>
-                                        )}
-                                      </>
+                                <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 gap-1.5 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700 font-semibold"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleGroupExpanded(group.key);
+                                    }}
+                                  >
+                                    {expandedGroupKeys.has(group.key) ? (
+                                      <>Close <ChevronUp size={12} /></>
+                                    ) : (
+                                      <>Manage <ChevronDown size={12} /></>
                                     )}
-                                  </div>
+                                  </Button>
                                 </TableCell>
                               </TableRow>
                             );
+
+                            if (expandedGroupKeys.has(group.key)) {
+                              rows.push(
+                                <TableRow key={`${group.key}-detail`} className="bg-slate-50/30 border-b border-slate-200">
+                                  <TableCell colSpan={15} className="p-4">
+                                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-200">
+                                      <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-3 flex flex-wrap items-center justify-between gap-4">
+                                        <div className="space-y-0.5">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Control Panel</span>
+                                            {group.allocationCode && (
+                                              <span className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-700/10">
+                                                {group.allocationCode}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                                            <Truck size={14} className="text-slate-500" />
+                                            Manage Cycle for {group.truckNumber}
+                                          </h4>
+                                        </div>
+                                        <div className="text-right">
+                                          <p className="text-xs text-slate-500">Date Loaded: <span className="font-semibold text-slate-700">{group.dateLoaded ? format(parseISO(group.dateLoaded), 'dd MMM yyyy') : '—'}</span></p>
+                                          <p className="text-xs text-slate-500">Depot Loaded: <span className="font-semibold text-slate-700">{group.depot || '—'}</span></p>
+                                        </div>
+                                      </div>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5 border-b border-slate-100 bg-slate-50/10">
+                                        <div className="rounded-lg border border-slate-100 bg-white p-3 shadow-2xs">
+                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expected Revenue</p>
+                                          <p className="text-lg font-extrabold text-slate-800 mt-1">{group.expected > 0 ? fmt(group.expected) : '—'}</p>
+                                          <p className="text-[10px] text-slate-400 mt-0.5">Quantity: {group.quantity > 0 ? `${fmtQty(group.quantity)} Litres` : '—'} @ {group.rate > 0 ? fmt(group.rate) : '—'}</p>
+                                        </div>
+
+                                        <div className="rounded-lg border border-slate-100 bg-white p-3 shadow-2xs">
+                                          <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider">Total Paid</p>
+                                          <p className="text-lg font-extrabold text-emerald-700 mt-1">{fmt(group.totalPaid)}</p>
+                                          <p className="text-[10px] text-slate-400 mt-0.5">Payments: {group.payments.length} received</p>
+                                        </div>
+
+                                        <div className="rounded-lg border border-slate-100 bg-white p-3 shadow-2xs">
+                                          <p className={`text-[10px] font-bold uppercase tracking-wider ${group.balance > 0 ? 'text-red-500' : 'text-slate-400'}`}>Balance Due</p>
+                                          <p className={`text-lg font-extrabold mt-1 ${group.balance > 0 ? 'text-red-600' : group.balance < 0 ? 'text-blue-600' : group.expected > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                            {group.expected > 0
+                                              ? (group.balance === 0 ? '₦0.00' : group.balance > 0 ? fmt(group.balance) : `+${fmt(Math.abs(group.balance))}`)
+                                              : '₦0.00'
+                                            }
+                                          </p>
+                                          <p className="text-[10px] text-slate-400 mt-0.5">
+                                            {group.balance > 0 ? 'Outstanding collection' : group.balance < 0 ? 'Overpaid balance' : 'Fully settled'}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/30 px-5 py-4">
+                                        <div className="text-xs text-slate-500">
+                                          Customer: <span className="font-semibold text-slate-700 uppercase">{group.customerName || '—'}</span> · 
+                                          Destination: <span className="font-semibold text-slate-700 uppercase">{group.location || '—'}</span>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                          {!readOnly && (
+                                            <>
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-9 text-xs gap-1.5 border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs font-semibold"
+                                                onClick={(e) => { e.stopPropagation(); openSetupDialog(group); }}
+                                                title="Assign customer, destination, allocation code and transfer options"
+                                              >
+                                                <UserPlus size={14} className="text-slate-500" /> Row Setup
+                                              </Button>
+                                              
+                                              {hasSetupDetails ? (
+                                                <>
+                                                  <Button
+                                                    size="sm"
+                                                    className="h-9 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm font-semibold"
+                                                    onClick={(e) => { e.stopPropagation(); openQuickPaymentDialog(group); }}
+                                                    title="Quick payment for this customer"
+                                                  >
+                                                    <Plus size={14} /> Add Payment
+                                                  </Button>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-9 text-xs gap-1.5 border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs font-semibold"
+                                                    onClick={(e) => { e.stopPropagation(); group.loadingId ? openPaymentDialog(String(group.loadingId)) : openPaymentDialog(); }}
+                                                    title="Add a different customer to this truck cycle"
+                                                  >
+                                                    <UserPlus size={14} className="text-slate-500" /> New Customer
+                                                  </Button>
+                                                </>
+                                              ) : (
+                                                <Button
+                                                  size="sm"
+                                                  className="h-9 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm font-semibold"
+                                                  onClick={(e) => { e.stopPropagation(); group.loadingId ? openPaymentDialog(String(group.loadingId)) : openPaymentDialog(); }}
+                                                >
+                                                  <Plus size={14} /> Add Payment
+                                                </Button>
+                                              )}
+
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-9 text-xs gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 shadow-2xs font-semibold"
+                                                title="Delete truck from records (including linked payments)"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  if (!group.loadingId && group.payments.length === 0) {
+                                                    toast({ title: 'No linked records found for this truck row', variant: 'destructive' });
+                                                    return;
+                                                  }
+                                                  setDeleteTarget({
+                                                    ids: group.payments.map(p => p.id),
+                                                    loadingId: group.loadingId,
+                                                    mode: 'truck',
+                                                    label: `${group.truckNumber} — delete truck${group.payments.length > 0 ? ` and ${group.payments.length} payment${group.payments.length > 1 ? 's' : ''}` : ''}`,
+                                                  });
+                                                }}
+                                              >
+                                                <Trash2 size={14} /> Delete Truck
+                                              </Button>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            }
 
                             let cumulative = 0;
                             group.payments.forEach(payment => {
@@ -2966,14 +3061,15 @@ export default function DeliverySalesLedger() {
                                   key={`payment-${payment.id}`}
                                   className={`bg-slate-50/40 hover:bg-slate-100/60 border-b border-slate-200/60 border-l-[3px] ${theme ? theme.row : 'border-l-transparent'}`}
                                 >
-                                  <TableCell className="text-slate-500 text-center w-[48px] min-w-[48px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="w-[48px] min-w-[48px] whitespace-nowrap"></TableCell>
                                   <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="font-semibold text-slate-900 w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="font-semibold text-slate-900 uppercase w-[180px] min-w-[180px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-slate-700 text-sm w-[150px] min-w-[150px] uppercase whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-slate-700 w-[130px] min-w-[130px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-right text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-right font-medium text-slate-800 w-[130px] min-w-[130px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="w-[160px] min-w-[160px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="w-[180px] min-w-[180px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="w-[150px] min-w-[150px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="w-[130px] min-w-[130px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
+                                  <TableCell className="w-[130px] min-w-[130px] whitespace-nowrap"></TableCell>
                                   <TableCell className="text-right font-bold text-emerald-700 w-[130px] min-w-[130px] whitespace-nowrap">{fmt(toNum(payment.payment_amount))}</TableCell>
                                   <TableCell className={`text-right font-bold w-[130px] min-w-[130px] whitespace-nowrap ${balanceAfter > 0 ? 'text-red-600' : balanceAfter < 0 ? 'text-blue-600' : group.expected > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
                                     {group.expected > 0
@@ -2999,8 +3095,8 @@ export default function DeliverySalesLedger() {
                                   <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm">
                                     {payment.date_of_payment ? format(parseISO(payment.date_of_payment), 'dd MMM yyyy') : ' '}
                                   </TableCell>
-                                  <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap">
-                                    <div className="flex gap-1 items-center">
+                                  <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
+                                    <div className="flex gap-1 items-center justify-center" onClick={(e) => e.stopPropagation()}>
                                       {!readOnly && (
                                         <>
                                           <Button
@@ -3198,25 +3294,25 @@ export default function DeliverySalesLedger() {
             {dialogTruckNumber && tripCodes.length > 0 && (
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Tag size={14} className="text-purple-500" /> Code
-                  <span className="text-xs text-slate-400 font-normal">(optional — group these entries under a shared code)</span>
+                  <Tag size={14} className="text-purple-500" /> Allocation Code
+                  <span className="text-xs text-slate-400 font-normal">(optional — group these entries under an allocation code)</span>
                 </Label>
                 <select
-                  aria-label="Select code"
+                  aria-label="Select allocation code"
                   value={dialogTripCode}
                   onChange={e => setDialogTripCode(e.target.value)}
                   className={`h-10 w-full rounded-md border bg-background px-3 py-2 text-sm ${
                     dialogTripCode ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold' : 'border-input'
                   }`}
                 >
-                  <option value="">No code (skip)</option>
+                  <option value="">No allocation code (skip)</option>
                   {tripCodes.map(code => (
                     <option key={code} value={code}>{code}</option>
                   ))}
                 </select>
                 {dialogTripCode && (
                   <p className="text-xs text-purple-600 flex items-center gap-1">
-                    <Tag size={10} /> All entries in this batch will be tagged as <strong>{dialogTripCode}</strong>.
+                    <Tag size={10} /> All entries in this batch will be tagged with allocation code <strong>{dialogTripCode}</strong>.
                   </p>
                 )}
               </div>
@@ -3557,14 +3653,14 @@ export default function DeliverySalesLedger() {
             </div>
 
             <div className="space-y-1">
-              <Label>Code</Label>
+              <Label>Allocation Code</Label>
               <select
-                aria-label="Setup code"
+                aria-label="Setup allocation code"
                 value={setupCode}
                 onChange={e => setSetupCode(e.target.value)}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                <option value="">No code</option>
+                <option value="">No allocation code</option>
                 {tripCodes.map(code => (
                   <option key={code} value={code}>{code}</option>
                 ))}

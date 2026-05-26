@@ -52,6 +52,7 @@ interface TruckLoading {
   loading_status?: 'loaded' | 'offloaded' | 'empty';
   location?: string;
   pfi_location?: string;
+  allocation_code?: string | null;
 }
 
 interface DeliveryCustomer {
@@ -93,6 +94,7 @@ interface DeliverySale {
   entered_by?: string;
   created_at?: string;
   updated_at?: string;
+  allocation_code?: string | null;
 }
 
 type PagedResponse<T> = { count: number; results: T[] };
@@ -126,6 +128,7 @@ interface LedgerGroup {
   customerId: number | null;
   customerName: string;
   quantity: number;
+  totalQtySold: number;
   rate: number;
   expected: number;
   totalPaid: number;
@@ -290,29 +293,10 @@ export default function FillingStations() {
   const [depotFilter, setDepotFilter] = useState<string>('all');
   const [cycleFilter, setCycleFilter] = useState<string>('all'); // 'all' | '1' | '2' | ...
 
-  // ── Trip Codes (localStorage-managed) ────────────────────────────
-  const [tripCodes, setTripCodes] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('dsl_trip_codes') || '[]'); } catch { return []; }
-  });
-  const [loadingCodeMap, setLoadingCodeMap] = useState<Record<number, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('dsl_loading_code_map') || '{}'); } catch { return {}; }
-  });
-  const [saleTripMap, setSaleTripMap] = useState<Record<number, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('dsl_sale_trip_map') || '{}'); } catch { return {}; }
-  });
-  const [tripCodeFilter, setTripCodeFilter] = useState<string>('all');
-  const [dialogTripCode, setDialogTripCode] = useState<string>('');
-  const [editTripCode, setEditTripCode] = useState<string>('');
-  const [showTripCodeManager, setShowTripCodeManager] = useState(false);
-  const [newTripCodeInput, setNewTripCodeInput] = useState<string>('');
-  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
-  const [bulkTripCode, setBulkTripCode] = useState<string>('');
-
-  // ── Custom PFI labels (localStorage) — map system PFI number → your internal code ──
-  const [pfiCodeMap, setPfiCodeMap] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('dsl_pfi_codes') || '{}'); } catch { return {}; }
-  });
-  const [pfiLabelInput, setPfiLabelInput] = useState<{ pfi: string; label: string }>({ pfi: '', label: '' });
+  // ── Allocation Codes (Backend-managed) ────────────────────────────
+  const [allocationCodeFilter, setAllocationCodeFilter] = useState<string>('all');
+  const [dialogAllocationCode, setDialogAllocationCode] = useState<string>('');
+  const [editAllocationCode, setEditAllocationCode] = useState<string>('');
 
   // ── Cycle aliases — merge two cycle groups (frontend-only, no API call) ─────────────
   const [cycleAliasMap, setCycleAliasMap] = useState<Record<string, string>>(() => {
@@ -373,24 +357,8 @@ export default function FillingStations() {
   const [editSaving, setEditSaving] = useState(false);
 
   // ═══════════════════════════════════════════════════════════════════
-  // Persist trip codes to localStorage
+  // Persist cycle aliases to localStorage
   // ═══════════════════════════════════════════════════════════════════
-
-  useEffect(() => {
-    localStorage.setItem('dsl_trip_codes', JSON.stringify(tripCodes));
-  }, [tripCodes]);
-
-  useEffect(() => {
-    localStorage.setItem('dsl_sale_trip_map', JSON.stringify(saleTripMap));
-  }, [saleTripMap]);
-
-  useEffect(() => {
-    localStorage.setItem('dsl_loading_code_map', JSON.stringify(loadingCodeMap));
-  }, [loadingCodeMap]);
-
-  useEffect(() => {
-    localStorage.setItem('dsl_pfi_codes', JSON.stringify(pfiCodeMap));
-  }, [pfiCodeMap]);
 
   useEffect(() => {
     localStorage.setItem('dsl_cycle_aliases', JSON.stringify(cycleAliasMap));
@@ -442,6 +410,13 @@ export default function FillingStations() {
     [salesQuery.data, fillingStationCustomerIds],
   );
 
+  const uniqueAllocationCodes = useMemo(() => {
+    const set = new Set<string>();
+    allLoadings.forEach(l => { if (l.allocation_code) set.add(l.allocation_code.trim().toUpperCase()); });
+    allSales.forEach(s => { if (s.allocation_code) set.add(s.allocation_code.trim().toUpperCase()); });
+    return Array.from(set).sort();
+  }, [allLoadings, allSales]);
+
   // ═══════════════════════════════════════════════════════════════════
   // Lookup maps
   // ═══════════════════════════════════════════════════════════════════
@@ -480,9 +455,9 @@ export default function FillingStations() {
   const getCycleKey = (truckNum: string, dateLoaded: string | undefined | null): string =>
     `${(truckNum || '').trim().toUpperCase()}||${normalizeCycleDate(dateLoaded)}`;
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Per-cycle aggregation: expected amount & total paid so far
-  // ═══════════════════════════════════════════════════════════════════
+  const selectedTruck = useMemo(() => {
+    return allLoadings.find(t => String(t.id) === dialogTruckLoadingId);
+  }, [allLoadings, dialogTruckLoadingId]);
 
   const cyclePaymentSummary = useMemo(() => {
     const map = new Map<string, {
@@ -508,18 +483,21 @@ export default function FillingStations() {
       map.set(key, existing);
     });
 
-    // Second pass: totalExpected = sum of MAX sales_value per customer WITHIN this cycle
+    // Second pass: totalExpected = sum of sales_value of all entries within this cycle
     map.forEach((cycle) => {
-      const perCustMax = new Map<number, number>();
-      cycle.entries.forEach(s => {
-        const sv = toNum(s.sales_value);
-        if (sv > 0) perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) || 0, sv));
-      });
-      cycle.totalExpected = Array.from(perCustMax.values()).reduce((a, b) => a + b, 0);
+      cycle.totalExpected = cycle.entries.reduce((sum, s) => sum + toNum(s.sales_value), 0);
     });
 
     return map;
   }, [allSales]);
+
+  const dialogRemainingQty = useMemo(() => {
+    if (!selectedTruck) return null;
+    const cycleKey = getCycleKey(selectedTruck.truck_number || '', selectedTruck.date_allocated || '');
+    const cycle = cyclePaymentSummary.get(cycleKey);
+    const cumulativeSold = cycle ? cycle.entries.reduce((sum, p) => sum + toNum(p.quantity), 0) : 0;
+    return Math.max(0, toNum(selectedTruck.quantity_allocated) - cumulativeSold);
+  }, [selectedTruck, cyclePaymentSummary]);
 
   // Cycle number per truck: Cycle 1, Cycle 2... based on real loading dates.
   const cycleNumberMap = useMemo(() => {
@@ -621,8 +599,8 @@ export default function FillingStations() {
         return info?.cycleNum === targetCycleNum;
       });
     }
-    if (tripCodeFilter !== 'all') {
-      result = result.filter(s => saleTripMap[s.id] === tripCodeFilter);
+    if (allocationCodeFilter !== 'all') {
+      result = result.filter(s => s.allocation_code === allocationCodeFilter);
     }
     const q = searchQuery.trim().toLowerCase();
     if (q) {
@@ -634,7 +612,7 @@ export default function FillingStations() {
         (s.bank || '').toLowerCase().includes(q) ||
         (s.customer_name || customerMap.get(s.customer)?.customer_name || '').toLowerCase().includes(q) ||
         (s.remarks || '').toLowerCase().includes(q) ||
-        (saleTripMap[s.id] || '').toLowerCase().includes(q),
+        (s.allocation_code || '').toLowerCase().includes(q),
       );
     }
     return result.sort((a, b) => {
@@ -642,7 +620,7 @@ export default function FillingStations() {
       const dateB = b.date_of_payment || b.date_loaded || '';
       return dateB.localeCompare(dateA);
     });
-  }, [timeFilteredSales, truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter, searchQuery, customerMap, saleTripMap, cycleNumberMap]);
+  }, [timeFilteredSales, truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, allocationCodeFilter, searchQuery, customerMap]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Running balance per row — scoped per cycle (truck + date_loaded)
@@ -658,13 +636,8 @@ export default function FillingStations() {
         return dateA.localeCompare(dateB) || a.id - b.id;
       });
 
-      // totalExpected within this cycle only
-      const perCustMax = new Map<number, number>();
-      sorted.forEach(s => {
-        const sv = toNum(s.sales_value);
-        if (sv > 0) perCustMax.set(s.customer, Math.max(perCustMax.get(s.customer) || 0, sv));
-      });
-      const totalExpected = Array.from(perCustMax.values()).reduce((a, b) => a + b, 0);
+      // totalExpected within this cycle is the sum of daily sales values
+      const totalExpected = sorted.reduce((sum, s) => sum + toNum(s.sales_value), 0);
 
       let cumulativePaid = 0;
       sorted.forEach(s => {
@@ -810,14 +783,14 @@ export default function FillingStations() {
         const firstPayment = payments[0];
         const customerId = loading.customer ?? firstPayment?.customer ?? null;
         const customerObj = customerId ? customerMap.get(customerId) : null;
-        const expected = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
+        const expected = payments.reduce((sum, sale) => sum + toNum(sale.sales_value), 0);
         const rate = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0);
         const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
-        const quantity = toNum(loading.quantity_allocated) || payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.quantity)), 0);
+        const quantity = toNum(loading.quantity_allocated) || payments.reduce((sum, sale) => sum + toNum(sale.quantity), 0);
+        const totalQtySold = payments.reduce((sum, sale) => sum + toNum(sale.quantity), 0);
         const pfiNumber = loading.pfi_number || '';
-        const derivedCode = loadingCodeMap[loading.id]
-          || payments.map(sale => saleTripMap[sale.id]).find(Boolean)
-          || (pfiNumber ? pfiCodeMap[pfiNumber] : '')
+        const derivedCode = loading.allocation_code
+          || payments.map(sale => sale.allocation_code).find(Boolean)
           || '';
 
         groups.push({
@@ -830,6 +803,7 @@ export default function FillingStations() {
           customerId,
           customerName: loading.customer_name || customerObj?.customer_name || firstPayment?.customer_name || '',
           quantity,
+          totalQtySold,
           rate,
           expected,
           totalPaid,
@@ -858,8 +832,9 @@ export default function FillingStations() {
       const sorted = sortPayments(payments);
       const firstPayment = sorted[0];
       const customerObj = firstPayment.customer ? customerMap.get(firstPayment.customer) : null;
-      const expected = sorted.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
+      const expected = sorted.reduce((sum, sale) => sum + toNum(sale.sales_value), 0);
       const totalPaid = sorted.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
+      const totalQtySold = sorted.reduce((sum, sale) => sum + toNum(sale.quantity), 0);
       groups.push({
         key: `sale:${key}`,
         truckNumber: firstPayment.truck_number,
@@ -868,20 +843,21 @@ export default function FillingStations() {
         location: firstPayment.location || '',
         customerId: firstPayment.customer || null,
         customerName: firstPayment.customer_name || customerObj?.customer_name || '',
-        quantity: toNum(firstPayment.quantity),
+        quantity: totalQtySold,
+        totalQtySold,
         rate: sorted.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0),
         expected,
         totalPaid,
         balance: expected - totalPaid,
         pfiNumber: '',
-        code: sorted.map(sale => saleTripMap[sale.id]).find(Boolean) || '',
+        code: firstPayment.allocation_code || sorted.map(sale => sale.allocation_code).find(Boolean) || '',
         payments: sorted,
         isFillingStation: isFillingStation(customerObj),
       });
     });
 
     return groups;
-  }, [allLoadings, allSales, customerMap, loadingCodeMap, pfiCodeMap, saleTripMap]);
+  }, [allLoadings, allSales, customerMap]);
 
   const filteredLedgerGroups = useMemo(() => {
     let result = [...ledgerGroups];
@@ -913,8 +889,8 @@ export default function FillingStations() {
     if (depotFilter !== 'all') {
       result = result.filter(group => group.depot === depotFilter);
     }
-    if (tripCodeFilter !== 'all') {
-      result = result.filter(group => group.code === tripCodeFilter);
+    if (allocationCodeFilter !== 'all') {
+      result = result.filter(group => group.code === allocationCodeFilter);
     }
 
     const query = searchQuery.trim().toLowerCase();
@@ -933,25 +909,22 @@ export default function FillingStations() {
       );
     }
 
-    const codeOrder = new Map<string, number>();
-    tripCodes.forEach((code, index) => codeOrder.set(code, index));
-
     return result.sort((left, right) => {
-      const leftRank = left.code ? (codeOrder.get(left.code) ?? 10_000) : 99_999;
-      const rightRank = right.code ? (codeOrder.get(right.code) ?? 10_000) : 99_999;
-      if (leftRank !== rightRank) return leftRank - rightRank;
-      const codeDiff = (left.code || '').localeCompare(right.code || '');
+      const leftCode = left.code || 'ZZZZZZZZ';
+      const rightCode = right.code || 'ZZZZZZZZ';
+      const codeDiff = leftCode.localeCompare(rightCode);
       if (codeDiff !== 0) return codeDiff;
-      const truckDiff = (left.truckNumber || '').localeCompare(right.truckNumber || '');
-      if (truckDiff !== 0) return truckDiff;
-      return (right.dateLoaded || '').localeCompare(left.dateLoaded || '');
+      const dateDiff = (right.dateLoaded || '').localeCompare(left.dateLoaded || '');
+      if (dateDiff !== 0) return dateDiff;
+      return (left.truckNumber || '').localeCompare(right.truckNumber || '');
     });
-  }, [ledgerGroups, dateRange, truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter, searchQuery, tripCodes]);
+  }, [ledgerGroups, dateRange, truckFilter, locationFilter, customerFilter, depotFilter, allocationCodeFilter, searchQuery]);
 
   const totals = useMemo(() => {
     let totalExpected = 0;
     let totalPaid = 0;
-    let totalQty = 0;
+    let totalQtyAllocated = 0;
+    let totalQtySold = 0;
     let totalOutstanding = 0;
     let totalOverpaid = 0;
     let entries = 0;
@@ -963,7 +936,8 @@ export default function FillingStations() {
       if (group.truckNumber) uniqueTrucks.add(group.truckNumber);
       if (group.customerId) uniqueCustomers.add(group.customerId);
 
-      totalQty += Math.max(0, toNum(group.quantity));
+      totalQtyAllocated += Math.max(0, toNum(group.quantity));
+      totalQtySold += Math.max(0, toNum(group.totalQtySold));
       totalExpected += Math.max(0, toNum(group.expected));
       totalPaid += toNum(group.totalPaid);
       entries += group.payments.length;
@@ -977,7 +951,8 @@ export default function FillingStations() {
       entries,
       totalExpected,
       totalPaid,
-      totalQty,
+      totalQtyAllocated,
+      totalQtySold,
       outstanding: totalExpected - totalPaid,
       totalOutstanding,
       totalOverpaid,
@@ -990,7 +965,8 @@ export default function FillingStations() {
     const netBalance = totals.totalOutstanding - totals.totalOverpaid;
 
     const cards: SummaryCard[] = [
-      { title: 'Qty Sold (Ltrs)',  value: totals.totalQty > 0 ? totals.totalQty.toLocaleString() : '0', icon: <Truck size={20} />,      tone: 'neutral' },
+      { title: 'Qty Allocated (Ltrs)', value: totals.totalQtyAllocated > 0 ? totals.totalQtyAllocated.toLocaleString() : '0', icon: <Truck size={20} />, tone: 'neutral' },
+      { title: 'Qty Sold (Ltrs)',  value: totals.totalQtySold > 0 ? totals.totalQtySold.toLocaleString() : '0', icon: <Fuel size={20} />,      tone: 'neutral' },
       { title: 'Expected Revenue', value: fmt(totals.totalExpected),                                     icon: <TrendingUp size={20} />, tone: 'neutral' },
       { title: 'Total Paid',       value: fmt(totals.totalPaid),                                         icon: <Banknote size={20} />,   tone: 'green'   },
       {
@@ -998,12 +974,6 @@ export default function FillingStations() {
         value: totals.totalOutstanding > 0 ? fmt(totals.totalOutstanding) : '₦0',
         icon:  <Wallet size={20} />,
         tone:  totals.totalOutstanding > 0 ? ('red' as const) : ('green' as const),
-      },
-      {
-        title: 'Overpaid',
-        value: totals.totalOverpaid > 0 ? `${fmt(totals.totalOverpaid)}` : '₦0',
-        icon:  <Banknote size={20} />,
-        tone:  totals.totalOverpaid > 0 ? ('blue' as const) : ('neutral' as const),
       },
       {
         title: 'Net Balance',
@@ -1108,97 +1078,7 @@ export default function FillingStations() {
     qc.invalidateQueries({ queryKey: ['delivery-inventory'] });
   };
 
-  // ── Trip Code Management ───────────────────────────────────────────
 
-  const addTripCode = () => {
-    const code = newTripCodeInput.trim().toUpperCase().replace(/\s+/g, '-');
-    if (!code) {
-      toast({ title: 'Enter a code first', variant: 'destructive' });
-      return;
-    }
-    if (tripCodes.includes(code)) {
-      toast({ title: `Code "${code}" already exists`, variant: 'destructive' });
-      return;
-    }
-    setTripCodes(prev => [...prev, code].sort());
-    setNewTripCodeInput('');
-    toast({ title: `Trip code "${code}" created` });
-  };
-
-  const deleteTripCode = (code: string) => {
-    setTripCodes(prev => prev.filter(c => c !== code));
-    setSaleTripMap(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(k => { if (next[Number(k)] === code) delete next[Number(k)]; });
-      return next;
-    });
-    if (tripCodeFilter === code) setTripCodeFilter('all');
-    toast({ title: `Trip code "${code}" deleted` });
-  };
-
-  // ── Custom PFI label management ────────────────────────────────────
-
-  const savePfiLabel = () => {
-    const pfi = pfiLabelInput.pfi.trim();
-    const label = pfiLabelInput.label.trim().toUpperCase();
-    if (!pfi || !label) {
-      toast({ title: 'Enter both PFI number and your internal code', variant: 'destructive' });
-      return;
-    }
-    setPfiCodeMap(prev => ({ ...prev, [pfi]: label }));
-    setPfiLabelInput({ pfi: '', label: '' });
-    toast({ title: `PFI "${pfi}" → labelled as "${label}"` });
-  };
-
-  const deletePfiLabel = (pfi: string) => {
-    setPfiCodeMap(prev => { const next = { ...prev }; delete next[pfi]; return next; });
-    toast({ title: 'PFI label removed' });
-  };
-
-  // ── Cycle merge (alias-based, purely frontend) ─────────────────────
-
-  const handleMerge = (targetCycleKey: string) => {
-    if (!mergePrimary) {
-      setMergePrimary(targetCycleKey);
-      return;
-    }
-    if (mergePrimary === targetCycleKey) {
-      setMergePrimary(null);
-      return;
-    }
-    // Alias the target into the primary so all its entries appear under primary
-    setCycleAliasMap(prev => ({ ...prev, [targetCycleKey]: mergePrimary }));
-    toast({
-      title: 'Cycles merged',
-      description: 'Entries from the secondary cycle will now appear under the primary cycle group.',
-    });
-    setMergeMode(false);
-    setMergePrimary(null);
-  };
-
-  const unmergeCycle = (aliasKey: string) => {
-    setCycleAliasMap(prev => { const next = { ...prev }; delete next[aliasKey]; return next; });
-    toast({ title: 'Cycle un-merged — entries restored to their original group' });
-  };
-
-  const bulkAssignTripCode = () => {
-    if (!bulkTripCode || selectedRows.size === 0) return;
-    const count = selectedRows.size;
-    if (bulkTripCode === '__remove__') {
-      setSaleTripMap(prev => {
-        const next = { ...prev };
-        selectedRows.forEach(id => delete next[id]);
-        return next;
-      });
-    } else {
-      const updates: Record<number, string> = {};
-      selectedRows.forEach(id => { updates[id] = bulkTripCode; });
-      setSaleTripMap(prev => ({ ...prev, ...updates }));
-    }
-    setSelectedRows(new Set());
-    setBulkTripCode('');
-    toast({ title: `${count} ${count === 1 ? 'entry' : 'entries'} updated` });
-  };
 
   const handlePresetChange = (preset: TimePreset) => {
     setTimePreset(preset);
@@ -1218,7 +1098,7 @@ export default function FillingStations() {
     setDialogDepot('');
     setDialogCycleMode('auto');
     setDialogCustomDate('');
-    setDialogTripCode('');
+    setDialogAllocationCode('');
     setSaleRows([makeSaleRow()]);
     setRowErrors({});
     setAssignMode(inAssignMode);
@@ -1236,6 +1116,7 @@ export default function FillingStations() {
       setDialogTruckNumber('');
       setDialogDateLoaded('');
       setDialogDepot('');
+      setDialogAllocationCode('');
       setSaleRows([makeSaleRow()]);
       return;
     }
@@ -1244,16 +1125,20 @@ export default function FillingStations() {
     setDialogTruckNumber(loading.truck_number || '');
     setDialogDateLoaded(loading.date_allocated || '');
     setDialogDepot(depot);
+    setDialogAllocationCode(loading.allocation_code || '');
 
     // Pre-fill first row from the loading record (customer + destination + qty)
     const custId = loading.customer ? String(loading.customer) : '';
     const custObj = loading.customer ? customerMap.get(loading.customer) : null;
     const custName = loading.customer_name || custObj?.customer_name || '';
     const destination = loading.location || '';
-    const qty = toNum(loading.quantity_allocated);
+    const cycleKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
+    const cycle = cyclePaymentSummary.get(cycleKey);
+    const cumulativeSold = cycle ? cycle.entries.reduce((sum, p) => sum + toNum(p.quantity), 0) : 0;
+    const remainingQty = Math.max(0, toNum(loading.quantity_allocated) - cumulativeSold);
+    const qty = remainingQty > 0 ? remainingQty : toNum(loading.quantity_allocated);
 
     // Check for existing rate for this cycle+customer combo
-    const cycleKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
     const cycleRates = cycleCustomerRateMap.get(cycleKey);
     const existingRate = (custId && cycleRates?.get(custId)) || '';
     const rateLocked = !!existingRate && !isFillingStation(custObj);
@@ -1305,6 +1190,7 @@ export default function FillingStations() {
       // When customer is selected, check if they already have a rate for this cycle
       // Also auto-fill phone for filling stations
       if (field === 'customer') {
+        const selectedCust = value ? customerMap.get(Number(value)) : null;
         const cycleKey = getCycleKey(dialogTruckNumber, dialogDateLoaded);
         const cycleRates = cycleCustomerRateMap.get(cycleKey);
         const priorRate = value ? cycleRates?.get(value) : undefined;
@@ -1318,7 +1204,6 @@ export default function FillingStations() {
           updated.rateLocked = false;
         }
         // Auto-fill phone number and payer name from customer profile for filling stations
-        const selectedCust = value ? customerMap.get(Number(value)) : null;
         if (selectedCust && isFillingStation(selectedCust)) {
           if (selectedCust.contact_person) updated.payer_name = selectedCust.contact_person;
           if (selectedCust.contact_person_phone) updated.phone_number = selectedCust.contact_person_phone;
@@ -1412,26 +1297,13 @@ export default function FillingStations() {
           phone_number: row.phone_number.trim() || undefined,
           remarks: row.remarks.trim() || undefined,
           entered_by: currentUser,
+          allocation_code: dialogAllocationCode.trim() || undefined,
         });
       });
 
-      const savedEntries = await Promise.all(promises);
+      await Promise.all(promises);
 
-      // Store trip code mapping for new entries if a trip code was selected
-      if (dialogTripCode) {
-        const updates: Record<number, string> = {};
-        savedEntries.forEach((r: unknown) => {
-          const record = r as { id?: number };
-          if (record?.id) updates[record.id] = dialogTripCode;
-        });
-        if (Object.keys(updates).length > 0) {
-          setSaleTripMap(prev => ({ ...prev, ...updates }));
-        }
-      }
-
-      // Write customer(s) & destination(s) back to the inventory entry
-      // For multi-row, update the inventory entry with the first row's customer/location
-      // (subsequent rows are additional allocations from the same loading)
+      // Write customer(s), destination(s), & allocation code back to the inventory entry
       const loadingId = Number(dialogTruckLoadingId);
       if (loadingId) {
         try {
@@ -1442,6 +1314,7 @@ export default function FillingStations() {
           await apiClient.admin.updateDeliveryInventory(loadingId, {
             ...(firstRow.customer ? { customer: Number(firstRow.customer), customer_name: custName } : {}),
             ...(firstRow.location.trim() ? { location: firstRow.location.trim() } : {}),
+            ...(dialogAllocationCode.trim() ? { allocation_code: dialogAllocationCode.trim() } : {}),
           });
         } catch {
           // Non-critical
@@ -1465,7 +1338,7 @@ export default function FillingStations() {
     } finally {
       setSaving(false);
     }
-  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, dialogTripCode, saleRows, toast, bankMap, customerMap, assignMode]);
+  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, dialogAllocationCode, saleRows, toast, bankMap, customerMap, assignMode]);
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -1475,21 +1348,6 @@ export default function FillingStations() {
       }
       if (deleteTarget.mode === 'truck' && deleteTarget.loadingId) {
         await apiClient.admin.deleteDeliveryInventory(deleteTarget.loadingId);
-      }
-
-      if (deleteTarget.ids.length > 0) {
-        setSaleTripMap(prev => {
-          const next = { ...prev };
-          deleteTarget.ids.forEach(id => { delete next[id]; });
-          return next;
-        });
-      }
-      if (deleteTarget.mode === 'truck' && deleteTarget.loadingId) {
-        setLoadingCodeMap(prev => {
-          const next = { ...prev };
-          delete next[deleteTarget.loadingId as number];
-          return next;
-        });
       }
 
       toast({
@@ -1570,11 +1428,7 @@ export default function FillingStations() {
       return;
     }
 
-    const normalized = setupCode.trim().toUpperCase().replace(/\s+/g, '-');
-    if (normalized && !tripCodes.includes(normalized)) {
-      toast({ title: 'Create this code in Inventory first', variant: 'destructive' });
-      return;
-    }
+    const normalized = setupCode.trim().toUpperCase();
 
     setSetupSaving(true);
     try {
@@ -1586,34 +1440,31 @@ export default function FillingStations() {
           customer: customerId,
           customer_name: customerName,
           location: setupDestination.trim(),
+          allocation_code: normalized || null,
         });
 
-        setLoadingCodeMap(prev => {
-          const next = { ...prev };
-          if (!normalized) delete next[setupTarget.loadingId as number];
-          else next[setupTarget.loadingId as number] = normalized;
-          return next;
-        });
+        // Sync linked sales to match
+        if (setupTarget.payments.length > 0) {
+          await Promise.all(
+            setupTarget.payments.map(payment =>
+              apiClient.admin.updateDeliverySale(payment.id, {
+                customer: customerId,
+                location: setupDestination.trim(),
+                allocation_code: normalized || null,
+              }),
+            ),
+          );
+        }
       } else if (setupTarget.payments.length > 0) {
         await Promise.all(
           setupTarget.payments.map(payment =>
             apiClient.admin.updateDeliverySale(payment.id, {
               customer: customerId,
-              customer_name: customerName,
               location: setupDestination.trim(),
+              allocation_code: normalized || null,
             }),
           ),
         );
-
-        if (normalized) {
-          setSaleTripMap(prev => {
-            const next = { ...prev };
-            setupTarget.payments.forEach(payment => {
-              next[payment.id] = normalized;
-            });
-            return next;
-          });
-        }
       }
 
       toast({ title: 'Row setup saved' });
@@ -1670,11 +1521,8 @@ export default function FillingStations() {
         date_of_payment: format(new Date(), 'yyyy-MM-dd'),
         phone_number: quickPaymentForm.phone_number.trim() || undefined,
         entered_by: currentUser,
+        allocation_code: quickPaymentTarget.code || undefined,
       }) as { id?: number };
-
-      if (record?.id && quickPaymentTarget.code) {
-        setSaleTripMap(prev => ({ ...prev, [record.id as number]: quickPaymentTarget.code }));
-      }
 
       toast({
         title: 'Payment recorded',
@@ -1741,6 +1589,7 @@ export default function FillingStations() {
           date_of_payment: today,
           remarks: `Overpayment moved to ${target.truckNumber}`,
           entered_by: currentUser,
+          allocation_code: source.code || undefined,
         }),
         apiClient.admin.createDeliverySale({
           truck_number: target.truckNumber,
@@ -1757,15 +1606,9 @@ export default function FillingStations() {
           date_of_payment: today,
           remarks: `Overpayment received from ${source.truckNumber}`,
           entered_by: currentUser,
+          allocation_code: target.code || undefined,
         }),
       ]) as Array<{ id?: number }>;
-
-      const updates: Record<number, string> = {};
-      if (sourceRecord?.id && source.code) updates[sourceRecord.id] = source.code;
-      if (targetRecord?.id && target.code) updates[targetRecord.id] = target.code;
-      if (Object.keys(updates).length > 0) {
-        setSaleTripMap(prev => ({ ...prev, ...updates }));
-      }
 
       toast({
         title: 'Overpayment transferred',
@@ -1798,8 +1641,7 @@ export default function FillingStations() {
 
   const openEditDialog = (sale: DeliverySale) => {
     setEditTarget(sale);
-    const linkedLoadingId = saleToLoadingMap.get(sale.id);
-    setEditTripCode((linkedLoadingId ? loadingCodeMap[linkedLoadingId] : '') || saleTripMap[sale.id] || '');
+    setEditAllocationCode(sale.allocation_code || '');
     const rate = toNum(sale.rate);
     const sv = toNum(sale.sales_value);
     const pa = toNum(sale.payment_amount);
@@ -1856,25 +1698,25 @@ export default function FillingStations() {
         remarks:          editForm.remarks.trim() || undefined,
         phone_number:     editForm.phone_number.trim() || undefined,
         location:         editForm.location.trim() || undefined,
+        allocation_code:  editAllocationCode || null,
         // Only send date_loaded if the user changed it (cycle reassignment)
         ...(editForm.date_loaded && editForm.date_loaded !== editTarget.date_loaded
           ? { date_loaded: editForm.date_loaded }
           : {}),
       });
 
-      // Persist trip code assignment locally
+      // Synchronize linked loading allocation code back to DB
       const linkedLoadingId = saleToLoadingMap.get(editTarget.id);
-      if (editTripCode) {
-        setSaleTripMap(prev => ({ ...prev, [editTarget.id]: editTripCode }));
-        if (linkedLoadingId) {
-          setLoadingCodeMap(prev => ({ ...prev, [linkedLoadingId]: editTripCode }));
-        }
-      } else {
-        setSaleTripMap(prev => { const next = { ...prev }; delete next[editTarget.id]; return next; });
-        if (linkedLoadingId) {
-          setLoadingCodeMap(prev => { const next = { ...prev }; delete next[linkedLoadingId]; return next; });
+      if (linkedLoadingId) {
+        try {
+          await apiClient.admin.updateDeliveryInventory(linkedLoadingId, {
+            allocation_code: editAllocationCode || null,
+          });
+        } catch {
+          // Non-critical
         }
       }
+
       toast({ title: 'Entry updated' });
       setEditTarget(null);
       setEditForm(null);
@@ -1888,7 +1730,7 @@ export default function FillingStations() {
     } finally {
       setEditSaving(false);
     }
-  }, [editTarget, editForm, editTripCode, toast, saleToLoadingMap, loadingCodeMap]);
+  }, [editTarget, editForm, editAllocationCode, toast, saleToLoadingMap]);
 
   const exportExcel = useCallback(() => {
     if (!filteredSales.length) return;
@@ -1896,189 +1738,145 @@ export default function FillingStations() {
       ? `${customFrom || '?'}_TO_${customTo || '?'}`
       : timePreset.toUpperCase();
 
-    const n = (v: number) => v > 0 ? v.toLocaleString('en-NG') : '—';
+    const n = (v: number) => v > 0 ? v.toLocaleString('en-NG') : '0';
+    const fmtNaira = (v: number) => v !== 0 ? `₦${v.toLocaleString('en-NG', { minimumFractionDigits: 2 })}` : '₦0.00';
     const u = (s: string) => (s || '').toUpperCase();
 
-    // ── Build cycle groups (truck + date_loaded), each sorted chronologically ─
-    const exportCycleMap = new Map<string, DeliverySale[]>();
+    // ── Build hierarchical groupings: Station -> Rate -> Payments ──
+    const stationMap = new Map<string, Map<number, DeliverySale[]>>();
+
     filteredSales.forEach(s => {
-      const key = getCycleKey(s.truck_number, s.date_loaded);
-      const arr = exportCycleMap.get(key) ?? [];
-      arr.push(s);
-      exportCycleMap.set(key, arr);
-    });
-    exportCycleMap.forEach(entries => {
-      entries.sort((a, b) => {
-        const da = a.date_of_payment || a.date_loaded || '';
-        const db = b.date_of_payment || b.date_loaded || '';
-        return da.localeCompare(db) || a.id - b.id;
-      });
-    });
+      const stationName = u(s.customer_name || customerMap.get(s.customer)?.customer_name || 'UNKNOWN STATION');
+      const rateVal = toNum(s.rate);
 
-    // Grand totals — per cycle to avoid cross-cycle double-counting
-    let grandExpected  = 0;
-    let grandPaid      = 0;
-    let grandQty       = 0;
-    let grandOutstanding = 0;
-    let grandOverpaid    = 0;
-    exportCycleMap.forEach(entries => {
-      const perCustMaxSv  = new Map<number, number>();
-      const perCustMaxQty = new Map<number, number>();
-      let cyclePaidLocal = 0;
-      entries.forEach(s => {
-        const sv = toNum(s.sales_value);
-        const q  = toNum(s.quantity);
-        if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
-        if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-        grandPaid      += toNum(s.payment_amount);
-        cyclePaidLocal += toNum(s.payment_amount);
-      });
-      let cycleExp = 0;
-      perCustMaxSv.forEach(v  => { grandExpected += v; cycleExp += v; });
-      perCustMaxQty.forEach(v => { grandQty      += v; });
-      const cycleBal = cycleExp - cyclePaidLocal;
-      if (cycleBal > 0) grandOutstanding += cycleBal;
-      else if (cycleBal < 0) grandOverpaid += Math.abs(cycleBal);
+      if (!stationMap.has(stationName)) {
+        stationMap.set(stationName, new Map());
+      }
+      const rateMap = stationMap.get(stationName)!;
+      if (!rateMap.has(rateVal)) {
+        rateMap.set(rateVal, []);
+      }
+      rateMap.get(rateVal)!.push(s);
     });
-    const grandBalance = grandExpected - grandPaid;
-    const totalCycles  = exportCycleMap.size;
-    const totalTrucks  = new Set(filteredSales.map(s => s.truck_number)).size;
-
-    // ── Build AOA (array-of-arrays) for the sheet ───────────────────
-    const COLS = [
-      'S/N', 'TRUCK NO.', 'TRIP CODE', 'DATE LOADED', 'DEPOT', 'DESTINATION', 'CUSTOMER',
-      'QTY (LTRS)', 'RATE (₦)', 'EXPECTED (₦)', 'PAYMENT (₦)', 'BALANCE (₦)',
-      'PAYER', 'CONTACT', 'BANK', 'PAYMENT DATE', 'ENTERED BY',
-    ] as const;
 
     const aoa: (string | number)[][] = [];
 
-    // Net balance label
-    const netBalanceLabel = (() => {
-      if (grandBalance === 0) return 'FULLY SETTLED';
-      if (grandBalance < 0)  return `${n(Math.abs(grandBalance))} OVERPAID`;
-      if (grandOverpaid > 0) return `${n(grandBalance)} (${n(grandOverpaid)} overpaid on some cycles)`;
-      return n(grandBalance);
-    })();
-
-    aoa.push(['TRUCK SALES LEDGER — ' + period]);
-    aoa.push([]);
-    aoa.push(['TOTAL QTY SOLD (LTRS)',  n(grandQty)]);
-    aoa.push(['TOTAL TRUCKS',           totalTrucks]);
-    aoa.push(['TOTAL CYCLES',           totalCycles]);
-    aoa.push(['EXPECTED REVENUE (₦)',   n(grandExpected)]);
-    aoa.push(['TOTAL PAID (₦)',         n(grandPaid)]);
-    aoa.push(['BALANCE (₦)',            netBalanceLabel]);
+    aoa.push(['FILLING STATIONS SALES REPORT — ' + period]);
     aoa.push([]);
 
-    // Column headers
-    aoa.push([...COLS]);
+    // Compute grand totals
+    let grandQtyAllocated = totals.totalQtyAllocated;
+    let grandQtySold = totals.totalQtySold;
+    let grandExpected = totals.totalExpected;
+    let grandPaid = totals.totalPaid;
+    let grandBalance = totals.totalOutstanding;
 
-    let rowNum = 0;
+    aoa.push(['TOTAL ALLOCATED (LTRS)', n(grandQtyAllocated)]);
+    aoa.push(['TOTAL SOLD (LTRS)',      n(grandQtySold)]);
+    aoa.push(['EXPECTED REVENUE',       fmtNaira(grandExpected)]);
+    aoa.push(['TOTAL PAID (DEPOSITED)', fmtNaira(grandPaid)]);
+    aoa.push(['TOTAL OUTSTANDING',      fmtNaira(grandBalance)]);
+    aoa.push([]);
 
-    exportCycleMap.forEach((entries, cycleKey) => {
-      const firstEntry = entries[0];
-      const truckNum = firstEntry?.truck_number || cycleKey.split('||')[0];
-      const exportCycleInfo = cycleNumberMap.get(cycleKey);
-      const cycleTag = exportCycleInfo && exportCycleInfo.totalCycles > 1
-        ? ` [CYCLE ${exportCycleInfo.cycleNum}/${exportCycleInfo.totalCycles}]`
-        : '';
+    const COLS = [
+      'S/N', 'STATION', 'TRUCK NO.', 'PFI/CODE', 'QTY (LTRS)', 'RATE (₦/L)', 'EXPECTED (₦)', 'DEPOSITED (₦)', 'BALANCE (₦)',
+      'PAYER', 'PHONE', 'BANK', 'PAID DATE', 'REMARKS'
+    ] as const;
 
-      // Per-cycle totals
-      const perCustMaxSv  = new Map<number, number>();
-      const perCustMaxQty = new Map<number, number>();
-      let cyclePaid = 0;
-      entries.forEach(s => {
-        const sv = toNum(s.sales_value);
-        const q  = toNum(s.quantity);
-        if (sv > 0) perCustMaxSv.set(s.customer,  Math.max(perCustMaxSv.get(s.customer)  ?? 0, sv));
-        if (q  > 0) perCustMaxQty.set(s.customer, Math.max(perCustMaxQty.get(s.customer) ?? 0, q));
-        cyclePaid += toNum(s.payment_amount);
-      });
-      let cycleExpected = 0; perCustMaxSv.forEach(v  => { cycleExpected += v; });
-      let cycleQty      = 0; perCustMaxQty.forEach(v => { cycleQty      += v; });
-      const cycleBalance = cycleExpected - cyclePaid;
+    let globalSn = 0;
 
-      // Individual entry rows — carry-forward suppression within each cycle
-      let prevCycleShown = false;
-      let prevQty        = '';
-      let prevRate       = '';
-      let prevCustName   = '';
+    stationMap.forEach((rateMap, stationName) => {
+      // Station Header
+      aoa.push([`STATION: ${stationName}`]);
+      aoa.push([...COLS]);
 
-      entries.forEach(s => {
-        rowNum += 1;
-        const custName  = u(s.customer_name || customerMap.get(s.customer)?.customer_name || '');
-        const balance   = rowBalances.get(s.id) ?? 0;
-        const thisQty   = toNum(s.quantity) > 0 ? n(toNum(s.quantity))  : '—';
-        const thisRate  = toNum(s.rate)     > 0 ? n(toNum(s.rate))      : '—';
+      let stationQty = 0;
+      let stationExpected = 0;
+      let stationPaid = 0;
 
-        // Cycle-level fields: only on the first row of this cycle group
-        const truckCell = !prevCycleShown ? `${u(s.truck_number)}${cycleTag}` : '';
-        const dateCell  = !prevCycleShown && s.date_loaded
-                            ? format(parseISO(s.date_loaded), 'dd/MM/yyyy') : '';
-        const depotCell = !prevCycleShown ? u(s.depot_loaded || '') : '';
-        const destCell  = !prevCycleShown ? u(s.location     || '') : '';
+      rateMap.forEach((sales, rateVal) => {
+        // Rate Header
+        aoa.push(['', `Rate: ₦${n(rateVal)} per Litre`]);
 
-        // Qty & Rate: show only when value changes
-        const qtyCell  = thisQty  !== prevQty  ? thisQty  : '';
-        const rateCell = thisRate !== prevRate  ? thisRate : '';
+        let rateQty = 0;
+        let rateExpected = 0;
+        let ratePaid = 0;
 
-        // Customer: carry-forward suppression
-        const custCell = custName !== prevCustName ? custName : '';
+        // Sort chronologically
+        sales.sort((a, b) => (a.date_of_payment || '').localeCompare(b.date_of_payment || '') || a.id - b.id);
 
-        const balanceCell = balance > 0
-          ? n(balance)
-          : balance < 0
-          ? `+${n(Math.abs(balance))} OVERPAID`
-          : 'FULLY PAID';
+        sales.forEach(s => {
+          globalSn += 1;
+          const q = toNum(s.quantity);
+          const expected = toNum(s.sales_value);
+          const paid = toNum(s.payment_amount);
+          const bal = expected - paid;
 
+          rateQty += q;
+          rateExpected += expected;
+          ratePaid += paid;
+
+          aoa.push([
+            globalSn,
+            stationName,
+            u(s.truck_number),
+            u(s.allocation_code || ''),
+            q > 0 ? n(q) : '—',
+            rateVal > 0 ? n(rateVal) : '—',
+            expected > 0 ? fmtNaira(expected) : '—',
+            paid > 0 ? fmtNaira(paid) : '—',
+            bal > 0 ? fmtNaira(bal) : bal < 0 ? `+${fmtNaira(Math.abs(bal))}` : '₦0.00 ✓',
+            u(s.payer_name || ''),
+            s.phone_number || '',
+            u(s.bank || ''),
+            s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '—',
+            u(s.remarks || '')
+          ]);
+        });
+
+        // Rate Subtotal Row
+        const rateBal = rateExpected - ratePaid;
         aoa.push([
-          rowNum,
-          truckCell,
-          !prevCycleShown ? (saleTripMap[s.id] || '') : '',   // TRIP CODE — only on first row of cycle
-          dateCell,
-          depotCell,
-          destCell,
-          custCell,
-          qtyCell,
-          rateCell,
-          toNum(s.sales_value)    > 0 ? n(toNum(s.sales_value))    : '—',
-          toNum(s.payment_amount) > 0 ? n(toNum(s.payment_amount)) : '—',
-          balanceCell,
-          u(s.payer_name    || ''),
-          s.phone_number    || '',
-          u(s.bank          || ''),
-          s.date_of_payment ? format(parseISO(s.date_of_payment), 'dd/MM/yyyy') : '',
-          u(s.entered_by    || ''),
+          '',
+          `Subtotal for Rate ₦${n(rateVal)}`,
+          '', '',
+          n(rateQty),
+          '',
+          fmtNaira(rateExpected),
+          fmtNaira(ratePaid),
+          rateBal > 0 ? fmtNaira(rateBal) : rateBal < 0 ? `+${fmtNaira(Math.abs(rateBal))}` : '₦0.00 ✓',
+          '', '', '', '', ''
         ]);
 
-        prevCycleShown = true;
-        prevQty        = thisQty;
-        prevRate       = thisRate;
-        prevCustName   = custName;
+        stationQty += rateQty;
+        stationExpected += rateExpected;
+        stationPaid += ratePaid;
       });
 
-      // Cycle subtotal row
+      // Station Grand Total Row
+      const stationBal = stationExpected - stationPaid;
       aoa.push([
         '',
-        `SUBTOTAL — ${u(truckNum)}${cycleTag}`,
-        '', '', '', '', '',
-        n(cycleQty),
+        `GRAND TOTAL FOR ${stationName}`,
+        '', '',
+        n(stationQty),
         '',
-        n(cycleExpected),
-        n(cyclePaid),
-        cycleBalance === 0 ? 'FULLY PAID' : cycleBalance > 0 ? n(cycleBalance) : `+${n(Math.abs(cycleBalance))} OVERPAID`,
-        '', '', '', '', '',
+        fmtNaira(stationExpected),
+        fmtNaira(stationPaid),
+        stationBal > 0 ? fmtNaira(stationBal) : stationBal < 0 ? `+${fmtNaira(Math.abs(stationBal))}` : '₦0.00 ✓',
+        '', '', '', '', ''
       ]);
-      // Blank separator between cycles
+
+      // Blank rows separator
+      aoa.push([]);
       aoa.push([]);
     });
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Truck Sales Ledger');
-    XLSX.writeFile(wb, `TRUCK-SALES-LEDGER-${period}.xlsx`);
-  }, [filteredSales, customerMap, rowBalances, saleTripMap, cycleNumberMap, timePreset, customFrom, customTo]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Filling Station Ledger');
+    XLSX.writeFile(wb, `FILLING-STATION-LEDGER-${period}.xlsx`);
+  }, [filteredSales, customerMap, totals, timePreset, customFrom, customTo]);
 
   const activeBankAccounts = useMemo(
     () => BANK_ACCOUNTS.filter(b => b.is_active),
@@ -2307,24 +2105,24 @@ export default function FillingStations() {
                     </div>
 
                     {/* Code */}
-                    {tripCodes.length > 0 && (
+                    {uniqueAllocationCodes.length > 0 && (
                       <div className="space-y-1.5">
                         <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                          <Tag size={12} className="text-purple-400" /> PFI
+                          <Tag size={12} className="text-purple-400" /> Allocation Code
                         </label>
                         <select
-                          aria-label="Filter by PFI"
-                          value={tripCodeFilter}
-                          onChange={e => setTripCodeFilter(e.target.value)}
+                          aria-label="Filter by Allocation Code"
+                          value={allocationCodeFilter}
+                          onChange={e => setAllocationCodeFilter(e.target.value)}
                           className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-purple-300 ${
-                            tripCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-700'
+                            allocationCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-700'
                           }`}
                         >
-                          <option value="all">All PFIs</option>
-                          {tripCodes.map(code => {
-                            const count = Object.values(saleTripMap).filter(v => v === code).length;
+                          <option value="all">All Allocation Codes</option>
+                          {uniqueAllocationCodes.map(code => {
+                            const count = ledgerGroups.filter(g => g.code === code).length;
                             return (
-                              <option key={code} value={code}>{code}{count > 0 ? ` (${count} entries)` : ''}</option>
+                              <option key={code} value={code}>{code}{count > 0 ? ` (${count} rows)` : ''}</option>
                             );
                           })}
                         </select>
@@ -2343,7 +2141,7 @@ export default function FillingStations() {
                   depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
                   locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                   customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
-                  tripCodeFilter !== 'all' && { label: `Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
+                  allocationCodeFilter !== 'all' && { label: `Code: ${allocationCodeFilter}`, clear: () => setAllocationCodeFilter('all') },
                   searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                 ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -2353,7 +2151,7 @@ export default function FillingStations() {
                       depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
                       locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                       customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
-                      tripCodeFilter !== 'all' && { label: `Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
+                      allocationCodeFilter !== 'all' && { label: `Code: ${allocationCodeFilter}`, clear: () => setAllocationCodeFilter('all') },
                       searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                     ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
                       <span key={chip.label} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
@@ -2720,15 +2518,38 @@ export default function FillingStations() {
                                 </TableCell>
                                 <TableCell className="font-semibold text-slate-900 uppercase w-[180px] min-w-[180px] whitespace-nowrap">{group.customerName || '—'}</TableCell>
                                 <TableCell className="text-slate-700 text-sm w-[150px] min-w-[150px] uppercase whitespace-nowrap">{group.location || '—'}</TableCell>
-                                <TableCell className="text-slate-700 w-[130px] min-w-[130px] whitespace-nowrap">{group.quantity > 0 ? `${fmtQty(group.quantity)} Litres` : '—'}</TableCell>
+                                <TableCell className="w-[180px] min-w-[180px] whitespace-nowrap">
+                                  <div className="space-y-1">
+                                    <div className="font-semibold text-slate-900">
+                                      {fmtQty(group.totalQtySold)} / {fmtQty(group.quantity)} Ltrs
+                                    </div>
+                                    {group.quantity > 0 ? (
+                                      <div className="flex items-center gap-1.5">
+                                        {group.totalQtySold === 0 ? (
+                                          <span className="inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20">
+                                            Awaiting Sales
+                                          </span>
+                                        ) : group.totalQtySold < group.quantity ? (
+                                          <span className="inline-flex items-center rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 ring-1 ring-inset ring-sky-600/20">
+                                            Filling ({Math.round((group.totalQtySold / group.quantity) * 100)}%)
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 ring-1 ring-inset ring-emerald-600/20 font-bold">
+                                            Filled ({Math.round((group.totalQtySold / group.quantity) * 100)}%)
+                                          </span>
+                                        )}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
                                 <TableCell className="text-right text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">{group.rate > 0 ? fmt(group.rate) : '—'}</TableCell>
-                                <TableCell className="text-right font-medium text-slate-800 w-[130px] min-w-[130px] whitespace-nowrap">{group.expected > 0 ? fmt(group.expected) : ' '}</TableCell>
+                                <TableCell className="text-right font-medium text-slate-800 w-[130px] min-w-[130px] whitespace-nowrap">{group.expected > 0 ? fmt(group.expected) : '—'}</TableCell>
                                 <TableCell className="text-right font-bold text-emerald-700 w-[130px] min-w-[130px] whitespace-nowrap">
                                   {fmt(toNum(group.totalPaid))}
                                 </TableCell>
                                 <TableCell className={`text-right font-bold w-[130px] min-w-[130px] whitespace-nowrap ${group.balance > 0 ? 'text-red-600' : group.balance < 0 ? 'text-blue-600' : group.expected > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
                                   {group.expected > 0
-                                    ? (group.balance === 0 ? '₦0' : group.balance > 0 ? fmt(group.balance) : `+${fmt(Math.abs(group.balance))}`)
+                                    ? (group.balance === 0 ? '₦0 ✓' : group.balance > 0 ? fmt(group.balance) : `+${fmt(Math.abs(group.balance))}`)
                                     : (group.isFillingStation ? 'Open' : ' ')}
                                 </TableCell>
                                 <TableCell className="text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">
@@ -2810,11 +2631,13 @@ export default function FillingStations() {
                               </TableRow>
                             );
 
-                            let cumulative = 0;
                             group.payments.forEach(payment => {
-                              cumulative += toNum(payment.payment_amount);
-                              const balanceAfter = group.expected - cumulative;
                               const bankParts = payment.bank ? payment.bank.split(' · ') : null;
+                              const dailyQty = toNum(payment.quantity);
+                              const dailyRate = toNum(payment.rate);
+                              const dailyExpected = toNum(payment.sales_value);
+                              const dailyPaid = toNum(payment.payment_amount);
+                              const dayBal = dailyExpected - dailyPaid;
 
                               rows.push(
                                 <TableRow
@@ -2825,33 +2648,31 @@ export default function FillingStations() {
                                   <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap"></TableCell>
                                   <TableCell className="font-semibold text-slate-900 w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
                                   <TableCell className="font-semibold text-slate-900 uppercase w-[180px] min-w-[180px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-slate-700 text-sm w-[150px] min-w-[150px] uppercase whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-slate-700 w-[130px] min-w-[130px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-right text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-right font-medium text-slate-800 w-[130px] min-w-[130px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-right font-bold text-emerald-700 w-[130px] min-w-[130px] whitespace-nowrap">{fmt(toNum(payment.payment_amount))}</TableCell>
-                                  <TableCell className={`text-right font-bold w-[130px] min-w-[130px] whitespace-nowrap ${balanceAfter > 0 ? 'text-red-600' : balanceAfter < 0 ? 'text-blue-600' : group.expected > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                    {group.expected > 0
-                                      ? (balanceAfter === 0 ? '₦0' : balanceAfter > 0 ? fmt(balanceAfter) : `+${fmt(Math.abs(balanceAfter))}`)
-                                      : (group.isFillingStation ? 'Open' : ' ')}
+                                  <TableCell className="text-slate-400 text-xs w-[150px] min-w-[150px] uppercase whitespace-nowrap text-center italic">↳ daily sale</TableCell>
+                                  <TableCell className="text-slate-600 font-medium w-[130px] min-w-[130px] whitespace-nowrap">{dailyQty > 0 ? `${fmtQty(dailyQty)} Ltrs` : '—'}</TableCell>
+                                  <TableCell className="text-right text-slate-600 font-medium w-[120px] min-w-[120px] whitespace-nowrap">{dailyRate > 0 ? fmt(dailyRate) : '—'}</TableCell>
+                                  <TableCell className="text-right font-medium text-slate-600 w-[130px] min-w-[130px] whitespace-nowrap">{dailyExpected > 0 ? fmt(dailyExpected) : '—'}</TableCell>
+                                  <TableCell className="text-right font-bold text-emerald-600 w-[130px] min-w-[130px] whitespace-nowrap">{fmt(dailyPaid)}</TableCell>
+                                  <TableCell className={`text-right font-bold w-[130px] min-w-[130px] whitespace-nowrap ${dayBal > 0 ? 'text-red-600' : dayBal < 0 ? 'text-blue-600' : 'text-emerald-600'}`}>
+                                    {dayBal > 0 ? fmt(dayBal) : dayBal < 0 ? `+${fmt(Math.abs(dayBal))}` : '₦0 ✓'}
                                   </TableCell>
                                   <TableCell className="text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">
                                     {payment.payer_name ? (
                                       <div>
-                                        <p className="font-medium uppercase">{payment.payer_name}</p>
-                                        {payment.phone_number && <p className="text-xs text-slate-500">{payment.phone_number}</p>}
+                                        <p className="font-medium uppercase text-xs">{payment.payer_name}</p>
+                                        {payment.phone_number && <p className="text-[10px] text-slate-500">{payment.phone_number}</p>}
                                       </div>
-                                    ) : payment.phone_number ? <span className="text-xs text-slate-500">{payment.phone_number}</span> : ' '}
+                                    ) : payment.phone_number ? <span className="text-[10px] text-slate-500">{payment.phone_number}</span> : ' '}
                                   </TableCell>
                                   <TableCell className="text-sm w-[180px] min-w-[180px] whitespace-nowrap">
                                     {bankParts ? (
                                       <div>
-                                        <p className="font-semibold text-black">{bankParts[0]}</p>
-                                        {bankParts[1] && <p className="text-xs text-slate-600">{bankParts[1]}</p>}
+                                        <p className="font-semibold text-black text-xs">{bankParts[0]}</p>
+                                        {bankParts[1] && <p className="text-[10px] text-slate-600">{bankParts[1]}</p>}
                                       </div>
                                     ) : ' '}
                                   </TableCell>
-                                  <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm">
+                                  <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-xs">
                                     {payment.date_of_payment ? format(parseISO(payment.date_of_payment), 'dd MMM yyyy') : ' '}
                                   </TableCell>
                                   <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap">
@@ -3048,31 +2869,28 @@ export default function FillingStations() {
             )}
 
             {/* ── Cycle / Date Loaded selector ──────────────────────── */}
-            {/* ── Code selector ──────────────────────────────────── */}
-            {dialogTruckNumber && tripCodes.length > 0 && (
+            {/* ── Allocation Code selector ─────────────────────────── */}
+            {dialogTruckNumber && (
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Tag size={14} className="text-purple-500" /> Code
-                  <span className="text-xs text-slate-400 font-normal">(optional — group these entries under a shared code)</span>
+                  <Tag size={14} className="text-purple-500" /> Allocation Code
                 </Label>
-                <select
-                  aria-label="Select code"
-                  value={dialogTripCode}
-                  onChange={e => setDialogTripCode(e.target.value)}
-                  className={`h-10 w-full rounded-md border bg-background px-3 py-2 text-sm ${
-                    dialogTripCode ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold' : 'border-input'
-                  }`}
-                >
-                  <option value="">No code (skip)</option>
-                  {tripCodes.map(code => (
-                    <option key={code} value={code}>{code}</option>
-                  ))}
-                </select>
-                {dialogTripCode && (
-                  <p className="text-xs text-purple-600 flex items-center gap-1">
-                    <Tag size={10} /> All entries in this batch will be tagged as <strong>{dialogTripCode}</strong>.
-                  </p>
-                )}
+                <Input
+                  placeholder="e.g. PFI 19B"
+                  value={dialogAllocationCode}
+                  onChange={e => setDialogAllocationCode(e.target.value.toUpperCase())}
+                  className="h-10 text-sm uppercase font-semibold border-purple-200 focus:border-purple-400"
+                />
+              </div>
+            )}
+
+            {/* ── Remaining allocated quantity alert ───────────────── */}
+            {dialogRemainingQty !== null && (
+              <div className="bg-amber-50/70 border border-amber-200/60 rounded-lg p-3 text-xs text-amber-800 flex items-center justify-between">
+                <div>
+                  <span className="font-semibold">Remaining Allocation:</span>{' '}
+                  <strong className="text-slate-900">{fmtQty(dialogRemainingQty)} Litres</strong> outstanding (Allocated: {fmtQty(toNum(selectedTruck?.quantity_allocated))} Ltrs)
+                </div>
               </div>
             )}
 
@@ -3401,18 +3219,13 @@ export default function FillingStations() {
             </div>
 
             <div className="space-y-1">
-              <Label>Code</Label>
-              <select
-                aria-label="Setup code"
+              <Label>Allocation Code</Label>
+              <Input
+                placeholder="e.g. PFI 19B"
                 value={setupCode}
-                onChange={e => setSetupCode(e.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">No code</option>
-                {tripCodes.map(code => (
-                  <option key={code} value={code}>{code}</option>
-                ))}
-              </select>
+                onChange={e => setSetupCode(e.target.value.toUpperCase())}
+                className="h-10 text-sm uppercase font-semibold border-purple-200 focus:border-purple-400"
+              />
             </div>
 
             {setupTarget && setupTarget.balance < 0 && (
@@ -3653,26 +3466,17 @@ export default function FillingStations() {
               </div>
 
               {/* Code */}
-              {tripCodes.length > 0 && (
-                <div className="space-y-1">
-                  <Label className="text-xs text-slate-600 flex items-center gap-1.5">
-                    <Tag size={11} className="text-purple-500" /> Code
-                  </Label>
-                  <select
-                    aria-label="Code"
-                    value={editTripCode}
-                    onChange={e => setEditTripCode(e.target.value)}
-                    className={`h-9 w-full rounded-md border bg-background px-3 py-1 text-sm ${
-                      editTripCode ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold' : 'border-input'
-                    }`}
-                  >
-                    <option value="">No code</option>
-                    {tripCodes.map(code => (
-                      <option key={code} value={code}>{code}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600 flex items-center gap-1.5">
+                  <Tag size={11} className="text-purple-500" /> Allocation Code
+                </Label>
+                <Input
+                  placeholder="e.g. PFI 19B"
+                  value={editAllocationCode}
+                  onChange={e => setEditAllocationCode(e.target.value.toUpperCase())}
+                  className="h-9 text-sm uppercase font-semibold border-purple-200 focus:border-purple-400"
+                />
+              </div>
 
               {/* Row 2: Rate + Expected */}
               <div className="grid grid-cols-2 gap-3">

@@ -1384,7 +1384,7 @@ export const apiClient = {
     // ── Fleet Ledger (Trucks + Expenses / Income) ───────────────────
 
     /** GET /api/admin/fleet/trucks/ */
-    getFleetTrucks: async (params?: { search?: string; page?: number; page_size?: number }) => {
+    getFleetTrucks: async (params?: { search?: string; page?: number; page_size?: number; is_active?: boolean; status?: string; truck_status?: string; delivery_loadings__loading_status?: string }) => {
       const url = new URL(`${ADMIN_BASE}/fleet/trucks/`);
       if (params) {
         Object.entries(params).forEach(([k, v]) => {
@@ -1553,6 +1553,7 @@ export const apiClient = {
       pfi?: number | null;
       depot?: string;
       location?: string;
+      allocation_code?: string;
       quantity_allocated: number;
       date_allocated?: string;
       notes?: string;
@@ -1580,6 +1581,7 @@ export const apiClient = {
         pfi: number | null;
         depot: string;
         location: string;
+        allocation_code: string | null;
         quantity_allocated: number;
         date_allocated: string;
         notes: string;
@@ -1795,6 +1797,7 @@ export const apiClient = {
       date_loaded: string;
       depot_loaded?: string;
       customer: number;
+      allocation_code?: string;
       location?: string;
       quantity?: number;
       rate?: number;
@@ -1824,6 +1827,7 @@ export const apiClient = {
         date_loaded: string;
         depot_loaded: string;
         customer: number;
+        allocation_code: string;
         location: string;
         quantity: number;
         rate: number;

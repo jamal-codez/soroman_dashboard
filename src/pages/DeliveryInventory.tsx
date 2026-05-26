@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -19,7 +19,8 @@ import {
   Plus, Search, Download, Loader2, Trash2,
   Truck, DropletIcon, FileText, Package,
   CheckCircle2, AlertTriangle,
-  CalendarDays, X, UserPlus, Fuel, User,
+  CalendarDays, X, Fuel, ChevronDown, ChevronRight,
+  Tag, Pencil,
 } from 'lucide-react';
 import {
   format, parseISO, isWithinInterval, startOfDay, endOfDay,
@@ -29,6 +30,9 @@ import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { isCurrentUserReadOnly } from '@/roles';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Interfaces
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface FleetTruck {
@@ -38,6 +42,7 @@ interface FleetTruck {
   driver_phone?: string;
   max_capacity?: number;
   is_active?: boolean;
+  truck_status?: string;
 }
 
 interface DeliveryCustomer {
@@ -53,6 +58,7 @@ interface DeliveryCustomer {
 interface DeliverySale {
   id: number;
   truck_number: string;
+  date_loaded: string;
   customer: number;
   customer_name?: string;
   rate: string | number;
@@ -92,6 +98,7 @@ interface InventoryEntry {
   notes?: string;
   location?: string;
   pfi_location?: string;
+  allocation_code?: string;
 }
 
 /** Enriched row — every row is a truck record */
@@ -108,11 +115,15 @@ type TruckRecord = InventoryEntry & {
   code: string;
 };
 
-/** One customer row in the Load Trucks dialog */
-interface CustomerAllocation {
-  uid: string;
-  customerId: string;
-  qty: string;
+/** Full edit target */
+interface EditTarget {
+  id: number;
+  truckPlate: string;
+  currentCode: string;
+  currentPfi: string;
+  currentDepot: string;
+  currentDate: string;
+  currentLocation: string;
 }
 
 type PagedResponse<T> = { count: number; results: T[] };
@@ -177,29 +188,21 @@ const statusBadge = {
   },
 } as const;
 
-const makeAllocation = (): CustomerAllocation => ({
-  uid: crypto.randomUUID(),
-  customerId: '',
-  qty: '',
-});
-
 const CODE_PALETTE = [
-  { row: 'bg-sky-50/60 border-l-sky-300', badge: 'bg-sky-100 text-sky-800 border-sky-200' },
-  { row: 'bg-emerald-50/60 border-l-emerald-300', badge: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
-  { row: 'bg-orange-50/60 border-l-orange-300', badge: 'bg-orange-100 text-orange-800 border-orange-200' },
-  { row: 'bg-violet-50/60 border-l-violet-300', badge: 'bg-violet-100 text-violet-800 border-violet-200' },
-  { row: 'bg-pink-50/60 border-l-pink-300', badge: 'bg-pink-100 text-pink-800 border-pink-200' },
-  { row: 'bg-amber-50/60 border-l-amber-300', badge: 'bg-amber-100 text-amber-800 border-amber-200' },
-  { row: 'bg-teal-50/60 border-l-teal-300', badge: 'bg-teal-100 text-teal-800 border-teal-200' },
-  { row: 'bg-indigo-50/60 border-l-indigo-300', badge: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
+  { row: 'bg-sky-50/60 border-l-sky-400',     badge: 'bg-sky-100 text-sky-800 border-sky-200',       header: 'bg-sky-50 border-sky-200' },
+  { row: 'bg-emerald-50/60 border-l-emerald-400', badge: 'bg-emerald-100 text-emerald-800 border-emerald-200', header: 'bg-emerald-50 border-emerald-200' },
+  { row: 'bg-orange-50/60 border-l-orange-400',  badge: 'bg-orange-100 text-orange-800 border-orange-200',   header: 'bg-orange-50 border-orange-200' },
+  { row: 'bg-violet-50/60 border-l-violet-400',  badge: 'bg-violet-100 text-violet-800 border-violet-200',   header: 'bg-violet-50 border-violet-200' },
+  { row: 'bg-pink-50/60 border-l-pink-400',    badge: 'bg-pink-100 text-pink-800 border-pink-200',       header: 'bg-pink-50 border-pink-200' },
+  { row: 'bg-amber-50/60 border-l-amber-400',   badge: 'bg-amber-100 text-amber-800 border-amber-200',     header: 'bg-amber-50 border-amber-200' },
+  { row: 'bg-teal-50/60 border-l-teal-400',    badge: 'bg-teal-100 text-teal-800 border-teal-200',       header: 'bg-teal-50 border-teal-200' },
+  { row: 'bg-indigo-50/60 border-l-indigo-400',  badge: 'bg-indigo-100 text-indigo-800 border-indigo-200',   header: 'bg-indigo-50 border-indigo-200' },
 ];
 
 const getCodeTheme = (code: string) => {
   if (!code) return null;
   let hash = 0;
-  for (let index = 0; index < code.length; index += 1) {
-    hash = (hash * 31 + code.charCodeAt(index)) >>> 0;
-  }
+  for (let i = 0; i < code.length; i += 1) hash = (hash * 31 + code.charCodeAt(i)) >>> 0;
   return CODE_PALETTE[hash % CODE_PALETTE.length];
 };
 
@@ -212,7 +215,7 @@ export default function DeliveryInventory() {
   const { toast } = useToast();
   const readOnly = isCurrentUserReadOnly();
 
-  // ── Filters & Search ────────────────────────────────────────────
+  // ── Filters & Search ─────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -220,6 +223,9 @@ export default function DeliveryInventory() {
   const [pfiFilter, setPfiFilter] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
   const [truckFilter, setTruckFilter] = useState('');
+  const [codeFilter, setCodeFilter] = useState('');
+
+  // ── Allocation Codes (managed list stored in localStorage) ────────────────
   const [deliveryCodes, setDeliveryCodes] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('dsl_trip_codes') || '[]'); } catch { return []; }
   });
@@ -227,28 +233,46 @@ export default function DeliveryInventory() {
     try { return JSON.parse(localStorage.getItem('dsl_loading_code_map') || '{}'); } catch { return {}; }
   });
 
-  // ── Load Trucks Dialog ──────────────────────────────────────────
+  // ── Collapsed code groups ─────────────────────────────────────────────────
+  const [collapsedCodes, setCollapsedCodes] = useState<Set<string>>(new Set());
+
+  // ── Allocate Trucks Dialog state ──────────────────────────────────────────
   const [loadDialogOpen, setLoadDialogOpen] = useState(false);
   const [loadPfi, setLoadPfi] = useState('');
   const [loadCode, setLoadCode] = useState('');
   const [loadDepot, setLoadDepot] = useState('');
+  const [loadLocation, setLoadLocation] = useState('');
+  const [dateAllocated, setDateAllocated] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [loadNotes, setLoadNotes] = useState('');
   const [selectedTruckIds, setSelectedTruckIds] = useState<Set<number>>(new Set());
   const [truckSearch, setTruckSearch] = useState('');
   const [saving, setSaving] = useState(false);
-  // Total allocation qty — manually entered or auto-summed from selected trucks' max_capacity
-  const [totalAllocationQty, setTotalAllocationQty] = useState('');
-  // Customer allocations — each row: one customer + their quantity (optional)
-  const [customerAllocations, setCustomerAllocations] = useState<CustomerAllocation[]>([makeAllocation()]);
+  // Inline new code creation
+  const [newCodeInput, setNewCodeInput] = useState('');
+  const [showNewCodeInput, setShowNewCodeInput] = useState(false);
 
-  // ── Offload Dialog ─────────────────────────────────────────────────
+  // ── Offload Dialog ────────────────────────────────────────────────────────
   const [offloadTarget, setOffloadTarget] = useState<TruckRecord | null>(null);
   const [offloadDate, setOffloadDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [offloading, setOffloading] = useState(false);
 
-  // ── Delete Dialog ──────────────────────────────────────────────────
+  // ── Delete Dialog ─────────────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // ── Edit Record Dialog ────────────────────────────────────────────────────
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [editForm, setEditForm] = useState({ code: '', pfi: '', depot: '', date: '', location: '' });
+  const [editSaving, setEditSaving] = useState(false);
+
+  // ── Bulk Selection ────────────────────────────────────────────────────────
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<number>>(new Set());
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [bulkAssignCode, setBulkAssignCode] = useState('');
+  const [bulkAssignPfi, setBulkAssignPfi] = useState('');
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('dsl_trip_codes', JSON.stringify(deliveryCodes));
@@ -258,9 +282,9 @@ export default function DeliveryInventory() {
     localStorage.setItem('dsl_loading_code_map', JSON.stringify(loadingCodeMap));
   }, [loadingCodeMap]);
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // Queries
-  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   const inventoryQuery = useQuery({
     queryKey: ['delivery-inventory-all'],
@@ -272,6 +296,7 @@ export default function DeliveryInventory() {
   });
   const allEntries = useMemo(() => inventoryQuery.data?.results || [], [inventoryQuery.data]);
 
+  // Fetch ALL active fleet trucks — we filter by loaded status client-side
   const trucksQuery = useQuery({
     queryKey: ['fleet-trucks'],
     queryFn: async () =>
@@ -279,10 +304,14 @@ export default function DeliveryInventory() {
         await apiClient.admin.getFleetTrucks({ page_size: 1000 }),
       ),
     staleTime: 60_000,
+    refetchInterval: 30_000,
   });
   const allTrucks = useMemo(() => {
     const trucks = trucksQuery.data?.results || [];
-    return trucks.filter(t => t.is_active !== false).sort((a, b) => a.plate_number.localeCompare(b.plate_number));
+    return trucks
+      .filter(t => t.is_active !== false)
+      .filter(t => !String(t.truck_status || '').toLowerCase().includes('bad'))
+      .sort((a, b) => a.plate_number.localeCompare(b.plate_number));
   }, [trucksQuery.data]);
 
   const customersQuery = useQuery({
@@ -293,10 +322,6 @@ export default function DeliveryInventory() {
       ),
     staleTime: 60_000,
   });
-  const customers = useMemo(
-    () => (customersQuery.data?.results || []).filter(c => c.status === 'active'),
-    [customersQuery.data],
-  );
 
   const pfisQuery = useQuery({
     queryKey: ['pfis-for-delivery'],
@@ -318,9 +343,9 @@ export default function DeliveryInventory() {
   });
   const allSales = useMemo(() => salesQuery.data?.results || [], [salesQuery.data]);
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // Lookup Maps
-  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   const truckMap = useMemo(() => {
     const m = new Map<number, FleetTruck>();
@@ -340,12 +365,11 @@ export default function DeliveryInventory() {
     return m;
   }, [allPfis]);
 
-  // (truck_number + date_loaded) → array of { customerName, rate } for that specific cycle
+  // (truck_number::date_allocated) → sales customer+rate data for that cycle
   const truckSalesMap = useMemo(() => {
     const map = new Map<string, { customerId: number; customerName: string; rates: Set<number> }[]>();
     allSales.forEach(s => {
       if (!s.truck_number) return;
-      // Key by truck + the date it was loaded so each loading cycle is isolated
       const cycleKey = `${s.truck_number}::${s.date_loaded || ''}`;
       const existing = map.get(cycleKey) || [];
       const rate = toNum(s.rate);
@@ -364,9 +388,9 @@ export default function DeliveryInventory() {
     return map;
   }, [allSales]);
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Enrich entries → truck records only (skip pure allocations with no truck)
-  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Enrich entries into TruckRecord[]
+  // ═══════════════════════════════════════════════════════════════════════════
 
   const truckRecords = useMemo((): TruckRecord[] => {
     return allEntries
@@ -375,7 +399,6 @@ export default function DeliveryInventory() {
         const truck = entry.truck ? truckMap.get(entry.truck) : null;
         const customer = entry.customer ? customerMap.get(entry.customer) : null;
         const pfi = entry.pfi ? pfiMap.get(entry.pfi) : null;
-
         return {
           ...entry,
           status: inferStatus(entry),
@@ -387,62 +410,41 @@ export default function DeliveryInventory() {
           pfiLabel: entry.pfi_number || pfi?.pfi_number || '',
           product: entry.pfi_product || pfi?.product_name || '',
           qty: toNum(entry.quantity_allocated),
-          code: loadingCodeMap[entry.id] || '',
+          code: entry.allocation_code || '',
         };
       });
-  }, [allEntries, truckMap, customerMap, pfiMap, loadingCodeMap]);
+  }, [allEntries, truckMap, customerMap, pfiMap]);
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Filtering & Sorting — single unified list
-  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Filtering & Sorting
+  // ═══════════════════════════════════════════════════════════════════════════
 
   const hasDateFilter = !!(dateFrom || dateTo);
-  const hasAnyFilter = !!(searchQuery || hasDateFilter || statusFilter !== 'all' || pfiFilter || customerFilter || truckFilter);
+  const hasAnyFilter = !!(searchQuery || hasDateFilter || statusFilter !== 'all' || pfiFilter || customerFilter || truckFilter || codeFilter);
 
   const filtered = useMemo(() => {
     let list = [...truckRecords];
 
-    // Status filter
-    if (statusFilter === 'active') {
-      list = list.filter(r => r.status === 'loaded');
-    } else if (statusFilter === 'delivered') {
-      list = list.filter(r => r.status === 'offloaded');
-    }
+    if (statusFilter === 'active')    list = list.filter(r => r.status === 'loaded');
+    if (statusFilter === 'delivered') list = list.filter(r => r.status === 'offloaded');
+    if (pfiFilter)       list = list.filter(r => r.pfi === Number(pfiFilter));
+    if (customerFilter)  list = list.filter(r => r.customer === Number(customerFilter));
+    if (codeFilter)      list = list.filter(r => r.code === codeFilter);
+    if (truckFilter)     list = list.filter(r => r.truckPlate === truckFilter);
 
-    // PFI filter
-    if (pfiFilter) {
-      list = list.filter(r => r.pfi === Number(pfiFilter));
-    }
-
-    // Customer filter
-    if (customerFilter) {
-      list = list.filter(r => r.customer === Number(customerFilter));
-    }
-
-    // Truck filter
-    if (truckFilter) {
-      list = list.filter(r => r.truckPlate === truckFilter);
-    }
-
-    // Date range filter (date_offloaded for delivered, date_allocated for active)
     if (dateFrom || dateTo) {
       list = list.filter(r => {
         const dateStr = r.date_offloaded || r.date_allocated;
         if (!dateStr) return false;
         const d = startOfDay(parseISO(dateStr));
-        if (dateFrom && dateTo) {
-          return isWithinInterval(d, {
-            start: startOfDay(parseISO(dateFrom)),
-            end: endOfDay(parseISO(dateTo)),
-          });
-        }
+        if (dateFrom && dateTo)
+          return isWithinInterval(d, { start: startOfDay(parseISO(dateFrom)), end: endOfDay(parseISO(dateTo)) });
         if (dateFrom) return d >= startOfDay(parseISO(dateFrom));
-        if (dateTo) return d <= endOfDay(parseISO(dateTo));
+        if (dateTo)   return d <= endOfDay(parseISO(dateTo));
         return true;
       });
     }
 
-    // Text search
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       list = list.filter(e =>
@@ -459,9 +461,8 @@ export default function DeliveryInventory() {
     }
 
     const codeOrder = new Map<string, number>();
-    deliveryCodes.forEach((code, index) => codeOrder.set(code, index));
+    deliveryCodes.forEach((c, i) => codeOrder.set(c, i));
 
-    // Sort: code first, then truck alphabetically, then latest activity
     return list.sort((a, b) => {
       const aRank = a.code ? (codeOrder.get(a.code) ?? 10_000) : 99_999;
       const bRank = b.code ? (codeOrder.get(b.code) ?? 10_000) : 99_999;
@@ -470,110 +471,110 @@ export default function DeliveryInventory() {
       if (codeDiff !== 0) return codeDiff;
       const truckDiff = a.truckPlate.localeCompare(b.truckPlate);
       if (truckDiff !== 0) return truckDiff;
-      const statusOrder = { loaded: 0, offloaded: 1, empty: 2 };
-      const statusDiff = statusOrder[a.status] - statusOrder[b.status];
-      if (statusDiff !== 0) return statusDiff;
-      const dateA = a.date_offloaded || a.date_allocated || '';
-      const dateB = b.date_offloaded || b.date_allocated || '';
-      return dateB.localeCompare(dateA);
+      const sOrd = { loaded: 0, offloaded: 1, empty: 2 };
+      return sOrd[a.status] - sOrd[b.status];
     });
-  }, [truckRecords, statusFilter, pfiFilter, customerFilter, truckFilter, dateFrom, dateTo, searchQuery, deliveryCodes]);
+  }, [truckRecords, statusFilter, pfiFilter, customerFilter, truckFilter, codeFilter, dateFrom, dateTo, searchQuery, deliveryCodes]);
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Summaries
-  // ═══════════════════════════════════════════════════════════════════
+  // Group filtered records by allocation code — preserving the sorted order
+  const grouped = useMemo((): [string, TruckRecord[]][] => {
+    const map = new Map<string, TruckRecord[]>();
+    filtered.forEach(r => {
+      const key = r.code || '';
+      const arr = map.get(key) ?? [];
+      arr.push(r);
+      map.set(key, arr);
+    });
+    const codeOrder = new Map<string, number>();
+    deliveryCodes.forEach((c, i) => codeOrder.set(c, i));
+    return [...map.entries()].sort(([a], [b]) => {
+      if (!a && !b) return 0;
+      if (!a) return 1;
+      if (!b) return -1;
+      const aR = codeOrder.get(a) ?? 10_000;
+      const bR = codeOrder.get(b) ?? 10_000;
+      if (aR !== bR) return aR - bR;
+      return a.localeCompare(b);
+    });
+  }, [filtered, deliveryCodes]);
 
-  // Always-live active counts (unfiltered — for cards & load-dialog)
-  const activeRecords = useMemo(
-    () => truckRecords.filter(r => r.status === 'loaded'),
-    [truckRecords],
-  );
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Derived / Summaries
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const activeRecords = useMemo(() => truckRecords.filter(r => r.status === 'loaded'), [truckRecords]);
 
   const totals = useMemo(() => {
+    let activeCount = 0;
     let totalInTransit = 0;
     let totalDelivered = 0;
     let deliveredTrips = 0;
-
-    // Active trucks — always from full data (not filtered)
-    activeRecords.forEach(r => { totalInTransit += r.qty; });
-
-    // Delivered stats from filtered list so cards reflect filters
     filtered.forEach(r => {
-      if (r.status === 'offloaded') {
+      if (r.status === 'loaded') {
+        activeCount++;
+        totalInTransit += r.qty;
+      } else if (r.status === 'offloaded') {
         totalDelivered += r.qty;
         deliveredTrips++;
       }
     });
+    return { activeCount, totalInTransit, totalDelivered, deliveredTrips };
+  }, [filtered]);
 
-    // Distinct PFIs across filtered data
-    const pfiIds = new Set<number>();
-    filtered.forEach(r => { if (r.pfi) pfiIds.add(r.pfi); });
-
-    return {
-      activeCount: activeRecords.length,
-      totalInTransit,
-      totalDelivered,
-      deliveredTrips,
-      activePfiCount: pfiIds.size,
-    };
-  }, [activeRecords, filtered]);
-
-  // Trucks currently loaded → exclude from "Load Truck" dialog
+  // Plates currently loaded → exclude from allocation dialog
   const loadedTruckPlates = useMemo(() => {
     const set = new Set<string>();
     activeRecords.forEach(r => set.add(r.truckPlate));
     return set;
   }, [activeRecords]);
 
+  // Available trucks = active fleet trucks NOT currently loaded
   const availableTrucks = useMemo(
     () => allTrucks.filter(t => !loadedTruckPlates.has(t.plate_number)),
     [allTrucks, loadedTruckPlates],
   );
 
-  const periodLabel = hasDateFilter
-    ? `${dateFrom ? format(parseISO(dateFrom), 'dd MMM') : '…'} – ${dateTo ? format(parseISO(dateTo), 'dd MMM yyyy') : '…'}`
-    : 'all time';
-
   const summaryCards = useMemo((): SummaryCard[] => [
     {
       title: 'Trucks Loaded',
       value: String(totals.activeCount),
-      // description: totals.activeCount > 0
-      //   ? `${fmtQty(totals.totalInTransit)} L loaded right now`
-      //   : 'No trucks currently loaded',
       icon: <Truck size={20} />,
       tone: totals.activeCount > 0 ? 'amber' : 'neutral',
     },
     {
-      title: 'Current Volume Allocated',
+      title: 'Volume in Transit',
       value: `${fmtQty(totals.totalInTransit)} L`,
-      // description: totals.activeCount > 0
-      //   ? `Across ${totals.activeCount} truck${totals.activeCount !== 1 ? 's' : ''} in transit`
-      //   : 'Nothing loaded',
       icon: <DropletIcon size={20} />,
       tone: totals.totalInTransit > 0 ? 'amber' : 'neutral',
     },
     {
       title: 'Quantity Sold',
       value: `${fmtQty(totals.totalDelivered)} L`,
-      // description: `${totals.deliveredTrips} trip${totals.deliveredTrips !== 1 ? 's' : ''} · ${periodLabel}`,
       icon: <CheckCircle2 size={20} />,
       tone: 'green',
     },
-    // {
-    //   title: 'Active PFIs',
-    //   value: String(totals.activePfiCount),
-    //   description: totals.activePfiCount > 0
-    //     ? `Used across ${totals.activePfiCount} PFI${totals.activePfiCount !== 1 ? 's' : ''}`
-    //     : 'No PFIs in use',
-    //   icon: <FileText size={20} />,
-    //   tone: totals.activePfiCount > 0 ? 'neutral' : 'neutral',
-    // },
-  ], [totals, periodLabel]);
+    {
+      title: 'Trips Delivered',
+      value: String(totals.deliveredTrips),
+      icon: <Fuel size={20} />,
+      tone: totals.deliveredTrips > 0 ? 'green' : 'neutral',
+    },
+  ], [totals]);
 
-  // PFI options (active first, then finished)
-  const pfiOptions = useMemo(() => {
-    return allPfis
+  // PFI options for Allocate dialog — active only
+  const activePfiOptions = useMemo(() =>
+    allPfis
+      .filter(p => p.status === 'active')
+      .sort((a, b) => a.pfi_number.localeCompare(b.pfi_number))
+      .map(p => ({
+        id: p.id,
+        label: `${p.pfi_number} — ${p.product_name || 'N/A'} · ${p.location_name || 'N/A'}`,
+      })),
+  [allPfis]);
+
+  // PFI options for Edit dialog — all, active first
+  const allPfiOptions = useMemo(() =>
+    allPfis
       .sort((a, b) => {
         if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
         return a.pfi_number.localeCompare(b.pfi_number);
@@ -581,43 +582,12 @@ export default function DeliveryInventory() {
       .map(p => ({
         id: p.id,
         label: `${p.pfi_number} — ${p.product_name || 'N/A'} · ${p.location_name || 'N/A'}${p.status === 'finished' ? '  (finished)' : ''}`,
-      }));
-  }, [allPfis]);
+      })),
+  [allPfis]);
 
-  // Selected PFI for auto-fill in dialog
-  const selectedPfi = useMemo(() => {
-    if (!loadPfi) return null;
-    return pfiMap.get(Number(loadPfi)) || null;
-  }, [loadPfi, pfiMap]);
+  const selectedPfi = useMemo(() => (loadPfi ? pfiMap.get(Number(loadPfi)) || null : null), [loadPfi, pfiMap]);
 
-  // Distinct trucks that appear in records (for truck filter dropdown)
-  const distinctTruckPlates = useMemo(() => {
-    const set = new Set<string>();
-    truckRecords.forEach(r => { if (r.truckPlate && r.truckPlate !== '—') set.add(r.truckPlate); });
-    return [...set].sort();
-  }, [truckRecords]);
-
-  // Distinct PFIs that appear in records (for PFI filter dropdown)
-  const distinctPfis = useMemo(() => {
-    const map = new Map<number, string>();
-    truckRecords.forEach(r => { if (r.pfi) map.set(r.pfi, r.pfiLabel); });
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [truckRecords]);
-
-  // Distinct customers that appear in records (for customer filter dropdown)
-  const distinctCustomers = useMemo(() => {
-    const map = new Map<number, string>();
-    truckRecords.forEach(r => { if (r.customer) map.set(r.customer, r.custName); });
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [truckRecords]);
-
-  // Total quantity across all allocation rows (per truck)
-  const allocationTotal = useMemo(
-    () => customerAllocations.reduce((sum, a) => sum + (Number(stripCommas(a.qty)) || 0), 0),
-    [customerAllocations],
-  );
-
-  // Auto-sum of selected trucks' max_capacity (used to suggest totalAllocationQty)
+  // Auto-sum of selected trucks' max_capacity
   const autoSumCapacity = useMemo(() => {
     let total = 0;
     selectedTruckIds.forEach(id => {
@@ -627,61 +597,94 @@ export default function DeliveryInventory() {
     return total;
   }, [selectedTruckIds, allTrucks]);
 
-  // ═══════════════════════════════════════════════════════════════════
+  const trucksWithNoCapacity = useMemo(() => {
+    const result: string[] = [];
+    selectedTruckIds.forEach(id => {
+      const t = allTrucks.find(t => t.id === id);
+      if (t && !t.max_capacity) result.push(t.plate_number);
+    });
+    return result;
+  }, [selectedTruckIds, allTrucks]);
+
+  const distinctTruckPlates = useMemo(() => {
+    const set = new Set<string>();
+    truckRecords.forEach(r => { if (r.truckPlate && r.truckPlate !== '—') set.add(r.truckPlate); });
+    return [...set].sort();
+  }, [truckRecords]);
+
+  const distinctPfis = useMemo(() => {
+    const map = new Map<number, string>();
+    truckRecords.forEach(r => { if (r.pfi) map.set(r.pfi, r.pfiLabel); });
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [truckRecords]);
+
+  const distinctCustomers = useMemo(() => {
+    const map = new Map<number, string>();
+    truckRecords.forEach(r => { if (r.customer) map.set(r.customer, r.custName); });
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [truckRecords]);
+
+  const distinctAllocationCodes = useMemo(() => {
+    const codes = new Set<string>();
+    truckRecords.forEach(r => { if (r.code) codes.add(r.code); });
+    const codeOrder = new Map<string, number>();
+    deliveryCodes.forEach((c, i) => codeOrder.set(c, i));
+    return [...codes].sort((a, b) => {
+      const aR = codeOrder.get(a) ?? 10_000;
+      const bR = codeOrder.get(b) ?? 10_000;
+      return aR !== bR ? aR - bR : a.localeCompare(b);
+    });
+  }, [truckRecords, deliveryCodes]);
+
+  const periodLabel = hasDateFilter
+    ? `${dateFrom ? format(parseISO(dateFrom), 'dd MMM') : '…'} – ${dateTo ? format(parseISO(dateTo), 'dd MMM yyyy') : '…'}`
+    : 'all time';
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Handlers
-  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   const invalidateAll = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['delivery-inventory'] });
     qc.invalidateQueries({ queryKey: ['delivery-inventory-all'] });
     qc.invalidateQueries({ queryKey: ['delivery-sales'] });
+    qc.invalidateQueries({ queryKey: ['fleet-trucks'] });
   }, [qc]);
 
   const openLoadDialog = () => {
     setLoadPfi('');
     setLoadCode('');
     setLoadDepot('');
+    setLoadLocation('');
+    setDateAllocated(format(new Date(), 'yyyy-MM-dd'));
     setLoadNotes('');
     setSelectedTruckIds(new Set());
     setTruckSearch('');
-    setTotalAllocationQty('');
-    setCustomerAllocations([makeAllocation()]);
+    setNewCodeInput('');
+    setShowNewCodeInput(false);
     setLoadDialogOpen(true);
   };
 
   const toggleTruck = (truckId: number) => {
     setSelectedTruckIds(prev => {
       const next = new Set(prev);
-      if (next.has(truckId)) {
-        next.delete(truckId);
-      } else {
-        next.add(truckId);
-      }
-      // Auto-sum max_capacity of newly selected trucks → update total qty field
-      let total = 0;
-      next.forEach(id => {
-        const t = allTrucks.find(t => t.id === id);
-        if (t?.max_capacity) total += t.max_capacity;
-      });
-      if (total > 0) setTotalAllocationQty(formatWithCommas(String(total)));
+      next.has(truckId) ? next.delete(truckId) : next.add(truckId);
       return next;
     });
   };
 
-  const updateAllocation = (uid: string, field: 'customerId' | 'qty', value: string) => {
-    setCustomerAllocations(prev =>
-      prev.map(a =>
-        a.uid === uid
-          ? { ...a, [field]: field === 'qty' ? formatWithCommas(value) : value }
-          : a,
-      ),
-    );
-  };
-
-  const addAllocationRow = () => setCustomerAllocations(prev => [...prev, makeAllocation()]);
-
-  const removeAllocationRow = (uid: string) => {
-    setCustomerAllocations(prev => (prev.length > 1 ? prev.filter(a => a.uid !== uid) : prev));
+  const addNewCode = () => {
+    const normalized = newCodeInput.trim().toUpperCase().replace(/\s+/g, '-');
+    if (!normalized) return;
+    if (deliveryCodes.includes(normalized)) {
+      toast({ title: `Code "${normalized}" already exists`, variant: 'destructive' });
+      return;
+    }
+    setDeliveryCodes(prev => [...prev, normalized].sort());
+    setLoadCode(normalized);
+    setNewCodeInput('');
+    setShowNewCodeInput(false);
+    toast({ title: `Code "${normalized}" created and selected` });
   };
 
   const handleLoadSave = useCallback(async () => {
@@ -689,18 +692,12 @@ export default function DeliveryInventory() {
       toast({ title: 'Select at least one truck', variant: 'destructive' });
       return;
     }
-
-    const totalQtyNum = Number(stripCommas(totalAllocationQty));
-    if (!totalQtyNum || totalQtyNum <= 0) {
-      toast({ title: 'Enter a total allocation quantity', variant: 'destructive' });
+    if (!loadCode) {
+      toast({ title: 'Select an allocation code', variant: 'destructive' });
       return;
     }
-
-    // Customer rows are optional — only validate qty if they entered any data
-    const filledRows = customerAllocations.filter(a => a.customerId || a.qty);
-    const invalidRow = filledRows.find(a => a.qty && Number(stripCommas(a.qty)) <= 0);
-    if (invalidRow) {
-      toast({ title: 'Customer allocation quantities must be > 0', variant: 'destructive' });
+    if (!loadPfi) {
+      toast({ title: 'Select a PFI source', variant: 'destructive' });
       return;
     }
 
@@ -708,86 +705,48 @@ export default function DeliveryInventory() {
     setSaving(true);
     try {
       const depot = loadDepot || selectedPfi?.location_name || '';
+      const location = loadLocation || '';
       const currentUser = localStorage.getItem('fullname') || 'Unknown';
       const normalizedCode = loadCode.trim().toUpperCase().replace(/\s+/g, '-');
-      if (normalizedCode && !deliveryCodes.includes(normalizedCode)) {
-        setDeliveryCodes(prev => [...prev, normalizedCode].sort());
-      }
-
-      // Per-truck qty: use the truck's max_capacity if available,
-      // otherwise divide the total equally across all selected trucks.
-      const perTruckFallback = Math.round(totalQtyNum / truckCount);
 
       const promises: Promise<unknown>[] = [];
-
-      if (filledRows.length > 0) {
-        // Customer rows provided — create one record per truck × per customer row
-        for (const truckId of selectedTruckIds) {
-          const truckObj = allTrucks.find(t => t.id === truckId);
-          const truckQty = truckObj?.max_capacity || perTruckFallback;
-
-          for (const alloc of filledRows) {
-            const custObj = alloc.customerId ? customerMap.get(Number(alloc.customerId)) : null;
-            // If a per-customer qty was entered, use it; otherwise use truck's qty
-            const allocQty = alloc.qty ? Number(stripCommas(alloc.qty)) : truckQty;
-            promises.push(
-              apiClient.admin.createDeliveryInventory({
-                pfi: loadPfi ? Number(loadPfi) : undefined,
-                truck: truckId,
-                truck_number: truckObj?.plate_number || '',
-                depot: depot || undefined,
-                ...(alloc.customerId ? {
-                  customer: Number(alloc.customerId),
-                  customer_name: custObj?.customer_name || '',
-                } : {}),
-                quantity_allocated: allocQty,
-                date_allocated: format(new Date(), 'yyyy-MM-dd'),
-                loading_status: 'loaded',
-                notes: loadNotes.trim() || undefined,
-                created_by: currentUser,
-              }),
-            );
-          }
-        }
-      } else {
-        // No customer rows — one record per truck using its max_capacity or fallback
-        for (const truckId of selectedTruckIds) {
-          const truckObj = allTrucks.find(t => t.id === truckId);
-          const truckQty = truckObj?.max_capacity || perTruckFallback;
-          promises.push(
-            apiClient.admin.createDeliveryInventory({
-              pfi: loadPfi ? Number(loadPfi) : undefined,
-              truck: truckId,
-              truck_number: truckObj?.plate_number || '',
-              depot: depot || undefined,
-              quantity_allocated: truckQty,
-              date_allocated: format(new Date(), 'yyyy-MM-dd'),
-              loading_status: 'loaded',
-              notes: loadNotes.trim() || undefined,
-              created_by: currentUser,
-            }),
-          );
-        }
+      for (const truckId of selectedTruckIds) {
+        const truckObj = allTrucks.find(t => t.id === truckId);
+        const truckQty = truckObj?.max_capacity || 0;
+        promises.push(
+          apiClient.admin.createDeliveryInventory({
+            pfi: Number(loadPfi),
+            allocation_code: normalizedCode,
+            truck: truckId,
+            truck_number: truckObj?.plate_number || '',
+            depot: depot || undefined,
+            location: location || undefined,
+            quantity_allocated: truckQty,
+            date_allocated: dateAllocated,
+            loading_status: 'loaded',
+            notes: loadNotes.trim() || undefined,
+            created_by: currentUser,
+          }),
+        );
       }
 
       const createdRecords = await Promise.all(promises);
 
-      if (normalizedCode) {
-        const updates: Record<number, string> = {};
-        createdRecords.forEach(record => {
-          const created = record as { id?: number };
-          if (created?.id) updates[created.id] = normalizedCode;
-        });
-        if (Object.keys(updates).length > 0) {
-          setLoadingCodeMap(prev => ({ ...prev, ...updates }));
-        }
+      // Update local code map so Sales Ledger can read it
+      const updates: Record<number, string> = {};
+      createdRecords.forEach(record => {
+        const created = record as { id?: number };
+        if (created?.id) updates[created.id] = normalizedCode;
+      });
+      if (Object.keys(updates).length > 0) {
+        setLoadingCodeMap(prev => ({ ...prev, ...updates }));
       }
 
       toast({
-        title: `${truckCount} truck${truckCount > 1 ? 's' : ''} loaded — ${fmtQty(totalQtyNum)} L total`,
-        description: filledRows.length > 0
-          ? `${filledRows.length} customer row${filledRows.length > 1 ? 's' : ''} per truck`
-          : 'No customer assigned yet — assign in Sales Ledger',
+        title: `${truckCount} truck${truckCount > 1 ? 's' : ''} allocated under ${normalizedCode}`,
+        description: autoSumCapacity > 0
+          ? `${fmtQty(autoSumCapacity)} L total · PFI ${selectedPfi?.pfi_number || ''}`
+          : `PFI ${selectedPfi?.pfi_number || ''}`,
       });
       setLoadDialogOpen(false);
       invalidateAll();
@@ -800,7 +759,7 @@ export default function DeliveryInventory() {
     } finally {
       setSaving(false);
     }
-  }, [selectedTruckIds, totalAllocationQty, customerAllocations, loadPfi, loadCode, loadDepot, loadNotes, selectedPfi, allTrucks, customerMap, toast, invalidateAll, deliveryCodes]);
+  }, [selectedTruckIds, loadCode, loadPfi, loadDepot, loadLocation, loadNotes, dateAllocated, selectedPfi, allTrucks, autoSumCapacity, toast, invalidateAll]);
 
   const handleOffload = useCallback(async () => {
     if (!offloadTarget) return;
@@ -812,13 +771,13 @@ export default function DeliveryInventory() {
         date_offloaded: offloadDate,
         offloaded_by: currentUser,
       });
-      toast({ title: `${offloadTarget.truckPlate} marked as delivered` });
+      toast({ title: `${offloadTarget.truckPlate} confirmed as sold` });
       setOffloadTarget(null);
       invalidateAll();
     } catch (err: unknown) {
       toast({
         title: 'Error',
-        description: err instanceof Error ? err.message : 'Failed to offload',
+        description: err instanceof Error ? err.message : 'Failed to update',
         variant: 'destructive',
       });
     } finally {
@@ -830,8 +789,36 @@ export default function DeliveryInventory() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
+      // Find the loaded truck record in our enriched list to get truck_number and allocation_code/date
+      const targetRecord = truckRecords.find(r => r.id === deleteTarget.id);
+      
+      if (targetRecord) {
+        // Find matching sales ledger entries
+        const matchedSales = allSales.filter(s => {
+          // 1. Direct match on allocation_code if present
+          if (s.allocation_code && targetRecord.code && s.allocation_code === targetRecord.code) {
+            return true;
+          }
+          // 2. Fallback to truck plate & loading/allocation date match
+          const sTruck = s.truck_number || '';
+          const iTruck = targetRecord.truckPlate || targetRecord.truck_number || '';
+          const sDate = s.date_loaded || '';
+          const iDate = targetRecord.date_allocated || '';
+          
+          return sTruck && iTruck && sTruck === iTruck && sDate === iDate;
+        });
+
+        // Delete matched sales records first
+        if (matchedSales.length > 0) {
+          await Promise.all(matchedSales.map(sale => apiClient.admin.deleteDeliverySale(sale.id)));
+        }
+      }
+
       await apiClient.admin.deleteDeliveryInventory(deleteTarget.id);
-      toast({ title: 'Record deleted' });
+      toast({ 
+        title: 'Record deleted',
+        description: 'Successfully deleted the inventory entry and all associated sales ledger records.'
+      });
       setDeleteTarget(null);
       invalidateAll();
     } catch (err: unknown) {
@@ -843,7 +830,67 @@ export default function DeliveryInventory() {
     } finally {
       setDeleting(false);
     }
-  }, [deleteTarget, toast, invalidateAll]);
+  }, [deleteTarget, truckRecords, allSales, toast, invalidateAll]);
+
+  const openEditDialog = (r: TruckRecord) => {
+    setEditTarget({
+      id: r.id,
+      truckPlate: r.truckPlate,
+      currentCode: r.code,
+      currentPfi: r.pfi ? String(r.pfi) : '',
+      currentDepot: r.depotDisplay,
+      currentDate: r.date_allocated || '',
+      currentLocation: r.destination,
+    });
+    setEditForm({
+      code: r.code,
+      pfi: r.pfi ? String(r.pfi) : '',
+      depot: r.depotDisplay,
+      date: r.date_allocated || '',
+      location: r.destination,
+    });
+  };
+
+  const handleEditSave = useCallback(async () => {
+    if (!editTarget) return;
+    setEditSaving(true);
+    try {
+      const normalizedCode = editForm.code.trim().toUpperCase().replace(/\s+/g, '-');
+      await apiClient.admin.updateDeliveryInventory(editTarget.id, {
+        allocation_code: normalizedCode || null,
+        pfi: editForm.pfi ? Number(editForm.pfi) : null,
+        depot: editForm.depot.trim() || undefined,
+        date_allocated: editForm.date || undefined,
+        location: editForm.location.trim() || undefined,
+      });
+
+      if (normalizedCode) {
+        setLoadingCodeMap(prev => ({ ...prev, [editTarget.id]: normalizedCode }));
+      } else {
+        setLoadingCodeMap(prev => { const next = { ...prev }; delete next[editTarget.id]; return next; });
+      }
+
+      toast({ title: 'Record updated' });
+      setEditTarget(null);
+      invalidateAll();
+    } catch (err: unknown) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Update failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editTarget, editForm, toast, invalidateAll]);
+
+  const toggleCodeCollapse = (code: string) => {
+    setCollapsedCodes(prev => {
+      const next = new Set(prev);
+      next.has(code) ? next.delete(code) : next.add(code);
+      return next;
+    });
+  };
 
   const clearAllFilters = () => {
     setSearchQuery('');
@@ -853,17 +900,116 @@ export default function DeliveryInventory() {
     setPfiFilter('');
     setCustomerFilter('');
     setTruckFilter('');
+    setCodeFilter('');
   };
+
+  const handleBulkAssign = useCallback(async () => {
+    if (selectedRowIds.size === 0) return;
+    if (!bulkAssignCode && !bulkAssignPfi) {
+      toast({ title: 'Select a code and/or PFI to assign', variant: 'destructive' });
+      return;
+    }
+    setBulkAssigning(true);
+    try {
+      const patch: Record<string, unknown> = {};
+      if (bulkAssignCode) patch.allocation_code = bulkAssignCode;
+      if (bulkAssignPfi)  patch.pfi = Number(bulkAssignPfi);
+
+      await Promise.all([...selectedRowIds].map(id =>
+        apiClient.admin.updateDeliveryInventory(id, patch as Parameters<typeof apiClient.admin.updateDeliveryInventory>[1]),
+      ));
+
+      // Update local code map if assigning a code
+      if (bulkAssignCode) {
+        setLoadingCodeMap(prev => {
+          const next = { ...prev };
+          selectedRowIds.forEach(id => { next[id] = bulkAssignCode; });
+          return next;
+        });
+      }
+
+      toast({
+        title: `Updated ${selectedRowIds.size} record${selectedRowIds.size !== 1 ? 's' : ''}`,
+        description: [
+          bulkAssignCode && `Code → ${bulkAssignCode}`,
+          bulkAssignPfi  && `PFI → ${allPfis.find(p => p.id === Number(bulkAssignPfi))?.pfi_number || bulkAssignPfi}`,
+        ].filter(Boolean).join(' · '),
+      });
+
+      setSelectedRowIds(new Set());
+      setBulkAssignOpen(false);
+      invalidateAll();
+    } catch (err: unknown) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Bulk update failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setBulkAssigning(false);
+    }
+  }, [selectedRowIds, bulkAssignCode, bulkAssignPfi, allPfis, toast, invalidateAll]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedRowIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      // Find all loaded truck records matching the selected IDs
+      const targetRecords = truckRecords.filter(r => selectedRowIds.has(r.id));
+      
+      // Find matching sales ledger entries for any of the selected records
+      const matchedSales = allSales.filter(s => {
+        return targetRecords.some(targetRecord => {
+          // 1. Direct match on allocation_code if present
+          if (s.allocation_code && targetRecord.code && s.allocation_code === targetRecord.code) {
+            return true;
+          }
+          // 2. Fallback to truck plate & loading/allocation date match
+          const sTruck = s.truck_number || '';
+          const iTruck = targetRecord.truckPlate || targetRecord.truck_number || '';
+          const sDate = s.date_loaded || '';
+          const iDate = targetRecord.date_allocated || '';
+          
+          return sTruck && iTruck && sTruck === iTruck && sDate === iDate;
+        });
+      });
+
+      // 1. Delete matched sales records in parallel
+      if (matchedSales.length > 0) {
+        await Promise.all(matchedSales.map(sale => apiClient.admin.deleteDeliverySale(sale.id)));
+      }
+
+      // 2. Delete the selected inventory records in parallel
+      await Promise.all([...selectedRowIds].map(id => apiClient.admin.deleteDeliveryInventory(id)));
+
+      toast({
+        title: `Deleted ${selectedRowIds.size} record${selectedRowIds.size !== 1 ? 's' : ''}`,
+        description: `Successfully deleted selected inventory entries and all their associated daily sales records/payments.`,
+      });
+
+      setSelectedRowIds(new Set());
+      setBulkDeleteOpen(false);
+      invalidateAll();
+    } catch (err: unknown) {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Bulk delete failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [selectedRowIds, truckRecords, allSales, toast, invalidateAll]);
 
   const exportExcel = useCallback(() => {
     if (!filtered.length) return;
     const rows = filtered.map((r, idx) => ({
       'S/N': idx + 1,
+      'Code': r.code || '—',
       'Truck': r.truckPlate,
       'Driver': r.driverName || '—',
       'PFI': r.pfiLabel || '—',
       'Product': r.product || '—',
-      'Customer': r.custName || '—',
       'Depot': r.depotDisplay || '—',
       'Destination': r.destination || '—',
       'Quantity (L)': r.qty,
@@ -877,15 +1023,12 @@ export default function DeliveryInventory() {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
-    const dateSuffix = hasDateFilter
-      ? `${dateFrom || 'START'}-to-${dateTo || 'NOW'}`
-      : format(new Date(), 'dd-MM-yyyy');
-    XLSX.writeFile(wb, `DELIVERY-INVENTORY-${dateSuffix}.xlsx`);
-  }, [filtered, hasDateFilter, dateFrom, dateTo]);
+    XLSX.writeFile(wb, `DELIVERY-INVENTORY-${format(new Date(), 'dd-MM-yyyy')}.xlsx`);
+  }, [filtered]);
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // Render
-  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
 
   const isLoading = inventoryQuery.isLoading || trucksQuery.isLoading || pfisQuery.isLoading || salesQuery.isLoading;
 
@@ -898,17 +1041,17 @@ export default function DeliveryInventory() {
         <div className="flex-1 overflow-auto p-4 sm:p-6">
           <div className="max-w-[1600px] mx-auto space-y-5">
 
-            {/* ── Header ──────────────────────────────────────── */}
+            {/* ── Header ───────────────────────────────────────── */}
             <PageHeader
               title="Delivery Inventory"
-              description="Track truck loading cycles — from depot to delivery."
+              description="Track truck loading cycles grouped by allocation code."
               actions={
                 <div className="flex gap-2">
                   <Button variant="outline" className="gap-2" onClick={exportExcel} disabled={filtered.length === 0}>
                     <Download size={16} /> Export
                   </Button>
                   {!readOnly && (
-                    <Button className="gap-2" onClick={openLoadDialog}>
+                    <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={openLoadDialog}>
                       <Plus size={16} /> Allocate Trucks
                     </Button>
                   )}
@@ -916,191 +1059,227 @@ export default function DeliveryInventory() {
               }
             />
 
-            {/* ── Summary Cards ───────────────────────────────── */}
+            {/* ── Summary Cards ─────────────────────────────────── */}
             <SummaryCards cards={summaryCards} />
 
-            {/* ── Period indicator ────────────────────────────── */}
+
+
+            {/* ── Period indicator ──────────────────────────────── */}
             {hasDateFilter && (
               <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
                 <CalendarDays size={15} className="shrink-0" />
-                <span>
-                  Showing data for <strong>{periodLabel}</strong>
-                  {' '}— cards and table reflect this period.
-                </span>
+                <span>Showing <strong>{periodLabel}</strong></span>
                 <button
                   type="button"
                   onClick={() => { setDateFrom(''); setDateTo(''); }}
-                  className="ml-auto text-blue-600 hover:text-blue-800 text-xs font-medium underline underline-offset-2"
+                  className="ml-auto text-blue-600 hover:text-blue-800 text-xs font-medium underline"
                 >
                   Clear filter
                 </button>
               </div>
             )}
 
-            {/* ── Search + Filters Bar ─────────────────────── */}
+            {/* ── Search + Filters Bar ──────────────────────────── */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
-              {/* Row 1: Search + record count */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <Input
-                    placeholder="Search truck, driver, PFI, product, customer, depot, destination…"
+                    placeholder="Search truck, PFI, product, customer, depot, destination, code…"
                     className="pl-10"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                   />
                 </div>
-                {/* <div className="text-sm text-slate-500 self-center whitespace-nowrap">
-                  {isLoading ? '…' : `${filtered.length} record${filtered.length !== 1 ? 's' : ''}`}
-                </div> */}
               </div>
 
-              {/* Row 2: Filter dropdowns — always visible */}
-              <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100">
-                {/* Status */}
-                <div className="flex flex-col gap-1">
+              <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100 flex-wrap">
+                <div className="flex flex-col gap-1 min-w-[120px]">
                   <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Status</label>
-                  <select
-                    aria-label="Filter by status"
-                    value={statusFilter}
+                  <select aria-label="Filter by status" value={statusFilter}
                     onChange={e => setStatusFilter(e.target.value as StatusFilter)}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                  >
+                    className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm">
                     <option value="all">All Statuses</option>
                     <option value="active">In Transit</option>
-                    <option value="delivered">Delivered</option>
+                    <option value="delivered">Sold</option>
                   </select>
                 </div>
 
-                {/* Truck */}
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 min-w-[130px]">
                   <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Truck</label>
-                  <select
-                    aria-label="Filter by truck"
-                    value={truckFilter}
+                  <select aria-label="Filter by truck" value={truckFilter}
                     onChange={e => setTruckFilter(e.target.value)}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                  >
+                    className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm">
                     <option value="">All Trucks</option>
-                    {distinctTruckPlates.map(plate => (
-                      <option key={plate} value={plate}>{plate}</option>
-                    ))}
+                    {distinctTruckPlates.map(plate => {
+                      const count = truckRecords.filter(r => r.truckPlate === plate).length;
+                      return <option key={plate} value={plate}>{plate}{count > 0 ? ` (${count} entries)` : ''}</option>;
+                    })}
                   </select>
                 </div>
 
-                {/* PFI */}
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 min-w-[150px]">
                   <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">PFI</label>
-                  <select
-                    aria-label="Filter by PFI"
-                    value={pfiFilter}
+                  <select aria-label="Filter by PFI" value={pfiFilter}
                     onChange={e => setPfiFilter(e.target.value)}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                  >
+                    className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm">
                     <option value="">All PFIs</option>
-                    {distinctPfis.map(([id, label]) => (
-                      <option key={id} value={String(id)}>{label}</option>
-                    ))}
+                    {distinctPfis.map(([id, label]) => {
+                      const count = truckRecords.filter(r => r.pfi === id).length;
+                      return <option key={id} value={String(id)}>{label}{count > 0 ? ` (${count} entries)` : ''}</option>;
+                    })}
                   </select>
                 </div>
 
-                {/* Customer */}
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 min-w-[150px]">
                   <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Customer</label>
-                  <select
-                    aria-label="Filter by customer"
-                    value={customerFilter}
+                  <select aria-label="Filter by customer" value={customerFilter}
                     onChange={e => setCustomerFilter(e.target.value)}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                  >
+                    className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm">
                     <option value="">All Customers</option>
-                    {distinctCustomers.map(([id, name]) => (
-                      <option key={id} value={String(id)}>{name}</option>
-                    ))}
+                    {distinctCustomers.map(([id, name]) => {
+                      const count = truckRecords.filter(r => r.customer === id).length;
+                      return <option key={id} value={String(id)}>{name}{count > 0 ? ` (${count} entries)` : ''}</option>;
+                    })}
                   </select>
                 </div>
 
-                {/* Clear all */}
+                <div className="flex flex-col gap-1 min-w-[140px]">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Allocation Code</label>
+                  <select aria-label="Filter by allocation code" value={codeFilter}
+                    onChange={e => setCodeFilter(e.target.value)}
+                    className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm font-medium">
+                    <option value="">All Codes</option>
+                    {distinctAllocationCodes.map(code => {
+                      const count = truckRecords.filter(r => r.code === code).length;
+                      return <option key={code} value={code}>{code}{count > 0 ? ` (${count} entries)` : ''}</option>;
+                    })}
+                  </select>
+                </div>
+
                 {hasAnyFilter && (
                   <div className="flex items-end">
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                    <Button variant="ghost" size="sm"
                       className="gap-1.5 text-xs text-slate-500 hover:text-slate-700 h-9"
-                      onClick={clearAllFilters}
-                    >
+                      onClick={clearAllFilters}>
                       <X size={13} /> Clear all
                     </Button>
                   </div>
                 )}
               </div>
 
-              {/* Row 3: Date range + timeframe presets */}
               <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100">
                 <div className="flex items-center gap-2 flex-wrap">
                   <CalendarDays size={16} className="text-slate-400 shrink-0" />
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={e => setDateFrom(e.target.value)}
-                    className="h-9 w-[140px] text-sm"
-                    title="From date"
-                  />
+                  <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                    className="h-9 w-[140px] text-sm" title="From date" />
                   <span className="text-xs text-slate-400">to</span>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={e => setDateTo(e.target.value)}
-                    className="h-9 w-[140px] text-sm"
-                    title="To date"
-                  />
+                  <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                    className="h-9 w-[140px] text-sm" title="To date" />
                   {hasDateFilter && (
-                    <button
-                      type="button"
-                      onClick={() => { setDateFrom(''); setDateTo(''); }}
-                      className="p-1.5 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-                      title="Clear date filter"
-                    >
+                    <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}
+                      className="p-1.5 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
                       <X size={15} />
                     </button>
                   )}
                 </div>
-
-                {/* Timeframe presets */}
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {([
-                    { label: 'Today', from: startOfDay(new Date()), to: endOfDay(new Date()) },
-                    { label: 'Yesterday', from: startOfDay(subDays(new Date(), 1)), to: endOfDay(subDays(new Date(), 1)) },
-                    { label: 'This Week', from: startOfWeek(new Date(), { weekStartsOn: 1 }), to: endOfWeek(new Date(), { weekStartsOn: 1 }) },
-                    { label: 'This Month', from: startOfMonth(new Date()), to: endOfMonth(new Date()) },
-                    { label: 'Last Month', from: startOfMonth(subMonths(new Date(), 1)), to: endOfMonth(subMonths(new Date(), 1)) },
+                    { label: 'Today',      from: startOfDay(new Date()),                      to: endOfDay(new Date()) },
+                    { label: 'Yesterday',  from: startOfDay(subDays(new Date(), 1)),          to: endOfDay(subDays(new Date(), 1)) },
+                    { label: 'This Week',  from: startOfWeek(new Date(), { weekStartsOn: 1 }), to: endOfWeek(new Date(), { weekStartsOn: 1 }) },
+                    { label: 'This Month', from: startOfMonth(new Date()),                    to: endOfMonth(new Date()) },
+                    { label: 'Last Month', from: startOfMonth(subMonths(new Date(), 1)),      to: endOfMonth(subMonths(new Date(), 1)) },
                   ] as const).map(preset => {
                     const pFrom = format(preset.from, 'yyyy-MM-dd');
-                    const pTo = format(preset.to, 'yyyy-MM-dd');
+                    const pTo   = format(preset.to,   'yyyy-MM-dd');
                     const isActive = dateFrom === pFrom && dateTo === pTo;
                     return (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => {
-                          if (isActive) { setDateFrom(''); setDateTo(''); }
-                          else { setDateFrom(pFrom); setDateTo(pTo); }
-                        }}
-                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                          isActive
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
+                      <button key={preset.label} type="button"
+                        onClick={() => { if (isActive) { setDateFrom(''); setDateTo(''); } else { setDateFrom(pFrom); setDateTo(pTo); } }}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${isActive ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                         {preset.label}
                       </button>
                     );
                   })}
                 </div>
               </div>
+
+              {/* Active Filter Chips */}
+              {[
+                statusFilter !== 'all' && { label: `Status: ${statusFilter === 'active' ? 'In Transit' : 'Sold'}`, clear: () => setStatusFilter('all') },
+                truckFilter && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('') },
+                pfiFilter && { label: `PFI: ${distinctPfis.find(([id]) => String(id) === pfiFilter)?.[1] || pfiFilter}`, clear: () => setPfiFilter('') },
+                customerFilter && { label: `Customer: ${distinctCustomers.find(([id]) => String(id) === customerFilter)?.[1] || customerFilter}`, clear: () => setCustomerFilter('') },
+                codeFilter && { label: `Allocation Code: ${codeFilter}`, clear: () => setCodeFilter('') },
+                searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
+              ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                  <span className="text-xs text-slate-400 shrink-0">You're viewing:</span>
+                  {[
+                    statusFilter !== 'all' && { label: `Status: ${statusFilter === 'active' ? 'In Transit' : 'Sold'}`, clear: () => setStatusFilter('all') },
+                    truckFilter && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('') },
+                    pfiFilter && { label: `PFI: ${distinctPfis.find(([id]) => String(id) === pfiFilter)?.[1] || pfiFilter}`, clear: () => setPfiFilter('') },
+                    customerFilter && { label: `Customer: ${distinctCustomers.find(([id]) => String(id) === customerFilter)?.[1] || customerFilter}`, clear: () => setCustomerFilter('') },
+                    codeFilter && { label: `Allocation Code: ${codeFilter}`, clear: () => setCodeFilter('') },
+                    searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
+                  ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
+                    <span key={chip.label} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
+                      chip.label.startsWith('Allocation Code:') ? 'bg-purple-700 text-white' : 'bg-slate-900 text-white'
+                    }`}>
+                      {chip.label}
+                      <button title={`Remove: ${chip.label}`} onClick={chip.clear} className="hover:text-slate-300 ml-0.5">
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* ── Table ───────────────────────────────────────── */}
+            {/* ── Bulk Selection Toolbar ───────────────────────── */}
+            {selectedRowIds.size > 0 && (
+              <div className="flex items-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-lg shadow-lg">
+                <span className="text-sm font-bold">
+                  {selectedRowIds.size} row{selectedRowIds.size !== 1 ? 's' : ''} selected
+                </span>
+                <div className="flex-1" />
+                {!readOnly && (
+                  <>
+                    <Button
+                      size="sm"
+                      className="h-8 text-xs gap-1.5 bg-white text-blue-700 hover:bg-blue-50 font-bold"
+                      onClick={() => {
+                        setBulkAssignCode('');
+                        setBulkAssignPfi('');
+                        setBulkAssignOpen(true);
+                      }}
+                    >
+                      <Tag size={13} /> Assign Code / PFI
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-8 text-xs gap-1.5 bg-red-100 hover:bg-red-200 text-red-700 font-bold"
+                      onClick={() => {
+                        setBulkDeleteOpen(true);
+                      }}
+                    >
+                      <Trash2 size={13} /> Delete Selected
+                    </Button>
+                  </>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs gap-1 text-blue-100 hover:text-white hover:bg-blue-500"
+                  onClick={() => setSelectedRowIds(new Set())}
+                >
+                  <X size={13} /> Clear selection
+                </Button>
+              </div>
+            )}
+
+            {/* ── Table ────────────────────────────────────────── */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               {isLoading ? (
                 <div className="p-6 space-y-3">
@@ -1117,7 +1296,7 @@ export default function DeliveryInventory() {
                   <p className="text-sm text-slate-400 mt-1">
                     {hasAnyFilter
                       ? 'Try adjusting your search, filters, or date range.'
-                      : 'Load a truck to start tracking deliveries.'}
+                      : 'Click "Allocate Trucks" to start tracking deliveries.'}
                   </p>
                   {hasAnyFilter && (
                     <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={clearAllFilters}>
@@ -1130,198 +1309,269 @@ export default function DeliveryInventory() {
                   <Table className="text-sm">
                     <TableHeader>
                       <TableRow className="bg-slate-50/80">
-                        <TableHead className="font-semibold text-slate-700 w-[48px]">S/N</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Code</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Truck</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Quantity</TableHead>
+                        <TableHead className="w-[44px] text-center">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all visible rows"
+                            className="h-4 w-4 rounded border-slate-300 accent-blue-600 cursor-pointer"
+                            checked={filtered.length > 0 && filtered.every(r => selectedRowIds.has(r.id))}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setSelectedRowIds(new Set(filtered.map(r => r.id)));
+                              } else {
+                                setSelectedRowIds(new Set());
+                              }
+                            }}
+                          />
+                        </TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[40px] text-center">#</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[115px]">Code</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[120px]">Truck</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[105px]">Quantity</TableHead>
                         <TableHead className="font-semibold text-slate-700">Depot</TableHead>
                         <TableHead className="font-semibold text-slate-700">PFI</TableHead>
                         <TableHead className="font-semibold text-slate-700">Product</TableHead>
-                        {/* <TableHead className="font-semibold text-slate-700">Customer</TableHead> */}
                         <TableHead className="font-semibold text-slate-700">Customers (Sales)</TableHead>
                         <TableHead className="font-semibold text-slate-700">Rate(s)</TableHead>
                         <TableHead className="font-semibold text-slate-700">Destination</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Status</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead>
-                        {/* <TableHead className="font-semibold text-slate-700">Allocated By</TableHead> */}
-                        <TableHead className="font-semibold text-slate-700">Date Sold</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Confirmed By</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[130px]">Actions</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[85px]">Status</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[95px]">Date Loaded</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[95px]">Date Sold</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[90px]">Sold By</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[190px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filtered.map((r, idx) => {
-                        const badge = statusBadge[r.status];
-                        const Icon = badge?.icon;
-                        const theme = getCodeTheme(r.code);
+                      {(() => {
+                        const rows: React.ReactNode[] = [];
 
-                        return (
-                          <TableRow
-                            key={r.id}
-                            className={`hover:bg-slate-50/60 transition-colors border-l-[3px] ${theme ? theme.row : 'border-l-transparent'} ${
-                              r.status === 'loaded' ? 'bg-blue-50/20' : ''
-                            }`}
-                          >
-                            <TableCell className="text-slate-500">{idx + 1}</TableCell>
+                        grouped.forEach(([code, records]) => {
+                          const theme = code ? getCodeTheme(code) : null;
+                          const isCollapsed = collapsedCodes.has(code);
+                          const totalQty    = records.reduce((s, r) => s + r.qty, 0);
+                          const loadedCount = records.filter(r => r.status === 'loaded').length;
+                          const soldCount   = records.filter(r => r.status === 'offloaded').length;
 
-                            <TableCell>
-                              {r.code ? (
-                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                                  {r.code}
-                                </span>
-                              ) : <span className="text-slate-300">—</span>}
-                            </TableCell>
+                          // ── Code group header ──
+                          rows.push(
+                            <TableRow
+                              key={`grp-${code || '__none__'}`}
+                              className={`cursor-pointer select-none border-b-2 ${
+                                theme ? `${theme.header} border-slate-200` : 'bg-slate-100 border-slate-200'
+                              }`}
+                              onClick={() => toggleCodeCollapse(code)}
+                            >
+                              <TableCell colSpan={16} className="py-2.5 px-4">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <span className="text-slate-500 shrink-0">
+                                    {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                                  </span>
 
-                            {/* Truck */}
-                            <TableCell>
-                              <div className="flex flex-col">
-                                <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                                  {/* <Truck size={13} className="text-slate-400" /> */}
-                                  {r.truckPlate}
-                                </span>
-                                {/* {r.driverName && (
-                                  <span className="text-xs text-slate-500">{r.driverName}</span>
-                                )} */}
-                              </div>
-                            </TableCell>
+                                  {code ? (
+                                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${theme?.badge || 'bg-slate-200 text-slate-700 border-slate-300'}`}>
+                                      <Tag size={11} /> {code}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border bg-slate-200 text-slate-500 border-slate-300">
+                                      <Tag size={11} /> No Code
+                                    </span>
+                                  )}
 
-                            {/* Qty */}
-                            <TableCell className="font-bold text-slate-800">
-                              {r.qty > 0 ? fmtQty(r.qty) : '—'} Litres
-                            </TableCell>
+                                  <span className="text-xs font-medium text-slate-600">
+                                    {records.length} truck{records.length !== 1 ? 's' : ''}
+                                  </span>
+                                  <span className="text-xs text-slate-400">·</span>
+                                  <span className="text-xs font-semibold text-slate-700">
+                                    {fmtQty(totalQty)} L
+                                  </span>
 
-                            {/* Depot */}
-                            <TableCell className="text-slate-600">{r.depotDisplay || '—'}</TableCell>
-
-                            {/* PFI */}
-                            <TableCell className="text-slate-700 font-medium whitespace-nowrap">
-                              {r.pfiLabel || '—'}
-                            </TableCell>
-
-                            {/* Product */}
-                            <TableCell className="font-medium text-slate-700 whitespace-nowrap">
-                              {r.product || '—'}
-                            </TableCell>
-
-                            {/* Customer (inventory allocation) */}
-                            {/* <TableCell className="font-medium text-slate-700 capitalize whitespace-nowrap">
-                              {r.custName || '—'}
-                            </TableCell> */}
-
-                            {/* Customers from Sales Ledger */}
-                            <TableCell>
-                              {(() => {
-                                const cycleKey = `${r.truckPlate}::${r.date_allocated || ''}`;
-                                const salesEntries = truckSalesMap.get(cycleKey);
-                                if (!salesEntries || salesEntries.length === 0) {
-                                  return <span className="text-slate-400 text-xs">—</span>;
-                                }
-                                return (
-                                  <div className="flex flex-col gap-0.5">
-                                    {salesEntries.map(e => (
-                                      <span key={e.customerId} className="text-sm text-black font-medium capitalize whitespace-nowrap">
-                                        {e.customerName || `#${e.customerId}`}
+                                  {loadedCount > 0 && (
+                                    <>
+                                      <span className="text-xs text-slate-300">|</span>
+                                      <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                        {loadedCount} in transit
                                       </span>
-                                    ))}
-                                  </div>
-                                );
-                              })()}
-                            </TableCell>
-
-                            {/* Rate(s) from Sales Ledger */}
-                            <TableCell>
-                              {(() => {
-                                const cycleKey = `${r.truckPlate}::${r.date_allocated || ''}`;
-                                const salesEntries = truckSalesMap.get(cycleKey);
-                                if (!salesEntries || salesEntries.length === 0) {
-                                  return <span className="text-slate-400 text-xs">—</span>;
-                                }
-                                return (
-                                  <div className="flex flex-col gap-0.5">
-                                    {salesEntries.map(e => (
-                                      <span key={e.customerId} className="text-sm text-slate-700 whitespace-nowrap">
-                                        {e.rates.size > 0
-                                          ? [...e.rates].map(r => `₦${r.toLocaleString()}`).join(', ')
-                                          : <span className="text-amber-600 font-medium">—</span>
-                                        }
+                                    </>
+                                  )}
+                                  {soldCount > 0 && (
+                                    <>
+                                      <span className="text-xs text-slate-300">|</span>
+                                      <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                        {soldCount} sold
                                       </span>
-                                    ))}
-                                  </div>
-                                );
-                              })()}
-                            </TableCell>
+                                    </>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>,
+                          );
 
-                            {/* Destination */}
-                            <TableCell className="text-slate-600 uppercase">{r.destination || '—'}</TableCell>
+                          // ── Truck rows ──
+                          if (!isCollapsed) {
+                            records.forEach((r, idx) => {
+                              const badge = statusBadge[r.status];
+                              const Icon  = badge?.icon;
+                              const cycleKey    = `${r.truckPlate}::${r.date_allocated || ''}`;
+                              const salesEntries = truckSalesMap.get(cycleKey);
 
-                            {/* Status */}
-                            <TableCell>
-                              {badge && Icon ? (
-                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium border ${badge.cls}`}>
-                                  <Icon size={12} />
-                                  {badge.label}
-                                </span>
-                              ) : '—'}
-                            </TableCell>
-
-                            {/* Date Loaded */}
-                            <TableCell className="whitespace-nowrap text-slate-600">
-                              {r.date_allocated
-                                ? format(parseISO(r.date_allocated), 'dd MMM yyyy')
-                                : '—'}
-                            </TableCell>
-
-                            {/* Loaded By */}
-                            {/* <TableCell className="whitespace-nowrap text-slate-600 text-sm">
-                              {r.created_by || '—'}
-                            </TableCell> */}
-
-                            {/* Date Offloaded */}
-                            <TableCell className="whitespace-nowrap text-slate-600">
-                              {r.date_offloaded
-                                ? format(parseISO(r.date_offloaded), 'dd MMM yyyy')
-                                : '—'}
-                            </TableCell>                            
-
-                            {/* Offloaded By */}
-                            <TableCell className="whitespace-nowrap text-slate-600 text-sm">
-                              {r.offloaded_by || '—'}
-                            </TableCell>
-
-                            {/* Actions */}
-                            <TableCell>
-                              <div className="flex gap-1">
-                                {r.status === 'loaded' && !readOnly && (
-                                  <Button
-                                    size="sm" variant="default"
-                                    
-                                    onClick={() => {
-                                      setOffloadTarget(r);
-                                      setOffloadDate(format(new Date(), 'yyyy-MM-dd'));
-                                    }}
-                                    title="Mark as offloaded / delivered"
-                                  >
-                                    <CheckCircle2 size={13} /> Confirm Sold
-                                  </Button>
-                                )}
-                                {/* <Button
-                                  size="sm" variant="ghost"
-                                  className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
-                                  title="Delete record"
-                                  onClick={() =>
-                                    setDeleteTarget({
-                                      id: r.id,
-                                      label: `${r.truckPlate} — ${fmtQty(r.qty)} L`,
-                                    })
-                                  }
+                              rows.push(
+                                <TableRow
+                                  key={r.id}
+                                  className={`hover:bg-slate-50/60 transition-colors border-l-[3px] ${
+                                    selectedRowIds.has(r.id)
+                                      ? 'bg-blue-50/60 border-l-blue-400'
+                                      : (theme ? theme.row : 'border-l-transparent')
+                                  }`}
                                 >
-                                  <Trash2 size={14} />
-                                </Button> */}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                                  {/* Checkbox */}
+                                  <TableCell className="text-center px-3">
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Select ${r.truckPlate}`}
+                                      className="h-4 w-4 rounded border-slate-300 accent-blue-600 cursor-pointer"
+                                      checked={selectedRowIds.has(r.id)}
+                                      onChange={e => {
+                                        setSelectedRowIds(prev => {
+                                          const next = new Set(prev);
+                                          e.target.checked ? next.add(r.id) : next.delete(r.id);
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                  </TableCell>
+                                  <TableCell className="text-slate-400 text-center text-xs">{idx + 1}</TableCell>
+
+                                  {/* Code column — inline per row */}
+                                  <TableCell>
+                                    {r.code ? (() => {
+                                      const t = getCodeTheme(r.code);
+                                      return (
+                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border whitespace-nowrap ${t?.badge || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                          <Tag size={9} />{r.code}
+                                        </span>
+                                      );
+                                    })() : (
+                                      <span className="text-slate-300 text-xs">—</span>
+                                    )}
+                                  </TableCell>
+
+                                  <TableCell>
+                                    <span className="font-semibold text-slate-900 flex items-center gap-1.5">
+                                      <Truck size={12} className="text-slate-400 shrink-0" />
+                                      {r.truckPlate}
+                                    </span>
+                                    {r.driverName && (
+                                      <span className="text-[11px] text-slate-400 block">{r.driverName}</span>
+                                    )}
+                                  </TableCell>
+
+                                  <TableCell className="font-bold text-slate-800">
+                                    {r.qty > 0 ? `${fmtQty(r.qty)} L` : '—'}
+                                  </TableCell>
+
+                                  <TableCell className="text-slate-600 text-xs">{r.depotDisplay || '—'}</TableCell>
+                                  <TableCell className="text-slate-700 font-medium whitespace-nowrap text-xs">{r.pfiLabel || '—'}</TableCell>
+                                  <TableCell className="font-medium text-slate-700 whitespace-nowrap text-xs">{r.product || '—'}</TableCell>
+
+                                  {/* Customers (from Sales Ledger) */}
+                                  <TableCell>
+                                    {salesEntries && salesEntries.length > 0 ? (
+                                      <div className="flex flex-col gap-0.5">
+                                        {salesEntries.map(e => (
+                                          <span key={e.customerId} className="text-sm text-slate-900 font-medium capitalize whitespace-nowrap">
+                                            {e.customerName || `#${e.customerId}`}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-300 text-xs">—</span>
+                                    )}
+                                  </TableCell>
+
+                                  {/* Rates (from Sales Ledger) */}
+                                  <TableCell>
+                                    {salesEntries && salesEntries.length > 0 ? (
+                                      <div className="flex flex-col gap-0.5">
+                                        {salesEntries.map(e => (
+                                          <span key={e.customerId} className="text-sm text-slate-700 whitespace-nowrap">
+                                            {e.rates.size > 0
+                                              ? [...e.rates].map(rate => `₦${rate.toLocaleString()}`).join(', ')
+                                              : <span className="text-slate-300">—</span>
+                                            }
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-300 text-xs">—</span>
+                                    )}
+                                  </TableCell>
+
+                                  <TableCell className="text-slate-600 uppercase text-xs">{r.destination || '—'}</TableCell>
+
+                                  <TableCell>
+                                    {badge && Icon ? (
+                                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${badge.cls}`}>
+                                        <Icon size={11} /> {badge.label}
+                                      </span>
+                                    ) : '—'}
+                                  </TableCell>
+
+                                  <TableCell className="whitespace-nowrap text-slate-500 text-xs">
+                                    {r.date_allocated ? format(parseISO(r.date_allocated), 'dd MMM yy') : '—'}
+                                  </TableCell>
+
+                                  <TableCell className="whitespace-nowrap text-slate-500 text-xs">
+                                    {r.date_offloaded ? format(parseISO(r.date_offloaded), 'dd MMM yy') : '—'}
+                                  </TableCell>
+
+                                  <TableCell className="whitespace-nowrap text-slate-500 text-xs">
+                                    {r.offloaded_by || '—'}
+                                  </TableCell>
+
+                                  <TableCell>
+                                    <div className="flex gap-1 flex-wrap">
+                                      {r.status === 'loaded' && !readOnly && (
+                                        <Button
+                                          size="sm"
+                                          className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-2"
+                                          onClick={() => { setOffloadTarget(r); setOffloadDate(format(new Date(), 'yyyy-MM-dd')); }}
+                                          title="Confirm this truck has been sold / offloaded"
+                                        >
+                                          <CheckCircle2 size={11} /> Confirm Sold
+                                        </Button>
+                                      )}
+                                      {!readOnly && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 text-xs gap-1 px-2"
+                                          onClick={() => openEditDialog(r)}
+                                          title="Edit this allocation record"
+                                        >
+                                          <Pencil size={11} /> Edit
+                                        </Button>
+                                      )}
+                                      {!readOnly && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                                          onClick={() => setDeleteTarget({ id: r.id, label: `${r.truckPlate}${r.code ? ` (${r.code})` : ''}` })}
+                                          title="Delete this loading record"
+                                        >
+                                          <Trash2 size={12} />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>,
+                              );
+                            });
+                          }
+                        });
+
+                        return rows;
+                      })()}
                     </TableBody>
                   </Table>
                 </div>
@@ -1330,40 +1580,37 @@ export default function DeliveryInventory() {
 
             {!isLoading && filtered.length > 0 && (
               <p className="text-xs text-slate-400 text-right">
-                Showing {filtered.length} of {truckRecords.length} records
+                {filtered.length} record{filtered.length !== 1 ? 's' : ''} in {grouped.length} code group{grouped.length !== 1 ? 's' : ''}
               </p>
             )}
           </div>
         </div>
       </div>
 
-      {/* ═════════════════════════════════════════════════════════════════ */}
-      {/* Load Trucks Dialog                                               */}
-      {/* ═════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* Allocate Trucks Dialog                                            */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
       <Dialog open={loadDialogOpen} onOpenChange={setLoadDialogOpen}>
-        <DialogContent className="sm:max-w-[720px] max-h-[92vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[600px] max-h-[95vh] overflow-y-auto">
+          <DialogHeader className="pb-3">
             <DialogTitle className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-100">
+              <div className="p-2.5 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100">
                 <Truck className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">Load Trucks</h2>
-                <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  Select PFI, assign a code, enter quantity, pick trucks, and assign customers.
-                </p>
+                <h2 className="text-lg font-bold">Allocate Trucks</h2>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">Load trucks under an allocation code</p>
               </div>
             </DialogTitle>
-            <DialogDescription className="sr-only">
-              Load multiple trucks for delivery
-            </DialogDescription>
+            <DialogDescription className="sr-only">Allocate trucks for delivery</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-5 py-2">
-            {/* ── PFI Source ───────────────────────────────────── */}
+          <div className="space-y-5 py-1">
+
+            {/* ── 1. PFI Source ────────────────────────────────── */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                <FileText size={15} className="text-slate-500" />
+              <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <FileText size={14} className="text-blue-600" />
                 PFI Source <span className="text-red-500">*</span>
               </Label>
               <select
@@ -1373,30 +1620,65 @@ export default function DeliveryInventory() {
                   const pfiId = e.target.value;
                   const pfi = pfiId ? pfiMap.get(Number(pfiId)) : null;
                   setLoadPfi(pfiId);
-                  if (pfi?.location_name) setLoadDepot(pfi.location_name);
+                  setLoadDepot(pfi?.location_name || '');
                 }}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
               >
-                <option value="">Select PFI…</option>
-                {pfiOptions.map(o => (
+                <option value="">Select an active PFI…</option>
+                {activePfiOptions.map(o => (
                   <option key={o.id} value={String(o.id)}>{o.label}</option>
                 ))}
               </select>
+
+              {selectedPfi && (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-lg p-3">
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Product</p>
+                      <p className="font-semibold text-slate-900">{selectedPfi.product_name || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Depot</p>
+                      <p className="font-semibold text-slate-900">{selectedPfi.location_name || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">Status</p>
+                      <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-700">Active</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
+            {/* ── 2. Allocation Code ───────────────────────────── */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                <Package size={15} className="text-slate-500" />
-                Code <span className="text-xs font-normal text-slate-400">(existing or new)</span>
+              <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <Tag size={14} className="text-blue-600" />
+                Allocation Code <span className="text-red-500">*</span>
               </Label>
-              <Input
-                placeholder="e.g. PFI-14B"
-                value={loadCode}
-                onChange={e => setLoadCode(e.target.value.toUpperCase())}
-                className="h-10"
-              />
+
+              {deliveryCodes.length === 0 ? (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  No codes yet — create one below to continue.
+                </div>
+              ) : (
+                <select
+                  aria-label="Select allocation code"
+                  value={loadCode}
+                  onChange={e => setLoadCode(e.target.value)}
+                  className={`h-10 w-full rounded-lg border px-3.5 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
+                    loadCode ? 'border-blue-400 bg-blue-50 text-blue-900' : 'border-slate-200 bg-white text-slate-700'
+                  }`}
+                >
+                  <option value="">Select a code…</option>
+                  {deliveryCodes.map(code => <option key={code} value={code}>{code}</option>)}
+                </select>
+              )}
+
+              {/* Code chip shortcuts */}
               {deliveryCodes.length > 0 && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
                   {deliveryCodes.map(code => {
                     const theme = getCodeTheme(code);
                     return (
@@ -1404,7 +1686,11 @@ export default function DeliveryInventory() {
                         key={code}
                         type="button"
                         onClick={() => setLoadCode(code)}
-                        className={`px-2 py-1 rounded text-xs font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'} ${loadCode === code ? 'ring-2 ring-slate-300' : ''}`}
+                        className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-all ${
+                          loadCode === code
+                            ? (theme ? `${theme.badge} ring-2 ring-offset-1 shadow-sm` : 'bg-blue-600 text-white border-blue-600')
+                            : (theme ? `${theme.badge} opacity-60 hover:opacity-100` : 'bg-slate-100 text-slate-600 border-slate-200')
+                        }`}
                       >
                         {code}
                       </button>
@@ -1412,235 +1698,111 @@ export default function DeliveryInventory() {
                   })}
                 </div>
               )}
-            </div>
 
-            {/* ── PFI details ─────────────────────────────────── */}
-            {selectedPfi && (
-              <div className="bg-indigo-50/60 border border-indigo-100 rounded-lg p-3">
-                <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider mb-2">PFI Details</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1.5 text-sm">
-                  <div>
-                    <span className="text-slate-500 text-xs">Product</span>
-                    <p className="font-medium text-slate-800">{selectedPfi.product_name || '—'}</p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 text-xs">Depot</span>
-                    <p className="font-medium text-slate-800">{selectedPfi.location_name || '—'}</p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 text-xs">PFI Qty</span>
-                    <p className="font-medium text-slate-800">
-                      {selectedPfi.starting_qty_litres ? `${fmtQty(selectedPfi.starting_qty_litres)} L` : '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 text-xs">Status</span>
-                    <p className={`font-medium ${selectedPfi.status === 'active' ? 'text-emerald-700' : 'text-slate-500'}`}>
-                      {selectedPfi.status === 'active' ? 'Active' : 'Finished'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Customer Allocations ─────────────────────────── */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <UserPlus size={15} className="text-slate-500" />
-                  Customer Allocations <span className="text-xs font-normal text-slate-400">(optional)</span>
-                </Label>
-                <Button
+              {/* Inline new code creation */}
+              {!showNewCodeInput ? (
+                <button
                   type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1.5 text-xs text-blue-600 hover:text-blue-800 h-7 px-2"
-                  onClick={addAllocationRow}
+                  onClick={() => setShowNewCodeInput(true)}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors mt-1"
                 >
-                  <Plus size={13} /> Add Row
-                </Button>
-              </div>
-
-              {/* Column headers */}
-              <div className="grid grid-cols-[1fr_140px_32px] gap-2 px-1">
-                <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Customer</span>
-                <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Quantity (L)</span>
-                <span />
-              </div>
-
-              <div className="space-y-2">
-                {customerAllocations.map((alloc, idx) => (
-                  <div key={alloc.uid} className="grid grid-cols-[1fr_140px_32px] gap-2 items-center">
-                    <select
-                      aria-label={`Customer for row ${idx + 1}`}
-                      value={alloc.customerId}
-                      onChange={e => updateAllocation(alloc.uid, 'customerId', e.target.value)}
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                    >
-                      <option value="">No customer (optional)…</option>
-                      {customers.map(c => (
-                        <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
-                      ))}
-                    </select>
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="e.g. 33,000"
-                      value={alloc.qty}
-                      onChange={e => updateAllocation(alloc.uid, 'qty', e.target.value)}
-                      className="h-9 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeAllocationRow(alloc.uid)}
-                      disabled={customerAllocations.length === 1}
-                      className="h-8 w-8 flex items-center justify-center rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      title="Remove row"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {allocationTotal > 0 && (
-                <p className="text-xs text-slate-500 text-right">
-                  Subtotal per truck: <span className="font-semibold text-slate-700">{fmtQty(allocationTotal)} L</span>
-                </p>
-              )}
-            </div>
-
-            {/* ── Depot + Notes ─────────────────────────────── */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium text-slate-700">Depot</Label>
-                <Input
-                  placeholder="Auto-filled from PFI"
-                  value={loadDepot}
-                  onChange={e => setLoadDepot(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium text-slate-700">Notes</Label>
-                <Input
-                  placeholder="Optional…"
-                  value={loadNotes}
-                  onChange={e => setLoadNotes(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* ── Total Allocation Qty ─────────────────────── */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Fuel size={15} className="text-slate-500" />
-                  Total Allocation (Litres) <span className="text-red-500">*</span>
-                </Label>
-                {autoSumCapacity > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setTotalAllocationQty(formatWithCommas(String(autoSumCapacity)))}
-                    className="text-xs text-blue-600 hover:text-blue-800 font-medium underline underline-offset-2"
-                  >
-                    Use trucks' capacity ({fmtQty(autoSumCapacity)} L)
+                  <Plus size={13} /> Create new code
+                </button>
+              ) : (
+                <div className="flex gap-2 items-center bg-slate-50 border border-slate-200 rounded-lg p-2">
+                  <Input
+                    placeholder="e.g. LOAD-001"
+                    value={newCodeInput}
+                    onChange={e => setNewCodeInput(e.target.value.toUpperCase())}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') addNewCode();
+                      if (e.key === 'Escape') { setShowNewCodeInput(false); setNewCodeInput(''); }
+                    }}
+                    className="h-8 text-sm font-mono font-semibold flex-1 border-slate-300"
+                    autoFocus
+                  />
+                  <Button size="sm" className="h-8 text-xs bg-blue-600 hover:bg-blue-700 shrink-0" onClick={addNewCode} disabled={!newCodeInput.trim()}>
+                    <Plus size={12} /> Add
+                  </Button>
+                  <button type="button" onClick={() => { setShowNewCodeInput(false); setNewCodeInput(''); }}
+                    className="text-slate-400 hover:text-slate-600 shrink-0">
+                    <X size={14} />
                   </button>
-                )}
-              </div>
-              <Input
-                type="text"
-                inputMode="decimal"
-                placeholder="e.g. 66,000"
-                value={totalAllocationQty}
-                onChange={e => setTotalAllocationQty(formatWithCommas(e.target.value))}
-                className={`h-10 text-base font-semibold ${!totalAllocationQty ? 'border-red-200 focus-visible:ring-red-300' : ''}`}
-              />
-              {selectedTruckIds.size > 1 && totalAllocationQty && (
-                <p className="text-xs text-slate-500">
-                  ≈ <strong>{fmtQty(Math.round(Number(stripCommas(totalAllocationQty)) / selectedTruckIds.size))} L</strong> per truck
-                  {autoSumCapacity > 0 && Number(stripCommas(totalAllocationQty)) !== autoSumCapacity
-                    ? ` (trucks' combined capacity: ${fmtQty(autoSumCapacity)} L)`
-                    : ''}
-                </p>
-              )}
-              {selectedTruckIds.size === 1 && totalAllocationQty && autoSumCapacity > 0 &&
-                Number(stripCommas(totalAllocationQty)) !== autoSumCapacity && (
-                <p className="text-xs text-amber-600">
-                  Truck capacity is {fmtQty(autoSumCapacity)} L
-                </p>
+                </div>
               )}
             </div>
 
-            {/* ── Select Trucks ────────────────────────────────── */}
+            {/* ── 3. Date Loaded ───────────────────────────────── */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                <Truck size={15} className="text-slate-500" />
-                Select Trucks <span className="text-red-500">*</span>
+              <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <CalendarDays size={14} className="text-blue-600" /> Date Loaded
+              </Label>
+              <Input type="date" value={dateAllocated} onChange={e => setDateAllocated(e.target.value)} className="h-10" />
+            </div>
+
+            {/* ── 4. Select Trucks ─────────────────────────────── */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                  <Truck size={14} className="text-blue-600" />
+                  Select Trucks <span className="text-red-500">*</span>
+                </Label>
                 {selectedTruckIds.size > 0 && (
-                  <span className="ml-auto text-xs font-normal text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                  <span className="text-xs font-bold text-white bg-blue-600 px-2.5 py-1 rounded-full">
                     {selectedTruckIds.size} selected
                   </span>
                 )}
-              </Label>
-
-              {/* Truck search */}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                <Input
-                  placeholder="Search trucks by plate or driver…"
-                  className="pl-8 h-9 text-sm"
-                  value={truckSearch}
-                  onChange={e => setTruckSearch(e.target.value)}
-                />
               </div>
 
-              {/* Truck buttons grid */}
-              <div className="max-h-[200px] overflow-y-auto border border-slate-200 rounded-lg p-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <Input placeholder="Search trucks…" className="pl-9 h-9 text-sm"
+                  value={truckSearch} onChange={e => setTruckSearch(e.target.value)} />
+              </div>
+
+              <div className="max-h-[200px] overflow-y-auto border border-slate-200 rounded-lg p-2.5 bg-slate-50/50">
                 {(() => {
                   const q = truckSearch.trim().toLowerCase();
-                  const visibleTrucks = q
+                  const visible = q
                     ? availableTrucks.filter(t =>
                         t.plate_number.toLowerCase().includes(q) ||
-                        (t.driver_name || '').toLowerCase().includes(q),
-                      )
+                        (t.driver_name || '').toLowerCase().includes(q))
                     : availableTrucks;
 
-                  if (visibleTrucks.length === 0) {
+                  if (visible.length === 0) {
                     return (
-                      <p className="text-xs text-slate-400 text-center py-4">
-                        {availableTrucks.length === 0
-                          ? 'All trucks are currently loaded'
-                          : 'No trucks match your search'}
+                      <p className="text-xs text-slate-500 text-center py-6">
+                        {availableTrucks.length === 0 ? 'All trucks are currently loaded' : 'No trucks match your search'}
                       </p>
                     );
                   }
 
                   return (
                     <div className="flex flex-wrap gap-2">
-                      {visibleTrucks.map(t => {
-                        const isSelected = selectedTruckIds.has(t.id);
+                      {visible.map(t => {
+                        const isSel = selectedTruckIds.has(t.id);
                         return (
                           <button
                             key={t.id}
                             type="button"
                             onClick={() => toggleTruck(t.id)}
-                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
-                              isSelected
-                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                                : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50'
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border font-medium text-sm transition-all ${
+                              isSel
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-blue-50 hover:border-blue-300'
                             }`}
                           >
                             <Truck size={13} />
                             <span>{t.plate_number}</span>
                             {t.driver_name && (
-                              <span className={`text-xs ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
-                                · {t.driver_name}
-                              </span>
+                              <span className={`text-xs truncate ${isSel ? 'text-blue-100' : 'text-slate-400'}`}>{t.driver_name}</span>
                             )}
-                            {t.max_capacity && (
-                              <span className={`text-[10px] ${isSelected ? 'text-blue-200' : 'text-slate-300'}`}>
+                            {t.max_capacity ? (
+                              <span className={`text-xs font-bold ml-1 ${isSel ? 'text-blue-100' : 'text-slate-400'}`}>
                                 {fmtQty(t.max_capacity)}L
                               </span>
+                            ) : (
+                              <span className={`text-xs ${isSel ? 'text-yellow-200' : 'text-amber-500'}`}>no cap.</span>
                             )}
                           </button>
                         );
@@ -1651,53 +1813,79 @@ export default function DeliveryInventory() {
               </div>
 
               {availableTrucks.length === 0 && (
-                <p className="text-[11px] text-amber-600 flex items-center gap-1">
-                  <AlertTriangle size={11} /> All trucks are currently loaded
+                <p className="text-xs text-amber-600 flex items-center gap-1.5 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
+                  <AlertTriangle size={13} /> All active trucks are currently loaded
                 </p>
               )}
             </div>
 
-            {/* ── Summary ─────────────────────────────────────── */}
-            {selectedTruckIds.size > 0 && totalAllocationQty && Number(stripCommas(totalAllocationQty)) > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-xs text-blue-700 font-semibold mb-1">Loading Summary</p>
-                <p className="text-lg font-bold text-slate-800">
-                  {fmtQty(Number(stripCommas(totalAllocationQty)))} L total
-                  <span className="text-sm font-normal text-slate-500 ml-2">
-                    across {selectedTruckIds.size} truck{selectedTruckIds.size !== 1 ? 's' : ''}
-                    {selectedTruckIds.size > 1 && ` (≈ ${fmtQty(Math.round(Number(stripCommas(totalAllocationQty)) / selectedTruckIds.size))} L each)`}
-                  </span>
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {(() => {
-                    const filled = customerAllocations.filter(a => a.customerId);
-                    return filled.length > 0
-                      ? `${filled.length} customer${filled.length !== 1 ? 's' : ''} assigned`
-                      : 'No customers assigned yet — assign later in Sales Ledger';
-                  })()}
-                  {selectedPfi ? ` · ${selectedPfi.pfi_number} · ${selectedPfi.product_name || '—'}` : ''}
-                </p>
+            {/* ── 5. Auto-calculated Qty Summary ──────────────── */}
+            {selectedTruckIds.size > 0 && (
+              <div className={`rounded-lg border-2 p-4 ${autoSumCapacity > 0 ? 'bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200' : 'bg-amber-50 border-amber-200'}`}>
+                {autoSumCapacity > 0 ? (
+                  <>
+                    <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider mb-1">
+                      Total Allocation (Auto-calculated from capacity)
+                    </p>
+                    <p className="text-3xl font-black text-blue-900">{fmtQty(autoSumCapacity)} L</p>
+                    <p className="text-xs text-slate-600 mt-1">
+                      {selectedTruckIds.size} truck{selectedTruckIds.size !== 1 ? 's' : ''}
+                      {selectedTruckIds.size > 1 && ` · ≈ ${fmtQty(Math.round(autoSumCapacity / selectedTruckIds.size))} L each`}
+                      {selectedPfi && ` · ${selectedPfi.pfi_number}`}
+                    </p>
+                    {trucksWithNoCapacity.length > 0 && (
+                      <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                        <AlertTriangle size={11} />
+                        {trucksWithNoCapacity.join(', ')} ha{trucksWithNoCapacity.length !== 1 ? 've' : 's'} no capacity — will save as 0 L
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">Capacity Warning</p>
+                    <p className="text-sm font-semibold text-amber-800">
+                      Selected truck{trucksWithNoCapacity.length !== 1 ? 's have' : ' has'} no max capacity set.
+                    </p>
+                    <p className="text-xs text-amber-700 mt-1">Set capacity in Fleet Trucks, or quantity will save as 0.</p>
+                    <p className="text-xs font-mono text-amber-600 mt-1">{trucksWithNoCapacity.join(', ')}</p>
+                  </>
+                )}
               </div>
             )}
+
+            {/* ── 6. Notes (optional) ──────────────────────────── */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-600">Notes (optional)</Label>
+              <Input
+                placeholder="Any remarks about this allocation…"
+                value={loadNotes}
+                onChange={e => setLoadNotes(e.target.value)}
+                className="h-10 text-sm"
+              />
+            </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setLoadDialogOpen(false)} disabled={saving}>
+          <DialogFooter className="gap-3 pt-5 border-t border-slate-100">
+            <Button variant="outline" onClick={() => setLoadDialogOpen(false)} disabled={saving} className="h-10">
               Cancel
             </Button>
-            <Button onClick={handleLoadSave} disabled={saving || selectedTruckIds.size === 0} className="gap-2">
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Truck size={16} />}
+            <Button
+              onClick={handleLoadSave}
+              disabled={saving || selectedTruckIds.size === 0 || !loadPfi || !loadCode}
+              className="gap-2 h-10 bg-blue-600 hover:bg-blue-700"
+            >
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Truck size={15} />}
               {saving
-                ? 'Loading…'
-                : `Load ${selectedTruckIds.size || ''} Truck${selectedTruckIds.size !== 1 ? 's' : ''}`}
+                ? 'Allocating…'
+                : `Allocate ${selectedTruckIds.size || ''} Truck${selectedTruckIds.size !== 1 ? 's' : ''}${loadCode ? ` → ${loadCode}` : ''}`}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ═════════════════════════════════════════════════════════════════ */}
-      {/* Offload Dialog                                                   */}
-      {/* ═════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* Confirm Sold Dialog                                               */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
       <Dialog open={!!offloadTarget} onOpenChange={open => { if (!open) setOffloadTarget(null); }}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
@@ -1705,23 +1893,25 @@ export default function DeliveryInventory() {
               <div className="bg-emerald-100 p-2 rounded-lg">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
               </div>
-              <span>Mark as Delivered</span>
+              <span>Confirm Sold</span>
             </DialogTitle>
-            <DialogDescription className="pt-2 text-slate-600">
-              Mark <strong>{offloadTarget?.truckPlate}</strong> ({fmtQty(offloadTarget?.qty || 0)} L)
-              as offloaded at destination.
-              {offloadTarget?.custName && (
-                <> Customer: <strong>{offloadTarget.custName}</strong>.</>
-              )}
+            <DialogDescription className="pt-1 text-slate-600">
+              Mark <strong>{offloadTarget?.truckPlate}</strong> ({fmtQty(offloadTarget?.qty || 0)} L) as offloaded and sold.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             {offloadTarget && (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1 text-sm">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Truck</span>
-                  <span className="font-medium text-slate-800">{offloadTarget.truckPlate}</span>
+                  <span className="font-semibold text-slate-800">{offloadTarget.truckPlate}</span>
                 </div>
+                {offloadTarget.code && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Code</span>
+                    <span className="font-bold text-slate-800">{offloadTarget.code}</span>
+                  </div>
+                )}
                 {offloadTarget.pfiLabel && (
                   <div className="flex justify-between">
                     <span className="text-slate-500">PFI</span>
@@ -1740,24 +1930,124 @@ export default function DeliveryInventory() {
                 )}
               </div>
             )}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label className="text-sm font-medium text-slate-700">Date Offloaded</Label>
               <Input type="date" value={offloadDate} onChange={e => setOffloadDate(e.target.value)} />
             </div>
           </div>
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setOffloadTarget(null)} disabled={offloading}>Cancel</Button>
             <Button onClick={handleOffload} disabled={offloading} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-              {offloading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-              {offloading ? 'Confirming…' : 'Confirm Delivery'}
+              {offloading ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+              {offloading ? 'Confirming…' : 'Confirm Sold'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ═════════════════════════════════════════════════════════════════ */}
-      {/* Delete Confirmation                                              */}
-      {/* ═════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* Edit Record Dialog                                                */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      <Dialog open={!!editTarget} onOpenChange={open => { if (!open) setEditTarget(null); }}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="bg-blue-100 p-2 rounded-lg">
+                <Pencil className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <span className="font-bold">Edit Allocation</span>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">{editTarget?.truckPlate}</p>
+              </div>
+            </DialogTitle>
+            <DialogDescription className="sr-only">Edit allocation record</DialogDescription>
+          </DialogHeader>
+
+          {editTarget && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Tag size={13} className="text-blue-600" /> Allocation Code
+                </Label>
+                <select
+                  aria-label="Edit allocation code"
+                  value={editForm.code}
+                  onChange={e => setEditForm(f => ({ ...f, code: e.target.value }))}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold"
+                >
+                  <option value="">No code</option>
+                  {deliveryCodes.map(code => <option key={code} value={code}>{code}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <FileText size={13} className="text-blue-600" /> PFI
+                </Label>
+                <select
+                  aria-label="Edit PFI"
+                  value={editForm.pfi}
+                  onChange={e => {
+                    const pfiId = e.target.value;
+                    const pfi = pfiId ? pfiMap.get(Number(pfiId)) : null;
+                    setEditForm(f => ({ ...f, pfi: pfiId, depot: pfi?.location_name || f.depot }));
+                  }}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm"
+                >
+                  <option value="">No PFI</option>
+                  {allPfiOptions.map(o => <option key={o.id} value={String(o.id)}>{o.label}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <DropletIcon size={13} className="text-blue-600" /> Depot
+                </Label>
+                <Input
+                  placeholder="Depot / loading point"
+                  value={editForm.depot}
+                  onChange={e => setEditForm(f => ({ ...f, depot: e.target.value }))}
+                  className="h-10"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold text-slate-700">Destination</Label>
+                <Input
+                  placeholder="e.g. Kano, Abuja"
+                  value={editForm.location}
+                  onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))}
+                  className="h-10"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <CalendarDays size={13} className="text-blue-600" /> Date Loaded
+                </Label>
+                <Input
+                  type="date"
+                  value={editForm.date}
+                  onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))}
+                  className="h-10"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditTarget(null)} disabled={editSaving}>Cancel</Button>
+            <Button onClick={handleEditSave} disabled={editSaving} className="gap-2">
+              {editSaving ? <Loader2 size={15} className="animate-spin" /> : <Pencil size={15} />}
+              {editSaving ? 'Saving…' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* Delete Confirmation                                               */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
       <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
@@ -1765,17 +2055,137 @@ export default function DeliveryInventory() {
               <div className="bg-red-100 p-2 rounded-lg">
                 <Trash2 className="w-5 h-5 text-red-600" />
               </div>
-              <span>Delete Record?</span>
+              <span>Delete Allocation Record?</span>
             </DialogTitle>
             <DialogDescription className="pt-2 text-slate-600">
-              Are you sure you want to delete <strong>{deleteTarget?.label}</strong>? This can't be undone.
+              Remove <strong>{deleteTarget?.label}</strong> from the inventory.
+              This will also permanently delete all associated daily sales records and payments recorded under this truck cycle in the sales ledger.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleting} className="gap-2">
-              {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-              {deleting ? 'Deleting…' : 'Delete'}
+              {deleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+              {deleting ? 'Deleting…' : 'Delete Record'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* Bulk Delete Confirmation                                          */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      <Dialog open={bulkDeleteOpen} onOpenChange={open => { if (!open) setBulkDeleteOpen(false); }}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="bg-red-100 p-2 rounded-lg">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <span>Delete Selected Records?</span>
+            </DialogTitle>
+            <DialogDescription className="pt-2 text-slate-600">
+              This will permanently delete the <strong>{selectedRowIds.size}</strong> selected allocation records and all their associated daily sales records and payments from the ledger.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)} disabled={bulkDeleting}>Cancel</Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkDeleting} className="gap-2">
+              {bulkDeleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+              {bulkDeleting ? 'Deleting…' : `Delete ${selectedRowIds.size} Records`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* Bulk Assign Code / PFI Dialog                                     */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      <Dialog open={bulkAssignOpen} onOpenChange={open => { if (!open) setBulkAssignOpen(false); }}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="bg-blue-100 p-2 rounded-lg">
+                <Tag className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <span className="font-bold">Bulk Assign</span>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">
+                  Updating {selectedRowIds.size} selected record{selectedRowIds.size !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </DialogTitle>
+            <DialogDescription className="sr-only">Bulk assign code and PFI</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+              Leave a field blank to keep its current value unchanged.
+            </p>
+
+            {/* Code */}
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                <Tag size={14} className="text-blue-600" /> Allocation Code
+              </Label>
+              <select
+                aria-label="Bulk assign code"
+                value={bulkAssignCode}
+                onChange={e => setBulkAssignCode(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold"
+              >
+                <option value="">— Keep existing code —</option>
+                {deliveryCodes.map(code => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+              </select>
+              {deliveryCodes.length === 0 && (
+                <p className="text-xs text-amber-600">No codes created yet. Create codes in the Allocate Trucks dialog first.</p>
+              )}
+            </div>
+
+            {/* PFI */}
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                <FileText size={14} className="text-blue-600" /> PFI Source
+              </Label>
+              <select
+                aria-label="Bulk assign PFI"
+                value={bulkAssignPfi}
+                onChange={e => setBulkAssignPfi(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm"
+              >
+                <option value="">— Keep existing PFI —</option>
+                {allPfiOptions.map(o => (
+                  <option key={o.id} value={String(o.id)}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Preview of what will change */}
+            {(bulkAssignCode || bulkAssignPfi) && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                <p className="font-semibold text-blue-800 mb-1">Will apply to {selectedRowIds.size} record{selectedRowIds.size !== 1 ? 's' : ''}:</p>
+                <ul className="text-blue-700 space-y-0.5">
+                  {bulkAssignCode && <li>• Code → <strong>{bulkAssignCode}</strong></li>}
+                  {bulkAssignPfi && <li>• PFI → <strong>{allPfis.find(p => p.id === Number(bulkAssignPfi))?.pfi_number || bulkAssignPfi}</strong></li>}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBulkAssignOpen(false)} disabled={bulkAssigning}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkAssign}
+              disabled={bulkAssigning || (!bulkAssignCode && !bulkAssignPfi)}
+              className="gap-2 bg-blue-600 hover:bg-blue-700"
+            >
+              {bulkAssigning ? <Loader2 size={15} className="animate-spin" /> : <Tag size={15} />}
+              {bulkAssigning
+                ? `Updating ${selectedRowIds.size} records…`
+                : `Apply to ${selectedRowIds.size} Record${selectedRowIds.size !== 1 ? 's' : ''}`}
             </Button>
           </DialogFooter>
         </DialogContent>
