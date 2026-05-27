@@ -491,8 +491,8 @@ export default function DepotView() {
       ['LOCATION', locationFilter === 'all' ? 'ALL LOCATIONS' : String(locationFilter).toUpperCase()],
       ['PRODUCT', productFilter === 'all' ? 'ALL PRODUCTS' : String(productFilter).toUpperCase()],
       ['PFI', pfiFilter === 'all' ? 'ALL PFIS' : String(pfiFilter).toUpperCase()],
-      ['RELEASE TYPE', releaseTypeFilter === 'all' ? 'ALL TYPES' : String(releaseTypeFilter).toUpperCase()],
-      ['SEARCH', searchQuery ? String(searchQuery).toUpperCase() : '—'],
+      // ['RELEASE TYPE', releaseTypeFilter === 'all' ? 'ALL TYPES' : String(releaseTypeFilter).toUpperCase()],
+      // ['SEARCH', searchQuery ? String(searchQuery).toUpperCase() : '—'],
       [''],
       ['SUMMARY'],
       ['METRIC', 'VALUE'],
@@ -508,7 +508,7 @@ export default function DepotView() {
     const ordersWs = XLSX.utils.aoa_to_sheet([
       ['SALES ORDERS REPORT'],
       [''],
-      ['REFERENCE', 'DATE', 'CUSTOMER', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS', 'RELEASE TYPE', 'DRIVER', 'PHONE'],
+      ['REFERENCE', 'DATE', 'CUSTOMER', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS', 'PHONE'],
       ...filteredOrders.map(order => {
         const qty = toNum(order.quantity);
         const unitPrice = getUnitPrice(order);
@@ -519,8 +519,8 @@ export default function DepotView() {
         const truck = getTruckNumber(order).toUpperCase();
         const product = getProductName(order).toUpperCase();
         const status = String(order.status || '').toUpperCase();
-        const releaseType = String(order.release_type || '—').toUpperCase();
-        const driver = getDriverName(order).toUpperCase();
+        // const releaseType = String(order.release_type || '—').toUpperCase();
+        // const driver = getDriverName(order).toUpperCase();
         const phone = getPhone(order).toUpperCase();
 
         return [
@@ -535,8 +535,6 @@ export default function DepotView() {
           unitPrice,
           amount,
           status,
-          releaseType,
-          driver,
           phone,
         ];
       }),
@@ -554,7 +552,6 @@ export default function DepotView() {
     ordersWs['!cols'] = [
       { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 20 }, { wch: 18 }, { wch: 16 },
       { wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 16 },
-      { wch: 18 }, { wch: 16 },
     ];
 
     [14, 15, 16, 17, 18, 19].forEach((rowNumber) => {
@@ -577,7 +574,7 @@ export default function DepotView() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, summaryWs, 'SUMMARY');
     XLSX.utils.book_append_sheet(workbook, ordersWs, 'ORDERS');
-    XLSX.writeFile(workbook, `depot-view-report-${format(new Date(), 'yyyyMMdd-HHmm')}.xlsx`);
+    XLSX.writeFile(workbook, `Sales Report - ${format(new Date(), 'ddMMyyyy')}.xlsx`);
   };
 
   const hasFilters = searchQuery || statusFilter !== 'all' || locationFilter !== 'all' ||

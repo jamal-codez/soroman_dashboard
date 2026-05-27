@@ -2437,8 +2437,8 @@ export default function DeliverySalesLedger() {
                         title={`Show ${tp === 'all' ? 'all time' : tp === 'custom' ? 'custom date range' : tp}`}
                         onClick={() => handlePresetChange(tp)}
                         className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${timePreset === tp
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:bg-slate-50'
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:bg-slate-50'
                           }`}
                       >
                         {tp === 'all' ? 'All Time' : tp === 'custom' ? 'Custom Range' : tp.charAt(0).toUpperCase() + tp.slice(1)}
@@ -2814,8 +2814,8 @@ export default function DeliverySalesLedger() {
                 </div> */}
 
                 {/* ── Codes ────────────────────────────────────────── */}
-                <div className="border-t border-slate-100" />
-                <div className="space-y-2">
+                {/* <div className="border-t border-slate-100" /> */}
+                {/* <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                     <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
                       <Tag size={11} className="text-purple-400" /> PFI Codes
@@ -2869,7 +2869,7 @@ export default function DeliverySalesLedger() {
                       </span>
                     )}
                   </div>
-                </div>
+                </div> */}
 
                 {/* ── Results summary line ─────────────────────────── */}
                 {/* <p className="text-xs text-slate-400">
@@ -2926,7 +2926,7 @@ export default function DeliverySalesLedger() {
                         <TableHead className="font-semibold text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">Payer</TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Bank</TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Paid On</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[100px] min-w-[100px] whitespace-nowrap text-center">Actions</TableHead>
+                        {/* <TableHead className="font-semibold text-slate-700 w-[100px] min-w-[100px] whitespace-nowrap text-center">Actions</TableHead> */}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -2984,7 +2984,7 @@ export default function DeliverySalesLedger() {
                               </TableCell>
                               <TableCell className="text-sm w-[180px] min-w-[180px] whitespace-nowrap"> </TableCell>
                               <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm"> </TableCell>
-                              <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
+                              {/* <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -3000,7 +3000,7 @@ export default function DeliverySalesLedger() {
                                     <>Manage <ChevronDown size={12} /></>
                                   )}
                                 </Button>
-                              </TableCell>
+                              </TableCell> */}
                             </TableRow>
                           );
 
@@ -3106,7 +3106,7 @@ export default function DeliverySalesLedger() {
                                               </Button>
                                             )}
 
-                                            <Button
+                                            {/* <Button
                                               size="sm"
                                               variant="outline"
                                               className="h-9 text-xs gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 shadow-2xs font-semibold"
@@ -3126,7 +3126,7 @@ export default function DeliverySalesLedger() {
                                               }}
                                             >
                                               <Trash2 size={14} /> Delete Truck
-                                            </Button>
+                                            </Button> */}
                                           </>
                                         )}
                                       </div>
@@ -3161,7 +3161,7 @@ export default function DeliverySalesLedger() {
                                 <TableCell className={`text-right font-bold w-[130px] min-w-[130px] whitespace-nowrap ${balanceAfter > 0 ? 'text-red-600' : balanceAfter < 0 ? 'text-blue-600' : group.expected > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
                                   {group.expected > 0
                                     ? (balanceAfter === 0 ? '₦0' : balanceAfter > 0 ? fmt(balanceAfter) : `+${fmt(Math.abs(balanceAfter))}`)
-                                    : (group.isFillingStation ? 'Open' : ' ')}
+                                    : (group.isFillingStation ? '-' : ' ')}
                                 </TableCell>
                                 <TableCell className="text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">
                                   {payment.payer_name ? (
@@ -3182,7 +3182,7 @@ export default function DeliverySalesLedger() {
                                 <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm">
                                   {payment.date_of_payment ? format(parseISO(payment.date_of_payment), 'dd MMM yyyy') : ' '}
                                 </TableCell>
-                                <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
+                                {/* <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
                                   <div className="flex gap-1 items-center justify-center" onClick={(e) => e.stopPropagation()}>
                                     {!readOnly && (
                                       <>
@@ -3207,7 +3207,7 @@ export default function DeliverySalesLedger() {
                                       </>
                                     )}
                                   </div>
-                                </TableCell>
+                                </TableCell> */}
                               </TableRow>
                             );
                           });
