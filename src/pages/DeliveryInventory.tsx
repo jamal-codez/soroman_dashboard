@@ -1374,7 +1374,7 @@ export default function DeliveryInventory() {
                         setBulkAssignOpen(true);
                       }}
                     >
-                      <Tag size={13} /> Assign Code / PFI
+                      <Tag size={13} /> Assign PFI
                     </Button>
                     <Button
                       size="sm"
@@ -1541,7 +1541,7 @@ export default function DeliveryInventory() {
                                     }`}
                                 >
                                   {/* Checkbox */}
-                                  <TableCell className="text-center px-3">
+                                  {/* <TableCell className="text-center px-3">
                                     <input
                                       type="checkbox"
                                       aria-label={`Select ${r.truckPlate}`}
@@ -1555,7 +1555,7 @@ export default function DeliveryInventory() {
                                         });
                                       }}
                                     />
-                                  </TableCell>
+                                  </TableCell> */}
                                   <TableCell className="text-slate-400 text-center text-xs">{idx + 1}</TableCell>
 
                                   {/* Code column — inline per row */}
@@ -1577,13 +1577,13 @@ export default function DeliveryInventory() {
                                       <Truck size={12} className="text-slate-400 shrink-0" />
                                       {r.truckPlate}
                                     </span>
-                                    {r.driverName && (
+                                    {/* {r.driverName && (
                                       <span className="text-[11px] text-slate-400 block">{r.driverName}</span>
-                                    )}
+                                    )} */}
                                   </TableCell>
 
                                   <TableCell className="font-bold text-slate-800">
-                                    {r.qty > 0 ? `${fmtQty(r.qty)} L` : '—'}
+                                    {r.qty > 0 ? `${fmtQty(r.qty)} Litres` : '—'}
                                   </TableCell>
 
                                   <TableCell className="text-slate-600 text-xs">{r.depotDisplay || '—'}</TableCell>
@@ -1641,9 +1641,9 @@ export default function DeliveryInventory() {
                                     {r.date_offloaded ? format(parseISO(r.date_offloaded), 'dd MMM yy') : '—'}
                                   </TableCell>
 
-                                  <TableCell className="whitespace-nowrap text-slate-500 text-xs">
+                                  {/* <TableCell className="whitespace-nowrap text-slate-500 text-xs">
                                     {r.offloaded_by || '—'}
-                                  </TableCell>
+                                  </TableCell> */}
 
                                   <TableCell>
                                     <div className="flex gap-1 flex-wrap">
@@ -1652,12 +1652,12 @@ export default function DeliveryInventory() {
                                           size="sm"
                                           className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-2"
                                           onClick={() => { setOffloadTarget(r); setOffloadDate(format(new Date(), 'yyyy-MM-dd')); }}
-                                          title="Confirm this truck has been sold / offloaded"
+                                          title="Confirm this truck has been sold/offloaded"
                                         >
-                                          <CheckCircle2 size={11} /> Confirm Sold
+                                          <CheckCircle2 size={11} /> Offload
                                         </Button>
                                       )}
-                                      {!readOnly && (
+                                      {/* {!readOnly && (
                                         <Button
                                           size="sm"
                                           variant="outline"
@@ -1667,8 +1667,8 @@ export default function DeliveryInventory() {
                                         >
                                           <Pencil size={11} /> Edit
                                         </Button>
-                                      )}
-                                      {!readOnly && (
+                                      )} */}
+                                      {/* {!readOnly && (
                                         <Button
                                           size="sm"
                                           variant="ghost"
@@ -1678,7 +1678,7 @@ export default function DeliveryInventory() {
                                         >
                                           <Trash2 size={12} />
                                         </Button>
-                                      )}
+                                      )} */}
                                     </div>
                                   </TableCell>
                                 </TableRow>,
@@ -1716,7 +1716,7 @@ export default function DeliveryInventory() {
               </div>
               <div>
                 <h2 className="text-lg font-bold">Allocate Trucks</h2>
-                <p className="text-sm font-normal text-slate-500 mt-0.5">Load trucks under an allocation code</p>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">Load trucks under a PFI Code</p>
               </div>
             </DialogTitle>
             <DialogDescription className="sr-only">Allocate trucks for delivery</DialogDescription>
@@ -1741,13 +1741,13 @@ export default function DeliveryInventory() {
                 }}
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
               >
-                <option value="">Select an active PFI…</option>
+                <option value="">Select a PFI</option>
                 {activePfiOptions.map(o => (
                   <option key={o.id} value={String(o.id)}>{o.label}</option>
                 ))}
               </select>
 
-              {selectedPfi && (
+              {/* {selectedPfi && (
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-lg p-3">
                   <div className="grid grid-cols-3 gap-3 text-sm">
                     <div>
@@ -1764,14 +1764,14 @@ export default function DeliveryInventory() {
                     </div>
                   </div>
                 </div>
-              )}
+              )} */}
             </div>
 
             {/* ── 2. Allocation Code ───────────────────────────── */}
             <div className="space-y-2">
               <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <Tag size={14} className="text-blue-600" />
-                Allocation Code <span className="text-red-500">*</span>
+                PFI Code <span className="text-red-500">*</span>
               </Label>
 
               {deliveryCodes.length === 0 ? (
@@ -1908,9 +1908,9 @@ export default function DeliveryInventory() {
                           >
                             <Truck size={13} />
                             <span>{t.plate_number}</span>
-                            {t.driver_name && (
+                            {/* {t.driver_name && (
                               <span className={`text-xs truncate ${isSel ? 'text-blue-100' : 'text-slate-400'}`}>{t.driver_name}</span>
-                            )}
+                            )} */}
                             {t.max_capacity ? (
                               <span className={`text-xs font-bold ml-1 ${isSel ? 'text-blue-100' : 'text-slate-400'}`}>
                                 {fmtQty(t.max_capacity)}L
@@ -1968,7 +1968,7 @@ export default function DeliveryInventory() {
             )}
 
             {/* ── 6. Notes (optional) ──────────────────────────── */}
-            <div className="space-y-2">
+            {/* <div className="space-y-2">
               <Label className="text-sm font-medium text-slate-600">Notes (optional)</Label>
               <Input
                 placeholder="Any remarks about this allocation…"
@@ -1976,7 +1976,7 @@ export default function DeliveryInventory() {
                 onChange={e => setLoadNotes(e.target.value)}
                 className="h-10 text-sm"
               />
-            </div>
+            </div> */}
           </div>
 
           <DialogFooter className="gap-3 pt-5 border-t border-slate-100">
@@ -2007,7 +2007,7 @@ export default function DeliveryInventory() {
               <div className="bg-emerald-100 p-2 rounded-lg">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
               </div>
-              <span>Confirm Sold</span>
+              <span>Offload Truck</span>
             </DialogTitle>
             <DialogDescription className="pt-1 text-slate-600">
               Mark <strong>{offloadTarget?.truckPlate}</strong> ({fmtQty(offloadTarget?.qty || 0)} L) as offloaded and sold.
@@ -2022,16 +2022,16 @@ export default function DeliveryInventory() {
                 </div>
                 {offloadTarget.code && (
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Code</span>
+                    <span className="text-slate-500">PFI Code</span>
                     <span className="font-bold text-slate-800">{offloadTarget.code}</span>
                   </div>
                 )}
-                {offloadTarget.pfiLabel && (
+                {/* {offloadTarget.pfiLabel && (
                   <div className="flex justify-between">
                     <span className="text-slate-500">PFI</span>
                     <span className="font-medium text-slate-800">{offloadTarget.pfiLabel}</span>
                   </div>
-                )}
+                )} */}
                 <div className="flex justify-between">
                   <span className="text-slate-500">Quantity</span>
                   <span className="font-bold text-slate-800">{fmtQty(offloadTarget.qty)} L</span>
@@ -2053,7 +2053,7 @@ export default function DeliveryInventory() {
             <Button variant="outline" onClick={() => setOffloadTarget(null)} disabled={offloading}>Cancel</Button>
             <Button onClick={handleOffload} disabled={offloading} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
               {offloading ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-              {offloading ? 'Confirming…' : 'Confirm Sold'}
+              {offloading ? 'Offloading...' : 'Offload Truck'}
             </Button>
           </DialogFooter>
         </DialogContent>
