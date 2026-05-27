@@ -995,8 +995,7 @@ export default function DeliverySalesLedger() {
         const expected = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
         const rate = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0);
         const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
-        const paymentQuantity = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.quantity)), 0);
-        const quantity = paymentQuantity > 0 ? paymentQuantity : toNum(loading.quantity_allocated);
+        const quantity = toNum(loading.quantity_allocated);
         const pfiNumber = getLoadingPfiNumber(loading);
         const allocationCode = loading.allocation_code || payments.map(sale => sale.allocation_code).find(Boolean) || '';
 
@@ -1042,6 +1041,7 @@ export default function DeliverySalesLedger() {
       const expected = sorted.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
       const totalPaid = sorted.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
       const allocationCode = firstPayment.allocation_code || sorted.map(sale => sale.allocation_code).find(Boolean) || '';
+      const quantity = sorted.reduce((sum, sale) => sum + toNum(sale.quantity), 0);
       groups.push({
         key: `sale:${key}`,
         truckNumber: firstPayment.truck_number,
@@ -1050,7 +1050,7 @@ export default function DeliverySalesLedger() {
         location: firstPayment.location || '',
         customerId: firstPayment.customer || null,
         customerName: firstPayment.customer_name || customerObj?.customer_name || '',
-        quantity: toNum(firstPayment.quantity),
+        quantity,
         rate: sorted.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0),
         expected,
         totalPaid,
