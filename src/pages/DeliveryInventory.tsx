@@ -189,14 +189,14 @@ const statusBadge = {
 } as const;
 
 const CODE_PALETTE = [
-  { row: 'bg-sky-50/60 border-l-sky-400',     badge: 'bg-sky-100 text-sky-800 border-sky-200',       header: 'bg-sky-50 border-sky-200' },
+  { row: 'bg-sky-50/60 border-l-sky-400', badge: 'bg-sky-100 text-sky-800 border-sky-200', header: 'bg-sky-50 border-sky-200' },
   { row: 'bg-emerald-50/60 border-l-emerald-400', badge: 'bg-emerald-100 text-emerald-800 border-emerald-200', header: 'bg-emerald-50 border-emerald-200' },
-  { row: 'bg-orange-50/60 border-l-orange-400',  badge: 'bg-orange-100 text-orange-800 border-orange-200',   header: 'bg-orange-50 border-orange-200' },
-  { row: 'bg-violet-50/60 border-l-violet-400',  badge: 'bg-violet-100 text-violet-800 border-violet-200',   header: 'bg-violet-50 border-violet-200' },
-  { row: 'bg-pink-50/60 border-l-pink-400',    badge: 'bg-pink-100 text-pink-800 border-pink-200',       header: 'bg-pink-50 border-pink-200' },
-  { row: 'bg-amber-50/60 border-l-amber-400',   badge: 'bg-amber-100 text-amber-800 border-amber-200',     header: 'bg-amber-50 border-amber-200' },
-  { row: 'bg-teal-50/60 border-l-teal-400',    badge: 'bg-teal-100 text-teal-800 border-teal-200',       header: 'bg-teal-50 border-teal-200' },
-  { row: 'bg-indigo-50/60 border-l-indigo-400',  badge: 'bg-indigo-100 text-indigo-800 border-indigo-200',   header: 'bg-indigo-50 border-indigo-200' },
+  { row: 'bg-orange-50/60 border-l-orange-400', badge: 'bg-orange-100 text-orange-800 border-orange-200', header: 'bg-orange-50 border-orange-200' },
+  { row: 'bg-violet-50/60 border-l-violet-400', badge: 'bg-violet-100 text-violet-800 border-violet-200', header: 'bg-violet-50 border-violet-200' },
+  { row: 'bg-pink-50/60 border-l-pink-400', badge: 'bg-pink-100 text-pink-800 border-pink-200', header: 'bg-pink-50 border-pink-200' },
+  { row: 'bg-amber-50/60 border-l-amber-400', badge: 'bg-amber-100 text-amber-800 border-amber-200', header: 'bg-amber-50 border-amber-200' },
+  { row: 'bg-teal-50/60 border-l-teal-400', badge: 'bg-teal-100 text-teal-800 border-teal-200', header: 'bg-teal-50 border-teal-200' },
+  { row: 'bg-indigo-50/60 border-l-indigo-400', badge: 'bg-indigo-100 text-indigo-800 border-indigo-200', header: 'bg-indigo-50 border-indigo-200' },
 ];
 
 const getCodeTheme = (code: string) => {
@@ -533,12 +533,12 @@ export default function DeliveryInventory() {
   const filtered = useMemo(() => {
     let list = [...truckRecords];
 
-    if (statusFilter === 'active')    list = list.filter(r => r.status === 'loaded');
+    if (statusFilter === 'active') list = list.filter(r => r.status === 'loaded');
     if (statusFilter === 'delivered') list = list.filter(r => r.status === 'offloaded');
-    if (pfiFilter)       list = list.filter(r => r.pfi === Number(pfiFilter));
-    if (customerFilter)  list = list.filter(r => r.customer === Number(customerFilter));
-    if (codeFilter)      list = list.filter(r => r.code === codeFilter);
-    if (truckFilter)     list = list.filter(r => r.truckPlate === truckFilter);
+    if (pfiFilter) list = list.filter(r => r.pfi === Number(pfiFilter));
+    if (customerFilter) list = list.filter(r => r.customer === Number(customerFilter));
+    if (codeFilter) list = list.filter(r => r.code === codeFilter);
+    if (truckFilter) list = list.filter(r => r.truckPlate === truckFilter);
 
     if (dateFrom || dateTo) {
       list = list.filter(r => {
@@ -548,7 +548,7 @@ export default function DeliveryInventory() {
         if (dateFrom && dateTo)
           return isWithinInterval(d, { start: startOfDay(parseISO(dateFrom)), end: endOfDay(parseISO(dateTo)) });
         if (dateFrom) return d >= startOfDay(parseISO(dateFrom));
-        if (dateTo)   return d <= endOfDay(parseISO(dateTo));
+        if (dateTo) return d <= endOfDay(parseISO(dateTo));
         return true;
       });
     }
@@ -644,29 +644,29 @@ export default function DeliveryInventory() {
 
   const summaryCards = useMemo((): SummaryCard[] => [
     {
-      title: 'Trucks Loaded',
+      title: 'Trucks in Transit',
       value: String(totals.activeCount),
       icon: <Truck size={20} />,
       tone: totals.activeCount > 0 ? 'amber' : 'neutral',
     },
     {
       title: 'Volume in Transit',
-      value: `${fmtQty(totals.totalInTransit)} L`,
+      value: `${fmtQty(totals.totalInTransit)} Ltrs`,
       icon: <DropletIcon size={20} />,
       tone: totals.totalInTransit > 0 ? 'amber' : 'neutral',
     },
     {
       title: 'Quantity Sold',
-      value: `${fmtQty(totals.totalDelivered)} L`,
+      value: `${fmtQty(totals.totalDelivered)} Ltrs`,
       icon: <CheckCircle2 size={20} />,
       tone: 'green',
     },
-    {
-      title: 'Trips Delivered',
-      value: String(totals.deliveredTrips),
-      icon: <Fuel size={20} />,
-      tone: totals.deliveredTrips > 0 ? 'green' : 'neutral',
-    },
+    // {
+    //   title: 'Trips Delivered',
+    //   value: String(totals.deliveredTrips),
+    //   icon: <Fuel size={20} />,
+    //   tone: totals.deliveredTrips > 0 ? 'green' : 'neutral',
+    // },
   ], [totals]);
 
   // PFI options for Allocate dialog — active only
@@ -678,7 +678,7 @@ export default function DeliveryInventory() {
         id: p.id,
         label: `${p.pfi_number} — ${p.product_name || 'N/A'} · ${p.location_name || 'N/A'}`,
       })),
-  [allPfis]);
+    [allPfis]);
 
   // PFI options for Edit dialog — all, active first
   const allPfiOptions = useMemo(() =>
@@ -691,7 +691,7 @@ export default function DeliveryInventory() {
         id: p.id,
         label: `${p.pfi_number} — ${p.product_name || 'N/A'} · ${p.location_name || 'N/A'}${p.status === 'finished' ? '  (finished)' : ''}`,
       })),
-  [allPfis]);
+    [allPfis]);
 
   const selectedPfi = useMemo(() => (loadPfi ? pfiMap.get(Number(loadPfi)) || null : null), [loadPfi, pfiMap]);
 
@@ -895,7 +895,7 @@ export default function DeliveryInventory() {
     try {
       // Find the loaded truck record in our enriched list to get truck_number and allocation_code/date
       const targetRecord = truckRecords.find(r => r.id === deleteTarget.id);
-      
+
       if (targetRecord) {
         // Find matching sales ledger entries
         const matchedSales = allSales.filter(s => {
@@ -908,7 +908,7 @@ export default function DeliveryInventory() {
           const iTruck = targetRecord.truckPlate || targetRecord.truck_number || '';
           const sDate = s.date_loaded || '';
           const iDate = targetRecord.date_allocated || '';
-          
+
           return sTruck && iTruck && sTruck === iTruck && sDate === iDate;
         });
 
@@ -919,7 +919,7 @@ export default function DeliveryInventory() {
       }
 
       await apiClient.admin.deleteDeliveryInventory(deleteTarget.id);
-      toast({ 
+      toast({
         title: 'Record deleted',
         description: 'Successfully deleted the inventory entry and all associated sales ledger records.'
       });
@@ -1047,7 +1047,7 @@ export default function DeliveryInventory() {
         title: `Updated ${selectedRowIds.size} record${selectedRowIds.size !== 1 ? 's' : ''}`,
         description: [
           isClearCode ? 'Code removed (no code)' : bulkAssignCode && `Code → ${bulkAssignCode}`,
-          bulkAssignPfi  && `PFI → ${allPfis.find(p => p.id === Number(bulkAssignPfi))?.pfi_number || bulkAssignPfi}`,
+          bulkAssignPfi && `PFI → ${allPfis.find(p => p.id === Number(bulkAssignPfi))?.pfi_number || bulkAssignPfi}`,
         ].filter(Boolean).join(' · '),
       });
 
@@ -1071,7 +1071,7 @@ export default function DeliveryInventory() {
     try {
       // Find all loaded truck records matching the selected IDs
       const targetRecords = truckRecords.filter(r => selectedRowIds.has(r.id));
-      
+
       // Find matching sales ledger entries for any of the selected records
       const matchedSales = allSales.filter(s => {
         return targetRecords.some(targetRecord => {
@@ -1084,7 +1084,7 @@ export default function DeliveryInventory() {
           const iTruck = targetRecord.truckPlate || targetRecord.truck_number || '';
           const sDate = s.date_loaded || '';
           const iDate = targetRecord.date_allocated || '';
-          
+
           return sTruck && iTruck && sTruck === iTruck && sDate === iDate;
         });
       });
@@ -1167,10 +1167,10 @@ export default function DeliveryInventory() {
                   </Button>
                   {!readOnly && (
                     <>
-                      <Button variant="outline" className="gap-2 border-slate-200 text-slate-700 hover:bg-slate-50" onClick={() => setManageCodesOpen(true)}>
+                      {/* <Button variant="outline" className="gap-2 border-slate-200 text-slate-700 hover:bg-slate-50" onClick={() => setManageCodesOpen(true)}>
                         <Settings size={16} /> Manage Codes
-                      </Button>
-                      <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={openLoadDialog}>
+                      </Button> */}
+                      <Button className="gap-2 bg-green-700 hover:bg-green-800" onClick={openLoadDialog}>
                         <Plus size={16} /> Allocate Trucks
                       </Button>
                     </>
@@ -1185,7 +1185,7 @@ export default function DeliveryInventory() {
 
 
             {/* ── Period indicator ──────────────────────────────── */}
-            {hasDateFilter && (
+            {/* {hasDateFilter && (
               <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
                 <CalendarDays size={15} className="shrink-0" />
                 <span>Showing <strong>{periodLabel}</strong></span>
@@ -1197,7 +1197,7 @@ export default function DeliveryInventory() {
                   Clear filter
                 </button>
               </div>
-            )}
+            )} */}
 
             {/* ── Search + Filters Bar ──────────────────────────── */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
@@ -1213,8 +1213,8 @@ export default function DeliveryInventory() {
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100 flex-wrap">
-                <div className="flex flex-col gap-1 min-w-[120px]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-slate-100">
+                <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Status</label>
                   <select aria-label="Filter by status" value={statusFilter}
                     onChange={e => setStatusFilter(e.target.value as StatusFilter)}
@@ -1238,7 +1238,7 @@ export default function DeliveryInventory() {
                   </select>
                 </div>
 
-                <div className="flex flex-col gap-1 min-w-[150px]">
+                {/* <div className="flex flex-col gap-1 min-w-[150px]">
                   <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">PFI</label>
                   <select aria-label="Filter by PFI" value={pfiFilter}
                     onChange={e => setPfiFilter(e.target.value)}
@@ -1249,7 +1249,7 @@ export default function DeliveryInventory() {
                       return <option key={id} value={String(id)}>{label}{count > 0 ? ` (${count} entries)` : ''}</option>;
                     })}
                   </select>
-                </div>
+                </div> */}
 
                 <div className="flex flex-col gap-1 min-w-[150px]">
                   <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Customer</label>
@@ -1265,11 +1265,11 @@ export default function DeliveryInventory() {
                 </div>
 
                 <div className="flex flex-col gap-1 min-w-[140px]">
-                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Allocation Code</label>
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">PFI Code</label>
                   <select aria-label="Filter by allocation code" value={codeFilter}
                     onChange={e => setCodeFilter(e.target.value)}
                     className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm font-medium">
-                    <option value="">All Codes</option>
+                    <option value="">All PFIs</option>
                     {distinctAllocationCodes.map(code => {
                       const count = truckRecords.filter(r => r.code === code).length;
                       return <option key={code} value={code}>{code}{count > 0 ? ` (${count} entries)` : ''}</option>;
@@ -1277,7 +1277,7 @@ export default function DeliveryInventory() {
                   </select>
                 </div>
 
-                {hasAnyFilter && (
+                {/* {hasAnyFilter && (
                   <div className="flex items-end">
                     <Button variant="ghost" size="sm"
                       className="gap-1.5 text-xs text-slate-500 hover:text-slate-700 h-9"
@@ -1285,10 +1285,10 @@ export default function DeliveryInventory() {
                       <X size={13} /> Clear all
                     </Button>
                   </div>
-                )}
+                )} */}
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100">
+              {/* <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100">
                 <div className="flex items-center gap-2 flex-wrap">
                   <CalendarDays size={16} className="text-slate-400 shrink-0" />
                   <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
@@ -1305,14 +1305,14 @@ export default function DeliveryInventory() {
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {([
-                    { label: 'Today',      from: startOfDay(new Date()),                      to: endOfDay(new Date()) },
-                    { label: 'Yesterday',  from: startOfDay(subDays(new Date(), 1)),          to: endOfDay(subDays(new Date(), 1)) },
-                    { label: 'This Week',  from: startOfWeek(new Date(), { weekStartsOn: 1 }), to: endOfWeek(new Date(), { weekStartsOn: 1 }) },
-                    { label: 'This Month', from: startOfMonth(new Date()),                    to: endOfMonth(new Date()) },
-                    { label: 'Last Month', from: startOfMonth(subMonths(new Date(), 1)),      to: endOfMonth(subMonths(new Date(), 1)) },
+                    { label: 'Today', from: startOfDay(new Date()), to: endOfDay(new Date()) },
+                    { label: 'Yesterday', from: startOfDay(subDays(new Date(), 1)), to: endOfDay(subDays(new Date(), 1)) },
+                    { label: 'This Week', from: startOfWeek(new Date(), { weekStartsOn: 1 }), to: endOfWeek(new Date(), { weekStartsOn: 1 }) },
+                    { label: 'This Month', from: startOfMonth(new Date()), to: endOfMonth(new Date()) },
+                    { label: 'Last Month', from: startOfMonth(subMonths(new Date(), 1)), to: endOfMonth(subMonths(new Date(), 1)) },
                   ] as const).map(preset => {
                     const pFrom = format(preset.from, 'yyyy-MM-dd');
-                    const pTo   = format(preset.to,   'yyyy-MM-dd');
+                    const pTo = format(preset.to, 'yyyy-MM-dd');
                     const isActive = dateFrom === pFrom && dateTo === pTo;
                     return (
                       <button key={preset.label} type="button"
@@ -1323,7 +1323,7 @@ export default function DeliveryInventory() {
                     );
                   })}
                 </div>
-              </div>
+              </div> */}
 
               {/* Active Filter Chips */}
               {[
@@ -1334,27 +1334,26 @@ export default function DeliveryInventory() {
                 codeFilter && { label: `Allocation Code: ${codeFilter}`, clear: () => setCodeFilter('') },
                 searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
               ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
-                  <span className="text-xs text-slate-400 shrink-0">You're viewing:</span>
-                  {[
-                    statusFilter !== 'all' && { label: `Status: ${statusFilter === 'active' ? 'In Transit' : 'Sold'}`, clear: () => setStatusFilter('all') },
-                    truckFilter && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('') },
-                    pfiFilter && { label: `PFI: ${distinctPfis.find(([id]) => String(id) === pfiFilter)?.[1] || pfiFilter}`, clear: () => setPfiFilter('') },
-                    customerFilter && { label: `Customer: ${distinctCustomers.find(([id]) => String(id) === customerFilter)?.[1] || customerFilter}`, clear: () => setCustomerFilter('') },
-                    codeFilter && { label: `Allocation Code: ${codeFilter}`, clear: () => setCodeFilter('') },
-                    searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
-                  ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
-                    <span key={chip.label} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
-                      chip.label.startsWith('Allocation Code:') ? 'bg-purple-700 text-white' : 'bg-slate-900 text-white'
-                    }`}>
-                      {chip.label}
-                      <button title={`Remove: ${chip.label}`} onClick={chip.clear} className="hover:text-slate-300 ml-0.5">
-                        <X size={10} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                    <span className="text-xs text-slate-400 shrink-0">You're viewing:</span>
+                    {[
+                      statusFilter !== 'all' && { label: `Status: ${statusFilter === 'active' ? 'In Transit' : 'Sold'}`, clear: () => setStatusFilter('all') },
+                      truckFilter && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('') },
+                      pfiFilter && { label: `PFI: ${distinctPfis.find(([id]) => String(id) === pfiFilter)?.[1] || pfiFilter}`, clear: () => setPfiFilter('') },
+                      customerFilter && { label: `Customer: ${distinctCustomers.find(([id]) => String(id) === customerFilter)?.[1] || customerFilter}`, clear: () => setCustomerFilter('') },
+                      codeFilter && { label: `Allocation Code: ${codeFilter}`, clear: () => setCodeFilter('') },
+                      searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
+                    ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
+                      <span key={chip.label} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${chip.label.startsWith('Allocation Code:') ? 'bg-purple-700 text-white' : 'bg-slate-900 text-white'
+                        }`}>
+                        {chip.label}
+                        <button title={`Remove: ${chip.label}`} onClick={chip.clear} className="hover:text-slate-300 ml-0.5">
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
             </div>
 
             {/* ── Bulk Selection Toolbar ───────────────────────── */}
@@ -1468,17 +1467,16 @@ export default function DeliveryInventory() {
                         grouped.forEach(([code, records]) => {
                           const theme = code ? getCodeTheme(code) : null;
                           const isCollapsed = collapsedCodes.has(code);
-                          const totalQty    = records.reduce((s, r) => s + r.qty, 0);
+                          const totalQty = records.reduce((s, r) => s + r.qty, 0);
                           const loadedCount = records.filter(r => r.status === 'loaded').length;
-                          const soldCount   = records.filter(r => r.status === 'offloaded').length;
+                          const soldCount = records.filter(r => r.status === 'offloaded').length;
 
                           // ── Code group header ──
                           rows.push(
                             <TableRow
                               key={`grp-${code || '__none__'}`}
-                              className={`cursor-pointer select-none border-b-2 ${
-                                theme ? `${theme.header} border-slate-200` : 'bg-slate-100 border-slate-200'
-                              }`}
+                              className={`cursor-pointer select-none border-b-2 ${theme ? `${theme.header} border-slate-200` : 'bg-slate-100 border-slate-200'
+                                }`}
                               onClick={() => toggleCodeCollapse(code)}
                             >
                               <TableCell colSpan={16} className="py-2.5 px-4">
@@ -1530,18 +1528,17 @@ export default function DeliveryInventory() {
                           if (!isCollapsed) {
                             records.forEach((r, idx) => {
                               const badge = statusBadge[r.status];
-                              const Icon  = badge?.icon;
-                              const cycleKey    = `${r.truckPlate}::${r.date_allocated || ''}`;
+                              const Icon = badge?.icon;
+                              const cycleKey = `${r.truckPlate}::${r.date_allocated || ''}`;
                               const salesEntries = truckSalesMap.get(cycleKey);
 
                               rows.push(
                                 <TableRow
                                   key={r.id}
-                                  className={`hover:bg-slate-50/60 transition-colors border-l-[3px] ${
-                                    selectedRowIds.has(r.id)
-                                      ? 'bg-blue-50/60 border-l-blue-400'
-                                      : (theme ? theme.row : 'border-l-transparent')
-                                  }`}
+                                  className={`hover:bg-slate-50/60 transition-colors border-l-[3px] ${selectedRowIds.has(r.id)
+                                    ? 'bg-blue-50/60 border-l-blue-400'
+                                    : (theme ? theme.row : 'border-l-transparent')
+                                    }`}
                                 >
                                   {/* Checkbox */}
                                   <TableCell className="text-center px-3">
@@ -1787,9 +1784,8 @@ export default function DeliveryInventory() {
                   aria-label="Select allocation code"
                   value={loadCode}
                   onChange={e => setLoadCode(e.target.value)}
-                  className={`h-10 w-full rounded-lg border px-3.5 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
-                    loadCode ? 'border-blue-400 bg-blue-50 text-blue-900' : 'border-slate-200 bg-white text-slate-700'
-                  }`}
+                  className={`h-10 w-full rounded-lg border px-3.5 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${loadCode ? 'border-blue-400 bg-blue-50 text-blue-900' : 'border-slate-200 bg-white text-slate-700'
+                    }`}
                 >
                   <option value="">Select a code…</option>
                   {deliveryCodes.map(code => <option key={code} value={code}>{code}</option>)}
@@ -1806,11 +1802,10 @@ export default function DeliveryInventory() {
                         key={code}
                         type="button"
                         onClick={() => setLoadCode(code)}
-                        className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-all ${
-                          loadCode === code
-                            ? (theme ? `${theme.badge} ring-2 ring-offset-1 shadow-sm` : 'bg-blue-600 text-white border-blue-600')
-                            : (theme ? `${theme.badge} opacity-60 hover:opacity-100` : 'bg-slate-100 text-slate-600 border-slate-200')
-                        }`}
+                        className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-all ${loadCode === code
+                          ? (theme ? `${theme.badge} ring-2 ring-offset-1 shadow-sm` : 'bg-blue-600 text-white border-blue-600')
+                          : (theme ? `${theme.badge} opacity-60 hover:opacity-100` : 'bg-slate-100 text-slate-600 border-slate-200')
+                          }`}
                       >
                         {code}
                       </button>
@@ -1885,8 +1880,8 @@ export default function DeliveryInventory() {
                   const q = truckSearch.trim().toLowerCase();
                   const visible = q
                     ? availableTrucks.filter(t =>
-                        t.plate_number.toLowerCase().includes(q) ||
-                        (t.driver_name || '').toLowerCase().includes(q))
+                      t.plate_number.toLowerCase().includes(q) ||
+                      (t.driver_name || '').toLowerCase().includes(q))
                     : availableTrucks;
 
                   if (visible.length === 0) {
@@ -1906,11 +1901,10 @@ export default function DeliveryInventory() {
                             key={t.id}
                             type="button"
                             onClick={() => toggleTruck(t.id)}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border font-medium text-sm transition-all ${
-                              isSel
-                                ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                                : 'bg-white text-slate-700 border-slate-200 hover:bg-blue-50 hover:border-blue-300'
-                            }`}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border font-medium text-sm transition-all ${isSel
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-blue-50 hover:border-blue-300'
+                              }`}
                           >
                             <Truck size={13} />
                             <span>{t.plate_number}</span>
@@ -2284,17 +2278,14 @@ export default function DeliveryInventory() {
 
             {/* Preview */}
             {(bulkAssignCode || bulkAssignPfi) && (
-              <div className={`border rounded-lg p-3 text-sm ${
-                bulkAssignCode === '__CLEAR__'
-                  ? 'bg-red-50 border-red-200'
-                  : 'bg-blue-50 border-blue-200'
-              }`}>
-                <p className={`font-semibold mb-1 ${
-                  bulkAssignCode === '__CLEAR__' ? 'text-red-800' : 'text-blue-800'
-                }`}>Will apply to {selectedRowIds.size} record{selectedRowIds.size !== 1 ? 's' : ''}:</p>
-                <ul className={`space-y-0.5 ${
-                  bulkAssignCode === '__CLEAR__' ? 'text-red-700' : 'text-blue-700'
+              <div className={`border rounded-lg p-3 text-sm ${bulkAssignCode === '__CLEAR__'
+                ? 'bg-red-50 border-red-200'
+                : 'bg-blue-50 border-blue-200'
                 }`}>
+                <p className={`font-semibold mb-1 ${bulkAssignCode === '__CLEAR__' ? 'text-red-800' : 'text-blue-800'
+                  }`}>Will apply to {selectedRowIds.size} record{selectedRowIds.size !== 1 ? 's' : ''}:</p>
+                <ul className={`space-y-0.5 ${bulkAssignCode === '__CLEAR__' ? 'text-red-700' : 'text-blue-700'
+                  }`}>
                   {bulkAssignCode === '__CLEAR__'
                     ? <li>• Remove allocation code (set to none)</li>
                     : bulkAssignCode && <li>• Code → <strong>{bulkAssignCode}</strong></li>
@@ -2413,241 +2404,239 @@ export default function DeliveryInventory() {
                     <p className="text-xs text-slate-300 mt-1">Create one above or allocate trucks with a code.</p>
                   </div>
                 ) : (() => {
-                    const q = codeSearchQuery.trim().toLowerCase();
-                    const displayList = q ? deliveryCodes.filter(c => c.toLowerCase().includes(q)) : deliveryCodes;
+                  const q = codeSearchQuery.trim().toLowerCase();
+                  const displayList = q ? deliveryCodes.filter(c => c.toLowerCase().includes(q)) : deliveryCodes;
 
-                    if (displayList.length === 0) {
-                      return <p className="p-4 text-center text-sm text-slate-400">No codes match "{codeSearchQuery}"</p>;
+                  if (displayList.length === 0) {
+                    return <p className="p-4 text-center text-sm text-slate-400">No codes match "{codeSearchQuery}"</p>;
+                  }
+
+                  // Build per-code truck count map from real inventory data
+                  const codeTruckCount: Record<string, number> = {};
+                  const codeOffloadedCount: Record<string, number> = {};
+                  truckRecords.forEach(r => {
+                    if (!r.code) return;
+                    codeTruckCount[r.code] = (codeTruckCount[r.code] || 0) + 1;
+                    if (r.status === 'offloaded') {
+                      codeOffloadedCount[r.code] = (codeOffloadedCount[r.code] || 0) + 1;
                     }
+                  });
 
-                    // Build per-code truck count map from real inventory data
-                    const codeTruckCount: Record<string, number> = {};
-                    const codeOffloadedCount: Record<string, number> = {};
-                    truckRecords.forEach(r => {
-                      if (!r.code) return;
-                      codeTruckCount[r.code] = (codeTruckCount[r.code] || 0) + 1;
-                      if (r.status === 'offloaded') {
-                        codeOffloadedCount[r.code] = (codeOffloadedCount[r.code] || 0) + 1;
-                      }
-                    });
+                  // Codes that come from real inventory records
+                  const inventoryCodeSet = new Set(
+                    allEntries.map(e => (e.allocation_code || '').trim().toUpperCase()).filter(Boolean)
+                  );
 
-                    // Codes that come from real inventory records
-                    const inventoryCodeSet = new Set(
-                      allEntries.map(e => (e.allocation_code || '').trim().toUpperCase()).filter(Boolean)
-                    );
-
-                    // Rename handler — updates all inventory records and the codes list
-                    const handleRenameCode = async (oldCode: string, newCode: string) => {
-                      const normalized = newCode.trim().toUpperCase().replace(/\s+/g, '-');
-                      if (!normalized || normalized === oldCode) {
-                        setEditingCode(null);
-                        return;
-                      }
-                      if (deliveryCodes.includes(normalized)) {
-                        toast({ title: `Code "${normalized}" already exists`, variant: 'destructive' });
-                        return;
-                      }
-                      setRenamingCode(true);
-                      try {
-                        // Update every inventory record that has the old code
-                        const toUpdate = allEntries.filter(
-                          e => (e.allocation_code || '').trim().toUpperCase() === oldCode
-                        );
-                        await Promise.all(
-                          toUpdate.map(e =>
-                            apiClient.admin.updateDeliveryInventory(e.id, { allocation_code: normalized } as any)
-                          )
-                        );
-                        // Update deliveryCodes list
-                        setDeliveryCodes(prev =>
-                          prev.map(c => c === oldCode ? normalized : c).sort()
-                        );
-                        // Update local code map
-                        setLoadingCodeMap(prev => {
-                          const next: Record<number, string> = {};
-                          Object.entries(prev).forEach(([id, c]) => {
-                            next[Number(id)] = c === oldCode ? normalized : c;
-                          });
-                          return next;
-                        });
-
-                        // Immediately update ledger settings on the backend to sync all maps
-                        if (ledgerSettingsQuery.data) {
-                          const currentSettings = ledgerSettingsQuery.data;
-                          // Update pfi_code_map
-                          const nextPfiCodeMap = { ...currentSettings.pfi_code_map };
-                          Object.entries(nextPfiCodeMap).forEach(([pfi, c]) => {
-                            if (c === oldCode) nextPfiCodeMap[pfi] = normalized;
-                          });
-                          // Update sale_trip_map
-                          const nextSaleTripMap = { ...currentSettings.sale_trip_map };
-                          Object.entries(nextSaleTripMap).forEach(([id, c]) => {
-                            if (c === oldCode) nextSaleTripMap[id] = normalized;
-                          });
-                          // Update loading_code_map
-                          const nextLoadingCodeMap = { ...currentSettings.loading_code_map };
-                          Object.entries(nextLoadingCodeMap).forEach(([id, c]) => {
-                            if (c === oldCode) nextLoadingCodeMap[id] = normalized;
-                          });
-                          // Update trip_codes (excluding ones from inventory)
-                          const manualOnlyCodes = (currentSettings.trip_codes || [])
-                            .map((c: string) => c === oldCode ? normalized : c);
-
-                          const updatedSettingsPayload = {
-                            ...currentSettings,
-                            pfi_code_map: nextPfiCodeMap,
-                            sale_trip_map: nextSaleTripMap,
-                            loading_code_map: nextLoadingCodeMap,
-                            trip_codes: manualOnlyCodes,
-                          };
-
-                          await apiClient.admin.updateDeliveryLedgerSettings(updatedSettingsPayload, { key: LEDGER_SETTINGS_KEY });
-                          qc.invalidateQueries({ queryKey: ['delivery-ledger-settings', LEDGER_SETTINGS_KEY] });
-                        }
-
-                        toast({
-                          title: `Code renamed: "${oldCode}" → "${normalized}"`,
-                          description: toUpdate.length > 0
-                            ? `Updated ${toUpdate.length} inventory record${toUpdate.length !== 1 ? 's' : ''}`
-                            : 'Manual code renamed',
-                        });
-                        setEditingCode(null);
-                        invalidateAll();
-                      } catch (err: unknown) {
-                        toast({
-                          title: 'Rename failed',
-                          description: err instanceof Error ? err.message : 'Please try again',
-                          variant: 'destructive',
-                        });
-                      } finally {
-                        setRenamingCode(false);
-                      }
-                    };
-
-                    return displayList.map(code => {
-                      const total = codeTruckCount[code] || 0;
-                      const offloaded = codeOffloadedCount[code] || 0;
-                      const active = total - offloaded;
-                      const isFromInventory = inventoryCodeSet.has(code);
-                      const isEditing = editingCode === code;
-
-                      return (
-                        <div key={code} className="flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 transition-colors group">
-                          {/* Code badge or rename input */}
-                          {isEditing ? (
-                            <div className="flex items-center gap-1.5 flex-1">
-                              <input
-                                autoFocus
-                                value={editingCodeValue}
-                                onChange={e => setEditingCodeValue(e.target.value.toUpperCase())}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') handleRenameCode(code, editingCodeValue);
-                                  if (e.key === 'Escape') { setEditingCode(null); setEditingCodeValue(''); }
-                                }}
-                                className="font-mono text-sm font-bold border-2 border-blue-400 rounded-lg px-2.5 py-1 w-32 focus:outline-none bg-blue-50 text-slate-800"
-                                disabled={renamingCode}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleRenameCode(code, editingCodeValue)}
-                                disabled={renamingCode || !editingCodeValue.trim()}
-                                className="p-1.5 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-40 transition-colors"
-                                title="Save rename"
-                              >
-                                {renamingCode ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { setEditingCode(null); setEditingCodeValue(''); }}
-                                className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
-                                title="Cancel"
-                              >
-                                <X size={13} />
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="font-mono text-sm font-bold text-slate-800 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg min-w-[80px] text-center">
-                              {code}
-                            </span>
-                          )}
-
-                          {/* Stats — hide when editing */}
-                          {!isEditing && (
-                            <div className="flex-1 flex items-center gap-2 flex-wrap">
-                              {total > 0 ? (
-                                <>
-                                  <span className="text-xs text-slate-500 font-medium">
-                                    {total} truck{total !== 1 ? 's' : ''}
-                                  </span>
-                                  {active > 0 && (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
-                                      {active} active
-                                    </span>
-                                  )}
-                                  {offloaded > 0 && (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
-                                      {offloaded} delivered
-                                    </span>
-                                  )}
-                                </>
-                              ) : (
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200">
-                                  pending · no trucks yet
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Action buttons — only when not editing */}
-                          {!isEditing && (
-                            <>
-                              {/* Rename */}
-                              <button
-                                type="button"
-                                onClick={() => { setEditingCode(code); setEditingCodeValue(code); }}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
-                                title={`Rename ${code}`}
-                              >
-                                <Pencil size={13} />
-                              </button>
-
-                              {/* Source badge */}
-                              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${
-                                isFromInventory ? 'bg-slate-100 text-slate-500' : 'bg-purple-50 text-purple-600 border border-purple-200'
-                              }`}>
-                                {isFromInventory ? 'inventory' : 'manual'}
-                              </span>
-
-                              {/* Delete */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (isFromInventory) {
-                                    toast({
-                                      title: `Cannot remove "${code}"`,
-                                      description: 'This code is assigned to inventory records. Rename or reassign those trucks first.',
-                                      variant: 'destructive',
-                                    });
-                                    return;
-                                  }
-                                  setDeliveryCodes(prev => prev.filter(c => c !== code));
-                                  toast({ title: `Code "${code}" removed` });
-                                }}
-                                className={`p-1.5 rounded-lg transition-colors shrink-0 ${
-                                  isFromInventory
-                                    ? 'text-slate-200 cursor-not-allowed'
-                                    : 'text-red-400 hover:text-red-600 hover:bg-red-50'
-                                }`}
-                                title={isFromInventory ? 'Cannot delete — assigned to inventory records' : `Delete ${code}`}
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </>
-                          )}
-                        </div>
+                  // Rename handler — updates all inventory records and the codes list
+                  const handleRenameCode = async (oldCode: string, newCode: string) => {
+                    const normalized = newCode.trim().toUpperCase().replace(/\s+/g, '-');
+                    if (!normalized || normalized === oldCode) {
+                      setEditingCode(null);
+                      return;
+                    }
+                    if (deliveryCodes.includes(normalized)) {
+                      toast({ title: `Code "${normalized}" already exists`, variant: 'destructive' });
+                      return;
+                    }
+                    setRenamingCode(true);
+                    try {
+                      // Update every inventory record that has the old code
+                      const toUpdate = allEntries.filter(
+                        e => (e.allocation_code || '').trim().toUpperCase() === oldCode
                       );
-                    });
-                  })()
+                      await Promise.all(
+                        toUpdate.map(e =>
+                          apiClient.admin.updateDeliveryInventory(e.id, { allocation_code: normalized } as any)
+                        )
+                      );
+                      // Update deliveryCodes list
+                      setDeliveryCodes(prev =>
+                        prev.map(c => c === oldCode ? normalized : c).sort()
+                      );
+                      // Update local code map
+                      setLoadingCodeMap(prev => {
+                        const next: Record<number, string> = {};
+                        Object.entries(prev).forEach(([id, c]) => {
+                          next[Number(id)] = c === oldCode ? normalized : c;
+                        });
+                        return next;
+                      });
+
+                      // Immediately update ledger settings on the backend to sync all maps
+                      if (ledgerSettingsQuery.data) {
+                        const currentSettings = ledgerSettingsQuery.data;
+                        // Update pfi_code_map
+                        const nextPfiCodeMap = { ...currentSettings.pfi_code_map };
+                        Object.entries(nextPfiCodeMap).forEach(([pfi, c]) => {
+                          if (c === oldCode) nextPfiCodeMap[pfi] = normalized;
+                        });
+                        // Update sale_trip_map
+                        const nextSaleTripMap = { ...currentSettings.sale_trip_map };
+                        Object.entries(nextSaleTripMap).forEach(([id, c]) => {
+                          if (c === oldCode) nextSaleTripMap[id] = normalized;
+                        });
+                        // Update loading_code_map
+                        const nextLoadingCodeMap = { ...currentSettings.loading_code_map };
+                        Object.entries(nextLoadingCodeMap).forEach(([id, c]) => {
+                          if (c === oldCode) nextLoadingCodeMap[id] = normalized;
+                        });
+                        // Update trip_codes (excluding ones from inventory)
+                        const manualOnlyCodes = (currentSettings.trip_codes || [])
+                          .map((c: string) => c === oldCode ? normalized : c);
+
+                        const updatedSettingsPayload = {
+                          ...currentSettings,
+                          pfi_code_map: nextPfiCodeMap,
+                          sale_trip_map: nextSaleTripMap,
+                          loading_code_map: nextLoadingCodeMap,
+                          trip_codes: manualOnlyCodes,
+                        };
+
+                        await apiClient.admin.updateDeliveryLedgerSettings(updatedSettingsPayload, { key: LEDGER_SETTINGS_KEY });
+                        qc.invalidateQueries({ queryKey: ['delivery-ledger-settings', LEDGER_SETTINGS_KEY] });
+                      }
+
+                      toast({
+                        title: `Code renamed: "${oldCode}" → "${normalized}"`,
+                        description: toUpdate.length > 0
+                          ? `Updated ${toUpdate.length} inventory record${toUpdate.length !== 1 ? 's' : ''}`
+                          : 'Manual code renamed',
+                      });
+                      setEditingCode(null);
+                      invalidateAll();
+                    } catch (err: unknown) {
+                      toast({
+                        title: 'Rename failed',
+                        description: err instanceof Error ? err.message : 'Please try again',
+                        variant: 'destructive',
+                      });
+                    } finally {
+                      setRenamingCode(false);
+                    }
+                  };
+
+                  return displayList.map(code => {
+                    const total = codeTruckCount[code] || 0;
+                    const offloaded = codeOffloadedCount[code] || 0;
+                    const active = total - offloaded;
+                    const isFromInventory = inventoryCodeSet.has(code);
+                    const isEditing = editingCode === code;
+
+                    return (
+                      <div key={code} className="flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 transition-colors group">
+                        {/* Code badge or rename input */}
+                        {isEditing ? (
+                          <div className="flex items-center gap-1.5 flex-1">
+                            <input
+                              autoFocus
+                              value={editingCodeValue}
+                              onChange={e => setEditingCodeValue(e.target.value.toUpperCase())}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleRenameCode(code, editingCodeValue);
+                                if (e.key === 'Escape') { setEditingCode(null); setEditingCodeValue(''); }
+                              }}
+                              className="font-mono text-sm font-bold border-2 border-blue-400 rounded-lg px-2.5 py-1 w-32 focus:outline-none bg-blue-50 text-slate-800"
+                              disabled={renamingCode}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRenameCode(code, editingCodeValue)}
+                              disabled={renamingCode || !editingCodeValue.trim()}
+                              className="p-1.5 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-40 transition-colors"
+                              title="Save rename"
+                            >
+                              {renamingCode ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setEditingCode(null); setEditingCodeValue(''); }}
+                              className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
+                              title="Cancel"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="font-mono text-sm font-bold text-slate-800 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg min-w-[80px] text-center">
+                            {code}
+                          </span>
+                        )}
+
+                        {/* Stats — hide when editing */}
+                        {!isEditing && (
+                          <div className="flex-1 flex items-center gap-2 flex-wrap">
+                            {total > 0 ? (
+                              <>
+                                <span className="text-xs text-slate-500 font-medium">
+                                  {total} truck{total !== 1 ? 's' : ''}
+                                </span>
+                                {active > 0 && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+                                    {active} active
+                                  </span>
+                                )}
+                                {offloaded > 0 && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                                    {offloaded} delivered
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200">
+                                pending · no trucks yet
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Action buttons — only when not editing */}
+                        {!isEditing && (
+                          <>
+                            {/* Rename */}
+                            <button
+                              type="button"
+                              onClick={() => { setEditingCode(code); setEditingCodeValue(code); }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                              title={`Rename ${code}`}
+                            >
+                              <Pencil size={13} />
+                            </button>
+
+                            {/* Source badge */}
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${isFromInventory ? 'bg-slate-100 text-slate-500' : 'bg-purple-50 text-purple-600 border border-purple-200'
+                              }`}>
+                              {isFromInventory ? 'inventory' : 'manual'}
+                            </span>
+
+                            {/* Delete */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isFromInventory) {
+                                  toast({
+                                    title: `Cannot remove "${code}"`,
+                                    description: 'This code is assigned to inventory records. Rename or reassign those trucks first.',
+                                    variant: 'destructive',
+                                  });
+                                  return;
+                                }
+                                setDeliveryCodes(prev => prev.filter(c => c !== code));
+                                toast({ title: `Code "${code}" removed` });
+                              }}
+                              className={`p-1.5 rounded-lg transition-colors shrink-0 ${isFromInventory
+                                ? 'text-slate-200 cursor-not-allowed'
+                                : 'text-red-400 hover:text-red-600 hover:bg-red-50'
+                                }`}
+                              title={isFromInventory ? 'Cannot delete — assigned to inventory records' : `Delete ${code}`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  });
+                })()
                 }
               </div>
               <p className="text-[10px] text-slate-400 italic leading-relaxed">

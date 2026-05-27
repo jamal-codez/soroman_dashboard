@@ -101,9 +101,33 @@ const safeParseNumber = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const abbreviateNumber = (num?: number): string => {
+  const value = Number(num || 0);
+  if (value >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}b`;
+  }
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+  }
+  return value.toLocaleString();
+};
+
+const abbreviateCurrency = (num?: number): string => {
+  return `₦${abbreviateNumber(num)}`;
+};
+
 const normalizeDepot = (value?: string | null) => {
-  const depot = String(value || '').trim();
-  return depot || 'Unknown Depot';
+  let depot = String(value || '').trim();
+  if (!depot) return 'Unknown Depot';
+
+  const lower = depot.toLowerCase();
+  if (lower.includes('dangote refinery') || lower.includes('dangote lagos') || lower === 'dangote') {
+    return 'Dangote Lagos / Refinery';
+  }
+  return depot;
 };
 
 // ---------- Dashboard ----------
@@ -355,9 +379,9 @@ const Dashboard: React.FC = () => {
   }, [depotTrendStartDate]);
 
   const depotTrendData = useMemo(() => {
-    const dateMap = new Map<string, { date: string; [key: string]: any }>();
+    const dateMap = new Map<string, { date: string;[key: string]: any }>();
     depotTrendDates.forEach((dateLabel) => {
-      const entry: { date: string; [key: string]: any } = { date: dateLabel };
+      const entry: { date: string;[key: string]: any } = { date: dateLabel };
       topDepotNames.forEach((name) => {
         entry[name] = 0;
       });
@@ -425,12 +449,12 @@ const Dashboard: React.FC = () => {
         <TopBar />
         <div className="flex-1 overflow-auto p-4 sm:p-6">
           <div className="max-w-7xl mx-auto space-y-6">
-            
+
             {/* Header */}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <PageHeader
-                title="Audit & Sales Overview"
-                description="Consolidated customer order audit metrics, sales volumes, revenues, and fulfillment analytics by depot."
+                title="Sales Overview"
+                description="Consolidated customer order audit metrics, sales volumes, revenues analytics."
               />
               <div className="flex items-center gap-3">
                 <select
@@ -443,14 +467,14 @@ const Dashboard: React.FC = () => {
                   <option value="month">This Month</option>
                   <option value="90d">Last 90 Days</option>
                 </select>
-                <Button variant="outline" className="h-10 rounded-lg shadow-sm" onClick={() => window.location.reload()}>
+                {/* <Button variant="outline" className="h-10 rounded-lg shadow-sm" onClick={() => window.location.reload()}>
                   Refresh
-                </Button>
+                </Button> */}
               </div>
             </div>
 
             {/* Today's Operational Pulse */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200/80 p-5 space-y-4">
+            {/* <div className="bg-white rounded-xl shadow-sm border border-slate-200/80 p-5 space-y-4">
               <div className="flex items-center gap-2 text-slate-800">
                 <Activity className="h-4 w-4 text-emerald-500 animate-pulse" />
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Today's Operations</h2>
@@ -477,66 +501,78 @@ const Dashboard: React.FC = () => {
                   },
                 ]}
               />
-            </div>
+            </div> */}
 
             {/* Period Summary Cards */}
             <div className="space-y-3">
-              <div className="flex items-center gap-2 text-slate-800">
+              {/* <div className="flex items-center gap-2 text-slate-800">
                 <Building2 className="h-4 w-4 text-indigo-500" />
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Period Audit Metrics ({depotTrendRange === '30d' ? '30 Days' : depotTrendRange === 'month' ? 'This Month' : '90 Days'})</h2>
-              </div>
+              </div> */}
               <SummaryCards
+                gridClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
                 cards={[
                   {
+                    title: "Today's Revenue",
+                    value: abbreviateCurrency(todayTotals.amount),
+                    icon: <BadgeDollarSign className="h-5 w-5" />,
+                    tone: 'neutral',
+                  },
+                  {
+                    title: "Today's Litres Ordered",
+                    value: `${abbreviateNumber(todayTotals.litres)} L`,
+                    icon: <FuelIcon className="h-5 w-5" />,
+                    tone: 'amber',
+                  },
+                  {
+                    title: "Total Revenue",
+                    value: abbreviateCurrency(periodSummary.revenue || 0),
+                    icon: <BadgeDollarSign className="h-5 w-5" />,
+                    tone: 'green',
+                  },
+                  {
                     title: "Top Depot Revenue",
-                    value: `₦${(topRevenueDepot.revenue || 0).toLocaleString()}`,
+                    value: abbreviateCurrency(topRevenueDepot.revenue || 0),
                     description: topRevenueDepot.depot,
                     icon: <TrendingUp className="h-5 w-5" />,
                     tone: 'green',
                   },
                   {
                     title: "Top Depot Volume",
-                    value: `${(topVolumeDepot.volume || 0).toLocaleString()} L`,
+                    value: `${abbreviateNumber(topVolumeDepot.volume || 0)} L`,
                     description: topVolumeDepot.depot,
                     icon: <TruckIcon className="h-5 w-5" />,
                     tone: 'amber',
                   },
                   {
                     title: "Depot with Most Orders",
-                    value: `${(topOrderDepot.ordersCount || 0).toLocaleString()} Orders`,
+                    value: `${abbreviateNumber(topOrderDepot.ordersCount || 0)} Orders`,
                     description: topOrderDepot.depot,
                     icon: <ShoppingBag className="h-5 w-5" />,
                     tone: 'blue',
-                  },
-                  {
-                    title: "Average Order Size",
-                    value: `${(periodSummary.averageSize || 0).toLocaleString()} L`,
-                    description: "Average across depots",
-                    icon: <BarChart3 className="h-5 w-5" />,
-                    tone: 'neutral',
                   },
                 ]}
               />
             </div>
 
             {/* Charts: Sales Trend & Revenue Ranking */}
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-6 lg:grid-cols-1">
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
                 <div>
                   <h3 className="font-semibold text-slate-800">Depot Sales Volume Trend</h3>
-                  <p className="text-xs text-slate-500">Daily customer order quantity (Litres) for the top depots.</p>
+                  <p className="text-xs pt-2 text-slate-500">Daily customer order quantity in litres for the depots</p>
                 </div>
                 <div className="h-72">
                   {isOrdersLoading ? (
-                    <div className="flex h-full items-center justify-center text-slate-400">Loading daily trend...</div>
+                    <div className="flex h-full items-center justify-center text-slate-400">Fetching....</div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={depotTrendData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} />
-                        <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+                        <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#64748b' }} />
+                        <YAxis tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(v) => abbreviateNumber(v)} />
                         <Tooltip formatter={(value: number) => [`${value.toLocaleString()} L`, 'Volume']} />
-                        <Legend wrapperStyle={{ fontSize: '12px' }} />
+                        <Legend wrapperStyle={{ fontSize: '11px' }} />
                         {topDepotNames.map((depot, idx) => {
                           const strokes = ['#6366f1', '#10b981', '#f59e0b', '#8b5cf6'];
                           return (
@@ -559,17 +595,17 @@ const Dashboard: React.FC = () => {
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
                 <div>
                   <h3 className="font-semibold text-slate-800">Revenue Ranking by Depot</h3>
-                  <p className="text-xs text-slate-500">Total customer order revenue in Naira generated per depot.</p>
+                  <p className="text-xs pt-2 text-slate-500">Total customer order revenue in Naira generated per depot</p>
                 </div>
                 <div className="h-72">
                   {isOrdersLoading ? (
-                    <div className="flex h-full items-center justify-center text-slate-400">Loading ranking...</div>
+                    <div className="flex h-full w-full items-center justify-center text-slate-400">Fetching...</div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={depotRankingData} layout="vertical" margin={{ left: 10, right: 10 }}>
+                      <BarChart data={depotRankingData} layout="vertical" margin={{ left: 10, right: 30, top: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                        <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} />
-                        <YAxis dataKey="depot" type="category" width={110} tick={{ fontSize: 11, fill: '#64748b' }} />
+                        <XAxis type="number" tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(v) => abbreviateNumber(v)} />
+                        <YAxis dataKey="depot" type="category" width={155} tick={{ fontSize: 12, fill: '#64748b' }} />
                         <Tooltip formatter={(value: number) => `₦${value.toLocaleString()}`} />
                         <Bar dataKey="revenue" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={16} />
                       </BarChart>
@@ -580,7 +616,7 @@ const Dashboard: React.FC = () => {
             </div>
 
             {/* Donut Charts: Order Status & Fulfillment Split */}
-            <div className="grid gap-6 md:grid-cols-2">
+            {/* <div className="grid gap-6 md:grid-cols-2">
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center gap-1.5 text-slate-800 mb-1">
@@ -654,28 +690,28 @@ const Dashboard: React.FC = () => {
                   )}
                 </div>
               </div>
-            </div>
+            </div> */}
 
             {/* Audit Table: Detailed Depot Metrics Snapshot */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100 flex flex-col gap-1.5">
                 <div className="flex items-center gap-2 text-slate-800">
                   <FileText className="h-4 w-4 text-slate-500" />
-                  <h3 className="font-semibold">Depot Auditing Ledger Snapshot</h3>
+                  <h3 className="font-semibold">Depot Snapshot</h3>
                 </div>
-                <p className="text-xs text-slate-500">Detailed overview metrics per depot, sorted by total order revenue.</p>
+                <p className="text-xs text-slate-500">Overview metrics per depot, sorted by total order revenue.</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
                     <tr className="bg-slate-50/50 border-b border-slate-100 text-slate-500 font-medium">
-                      <th className="p-4 pl-6">Depot Name</th>
+                      <th className="p-4 pl-6">Depot</th>
                       <th className="p-4 text-center">Orders</th>
-                      <th className="p-4 text-right">Volume (Litres)</th>
+                      <th className="p-4 text-right">Volume</th>
                       <th className="p-4 text-right">Total Revenue</th>
-                      <th className="p-4 text-right">Avg Order Size</th>
-                      <th className="p-4 text-center">Pickup / Delivery</th>
-                      <th className="p-4 pr-6">Status Breakdown (Count)</th>
+                      {/* <th className="p-4 text-right">Avg Order Size</th> */}
+                      {/* <th className="p-4 text-center">Pickup / Delivery</th> */}
+                      {/* <th className="p-4 pr-6">Status Breakdown (Count)</th> */}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -697,10 +733,10 @@ const Dashboard: React.FC = () => {
                           <tr key={row.depot} className="hover:bg-slate-50/40 transition-colors">
                             <td className="p-4 pl-6 font-semibold text-slate-800">{row.depot}</td>
                             <td className="p-4 text-center font-medium">{row.ordersCount}</td>
-                            <td className="p-4 text-right font-medium">{row.volume.toLocaleString()} L</td>
+                            <td className="p-4 text-right font-medium">{row.volume.toLocaleString()} Litres</td>
                             <td className="p-4 text-right text-emerald-600 font-semibold">₦{row.revenue.toLocaleString()}</td>
-                            <td className="p-4 text-right text-slate-500">{row.averageSize.toLocaleString()} L</td>
-                            <td className="p-4">
+                            {/* <td className="p-4 text-right text-slate-500">{row.averageSize.toLocaleString()} L</td> */}
+                            {/* <td className="p-4">
                               <div className="flex flex-col items-center gap-0.5">
                                 <div className="text-xs font-semibold text-slate-600">
                                   {row.pickupCount}P / {row.deliveryCount}D
@@ -710,8 +746,8 @@ const Dashboard: React.FC = () => {
                                   <div className="bg-cyan-400 h-full" style={{ width: `${deliveryPct}%` }} title={`Delivery: ${deliveryPct}%`} />
                                 </div>
                               </div>
-                            </td>
-                            <td className="p-4 pr-6">
+                            </td> */}
+                            {/* <td className="p-4 pr-6">
                               <div className="flex flex-wrap gap-1.5">
                                 {row.statusCounts.pending > 0 && (
                                   <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
@@ -744,7 +780,7 @@ const Dashboard: React.FC = () => {
                                   </span>
                                 )}
                               </div>
-                            </td>
+                            </td> */}
                           </tr>
                         );
                       })

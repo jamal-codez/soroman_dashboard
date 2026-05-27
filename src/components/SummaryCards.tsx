@@ -18,12 +18,14 @@ const toneStyles: Record<NonNullable<SummaryCard["tone"]>, { wrap: string; icon:
   blue: { wrap: "bg-blue-50", icon: "text-blue-700", ring: "ring-blue-100" },
 };
 
-export function SummaryCards({ cards }: { cards: SummaryCard[] }) {
-  const gridCols = cards.length >= 6
+export function SummaryCards({ cards, gridClassName }: { cards: SummaryCard[]; gridClassName?: string }) {
+  const defaultGridCols = cards.length >= 6
     ? 'grid-cols-2 sm:grid-cols-3'
     : cards.length >= 4
     ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
     : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
+  
+  const gridCols = gridClassName || defaultGridCols;
   return (
     <div className={`grid ${gridCols} gap-3 sm:gap-4`}>
       {cards.map((c, idx) => {

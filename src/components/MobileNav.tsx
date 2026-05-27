@@ -53,24 +53,25 @@ const navCategories: NavCategory[] = [
   {
     category: '',
     items: [
-      { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0,1,8] },
+      { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0, 1, 8] },
     ],
   },
   {
-    category: 'Sales & Customers',
+    category: 'Sales',
     items: [
-      { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,4,7,8,9] },
-      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0,1,8,9] },
+      { title: "Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 10] },
+      // { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,4,7,8,9] },
+      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
       // { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
     ],
   },
   {
-    category: 'Dispatch & Waybill',
+    category: 'Dispatch',
     items: [
-      { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0,1,7,8] },
-      { title: "Released Orders", icon: ClipboardCheck, path: "/released-orders", allowedRoles: [0,1,4,7,8] },
-      { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0,1,4,7,8] },
-      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0,1,2,7,8] },
+      { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0, 1, 7, 8] },
+      { title: "Released Report", icon: ClipboardCheck, path: "/released-orders", allowedRoles: [0, 1, 4, 7, 8] },
+      { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 4, 7, 8] },
+      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 2, 7, 8] },
       // { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
       // { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0] },
       // { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0] },
@@ -79,42 +80,42 @@ const navCategories: NavCategory[] = [
   {
     category: 'Transport',
     items: [
-      { title: "Fleet", icon: Truck, path: "/fleet-trucks", allowedRoles: [0,1,6,8] },
-      { title: "Trucks Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0,6,8] },
+      { title: "Fleet Directory", icon: Truck, path: "/fleet-trucks", allowedRoles: [0, 1, 6, 8] },
+      { title: "Trucks Expense Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0, 6, 8] },
     ],
   },
   {
-    category: 'Deliveries',
+    category: 'Truck Deliveries',
     items: [
-      { title: "Inventory", icon: Package, path: "/delivery-inventory", allowedRoles: [0,1,3,6,8] },
-      { title: "Delivery Customers", icon: UserCheck, path: "/delivery-customers-db", allowedRoles: [0,1,3,6,8] },
-      { title: "Sales Ledger", icon: ClipboardList, path: "/delivery-sales-ledger", allowedRoles: [0,1,3,8] },
-      { title: "Filling Stations", icon: Fuel, path: "/filling-stations", allowedRoles: [0,1,3,8] },
+      { title: "Delivery Inventory", icon: Package, path: "/delivery-inventory", allowedRoles: [0, 1, 3, 6, 8] },
+      { title: "Delivery Customers", icon: UserCheck, path: "/delivery-customers-db", allowedRoles: [0, 1, 3, 6, 8] },
+      { title: "Sales Ledger", icon: ClipboardList, path: "/delivery-sales-ledger", allowedRoles: [0, 1, 3, 8] },
+      { title: "Filling Stations", icon: Fuel, path: "/filling-stations", allowedRoles: [0, 1, 3, 8] },
     ],
   },
-  {
-    category: 'Location',
-    items: [
-      { title: "Orders Overview", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0,10] },
-    ],
-  },
+  // {
+  //   category: 'Location',
+  //   items: [
+  //     { title: "Orders Overview", icon: FileArchive, path: "/depot-view", allowedRoles: [0,10] },
+  //   ],
+  // },
   {
     category: 'Finance',
     items: [
-      { title: "Pending Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0,1,2,8,9] },
-      { title: "Payments Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0,1,2,8] },
-      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0,1,2,8] },
+      { title: "Verify Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2, 8, 9] },
+      { title: "Finance Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2, 8] },
+      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0, 1, 2, 8] },
     ],
   },
   {
     category: 'Admin',
     items: [
       { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0] },
-      { title: "Manage Prices", icon: Tag, path: "/pricing", allowedRoles: [0,1,8] },
-      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0,1,2,8] },
+      { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 8] },
+      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0, 1, 2, 8] },
       { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0] },
-      // { title: "Track Actions", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0,1,8] },
-      { title: "Manage Staff", icon: Users2Icon, path: "/users-management", allowedRoles: [0,1,8] },
+      { title: "Staff Actions Log", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0, 1, 8] },
+      { title: "Staff Directory", icon: Users2Icon, path: "/users-management", allowedRoles: [0, 1, 8] },
     ],
   },
   // {
@@ -127,7 +128,13 @@ const navCategories: NavCategory[] = [
   {
     category: 'Security',
     items: [
-      { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0,1,5,8] },
+      { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 5, 8] },
+    ],
+  },
+  {
+    category: 'Feedback',
+    items: [
+      { title: "Feedback & Reviews", icon: ActivityIcon, path: "/feedback-dashboard", allowedRoles: [0, 1, 8, 9] },
     ],
   },
 ];
