@@ -462,6 +462,41 @@ export default function DeliverySalesLedger() {
     ledgerSettingsHydratedRef.current = true;
   }, [ledgerSettingsQuery.data]);
 
+  // salesQuery and validSaleIds must be declared BEFORE the autosave effect so
+  // the effect can filter out stale sale IDs (backend rejects them with
+  // "Unknown sale_id(s)" if we send IDs of deleted sales).
+  const salesQuery = useQuery({
+    queryKey: ['delivery-sales'],
+    queryFn: async () =>
+      safePaged<DeliverySale>(
+        await apiClient.admin.getDeliverySales({ page_size: 5000 }),
+      ),
+    staleTime: 30_000,
+  });
+  const allSales = useMemo(() => salesQuery.data?.results || [], [salesQuery.data]);
+
+  // Set of currently-existing sale IDs — used to strip stale references from saleTripMap
+  const validSaleIds = useMemo(() => new Set(allSales.map(s => s.id)), [allSales]);
+
+  // Auto-clean saleTripMap: remove entries for sales that no longer exist.
+  // This prevents "Unknown sale_id(s)" backend errors when sales are deleted.
+  useEffect(() => {
+    if (!allSales.length) return;
+    setSaleTripMap(prev => {
+      const next: Record<number, string> = {};
+      let changed = false;
+      Object.entries(prev).forEach(([id, code]) => {
+        const numId = Number(id);
+        if (validSaleIds.has(numId)) {
+          next[numId] = code;
+        } else {
+          changed = true; // sale was deleted — drop it from the map
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [allSales, validSaleIds]);
+
   useEffect(() => {
     if (!ledgerSettingsHydratedRef.current) return;
 
@@ -481,7 +516,9 @@ export default function DeliverySalesLedger() {
       sale_trip_map: Object.fromEntries(
         Object.entries(saleTripMap)
           .map(([id, code]) => [String(id), String(code || '').trim().toUpperCase()])
-          .filter(([id, code]) => id && code),
+          // Only include sale IDs that still exist in the backend — deleted sales must
+          // be stripped out or the backend rejects the whole settings save.
+          .filter(([id, code]) => id && code && validSaleIds.has(Number(id))),
       ),
       cycle_alias_map: Object.fromEntries(
         Object.entries(cycleAliasMap)
@@ -509,7 +546,7 @@ export default function DeliverySalesLedger() {
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [tripCodes, pfiCodeMap, loadingCodeMap, saleTripMap, cycleAliasMap, toast, updateLedgerSettingsMutation]);
+  }, [tripCodes, pfiCodeMap, loadingCodeMap, saleTripMap, cycleAliasMap, toast, updateLedgerSettingsMutation, validSaleIds]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Queries
@@ -571,16 +608,6 @@ export default function DeliverySalesLedger() {
     () => customersQuery.data?.results || [],
     [customersQuery.data],
   );
-
-  const salesQuery = useQuery({
-    queryKey: ['delivery-sales'],
-    queryFn: async () =>
-      safePaged<DeliverySale>(
-        await apiClient.admin.getDeliverySales({ page_size: 5000 }),
-      ),
-    staleTime: 30_000,
-  });
-  const allSales = useMemo(() => salesQuery.data?.results || [], [salesQuery.data]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Lookup maps
@@ -1108,11 +1135,37 @@ export default function DeliverySalesLedger() {
     const uniqueTrucks = new Set<string>();
     const uniqueCustomers = new Set<number>();
 
-    filteredLedgerGroups.forEach(group => {
+    // Deduplicate qty by truck cycle to prevent double-counting when the same
+    // truck+date appears in multiple groups (e.g. a loading: group + an orphan
+    // sale: group, or multiple customer rows for the same physical load).
+    // loading: groups are processed first (they come from inventory which is the
+    // source of truth); sale: orphan groups only contribute qty if their cycle
+    // wasn't already counted by a loading: group.
+    const countedCycles = new Set<string>();
+    // Sort so loading: groups come before sale: groups
+    const orderedGroups = [...filteredLedgerGroups].sort((a, b) => {
+      const aIsLoading = a.key.startsWith('loading:') ? 0 : 1;
+      const bIsLoading = b.key.startsWith('loading:') ? 0 : 1;
+      return aIsLoading - bIsLoading;
+    });
+
+    orderedGroups.forEach(group => {
       if (group.truckNumber) uniqueTrucks.add(group.truckNumber);
       if (group.customerId) uniqueCustomers.add(group.customerId);
 
-      totalQty += Math.max(0, toNum(group.quantity));
+      // Build the cycle key for this group
+      const cycleKey = `${(group.truckNumber || '').trim().toUpperCase()}||${(group.dateLoaded || '').split('T')[0]}`;
+      const isOrphan = group.key.startsWith('sale:');
+      const alreadyCounted = isOrphan && countedCycles.has(cycleKey);
+
+      if (!isOrphan || !alreadyCounted) {
+        totalQty += Math.max(0, toNum(group.quantity));
+        if (cycleKey) countedCycles.add(cycleKey);
+      } else if (!cycleKey) {
+        // No truck+date key — count it anyway (shouldn't normally happen)
+        totalQty += Math.max(0, toNum(group.quantity));
+      }
+
       totalExpected += Math.max(0, toNum(group.expected));
       totalPaid += toNum(group.totalPaid);
       entries += group.payments.length;
@@ -2069,6 +2122,7 @@ export default function DeliverySalesLedger() {
     });
 
     // Grand totals and per-trip code quantities
+    // Deduplicate qty by truck cycle to prevent double-counting (same logic as totals useMemo)
     let grandExpected    = 0;
     let grandPaid        = 0;
     let grandQty         = 0;
@@ -2078,9 +2132,18 @@ export default function DeliverySalesLedger() {
     const tripCodeQty: Record<string, number> = {};
     tripCodes.forEach(code => { tripCodeQty[code] = 0; });
     let unassignedQty = 0;
-    sortedGroups.forEach(group => {
+    const exportCountedCycles = new Set<string>();
+    // Process loading: groups before sale: groups so inventory is source of truth for qty
+    const exportOrderedGroups = [...sortedGroups].sort((a, b) =>
+      (a.key.startsWith('loading:') ? 0 : 1) - (b.key.startsWith('loading:') ? 0 : 1)
+    );
+    exportOrderedGroups.forEach(group => {
       if (group.truckNumber) truckSet.add(group.truckNumber);
-      const qty = group.quantity > 0 ? group.quantity : 0;
+      const cycleKey = `${(group.truckNumber || '').trim().toUpperCase()}||${(group.dateLoaded || '').split('T')[0]}`;
+      const isOrphan = group.key.startsWith('sale:');
+      const alreadyCounted = isOrphan && cycleKey ? exportCountedCycles.has(cycleKey) : false;
+      const qty = (!isOrphan || !alreadyCounted) ? (group.quantity > 0 ? group.quantity : 0) : 0;
+      if (cycleKey && (!isOrphan || !alreadyCounted)) exportCountedCycles.add(cycleKey);
       grandQty      += qty;
       grandExpected += group.expected > 0 ? group.expected : 0;
       grandPaid     += group.totalPaid;
@@ -2088,7 +2151,7 @@ export default function DeliverySalesLedger() {
       if (bal > 0) grandOutstanding += bal;
       else if (bal < 0) grandOverpaid += Math.abs(bal);
       const code = group.code || '';
-      if (tripCodeQty.hasOwnProperty(code)) tripCodeQty[code] += qty;
+      if (Object.prototype.hasOwnProperty.call(tripCodeQty, code)) tripCodeQty[code] += qty;
       else unassignedQty += qty;
     });
     const grandBalance = grandExpected - grandPaid;
