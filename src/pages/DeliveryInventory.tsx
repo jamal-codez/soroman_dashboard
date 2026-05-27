@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
@@ -20,7 +20,7 @@ import {
   Truck, DropletIcon, FileText, Package,
   CheckCircle2, AlertTriangle,
   CalendarDays, X, Fuel, ChevronDown, ChevronRight,
-  Tag, Pencil,
+  Tag, Pencil, Settings,
 } from 'lucide-react';
 import {
   format, parseISO, isWithinInterval, startOfDay, endOfDay,
@@ -225,13 +225,20 @@ export default function DeliveryInventory() {
   const [truckFilter, setTruckFilter] = useState('');
   const [codeFilter, setCodeFilter] = useState('');
 
-  // ── Allocation Codes (managed list stored in localStorage) ────────────────
+  // ── Allocation Codes (managed list stored in localStorage / backend sync) ──
   const [deliveryCodes, setDeliveryCodes] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('dsl_trip_codes') || '[]'); } catch { return []; }
   });
   const [loadingCodeMap, setLoadingCodeMap] = useState<Record<number, string>>(() => {
     try { return JSON.parse(localStorage.getItem('dsl_loading_code_map') || '{}'); } catch { return {}; }
   });
+  const [manageCodesOpen, setManageCodesOpen] = useState(false);
+  const [newManageCode, setNewManageCode] = useState('');
+  const [codeSearchQuery, setCodeSearchQuery] = useState('');
+  // Inline rename state for Manage Codes dialog
+  const [editingCode, setEditingCode] = useState<string | null>(null); // code currently being renamed
+  const [editingCodeValue, setEditingCodeValue] = useState('');         // new name being typed
+  const [renamingCode, setRenamingCode] = useState(false);              // rename API call in progress
 
   // ── Collapsed code groups ─────────────────────────────────────────────────
   const [collapsedCodes, setCollapsedCodes] = useState<Set<string>>(new Set());
@@ -282,10 +289,23 @@ export default function DeliveryInventory() {
     localStorage.setItem('dsl_loading_code_map', JSON.stringify(loadingCodeMap));
   }, [loadingCodeMap]);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Queries
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Sync with Backend Settings ────────────────────────────────────────────
+  const LEDGER_SETTINGS_KEY = 'default';
 
+  const ledgerSettingsQuery = useQuery({
+    queryKey: ['delivery-ledger-settings', LEDGER_SETTINGS_KEY],
+    queryFn: async () => apiClient.admin.getDeliveryLedgerSettings({ key: LEDGER_SETTINGS_KEY }) as Promise<any>,
+    staleTime: 30_000,
+  });
+
+  const updateLedgerSettingsMutation = useMutation({
+    mutationFn: async (payload: any) =>
+      apiClient.admin.updateDeliveryLedgerSettings(payload, { key: LEDGER_SETTINGS_KEY }),
+    // NOTE: do NOT invalidate ledger-settings here — that would retrigger hydration
+    //       → setLoadingCodeMap → autosave → invalidate → loop
+  });
+
+  // ── Inventory query — must be defined BEFORE the effects below that use allEntries ──
   const inventoryQuery = useQuery({
     queryKey: ['delivery-inventory-all'],
     queryFn: async () =>
@@ -295,6 +315,94 @@ export default function DeliveryInventory() {
     staleTime: 30_000,
   });
   const allEntries = useMemo(() => inventoryQuery.data?.results || [], [inventoryQuery.data]);
+
+  // Hydrate local states from backend — union of:
+  //   (a) settings.trip_codes = manually-created codes not yet assigned to any truck
+  //   (b) distinct allocation_code values on actual inventory records = ground truth
+  useEffect(() => {
+    if (!ledgerSettingsQuery.data) return;
+    const settings = ledgerSettingsQuery.data;
+
+    const settingsCodes = Array.isArray(settings.trip_codes)
+      ? settings.trip_codes.map((c: any) => String(c).trim().toUpperCase()).filter(Boolean)
+      : [];
+
+    const inventoryCodes = allEntries
+      .map(e => (e.allocation_code || '').trim().toUpperCase())
+      .filter(Boolean);
+
+    const merged = Array.from(new Set([...settingsCodes, ...inventoryCodes])).sort();
+    setDeliveryCodes(prev => (merged.join(',') === prev.join(',') ? prev : merged));
+
+    const backendMap = settings.loading_code_map || {};
+    const nextMap: Record<number, string> = {};
+    Object.entries(backendMap).forEach(([k, v]) => {
+      nextMap[Number(k)] = String(v).trim().toUpperCase();
+    });
+    // Only update if the map actually changed — prevents unnecessary autosave trigger
+    setLoadingCodeMap(prev => {
+      const prevSig = JSON.stringify(prev);
+      const nextSig = JSON.stringify(nextMap);
+      return prevSig === nextSig ? prev : nextMap;
+    });
+  }, [ledgerSettingsQuery.data, allEntries]);
+
+  // Also keep in sync when inventory entries change (e.g. new truck loaded with a new code)
+  useEffect(() => {
+    if (!allEntries.length) return;
+    const inventoryCodes = allEntries
+      .map(e => (e.allocation_code || '').trim().toUpperCase())
+      .filter(Boolean);
+
+    setDeliveryCodes(prev => {
+      const merged = Array.from(new Set([...prev, ...inventoryCodes])).sort();
+      // Only update if something actually changed
+      if (merged.join(',') === prev.join(',')) return prev;
+      return merged;
+    });
+  }, [allEntries]);
+
+  // Save manually-created codes (not backed by any inventory record) back to settings
+  // Uses a ref-based signature guard to prevent writing when nothing changed
+  const lastSavedSettingsSignatureRef = useRef('');
+  useEffect(() => {
+    if (!ledgerSettingsQuery.data || !allEntries.length) return;
+
+    const inventoryCodes = new Set(
+      allEntries.map(e => (e.allocation_code || '').trim().toUpperCase()).filter(Boolean)
+    );
+    const manualOnlyCodes = deliveryCodes.filter(c => !inventoryCodes.has(c));
+
+    const normalizedMap = Object.fromEntries(
+      Object.entries(loadingCodeMap)
+        .map(([id, code]) => [String(id), String(code || '').trim().toUpperCase()])
+        .filter(([id, code]) => id && code),
+    );
+
+    const payload = {
+      key: LEDGER_SETTINGS_KEY,
+      trip_codes: manualOnlyCodes,
+      pfi_code_map: ledgerSettingsQuery.data.pfi_code_map || {},
+      loading_code_map: normalizedMap,
+      sale_trip_map: ledgerSettingsQuery.data.sale_trip_map || {},
+      cycle_alias_map: ledgerSettingsQuery.data.cycle_alias_map || {},
+    };
+
+    const signature = JSON.stringify(payload);
+    if (signature === lastSavedSettingsSignatureRef.current) return; // nothing changed
+
+    const timer = setTimeout(() => {
+      updateLedgerSettingsMutation.mutate(payload, {
+        onSuccess: () => { lastSavedSettingsSignatureRef.current = signature; },
+      });
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [deliveryCodes, loadingCodeMap, allEntries, ledgerSettingsQuery.data]);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Queries (inventoryQuery + allEntries moved above for use in effects)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   // Fetch ALL active fleet trucks — we filter by loaded status client-side
   const trucksQuery = useQuery({
@@ -692,10 +800,6 @@ export default function DeliveryInventory() {
       toast({ title: 'Select at least one truck', variant: 'destructive' });
       return;
     }
-    if (!loadCode) {
-      toast({ title: 'Select an allocation code', variant: 'destructive' });
-      return;
-    }
     if (!loadPfi) {
       toast({ title: 'Select a PFI source', variant: 'destructive' });
       return;
@@ -707,7 +811,7 @@ export default function DeliveryInventory() {
       const depot = loadDepot || selectedPfi?.location_name || '';
       const location = loadLocation || '';
       const currentUser = localStorage.getItem('fullname') || 'Unknown';
-      const normalizedCode = loadCode.trim().toUpperCase().replace(/\s+/g, '-');
+      const normalizedCode = loadCode ? loadCode.trim().toUpperCase().replace(/\s+/g, '-') : null;
 
       const promises: Promise<unknown>[] = [];
       for (const truckId of selectedTruckIds) {
@@ -736,14 +840,14 @@ export default function DeliveryInventory() {
       const updates: Record<number, string> = {};
       createdRecords.forEach(record => {
         const created = record as { id?: number };
-        if (created?.id) updates[created.id] = normalizedCode;
+        if (created?.id && normalizedCode) updates[created.id] = normalizedCode;
       });
       if (Object.keys(updates).length > 0) {
         setLoadingCodeMap(prev => ({ ...prev, ...updates }));
       }
 
       toast({
-        title: `${truckCount} truck${truckCount > 1 ? 's' : ''} allocated under ${normalizedCode}`,
+        title: `${truckCount} truck${truckCount > 1 ? 's' : ''} allocated${normalizedCode ? ` under ${normalizedCode}` : ''}`,
         description: autoSumCapacity > 0
           ? `${fmtQty(autoSumCapacity)} L total · PFI ${selectedPfi?.pfi_number || ''}`
           : `PFI ${selectedPfi?.pfi_number || ''}`,
@@ -905,6 +1009,7 @@ export default function DeliveryInventory() {
 
   const handleBulkAssign = useCallback(async () => {
     if (selectedRowIds.size === 0) return;
+    const isClearCode = bulkAssignCode === '__CLEAR__';
     if (!bulkAssignCode && !bulkAssignPfi) {
       toast({ title: 'Select a code and/or PFI to assign', variant: 'destructive' });
       return;
@@ -912,15 +1017,25 @@ export default function DeliveryInventory() {
     setBulkAssigning(true);
     try {
       const patch: Record<string, unknown> = {};
-      if (bulkAssignCode) patch.allocation_code = bulkAssignCode;
-      if (bulkAssignPfi)  patch.pfi = Number(bulkAssignPfi);
+      if (isClearCode) {
+        patch.allocation_code = null; // explicitly clear the code
+      } else if (bulkAssignCode) {
+        patch.allocation_code = bulkAssignCode;
+      }
+      if (bulkAssignPfi) patch.pfi = Number(bulkAssignPfi);
 
       await Promise.all([...selectedRowIds].map(id =>
         apiClient.admin.updateDeliveryInventory(id, patch as Parameters<typeof apiClient.admin.updateDeliveryInventory>[1]),
       ));
 
-      // Update local code map if assigning a code
-      if (bulkAssignCode) {
+      // Update local code map
+      if (isClearCode) {
+        setLoadingCodeMap(prev => {
+          const next = { ...prev };
+          selectedRowIds.forEach(id => { delete next[id]; });
+          return next;
+        });
+      } else if (bulkAssignCode) {
         setLoadingCodeMap(prev => {
           const next = { ...prev };
           selectedRowIds.forEach(id => { next[id] = bulkAssignCode; });
@@ -931,7 +1046,7 @@ export default function DeliveryInventory() {
       toast({
         title: `Updated ${selectedRowIds.size} record${selectedRowIds.size !== 1 ? 's' : ''}`,
         description: [
-          bulkAssignCode && `Code → ${bulkAssignCode}`,
+          isClearCode ? 'Code removed (no code)' : bulkAssignCode && `Code → ${bulkAssignCode}`,
           bulkAssignPfi  && `PFI → ${allPfis.find(p => p.id === Number(bulkAssignPfi))?.pfi_number || bulkAssignPfi}`,
         ].filter(Boolean).join(' · '),
       });
@@ -1051,9 +1166,14 @@ export default function DeliveryInventory() {
                     <Download size={16} /> Export
                   </Button>
                   {!readOnly && (
-                    <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={openLoadDialog}>
-                      <Plus size={16} /> Allocate Trucks
-                    </Button>
+                    <>
+                      <Button variant="outline" className="gap-2 border-slate-200 text-slate-700 hover:bg-slate-50" onClick={() => setManageCodesOpen(true)}>
+                        <Settings size={16} /> Manage Codes
+                      </Button>
+                      <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={openLoadDialog}>
+                        <Plus size={16} /> Allocate Trucks
+                      </Button>
+                    </>
                   )}
                 </div>
               }
@@ -1871,7 +1991,7 @@ export default function DeliveryInventory() {
             </Button>
             <Button
               onClick={handleLoadSave}
-              disabled={saving || selectedTruckIds.size === 0 || !loadPfi || !loadCode}
+              disabled={saving || selectedTruckIds.size === 0 || !loadPfi}
               className="gap-2 h-10 bg-blue-600 hover:bg-blue-700"
             >
               {saving ? <Loader2 size={15} className="animate-spin" /> : <Truck size={15} />}
@@ -2134,6 +2254,7 @@ export default function DeliveryInventory() {
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold"
               >
                 <option value="">— Keep existing code —</option>
+                <option value="__CLEAR__" className="text-red-600">✕ Remove code (set to none)</option>
                 {deliveryCodes.map(code => (
                   <option key={code} value={code}>{code}</option>
                 ))}
@@ -2161,12 +2282,23 @@ export default function DeliveryInventory() {
               </select>
             </div>
 
-            {/* Preview of what will change */}
+            {/* Preview */}
             {(bulkAssignCode || bulkAssignPfi) && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
-                <p className="font-semibold text-blue-800 mb-1">Will apply to {selectedRowIds.size} record{selectedRowIds.size !== 1 ? 's' : ''}:</p>
-                <ul className="text-blue-700 space-y-0.5">
-                  {bulkAssignCode && <li>• Code → <strong>{bulkAssignCode}</strong></li>}
+              <div className={`border rounded-lg p-3 text-sm ${
+                bulkAssignCode === '__CLEAR__'
+                  ? 'bg-red-50 border-red-200'
+                  : 'bg-blue-50 border-blue-200'
+              }`}>
+                <p className={`font-semibold mb-1 ${
+                  bulkAssignCode === '__CLEAR__' ? 'text-red-800' : 'text-blue-800'
+                }`}>Will apply to {selectedRowIds.size} record{selectedRowIds.size !== 1 ? 's' : ''}:</p>
+                <ul className={`space-y-0.5 ${
+                  bulkAssignCode === '__CLEAR__' ? 'text-red-700' : 'text-blue-700'
+                }`}>
+                  {bulkAssignCode === '__CLEAR__'
+                    ? <li>• Remove allocation code (set to none)</li>
+                    : bulkAssignCode && <li>• Code → <strong>{bulkAssignCode}</strong></li>
+                  }
                   {bulkAssignPfi && <li>• PFI → <strong>{allPfis.find(p => p.id === Number(bulkAssignPfi))?.pfi_number || bulkAssignPfi}</strong></li>}
                 </ul>
               </div>
@@ -2186,6 +2318,347 @@ export default function DeliveryInventory() {
               {bulkAssigning
                 ? `Updating ${selectedRowIds.size} records…`
                 : `Apply to ${selectedRowIds.size} Record${selectedRowIds.size !== 1 ? 's' : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* Manage Allocation Codes Dialog                                    */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      <Dialog open={manageCodesOpen} onOpenChange={open => {
+        setManageCodesOpen(open);
+        if (!open) { setNewManageCode(''); setCodeSearchQuery(''); setEditingCode(null); setEditingCodeValue(''); }
+      }}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="bg-blue-100 p-2 rounded-lg">
+                <Tag className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <span className="font-bold">Manage Allocation Codes</span>
+                <p className="text-xs font-normal text-slate-500 mt-0.5">
+                  {deliveryCodes.length} code{deliveryCodes.length !== 1 ? 's' : ''} active · sourced from inventory records
+                </p>
+              </div>
+            </DialogTitle>
+            <DialogDescription className="sr-only">Manage allocation codes list</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {/* Add New Code */}
+            <div className="flex gap-2 items-end bg-slate-50 border border-slate-200 rounded-xl p-3">
+              <div className="flex-1 space-y-1.5">
+                <Label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Create New Code</Label>
+                <Input
+                  placeholder="e.g. A2, LOAD-003, PFI-15…"
+                  value={newManageCode}
+                  onChange={e => setNewManageCode(e.target.value.toUpperCase())}
+                  className="h-9 font-mono font-bold text-slate-800"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      const normalized = newManageCode.trim().toUpperCase().replace(/\s+/g, '-');
+                      if (!normalized) return;
+                      if (deliveryCodes.includes(normalized)) {
+                        toast({ title: `Code "${normalized}" already exists`, variant: 'destructive' });
+                        return;
+                      }
+                      setDeliveryCodes(prev => [...prev, normalized].sort());
+                      setNewManageCode('');
+                      toast({ title: `Code "${normalized}" created` });
+                    }
+                  }}
+                />
+              </div>
+              <Button
+                size="sm"
+                className="h-9 bg-blue-600 hover:bg-blue-700 font-bold px-4 shrink-0"
+                disabled={!newManageCode.trim()}
+                onClick={() => {
+                  const normalized = newManageCode.trim().toUpperCase().replace(/\s+/g, '-');
+                  if (!normalized) return;
+                  if (deliveryCodes.includes(normalized)) {
+                    toast({ title: `Code "${normalized}" already exists`, variant: 'destructive' });
+                    return;
+                  }
+                  setDeliveryCodes(prev => [...prev, normalized].sort());
+                  setNewManageCode('');
+                  toast({ title: `Code "${normalized}" created` });
+                }}
+              >
+                <Plus size={14} className="mr-1" /> Add
+              </Button>
+            </div>
+
+            {/* Code List */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                  All Codes ({deliveryCodes.length})
+                </Label>
+                <input
+                  placeholder="Search…"
+                  value={codeSearchQuery}
+                  onChange={e => setCodeSearchQuery(e.target.value)}
+                  className="h-7 px-2.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-blue-400 w-28 font-medium"
+                />
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden max-h-[260px] overflow-y-auto divide-y divide-slate-100 bg-white shadow-sm">
+                {deliveryCodes.length === 0 ? (
+                  <div className="p-6 text-center">
+                    <Tag size={24} className="mx-auto text-slate-300 mb-2" />
+                    <p className="text-sm text-slate-400 font-medium">No allocation codes yet.</p>
+                    <p className="text-xs text-slate-300 mt-1">Create one above or allocate trucks with a code.</p>
+                  </div>
+                ) : (() => {
+                    const q = codeSearchQuery.trim().toLowerCase();
+                    const displayList = q ? deliveryCodes.filter(c => c.toLowerCase().includes(q)) : deliveryCodes;
+
+                    if (displayList.length === 0) {
+                      return <p className="p-4 text-center text-sm text-slate-400">No codes match "{codeSearchQuery}"</p>;
+                    }
+
+                    // Build per-code truck count map from real inventory data
+                    const codeTruckCount: Record<string, number> = {};
+                    const codeOffloadedCount: Record<string, number> = {};
+                    truckRecords.forEach(r => {
+                      if (!r.code) return;
+                      codeTruckCount[r.code] = (codeTruckCount[r.code] || 0) + 1;
+                      if (r.status === 'offloaded') {
+                        codeOffloadedCount[r.code] = (codeOffloadedCount[r.code] || 0) + 1;
+                      }
+                    });
+
+                    // Codes that come from real inventory records
+                    const inventoryCodeSet = new Set(
+                      allEntries.map(e => (e.allocation_code || '').trim().toUpperCase()).filter(Boolean)
+                    );
+
+                    // Rename handler — updates all inventory records and the codes list
+                    const handleRenameCode = async (oldCode: string, newCode: string) => {
+                      const normalized = newCode.trim().toUpperCase().replace(/\s+/g, '-');
+                      if (!normalized || normalized === oldCode) {
+                        setEditingCode(null);
+                        return;
+                      }
+                      if (deliveryCodes.includes(normalized)) {
+                        toast({ title: `Code "${normalized}" already exists`, variant: 'destructive' });
+                        return;
+                      }
+                      setRenamingCode(true);
+                      try {
+                        // Update every inventory record that has the old code
+                        const toUpdate = allEntries.filter(
+                          e => (e.allocation_code || '').trim().toUpperCase() === oldCode
+                        );
+                        await Promise.all(
+                          toUpdate.map(e =>
+                            apiClient.admin.updateDeliveryInventory(e.id, { allocation_code: normalized } as any)
+                          )
+                        );
+                        // Update deliveryCodes list
+                        setDeliveryCodes(prev =>
+                          prev.map(c => c === oldCode ? normalized : c).sort()
+                        );
+                        // Update local code map
+                        setLoadingCodeMap(prev => {
+                          const next: Record<number, string> = {};
+                          Object.entries(prev).forEach(([id, c]) => {
+                            next[Number(id)] = c === oldCode ? normalized : c;
+                          });
+                          return next;
+                        });
+
+                        // Immediately update ledger settings on the backend to sync all maps
+                        if (ledgerSettingsQuery.data) {
+                          const currentSettings = ledgerSettingsQuery.data;
+                          // Update pfi_code_map
+                          const nextPfiCodeMap = { ...currentSettings.pfi_code_map };
+                          Object.entries(nextPfiCodeMap).forEach(([pfi, c]) => {
+                            if (c === oldCode) nextPfiCodeMap[pfi] = normalized;
+                          });
+                          // Update sale_trip_map
+                          const nextSaleTripMap = { ...currentSettings.sale_trip_map };
+                          Object.entries(nextSaleTripMap).forEach(([id, c]) => {
+                            if (c === oldCode) nextSaleTripMap[id] = normalized;
+                          });
+                          // Update loading_code_map
+                          const nextLoadingCodeMap = { ...currentSettings.loading_code_map };
+                          Object.entries(nextLoadingCodeMap).forEach(([id, c]) => {
+                            if (c === oldCode) nextLoadingCodeMap[id] = normalized;
+                          });
+                          // Update trip_codes (excluding ones from inventory)
+                          const manualOnlyCodes = (currentSettings.trip_codes || [])
+                            .map((c: string) => c === oldCode ? normalized : c);
+
+                          const updatedSettingsPayload = {
+                            ...currentSettings,
+                            pfi_code_map: nextPfiCodeMap,
+                            sale_trip_map: nextSaleTripMap,
+                            loading_code_map: nextLoadingCodeMap,
+                            trip_codes: manualOnlyCodes,
+                          };
+
+                          await apiClient.admin.updateDeliveryLedgerSettings(updatedSettingsPayload, { key: LEDGER_SETTINGS_KEY });
+                          qc.invalidateQueries({ queryKey: ['delivery-ledger-settings', LEDGER_SETTINGS_KEY] });
+                        }
+
+                        toast({
+                          title: `Code renamed: "${oldCode}" → "${normalized}"`,
+                          description: toUpdate.length > 0
+                            ? `Updated ${toUpdate.length} inventory record${toUpdate.length !== 1 ? 's' : ''}`
+                            : 'Manual code renamed',
+                        });
+                        setEditingCode(null);
+                        invalidateAll();
+                      } catch (err: unknown) {
+                        toast({
+                          title: 'Rename failed',
+                          description: err instanceof Error ? err.message : 'Please try again',
+                          variant: 'destructive',
+                        });
+                      } finally {
+                        setRenamingCode(false);
+                      }
+                    };
+
+                    return displayList.map(code => {
+                      const total = codeTruckCount[code] || 0;
+                      const offloaded = codeOffloadedCount[code] || 0;
+                      const active = total - offloaded;
+                      const isFromInventory = inventoryCodeSet.has(code);
+                      const isEditing = editingCode === code;
+
+                      return (
+                        <div key={code} className="flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 transition-colors group">
+                          {/* Code badge or rename input */}
+                          {isEditing ? (
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                autoFocus
+                                value={editingCodeValue}
+                                onChange={e => setEditingCodeValue(e.target.value.toUpperCase())}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') handleRenameCode(code, editingCodeValue);
+                                  if (e.key === 'Escape') { setEditingCode(null); setEditingCodeValue(''); }
+                                }}
+                                className="font-mono text-sm font-bold border-2 border-blue-400 rounded-lg px-2.5 py-1 w-32 focus:outline-none bg-blue-50 text-slate-800"
+                                disabled={renamingCode}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleRenameCode(code, editingCodeValue)}
+                                disabled={renamingCode || !editingCodeValue.trim()}
+                                className="p-1.5 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-40 transition-colors"
+                                title="Save rename"
+                              >
+                                {renamingCode ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setEditingCode(null); setEditingCodeValue(''); }}
+                                className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
+                                title="Cancel"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="font-mono text-sm font-bold text-slate-800 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg min-w-[80px] text-center">
+                              {code}
+                            </span>
+                          )}
+
+                          {/* Stats — hide when editing */}
+                          {!isEditing && (
+                            <div className="flex-1 flex items-center gap-2 flex-wrap">
+                              {total > 0 ? (
+                                <>
+                                  <span className="text-xs text-slate-500 font-medium">
+                                    {total} truck{total !== 1 ? 's' : ''}
+                                  </span>
+                                  {active > 0 && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+                                      {active} active
+                                    </span>
+                                  )}
+                                  {offloaded > 0 && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                                      {offloaded} delivered
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200">
+                                  pending · no trucks yet
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Action buttons — only when not editing */}
+                          {!isEditing && (
+                            <>
+                              {/* Rename */}
+                              <button
+                                type="button"
+                                onClick={() => { setEditingCode(code); setEditingCodeValue(code); }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                                title={`Rename ${code}`}
+                              >
+                                <Pencil size={13} />
+                              </button>
+
+                              {/* Source badge */}
+                              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${
+                                isFromInventory ? 'bg-slate-100 text-slate-500' : 'bg-purple-50 text-purple-600 border border-purple-200'
+                              }`}>
+                                {isFromInventory ? 'inventory' : 'manual'}
+                              </span>
+
+                              {/* Delete */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isFromInventory) {
+                                    toast({
+                                      title: `Cannot remove "${code}"`,
+                                      description: 'This code is assigned to inventory records. Rename or reassign those trucks first.',
+                                      variant: 'destructive',
+                                    });
+                                    return;
+                                  }
+                                  setDeliveryCodes(prev => prev.filter(c => c !== code));
+                                  toast({ title: `Code "${code}" removed` });
+                                }}
+                                className={`p-1.5 rounded-lg transition-colors shrink-0 ${
+                                  isFromInventory
+                                    ? 'text-slate-200 cursor-not-allowed'
+                                    : 'text-red-400 hover:text-red-600 hover:bg-red-50'
+                                }`}
+                                title={isFromInventory ? 'Cannot delete — assigned to inventory records' : `Delete ${code}`}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()
+                }
+              </div>
+              <p className="text-[10px] text-slate-400 italic leading-relaxed">
+                Codes from inventory records cannot be deleted here. To remove a code completely, reassign or delete the truck entries using it. Manual (pending) codes can be deleted freely.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button className="w-full bg-slate-900 hover:bg-slate-800 font-semibold" onClick={() => setManageCodesOpen(false)}>
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>

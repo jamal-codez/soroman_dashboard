@@ -527,6 +527,22 @@ export default function DeliverySalesLedger() {
     return truckLoadingsQuery.data?.results || [];
   }, [truckLoadingsQuery.data]);
 
+  // Merge allocation_code values from real inventory records into tripCodes
+  // This is the source of truth — codes on inventory records are always visible
+  useEffect(() => {
+    if (!allLoadings.length) return;
+    const inventoryCodes = allLoadings
+      .map((l: any) => (l.allocation_code || '').trim().toUpperCase())
+      .filter(Boolean);
+    if (!inventoryCodes.length) return;
+
+    setTripCodes(prev => {
+      const merged = Array.from(new Set([...prev, ...inventoryCodes])).sort();
+      if (merged.join(',') === prev.join(',')) return prev;
+      return merged;
+    });
+  }, [allLoadings]);
+
   const pfisQuery = useQuery({
     queryKey: ['delivery-pfis'],
     queryFn: async () =>
@@ -1259,6 +1275,18 @@ export default function DeliverySalesLedger() {
   };
 
   const deleteTripCode = (code: string) => {
+    // Block deletion if this code is used on any real inventory record
+    const isInventoryCode = allLoadings.some(
+      (l: any) => (l.allocation_code || '').trim().toUpperCase() === code
+    );
+    if (isInventoryCode) {
+      toast({
+        title: `Cannot delete "${code}"`,
+        description: 'This code is assigned to inventory records. Re-assign or delete those truck entries first.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setTripCodes(prev => prev.filter(c => c !== code));
     setSaleTripMap(prev => {
       const next = { ...prev };
