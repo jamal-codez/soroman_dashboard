@@ -619,9 +619,51 @@ export default function PaymentVerification() {
   const { data: apiResponse, isLoading } = useQuery<OrderResponse>({
     queryKey: ['verify-orders', 'all'],
     queryFn: async () => {
-      return fetchAllPages<PaymentOrder>(
-        (p) => apiClient.admin.getVerifyOrders({ status: 'pending', page: p.page, page_size: p.page_size }),
-      );
+      const [verifyRes, allRes] = await Promise.all([
+        fetchAllPages<PaymentOrder>(
+          (p) => apiClient.admin.getVerifyOrders({ status: 'pending', page: p.page, page_size: p.page_size })
+        ).catch(() => ({ count: 0, results: [] as PaymentOrder[] })),
+        fetchAllPages<any>(
+          (p) => apiClient.admin.getAllAdminOrders({ status: 'pending', page: p.page, page_size: p.page_size })
+        ).catch(() => ({ count: 0, results: [] }))
+      ]);
+
+      const map = new Map<number, PaymentOrder>();
+
+      // 1. Populate map with pending orders from general all-orders
+      allRes.results.forEach((item: any) => {
+        if (item && typeof item.id === 'number') {
+          const amount = item.amount || String(item.total_price || '0');
+          map.set(item.id, {
+            ...item,
+            amount,
+            order_id: item.order_id || item.id,
+            status: 'pending' as const,
+            payment_channel: item.payment_channel || '',
+            reference: item.reference || '',
+          });
+        }
+      });
+
+      // 2. Overlay or merge with the verify-orders pending items (taking precedence for bank/payment specifics)
+      verifyRes.results.forEach((item: PaymentOrder) => {
+        if (item && typeof item.id === 'number') {
+          const existing = map.get(item.id);
+          const amount = item.amount || (existing ? existing.amount : '0');
+          map.set(item.id, {
+            ...existing,
+            ...item,
+            amount,
+            status: 'pending' as const,
+          });
+        }
+      });
+
+      const mergedResults = Array.from(map.values());
+      return {
+        count: mergedResults.length,
+        results: mergedResults
+      };
     },
     refetchOnWindowFocus: true,
     refetchInterval: 30_000,

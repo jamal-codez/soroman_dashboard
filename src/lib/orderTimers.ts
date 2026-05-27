@@ -11,10 +11,7 @@ export function shouldAutoCancel(opts: {
   status?: string;
   created_at?: string;
 }): boolean {
-  const status = (opts.status || "").toLowerCase();
-  if (!status) return false;
-  if (status === "paid" || status === "canceled" || status === "cancelled" || status === "released" || status === "completed") {
-    return false;
-  }
-  return isOlderThan12Hours(opts.created_at);
+  // Unconditionally return false so that pending orders are never automatically canceled by the frontend.
+  // This ensures they do not disappear from the Payment Verification page without manual confirmation or deletion.
+  return false;
 }

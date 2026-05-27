@@ -167,12 +167,12 @@ const getDriverPhone = (o: Order): string =>
 
 // Status display
 const STATUS_MAP: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
-  pending:  { label: 'Pending',  cls: 'bg-amber-50 text-amber-700 border border-amber-200',   icon: <Clock size={12} /> },
-  paid:     { label: 'Paid',     cls: 'bg-green-50 text-green-700 border border-green-200',    icon: <DollarSign size={12} /> },
-  released: { label: 'Released', cls: 'bg-blue-50 text-blue-700 border border-blue-200',       icon: <ShieldCheck size={12} /> },
-  loaded:   { label: 'Loaded',   cls: 'bg-violet-50 text-violet-700 border border-violet-200', icon: <Truck size={12} /> },
-  canceled: { label: 'Canceled', cls: 'bg-red-50 text-red-700 border border-red-200',          icon: <XCircle size={12} /> },
-  sold:     { label: 'Sold',     cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', icon: <CheckCircle2 size={12} /> },
+  pending: { label: 'Pending', cls: 'bg-amber-50 text-amber-700 border border-amber-200', icon: <Clock size={12} /> },
+  paid: { label: 'Paid', cls: 'bg-green-50 text-green-700 border border-green-200', icon: <DollarSign size={12} /> },
+  released: { label: 'Released', cls: 'bg-blue-50 text-blue-700 border border-blue-200', icon: <ShieldCheck size={12} /> },
+  loaded: { label: 'Loaded', cls: 'bg-violet-50 text-violet-700 border border-violet-200', icon: <Truck size={12} /> },
+  canceled: { label: 'Canceled', cls: 'bg-red-50 text-red-700 border border-red-200', icon: <XCircle size={12} /> },
+  sold: { label: 'Sold', cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200', icon: <CheckCircle2 size={12} /> },
 };
 
 const StatusBadge = ({ status }: { status: string }) => {
@@ -190,13 +190,13 @@ const matchesPreset = (iso: string, preset: TimePreset): boolean => {
   try {
     const d = parseISO(iso);
     switch (preset) {
-      case 'today':     return isToday(d);
+      case 'today': return isToday(d);
       case 'yesterday': return isYesterday(d);
-      case 'week':      return isThisWeek(d, { weekStartsOn: 1 });
-      case 'month':     return isThisMonth(d);
-      case 'year':      return isThisYear(d);
-      case 'all':       return true;
-      default:          return true;
+      case 'week': return isThisWeek(d, { weekStartsOn: 1 });
+      case 'month': return isThisMonth(d);
+      case 'year': return isThisYear(d);
+      case 'all': return true;
+      default: return true;
     }
   } catch { return false; }
 };
@@ -222,10 +222,10 @@ const OrderDetailDialog = ({
   onClose: () => void;
 }) => {
   if (!order) return null;
-  const qty       = toNum(order.quantity);
-  const total     = toNum(order.total_price);
+  const qty = toNum(order.quantity);
+  const total = toNum(order.total_price);
   const unitPrice = getUnitPrice(order);
-  const ref       = getOrderReference(order);
+  const ref = getOrderReference(order);
 
   return (
     <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
@@ -238,7 +238,7 @@ const OrderDetailDialog = ({
             <div>
               <h2 className="text-lg font-semibold">Order Details</h2>
               <p className="text-sm font-normal text-slate-500 mt-0.5">
-                Ref: <span className="text-slate-700">{ref}</span>
+                Ref: <span className="font-mono font-semibold text-amber-700">{ref}</span>
               </p>
             </div>
           </DialogTitle>
@@ -272,12 +272,12 @@ const OrderDetailDialog = ({
               <User size={12} /> Customer
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <DetailRow label="Order Date" value={fmtDateTime(order.created_at)} />
               <DetailRow label="Name" value={getCustomerName(order)} />
               <DetailRow label="Phone" value={getPhone(order)} />
               <DetailRow label="Email" value={order.user?.email} />
               <DetailRow label="Company" value={order.user?.companyName || order.user?.company_name || order.companyName || order.company_name} />
-              <DetailRow label="Location" value={getLocation(order)} />
-              <DetailRow label="Order Date" value={fmtDateTime(order.created_at)} />
+              <DetailRow label="Truck No." value={getTruckNumber(order)} />
             </div>
           </div>
 
@@ -288,6 +288,7 @@ const OrderDetailDialog = ({
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <DetailRow label="Reference" value={<span>{ref}</span>} />
+              <DetailRow label="Location" value={getLocation(order)} />
               <DetailRow label="Product" value={getProductName(order)} />
               <DetailRow label="Quantity (L)" value={qty > 0 ? fmtQty(qty) : '—'} />
               <DetailRow label="Unit Price" value={unitPrice > 0 ? fmt(unitPrice) : '—'} />
@@ -297,7 +298,7 @@ const OrderDetailDialog = ({
           </div>
 
           {/* Pickup / Delivery info */}
-          {order.pickup && (
+          {/* {order.pickup && (
             <div className="bg-sky-50 rounded-lg p-4">
               <p className="text-xs font-semibold text-sky-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <MapPin size={12} /> Pickup Details
@@ -308,10 +309,10 @@ const OrderDetailDialog = ({
                 <DetailRow label="State" value={order.pickup.state} />
               </div>
             </div>
-          )}
+          )} */}
 
           {/* Truck info (if loaded/delivery) */}
-          {(getTruckNumber(order) !== '—' || getDriverName(order) !== '—') && (
+          {/* {(getTruckNumber(order) !== '—' || getDriverName(order) !== '—') && (
             <div className="bg-violet-50 rounded-lg p-4">
               <p className="text-xs font-semibold text-violet-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <Truck size={12} /> Truck / Driver
@@ -322,15 +323,15 @@ const OrderDetailDialog = ({
                 <DetailRow label="Driver Phone" value={getDriverPhone(order)} />
               </div>
             </div>
-          )}
+          )} */}
 
           {/* Narration */}
-          {order.narration && (
+          {/* {order.narration && (
             <div className="bg-amber-50 rounded-lg p-4">
               <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-2">Narration / Remarks</p>
               <p className="text-sm text-slate-700">{order.narration}</p>
             </div>
-          )}
+          )} */}
         </div>
       </DialogContent>
     </Dialog>
@@ -343,15 +344,15 @@ const OrderDetailDialog = ({
 
 export default function DepotView() {
   // ── Filters ──────────────────────────────────────────────────────
-  const [timePreset, setTimePreset]     = useState<TimePreset>('today');
-  const [customFrom, setCustomFrom]     = useState('');
-  const [customTo, setCustomTo]         = useState('');
-  const [calOpen, setCalOpen]           = useState(false);
-  const [calRange, setCalRange]         = useState<{ from?: Date; to?: Date }>({});
-  const [searchQuery, setSearchQuery]   = useState('');
+  const [timePreset, setTimePreset] = useState<TimePreset>('today');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [calOpen, setCalOpen] = useState(false);
+  const [calRange, setCalRange] = useState<{ from?: Date; to?: Date }>({});
+  const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [locationFilter, setLocationFilter] = useState('all');
-  const [productFilter, setProductFilter]   = useState('all');
+  const [productFilter, setProductFilter] = useState('all');
   const [pfiFilter, setPfiFilter] = useState('all');
   const [releaseTypeFilter, setReleaseTypeFilter] = useState('all');
 
@@ -405,7 +406,7 @@ export default function DepotView() {
           try {
             const d = parseISO(dateStr);
             if (customFrom && isBefore(d, startOfDay(parseISO(customFrom)))) return false;
-            if (customTo   && isAfter(d, endOfDay(parseISO(customTo))))     return false;
+            if (customTo && isAfter(d, endOfDay(parseISO(customTo)))) return false;
           } catch { return false; }
         }
       } else {
@@ -430,13 +431,13 @@ export default function DepotView() {
       // Search
       const q = searchQuery.trim().toLowerCase();
       if (q) {
-        const ref  = getOrderReference(o).toLowerCase();
+        const ref = getOrderReference(o).toLowerCase();
         const name = getCustomerName(o).toLowerCase();
-        const loc  = getLocation(o).toLowerCase();
+        const loc = getLocation(o).toLowerCase();
         const prod = getProductName(o).toLowerCase();
         const truck = getTruckNumber(o).toLowerCase();
         const driver = getDriverName(o).toLowerCase();
-        const pfi  = String(o.pfi_number ?? '').toLowerCase();
+        const pfi = String(o.pfi_number ?? '').toLowerCase();
         if (
           !ref.includes(q) && !name.includes(q) && !loc.includes(q) &&
           !prod.includes(q) && !truck.includes(q) && !driver.includes(q) &&
@@ -450,24 +451,24 @@ export default function DepotView() {
 
   // ── Summary cards ─────────────────────────────────────────────────
   const summaryCards = useMemo((): SummaryCard[] => {
-    const total      = filteredOrders.length;
-    const paid       = filteredOrders.filter(o => ['paid','released','loaded','sold'].includes(o.status?.toLowerCase())).length;
-    const pending    = filteredOrders.filter(o => o.status?.toLowerCase() === 'pending').length;
-    const totalQty   = filteredOrders.reduce((s, o) => s + toNum(o.quantity), 0);
+    const total = filteredOrders.length;
+    const paid = filteredOrders.filter(o => ['paid', 'released', 'loaded', 'sold'].includes(o.status?.toLowerCase())).length;
+    const pending = filteredOrders.filter(o => o.status?.toLowerCase() === 'pending').length;
+    const totalQty = filteredOrders.reduce((s, o) => s + toNum(o.quantity), 0);
 
     const releasedOrders = filteredOrders.filter(o => o.status?.toLowerCase() === 'released');
-    const loadedOrders   = filteredOrders.filter(o => o.status?.toLowerCase() === 'loaded');
-    const releasedQty    = releasedOrders.reduce((s, o) => s + toNum(o.quantity), 0);
-    const loadedQty      = loadedOrders.reduce((s, o) => s + toNum(o.quantity), 0);
+    const loadedOrders = filteredOrders.filter(o => o.status?.toLowerCase() === 'loaded');
+    const releasedQty = releasedOrders.reduce((s, o) => s + toNum(o.quantity), 0);
+    const loadedQty = loadedOrders.reduce((s, o) => s + toNum(o.quantity), 0);
 
     return [
-      { title: 'Total Orders',      value: String(total),                               icon: <FileText size={20} />,     tone: 'neutral' },
-      { title: 'Paid & Released',    value: String(paid),                                icon: <CheckCircle2 size={20} />, tone: 'green' },
-      { title: 'Payment Not Confirmed',           value: String(pending),                             icon: <Clock size={20} />,        tone: pending > 0 ? 'amber' : 'neutral' },
-      { title: 'Total Qty (L)',     value: totalQty > 0 ? fmtQty(totalQty) : '0',      icon: <Fuel size={20} />,         tone: 'neutral' },
-      { title: 'Released Qty (L)',  value: releasedQty > 0 ? fmtQty(releasedQty) : '0', icon: <ShieldCheck size={20} />, tone: 'neutral' },
-      { title: 'Loaded Qty (L)',    value: loadedQty > 0 ? fmtQty(loadedQty) : '0',    icon: <Truck size={20} />,        tone: 'neutral' },
-      
+      { title: 'Total Orders', value: String(total), icon: <FileText size={20} />, tone: 'neutral' },
+      { title: 'Paid & Released', value: String(paid), icon: <CheckCircle2 size={20} />, tone: 'green' },
+      { title: 'Payment Not Confirmed', value: String(pending), icon: <Clock size={20} />, tone: pending > 0 ? 'amber' : 'neutral' },
+      { title: 'Total Qty (L)', value: totalQty > 0 ? fmtQty(totalQty) : '0', icon: <Fuel size={20} />, tone: 'neutral' },
+      { title: 'Released Qty (L)', value: releasedQty > 0 ? fmtQty(releasedQty) : '0', icon: <ShieldCheck size={20} />, tone: 'neutral' },
+      { title: 'Loaded Qty (L)', value: loadedQty > 0 ? fmtQty(loadedQty) : '0', icon: <Truck size={20} />, tone: 'neutral' },
+
     ];
   }, [filteredOrders]);
 
@@ -482,7 +483,7 @@ export default function DepotView() {
       : PRESETS.find(p => p.key === timePreset)?.label || 'All Time';
 
     const summaryWs = XLSX.utils.aoa_to_sheet([
-      ['DEPOT VIEW REPORT'],
+      ['SALES REPORT'],
       [''],
       ['GENERATED AT', generatedAt.toUpperCase()],
       ['DATE PERIOD', String(dateRangeLabel).toUpperCase()],
@@ -505,7 +506,7 @@ export default function DepotView() {
     ]);
 
     const ordersWs = XLSX.utils.aoa_to_sheet([
-      ['DEPOT VIEW ORDERS REPORT'],
+      ['SALES ORDERS REPORT'],
       [''],
       ['REFERENCE', 'DATE', 'CUSTOMER', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS', 'RELEASE TYPE', 'DRIVER', 'PHONE'],
       ...filteredOrders.map(order => {
@@ -563,7 +564,7 @@ export default function DepotView() {
       }
     });
 
-    for (let rowIndex = 3; rowIndex < ordersWs['!ref'] ? filteredOrders.length + 3 : 0; rowIndex += 1) {
+    for (let rowIndex = 3; rowIndex < (ordersWs['!ref'] ? filteredOrders.length + 3 : 0); rowIndex += 1) {
       const row = rowIndex + 1;
       const qtyCell = ordersWs[`H${row}`];
       const unitPriceCell = ordersWs[`I${row}`];
@@ -596,13 +597,13 @@ export default function DepotView() {
   };
 
   const PRESETS: { key: TimePreset; label: string }[] = [
-    { key: 'today',     label: 'Today' },
+    { key: 'today', label: 'Today' },
     { key: 'yesterday', label: 'Yesterday' },
-    { key: 'week',      label: 'This Week' },
-    { key: 'month',     label: 'This Month' },
-    { key: 'year',      label: 'This Year' },
-    { key: 'all',       label: 'All Time' },
-    { key: 'custom',    label: 'Date Range' },
+    { key: 'week', label: 'This Week' },
+    { key: 'month', label: 'This Month' },
+    { key: 'year', label: 'This Year' },
+    { key: 'all', label: 'All Time' },
+    { key: 'custom', label: 'Date Range' },
   ];
 
   // ── Render ────────────────────────────────────────────────────────
@@ -620,7 +621,7 @@ export default function DepotView() {
             {/* Header */}
             <PageHeader
               title="Orders Overview"
-              description="Live overview of all orders — status, quantities, customers, trucks and PFI assignments."
+              description="Live overview of all orders — status, quantities, customers, trucks and PFIs."
               actions={
                 <div className="flex items-center gap-2">
                   <Button
@@ -683,11 +684,10 @@ export default function DepotView() {
                     <button
                       key={key}
                       onClick={() => { setTimePreset(key); setCustomFrom(''); setCustomTo(''); setCalRange({}); }}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
-                        timePreset === key
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
-                      }`}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${timePreset === key
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
+                        }`}
                     >
                       {label}
                     </button>
@@ -698,11 +698,10 @@ export default function DepotView() {
                       <button
                         title="Pick a custom date range"
                         onClick={() => setTimePreset('custom')}
-                        className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all flex items-center gap-1.5 ${
-                          timePreset === 'custom'
-                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
-                        }`}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all flex items-center gap-1.5 ${timePreset === 'custom'
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
+                          }`}
                       >
                         <CalendarDays size={11} />
                         {timePreset === 'custom' && calRange.from
@@ -720,7 +719,7 @@ export default function DepotView() {
                           setCalRange(r ?? {});
                           setTimePreset('custom');
                           if (r?.from) setCustomFrom(format(r.from, 'yyyy-MM-dd'));
-                          if (r?.to)   setCustomTo(format(r.to, 'yyyy-MM-dd'));
+                          if (r?.to) setCustomTo(format(r.to, 'yyyy-MM-dd'));
                           if (r?.from && r?.to) setCalOpen(false);
                         }}
                         initialFocus
@@ -917,7 +916,7 @@ export default function DepotView() {
                         <TableHead className="font-semibold text-slate-700">Customer</TableHead>
                         <TableHead className="font-semibold text-slate-700">Phone</TableHead>
                         <TableHead className="font-semibold text-slate-700">Truck No.</TableHead>
-                        {/* <TableHead className="font-semibold text-slate-700">Location</TableHead> */}
+                        <TableHead className="font-semibold text-slate-700">Location</TableHead>
                         {/* <TableHead className="font-semibold text-slate-700">Product</TableHead> */}
                         <TableHead className="font-semibold text-slate-700">Qty (L)</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-right">Unit Price</TableHead>
@@ -930,24 +929,23 @@ export default function DepotView() {
                     </TableHeader>
                     <TableBody>
                       {filteredOrders.map((o, idx) => {
-                        const qty       = toNum(o.quantity);
-                        const total     = toNum(o.total_price);
+                        const qty = toNum(o.quantity);
+                        const total = toNum(o.total_price);
                         const unitPrice = getUnitPrice(o);
-                        const truck     = getTruckNumber(o);
-                        const driver    = getDriverName(o);
-                        const ref       = getOrderReference(o);
-                        const status    = o.status?.toLowerCase();
+                        const truck = getTruckNumber(o);
+                        const driver = getDriverName(o);
+                        const ref = getOrderReference(o);
+                        const status = o.status?.toLowerCase();
 
                         return (
                           <TableRow
                             key={o.id}
-                            className={`hover:bg-slate-50/60 transition-colors ${
-                              status === 'canceled' ? 'opacity-60' : ''
-                            } ${status === 'loaded' ? 'bg-violet-50/20' : ''}`}
+                            className={`hover:bg-slate-50/60 transition-colors ${status === 'canceled' ? 'opacity-60' : ''
+                              } ${status === 'loaded' ? 'bg-violet-50/20' : ''}`}
                           >
                             <TableCell className="text-center text-slate-400">{idx + 1}</TableCell>
 
-                            <TableCell className="text-sm text-slate-700 whitespace-nowrap">
+                            <TableCell className="text-sm text-amber-700 font-mono font-semibold whitespace-nowrap">
                               {ref}
                             </TableCell>
 
@@ -981,12 +979,12 @@ export default function DepotView() {
                               ) : <span className="text-slate-600">—</span>}
                             </TableCell>
 
-                            {/* <TableCell className="text-slate-700 whitespace-nowrap">
+                            <TableCell className="text-slate-700 whitespace-nowrap">
                               <span className="flex items-center gap-1">
                                 <MapPin size={11} className="text-slate-400 shrink-0" />
                                 {getLocation(o)}
                               </span>
-                            </TableCell> */}
+                            </TableCell>
 
                             {/* <TableCell className="text-slate-700 whitespace-nowrap">
                               <span className="flex items-center gap-1">
