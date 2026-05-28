@@ -98,19 +98,22 @@ export async function fetchAllPages<T = unknown>(
 
   if (results.length >= total) return { count: total, results };
 
-  // Fetch remaining pages in parallel (we know total, so calculate page count)
+  // Fetch remaining pages in small sequential batches of 3 to prevent 429 throttling
   const totalPages = Math.ceil(total / pageSize);
   const pageNums = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
 
-  const settled = await Promise.allSettled(
-    pageNums.map((p) =>
-      fetcher({ page: p, page_size: pageSize }).catch(() => ({ results: [] as T[] }))
-    )
-  );
+  for (let i = 0; i < pageNums.length; i += 3) {
+    const chunk = pageNums.slice(i, i + 3);
+    const settled = await Promise.allSettled(
+      chunk.map((p) =>
+        fetcher({ page: p, page_size: pageSize }).catch(() => ({ results: [] as T[] }))
+      )
+    );
 
-  for (const r of settled) {
-    if (r.status === 'fulfilled' && r.value?.results) {
-      results.push(...r.value.results);
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value?.results) {
+        results.push(...r.value.results);
+      }
     }
   }
 

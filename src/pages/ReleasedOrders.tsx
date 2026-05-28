@@ -235,7 +235,7 @@ export default function ReleasedOrders() {
   const { toast } = useToast();
 
   const [search, setSearch]             = useState('');
-  const [quickFilter, setQuickFilter]   = useState<QuickFilter>(null);
+  const [quickFilter, setQuickFilter]   = useState<QuickFilter>('today');
   const [locationFilter, setLocationFilter] = useState('');
   const [productFilter, setProductFilter]   = useState('');
   const [dateRange, setDateRange]       = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
@@ -243,23 +243,23 @@ export default function ReleasedOrders() {
   // ── Fetch all orders, filter to released/loaded ────────────────────
   const listQuery = useQuery<OrdersResponse>({
     queryKey: ['all-orders', 'shared'],
-    queryFn: () =>
-      fetchAllPages<ReleasedOrder>(p =>
-        apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size }),
-      ),
-    staleTime: 30_000,
-    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const [relData, loadedData] = await Promise.all([
+        fetchAllPages<ReleasedOrder>(p =>
+          apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size, status: 'released' }),
+        ),
+        fetchAllPages<ReleasedOrder>(p =>
+          apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size, status: 'loaded' }),
+        ),
+      ]);
+      const allResults = [...(relData.results || []), ...(loadedData.results || [])];
+      return { count: allResults.length, results: allResults };
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 
-  const allOrders = useMemo(() => listQuery.data?.results ?? [], [listQuery.data]);
-
-  const releasedOrders = useMemo(() => {
-    const s = (v: unknown) => String(v || '').toLowerCase();
-    return allOrders.filter(o => {
-      const st = s(o.status);
-      return st === 'released' || st === 'loaded';
-    });
-  }, [allOrders]);
+  const releasedOrders = useMemo(() => listQuery.data?.results ?? [], [listQuery.data]);
 
   // ── Derived filter options ─────────────────────────────────────────
   const uniqueLocations = useMemo(() =>
@@ -272,11 +272,11 @@ export default function ReleasedOrders() {
     [releasedOrders]
   );
 
-  const hasActiveFilters = !!(search || quickFilter || locationFilter || productFilter || dateRange.from);
+  const hasActiveFilters = !!(search || quickFilter !== 'today' || locationFilter || productFilter || dateRange.from);
 
   const clearFilters = () => {
     setSearch('');
-    setQuickFilter(null);
+    setQuickFilter('today');
     setLocationFilter('');
     setProductFilter('');
     setDateRange({ from: null, to: null });
@@ -393,88 +393,114 @@ export default function ReleasedOrders() {
             <SummaryCards cards={summaryCards} />
 
             {/* ── Filters ─────────────────────────────────────────── */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
-              {/* Row 1: Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <Input
-                  placeholder="Search by reference, customer, company, product, location, truck…"
-                  className="pl-10"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                />
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              {/* Row 1: Search (Full Row) */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Search</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input
+                    placeholder="Search by reference, customer, company, product, location, truck…"
+                    className="pl-10 h-10 text-sm w-full"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                  />
+                </div>
               </div>
 
-              {/* Row 2: Quick time filters */}
-              <div className="flex flex-wrap gap-2 items-center">
-                {QUICK_FILTERS.map(f => (
-                  <button
-                    key={f.value}
-                    onClick={() => setQuickFilter(prev => prev === f.value ? null : f.value)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-                      quickFilter === f.value
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                    }`}
+              {/* Row 2: Timeframe + Custom Date + Location + Product + Actions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-3 border-t border-slate-100 items-end">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Timeframe Preset</label>
+                  <select
+                    aria-label="Timeframe Preset"
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm w-full focus:outline-none focus:ring-2 focus:ring-slate-300"
+                    value={quickFilter ?? ''}
+                    onChange={e => {
+                      const v = e.target.value as QuickFilter | '';
+                      setQuickFilter(v === '' ? null : v);
+                      if (v !== '') setDateRange({ from: null, to: null });
+                    }}
                   >
-                    {f.label}
-                  </button>
-                ))}
+                    <option value="">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="year">This Year</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Custom Date Range</label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="h-10 justify-start text-left font-normal text-sm gap-2 w-full">
+                        <CalendarDays size={15} className="text-slate-400 shrink-0" />
+                        <span className="truncate">
+                          {dateRange.from && dateRange.to
+                            ? `${format(dateRange.from, 'dd MMM yyyy')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+                            : 'Pick date range'}
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="range"
+                        selected={dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined}
+                        onSelect={r => {
+                          setDateRange({ from: r?.from ?? null, to: r?.to ?? null });
+                          if (r?.from) setQuickFilter(null);
+                        }}
+                        numberOfMonths={2}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Location</label>
+                  <select
+                    aria-label="Filter by location"
+                    value={locationFilter}
+                    onChange={e => setLocationFilter(e.target.value)}
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm w-full focus:outline-none focus:ring-2 focus:ring-slate-300"
+                  >
+                    <option value="">All Locations</option>
+                    {uniqueLocations.map(l => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Product</label>
+                  <select
+                    aria-label="Filter by product"
+                    value={productFilter}
+                    onChange={e => setProductFilter(e.target.value)}
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm w-full focus:outline-none focus:ring-2 focus:ring-slate-300"
+                  >
+                    <option value="">All Products</option>
+                    {uniqueProducts.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
               </div>
 
-              {/* Row 3: Location + Product + Date range + Clear */}
-              <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center pt-2 border-t border-slate-100">
-                <select
-                  aria-label="Filter by location"
-                  value={locationFilter}
-                  onChange={e => setLocationFilter(e.target.value)}
-                  className="h-10 px-3 rounded-md border border-input bg-background text-sm min-w-[160px]"
-                >
-                  <option value="">All Locations</option>
-                  {uniqueLocations.map(l => <option key={l} value={l}>{l}</option>)}
-                </select>
-
-                <select
-                  aria-label="Filter by product"
-                  value={productFilter}
-                  onChange={e => setProductFilter(e.target.value)}
-                  className="h-10 px-3 rounded-md border border-input bg-background text-sm min-w-[160px]"
-                >
-                  <option value="">All Products</option>
-                  {uniqueProducts.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="h-10 justify-start text-left font-normal text-sm gap-2 min-w-[230px]">
-                      <CalendarDays size={15} className="text-slate-400" />
-                      {dateRange.from && dateRange.to
-                        ? `${format(dateRange.from, 'dd MMM yyyy')} – ${format(dateRange.to, 'dd MMM yyyy')}`
-                        : 'Pick date range'}
+              {/* Row 3: Action Buttons (Clear filters + record counts) */}
+              {(hasActiveFilters || listQuery.data?.results) && (
+                <div className="flex items-center gap-3 pt-2 border-t border-slate-100 h-10">
+                  {hasActiveFilters && (
+                    <Button variant="ghost" size="sm" className="h-9 gap-1.5 text-slate-500 hover:text-red-600 font-semibold border border-transparent hover:border-slate-200 shadow-2xs hover:bg-slate-50" onClick={clearFilters}>
+                      <X size={14} /> Clear filters
                     </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="range"
-                      selected={dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined}
-                      onSelect={r => setDateRange({ from: r?.from ?? null, to: r?.to ?? null })}
-                      numberOfMonths={2}
-                    />
-                  </PopoverContent>
-                </Popover>
+                  )}
 
-                {hasActiveFilters && (
-                  <Button variant="ghost" size="sm" className="h-9 gap-1.5 text-slate-500 hover:text-red-600" onClick={clearFilters}>
-                    <X size={14} /> Clear filters
-                  </Button>
-                )}
-
-                <span className="ml-auto text-xs text-slate-400 hidden sm:block">
-                  {listQuery.isFetching
-                    ? 'Loading…'
-                    : `${filtered.length.toLocaleString()} record${filtered.length !== 1 ? 's' : ''}`}
-                </span>
-              </div>
+                  <span className="ml-auto text-xs text-slate-400 font-medium">
+                    {listQuery.isFetching
+                      ? 'Loading…'
+                      : `${filtered.length.toLocaleString()} record${filtered.length !== 1 ? 's' : ''}`}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* ── Table ─────────────────────────────────────────────── */}

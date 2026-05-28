@@ -473,17 +473,17 @@ export const PickupProcessing = () => {
   const readOnly = isCurrentUserReadOnly();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
+  const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>('today');
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [productFilter, setProductFilter] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [pfiFilter, setPfiFilter] = useState<string | null>(null);
 
-  const hasAnyFilter = !!(searchQuery || filterType || dateRange.from || productFilter || locationFilter || statusFilter || pfiFilter);
+  const hasAnyFilter = !!(searchQuery || filterType !== 'today' || dateRange.from || productFilter || locationFilter || statusFilter || pfiFilter);
   const clearAllFilters = () => {
     setSearchQuery('');
-    setFilterType(null);
+    setFilterType('today');
     setDateRange({ from: null, to: null });
     setProductFilter(null);
     setLocationFilter(null);
@@ -755,26 +755,12 @@ export const PickupProcessing = () => {
       return { count: allResults.length, results: allResults };
     },
     retry: 2,
-    staleTime: 30_000,
+    staleTime: 60_000,
     gcTime: 5 * 60_000,
     placeholderData: keepPreviousData,
-    refetchOnWindowFocus: true
+    refetchOnWindowFocus: false
   });
 
-  // Auto-fetch ticket counts for released orders so the Trucks column shows the badge
-  useEffect(() => {
-    const orders = apiResponse?.results || [];
-    const relevant = orders.filter((o) => {
-      const s = (o.status || '').toLowerCase();
-      return s === 'released' || s === 'loaded';
-    });
-    relevant.forEach((o) => {
-      if (ticketCounts[o.id] === undefined) {
-        fetchTicketCount(o.id);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiResponse?.results, fetchTicketCount]);
 
   const openRelease = (order: Order) => {
     setSelectedOrder(order);
@@ -1091,6 +1077,21 @@ export const PickupProcessing = () => {
     return { total, released, loaded, totalQty, totalAmount };
   }, [filteredOrders]);
 
+  // Auto-fetch ticket counts only for currently visible orders to prevent 429 throttling
+  useEffect(() => {
+    const visibleOrders = filteredOrders.slice(0, visibleCount);
+    const relevant = visibleOrders.filter((o) => {
+      const s = (o.status || '').toLowerCase();
+      return s === 'released' || s === 'loaded';
+    });
+    relevant.forEach((o) => {
+      if (ticketCounts[o.id] === undefined) {
+        fetchTicketCount(o.id);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredOrders, visibleCount, fetchTicketCount]);
+
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value.toLowerCase());
   };
@@ -1166,28 +1167,28 @@ export const PickupProcessing = () => {
 
             
 
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
-              {/* Row 1: Search */}
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              {/* Row 1: Search (Full Row) */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Search</label>
+                <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <Input
                     placeholder="Search by name, reference, truck, driver, PFI…"
-                    className="pl-10"
+                    className="pl-10 h-10 text-sm w-full"
                     value={searchQuery}
                     onChange={handleSearch}
                   />
                 </div>
               </div>
 
-              {/* Row 2: Filter dropdowns */}
-              <div className="flex flex-row gap-3 flex-wrap items-end pt-2 border-t border-slate-100">
-                {/* Timeframe */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Timeframe</label>
+              {/* Row 2: Timeframe + Custom Date + Location + PFI + Actions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-3 border-t border-slate-100 items-end">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Timeframe</label>
                   <select
                     aria-label="Timeframe filter"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm w-full focus:outline-none focus:ring-2 focus:ring-slate-300"
                     value={filterType ?? ''}
                     onChange={(e) => {
                       const v = e.target.value as ''|'today'|'yesterday'|'week'|'month'|'year';
@@ -1203,22 +1204,23 @@ export const PickupProcessing = () => {
                   </select>
                 </div>
 
-                {/* Date Range */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Date Range</label>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Custom Date Range</label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className="h-9 justify-start text-left font-normal text-sm min-w-[200px]">
-                        <CalendarDays size={14} className="mr-2 text-slate-400" />
-                        {dateRange.from && dateRange.to
-                          ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
-                          : 'Pick date range'}
+                      <Button variant="outline" className="h-10 justify-start text-left font-normal text-sm gap-2 w-full">
+                        <CalendarDays size={15} className="text-slate-400 shrink-0" />
+                        <span className="truncate">
+                          {dateRange.from && dateRange.to
+                            ? `${format(dateRange.from, 'dd MMM yyyy')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+                            : 'Pick date range'}
+                        </span>
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
+                    <PopoverContent className="w-auto p-0" align="start">
                       <Calendar
                         mode="range"
-                        selected={dateRange}
+                        selected={dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined}
                         onSelect={(range) => {
                           setDateRange({ from: range?.from ?? null, to: range?.to ?? null });
                           if (range?.from) setFilterType(null);
@@ -1229,12 +1231,11 @@ export const PickupProcessing = () => {
                   </Popover>
                 </div>
 
-                {/* Location */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Location</label>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Location</label>
                   <select
                     aria-label="Location filter"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm w-full focus:outline-none focus:ring-2 focus:ring-slate-300"
                     value={locationFilter ?? ''}
                     onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
                   >
@@ -1245,12 +1246,11 @@ export const PickupProcessing = () => {
                   </select>
                 </div>
 
-                {/* PFI */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">PFI</label>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">PFI</label>
                   <select
                     aria-label="PFI filter"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm w-full focus:outline-none focus:ring-2 focus:ring-slate-300"
                     value={pfiFilter ?? ''}
                     onChange={(e) => setPfiFilter(e.target.value === '' ? null : e.target.value)}
                   >
@@ -1264,21 +1264,24 @@ export const PickupProcessing = () => {
                     )}
                   </select>
                 </div>
-
-                {/* Clear all */}
-                {hasAnyFilter && (
-                  <div className="flex items-end">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-1.5 text-xs text-slate-500 hover:text-slate-700 h-9"
-                      onClick={clearAllFilters}
-                    >
-                      <X size={13} /> Clear all
-                    </Button>
-                  </div>
-                )}
               </div>
+
+              {/* Row 3: Action Buttons (Clear filters + record counts) */}
+              {(hasAnyFilter || apiResponse?.results) && (
+                <div className="flex items-center gap-3 pt-2 border-t border-slate-100 h-10">
+                  {hasAnyFilter && (
+                    <Button variant="ghost" size="sm" className="h-9 gap-1.5 text-slate-500 hover:text-red-600 font-semibold border border-transparent hover:border-slate-200 shadow-2xs hover:bg-slate-50" onClick={clearAllFilters}>
+                      <X size={14} /> Clear filters
+                    </Button>
+                  )}
+
+                  <span className="ml-auto text-xs text-slate-400 font-medium">
+                    {isLoading
+                      ? 'Loading…'
+                      : `${filteredOrders.length.toLocaleString()} record${filteredOrders.length !== 1 ? 's' : ''}`}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
