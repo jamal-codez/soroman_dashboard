@@ -141,6 +141,9 @@ interface LedgerGroup {
 
 interface QuickPaymentForm {
   payment_amount: string;
+  rate: string;
+  quantity: string;
+  date_of_payment: string;
   payer_name: string;
   phone_number: string;
   bank_account_id: string;
@@ -291,11 +294,11 @@ export default function FillingStations() {
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [customerFilter, setCustomerFilter] = useState<string>('all');
   const [depotFilter, setDepotFilter] = useState<string>('all');
+  const [rateFilter, setRateFilter] = useState<string>('all');
   const [cycleFilter, setCycleFilter] = useState<string>('all'); // 'all' | '1' | '2' | ...
 
   // ── Allocation Codes (Backend-managed) ────────────────────────────
   const [allocationCodeFilter, setAllocationCodeFilter] = useState<string>('all');
-  const [dialogAllocationCode, setDialogAllocationCode] = useState<string>('');
   const [editAllocationCode, setEditAllocationCode] = useState<string>('');
 
   // ── Cycle aliases — merge two cycle groups (frontend-only, no API call) ─────────────
@@ -305,29 +308,26 @@ export default function FillingStations() {
   const [mergeMode, setMergeMode] = useState(false);
   const [mergePrimary, setMergePrimary] = useState<string | null>(null);
 
-  // ── Payment Dialog ─────────────────────────────────────────────────
-  const [dialogOpen, setDialogOpen] = useState(false);
-  // Shared truck-level fields
-  const [dialogTruckLoadingId, setDialogTruckLoadingId] = useState('');
-  const [dialogTruckNumber, setDialogTruckNumber] = useState('');
-  const [dialogDateLoaded, setDialogDateLoaded] = useState('');
-  const [dialogDepot, setDialogDepot] = useState('');
-  // Cycle override — 'auto' uses date from loading record; 'custom' lets user type a date
-  const [dialogCycleMode, setDialogCycleMode] = useState<'auto' | 'custom'>('auto');
-  const [dialogCustomDate, setDialogCustomDate] = useState('');
-  // Per-customer rows
-  const [saleRows, setSaleRows] = useState<SaleRow[]>([makeSaleRow()]);
-  const [rowErrors, setRowErrors] = useState<Record<string, Partial<Record<keyof SaleRow, string>>>>({});
-  const [saving, setSaving] = useState(false);
-  const [assignMode, setAssignMode] = useState(false); // assign customer to cycle without recording payment
   const [quickPaymentTarget, setQuickPaymentTarget] = useState<LedgerGroup | null>(null);
   const [quickPaymentForm, setQuickPaymentForm] = useState<QuickPaymentForm>({
     payment_amount: '',
+    rate: '',
+    quantity: '',
+    date_of_payment: '',
     payer_name: '',
     phone_number: '',
     bank_account_id: '',
   });
   const [quickPaymentSaving, setQuickPaymentSaving] = useState(false);
+
+  // ── Card expand/collapse ───────────────────────────────────────────
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const toggleCard = (key: string) =>
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
   const [setupTarget, setSetupTarget] = useState<LedgerGroup | null>(null);
   const [setupCustomer, setSetupCustomer] = useState('');
   const [setupDestination, setSetupDestination] = useState('');
@@ -455,10 +455,6 @@ export default function FillingStations() {
   const getCycleKey = (truckNum: string, dateLoaded: string | undefined | null): string =>
     `${(truckNum || '').trim().toUpperCase()}||${normalizeCycleDate(dateLoaded)}`;
 
-  const selectedTruck = useMemo(() => {
-    return allLoadings.find(t => String(t.id) === dialogTruckLoadingId);
-  }, [allLoadings, dialogTruckLoadingId]);
-
   const cyclePaymentSummary = useMemo(() => {
     const map = new Map<string, {
       truckNumber: string;
@@ -491,13 +487,7 @@ export default function FillingStations() {
     return map;
   }, [allSales]);
 
-  const dialogRemainingQty = useMemo(() => {
-    if (!selectedTruck) return null;
-    const cycleKey = getCycleKey(selectedTruck.truck_number || '', selectedTruck.date_allocated || '');
-    const cycle = cyclePaymentSummary.get(cycleKey);
-    const cumulativeSold = cycle ? cycle.entries.reduce((sum, p) => sum + toNum(p.quantity), 0) : 0;
-    return Math.max(0, toNum(selectedTruck.quantity_allocated) - cumulativeSold);
-  }, [selectedTruck, cyclePaymentSummary]);
+
 
   // Cycle number per truck: Cycle 1, Cycle 2... based on real loading dates.
   const cycleNumberMap = useMemo(() => {
@@ -712,6 +702,13 @@ export default function FillingStations() {
     return Array.from(set).sort();
   }, [allSales]);
 
+  // Unique rates (₦/L) present across all filling-station sales
+  const uniqueRates = useMemo(() => {
+    const set = new Set<number>();
+    allSales.forEach(s => { const r = toNum(s.rate); if (r > 0) set.add(r); });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [allSales]);
+
   // Unique cycle numbers across all trucks — e.g. "Cycle 1", "Cycle 2"
   // Cycle 1 = a truck's first load, Cycle 2 = same truck reloaded, etc.
   const uniqueCycleOptions = useMemo(() => {
@@ -909,6 +906,13 @@ export default function FillingStations() {
       );
     }
 
+    if (rateFilter !== 'all') {
+      const rateNum = Number(rateFilter);
+      result = result.filter(group =>
+        group.payments.some(p => Math.abs(toNum(p.rate) - rateNum) < 1),
+      );
+    }
+
     return result.sort((left, right) => {
       const leftCode = left.code || 'ZZZZZZZZ';
       const rightCode = right.code || 'ZZZZZZZZ';
@@ -918,7 +922,7 @@ export default function FillingStations() {
       if (dateDiff !== 0) return dateDiff;
       return (left.truckNumber || '').localeCompare(right.truckNumber || '');
     });
-  }, [ledgerGroups, dateRange, truckFilter, locationFilter, customerFilter, depotFilter, allocationCodeFilter, searchQuery]);
+  }, [ledgerGroups, dateRange, truckFilter, locationFilter, customerFilter, depotFilter, allocationCodeFilter, searchQuery, rateFilter]);
 
   const totals = useMemo(() => {
     let totalExpected = 0;
@@ -985,6 +989,26 @@ export default function FillingStations() {
 
     return cards;
   }, [totals]);
+
+  // ── Rate breakdown for the "Sales by Rate" summary panel ───────────────
+  // Computed from filteredSales (all filters applied EXCEPT rateFilter)
+  // so the panel always shows ALL rates and highlights the selected one.
+  const rateGroups = useMemo(() => {
+    const map = new Map<number, { rate: number; qty: number; expected: number; paid: number; entryCount: number }>();
+    filteredSales.forEach(s => {
+      const r = toNum(s.rate);
+      if (!r) return;
+      const prev = map.get(r) ?? { rate: r, qty: 0, expected: 0, paid: 0, entryCount: 0 };
+      prev.qty      += toNum(s.quantity);
+      prev.expected += toNum(s.sales_value);
+      prev.paid     += toNum(s.payment_amount);
+      prev.entryCount += 1;
+      map.set(r, prev);
+    });
+    return Array.from(map.values())
+      .sort((a, b) => a.rate - b.rate)
+      .map(g => ({ ...g, balance: g.expected - g.paid }));
+  }, [filteredSales]);
 
   const saleToLoadingMap = useMemo(() => {
     const map = new Map<number, number>();
@@ -1091,254 +1115,7 @@ export default function FillingStations() {
     return q * r > 0 ? formatWithCommas(String(q * r)) : '';
   };
 
-  const openPaymentDialog = (preSelectLoadingId?: string, inAssignMode = false) => {
-    setDialogTruckLoadingId('');
-    setDialogTruckNumber('');
-    setDialogDateLoaded('');
-    setDialogDepot('');
-    setDialogCycleMode('auto');
-    setDialogCustomDate('');
-    setDialogAllocationCode('');
-    setSaleRows([makeSaleRow()]);
-    setRowErrors({});
-    setAssignMode(inAssignMode);
-    setDialogOpen(true);
-    // Pre-select a truck if provided (state updates are batched — handleTruckSelect wins)
-    if (preSelectLoadingId) handleTruckSelect(preSelectLoadingId);
-  };
 
-  const handleTruckSelect = (loadingId: string) => {
-    setDialogTruckLoadingId(loadingId);
-    setDialogCycleMode('auto');
-    setDialogCustomDate('');
-    const loading = loadedTrucks.find(t => String(t.id) === loadingId);
-    if (!loading) {
-      setDialogTruckNumber('');
-      setDialogDateLoaded('');
-      setDialogDepot('');
-      setDialogAllocationCode('');
-      setSaleRows([makeSaleRow()]);
-      return;
-    }
-
-    const depot = loading.depot || loading.pfi_location || loading.location || '';
-    setDialogTruckNumber(loading.truck_number || '');
-    setDialogDateLoaded(loading.date_allocated || '');
-    setDialogDepot(depot);
-    setDialogAllocationCode(loading.allocation_code || '');
-
-    // Pre-fill first row from the loading record (customer + destination + qty)
-    const custId = loading.customer ? String(loading.customer) : '';
-    const custObj = loading.customer ? customerMap.get(loading.customer) : null;
-    const custName = loading.customer_name || custObj?.customer_name || '';
-    const destination = loading.location || '';
-    const cycleKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
-    const cycle = cyclePaymentSummary.get(cycleKey);
-    const cumulativeSold = cycle ? cycle.entries.reduce((sum, p) => sum + toNum(p.quantity), 0) : 0;
-    const remainingQty = Math.max(0, toNum(loading.quantity_allocated) - cumulativeSold);
-    const qty = remainingQty > 0 ? remainingQty : toNum(loading.quantity_allocated);
-
-    // Check for existing rate for this cycle+customer combo
-    const cycleRates = cycleCustomerRateMap.get(cycleKey);
-    const existingRate = (custId && cycleRates?.get(custId)) || '';
-    const rateLocked = !!existingRate && !isFillingStation(custObj);
-
-    const qtyStr = qty > 0 ? formatWithCommas(String(qty)) : '';
-    const sv = existingRate && qtyStr
-      ? formatWithCommas(String(Number(stripCommas(qtyStr)) * Number(stripCommas(existingRate))))
-      : '';
-
-    // Auto-fill phone for filling station customers
-    const autoPhone = (custObj && isFillingStation(custObj) && custObj.phone_number) ? custObj.phone_number : '';
-    const autoPayerName = (custObj && isFillingStation(custObj) && custObj.contact_person) ? custObj.contact_person : '';
-    const autoPayerPhone = (custObj && isFillingStation(custObj) && custObj.contact_person_phone)
-      ? custObj.contact_person_phone
-      : autoPhone;
-
-    setSaleRows([{
-      ...makeSaleRow(),
-      customer: custId,
-      customer_name: custName,
-      location: destination,
-      quantity: qtyStr,
-      rate: existingRate,
-      rateLocked,
-      sales_value: sv,
-      phone_number: autoPayerPhone,
-      payer_name: autoPayerName,
-    }]);
-  };
-
-  const updateSaleRow = (uid: string, field: keyof Omit<SaleRow, 'uid'>, value: string) => {
-    // Clear error for this field on change
-    if (rowErrors[uid]?.[field]) {
-      setRowErrors(prev => {
-        const next = { ...prev };
-        if (next[uid]) { next[uid] = { ...next[uid] }; delete next[uid][field]; }
-        return next;
-      });
-    }
-    setSaleRows(prev => prev.map(row => {
-      if (row.uid !== uid) return row;
-      // Prevent changing rate when it's locked for this row
-      if (field === 'rate' && row.rateLocked) return row;
-
-      const updated = { ...row, [field]: field === 'quantity' || field === 'rate' || field === 'payment_amount' || field === 'sales_value'
-        ? (field === 'sales_value' ? value : formatWithCommas(value))
-        : value };
-
-      // When customer is selected, check if they already have a rate for this cycle
-      // Also auto-fill phone for filling stations
-      if (field === 'customer') {
-        const selectedCust = value ? customerMap.get(Number(value)) : null;
-        const cycleKey = getCycleKey(dialogTruckNumber, dialogDateLoaded);
-        const cycleRates = cycleCustomerRateMap.get(cycleKey);
-        const priorRate = value ? cycleRates?.get(value) : undefined;
-        if (priorRate && !isFillingStation(selectedCust)) {
-          updated.rate = priorRate;
-          updated.rateLocked = true;
-          const q = Number(stripCommas(updated.quantity)) || 0;
-          const r = Number(stripCommas(priorRate)) || 0;
-          updated.sales_value = q * r > 0 ? formatWithCommas(String(q * r)) : '';
-        } else {
-          updated.rateLocked = false;
-        }
-        // Auto-fill phone number and payer name from customer profile for filling stations
-        if (selectedCust && isFillingStation(selectedCust)) {
-          if (selectedCust.contact_person) updated.payer_name = selectedCust.contact_person;
-          if (selectedCust.contact_person_phone) updated.phone_number = selectedCust.contact_person_phone;
-          else if (selectedCust.phone_number) updated.phone_number = selectedCust.phone_number;
-        }
-      }
-
-      // Auto-calc sales_value when qty or rate changes
-      if (field === 'quantity' || field === 'rate') {
-        const q = Number(stripCommas(field === 'quantity' ? value : row.quantity)) || 0;
-        const r = Number(stripCommas(field === 'rate' ? value : row.rate)) || 0;
-        updated.sales_value = q * r > 0 ? formatWithCommas(String(q * r)) : '';
-      }
-      return updated;
-    }));
-  };
-
-  const addSaleRow = () => setSaleRows(prev => [...prev, makeSaleRow()]);
-
-  const removeSaleRow = (uid: string) => {
-    setSaleRows(prev => prev.length > 1 ? prev.filter(r => r.uid !== uid) : prev);
-  };
-
-  const handleSave = useCallback(async () => {
-    if (!dialogTruckNumber.trim()) {
-      toast({ title: 'Please select a truck', variant: 'destructive' });
-      return;
-    }
-
-    // Validate rows — keep any row that has a customer selected or any data entered
-    const filledRows = saleRows.filter(r => r.customer || r.payment_amount || r.rate || r.quantity);
-    if (filledRows.length === 0) {
-      toast({ title: 'Add at least one customer row', variant: 'destructive' });
-      return;
-    }
-
-    // Per-field validation
-    const errors: Record<string, Partial<Record<keyof SaleRow, string>>> = {};
-    const nameOnlyRegex = /^[A-Za-z\s'\-\.]+$/;
-
-    filledRows.forEach(row => {
-      const e: Partial<Record<keyof SaleRow, string>> = {};
-      const custObj = row.customer ? customerMap.get(Number(row.customer)) : null;
-      const isFS = isFillingStation(custObj);
-
-      if (!row.customer) e.customer = 'Customer is required';
-      if (!row.location.trim()) e.location = 'Destination is required';
-
-      if (!assignMode) {
-        if (!row.rate || Number(stripCommas(row.rate)) <= 0) e.rate = 'Rate is required';
-        if (!isFS && !row.bank_account_id) e.bank_account_id = 'Select a bank account';
-        if (!isFS && !row.date_of_payment) e.date_of_payment = 'Payment date is required';
-        if (row.payer_name.trim() && !nameOnlyRegex.test(row.payer_name.trim())) {
-          e.payer_name = 'Payer name should contain letters only — no numbers';
-        }
-      }
-
-      if (Object.keys(e).length) errors[row.uid] = e;
-    });
-
-    if (Object.keys(errors).length) {
-      setRowErrors(errors);
-      toast({ title: 'Please fix the highlighted fields', variant: 'destructive' });
-      return;
-    }
-    setRowErrors({});
-
-    setSaving(true);
-    try {
-      const currentUser = localStorage.getItem('fullname') || 'Unknown';
-      const promises = filledRows.map(row => {
-        const bankAcct = row.bank_account_id ? bankMap.get(Number(row.bank_account_id)) : null;
-        const bankStr = bankAcct
-          ? `${bankAcct.account_number} · ${bankAcct.bank_name}`
-          : '';
-        const custObj = row.customer ? customerMap.get(Number(row.customer)) : null;
-
-        return apiClient.admin.createDeliverySale({
-          truck_number: dialogTruckNumber.trim(),
-          date_loaded: (dialogCycleMode === 'custom' ? dialogCustomDate : dialogDateLoaded) || format(new Date(), 'yyyy-MM-dd'),
-          depot_loaded: dialogDepot.trim() || undefined,
-          customer: row.customer ? Number(row.customer) : 0,
-          location: row.location.trim() || undefined,
-          quantity: Number(stripCommas(row.quantity)) || undefined,
-          rate: !assignMode ? (Number(stripCommas(row.rate)) || undefined) : undefined,
-          sales_value: !assignMode ? (Number(stripCommas(row.sales_value)) || undefined) : undefined,
-          payment_amount: !assignMode ? (Number(stripCommas(row.payment_amount)) || undefined) : undefined,
-          payer_name: !assignMode ? (row.payer_name.trim() || undefined) : undefined,
-          bank: !assignMode ? (bankStr || undefined) : undefined,
-          date_of_payment: !assignMode ? (row.date_of_payment || undefined) : undefined,
-          phone_number: row.phone_number.trim() || undefined,
-          remarks: row.remarks.trim() || undefined,
-          entered_by: currentUser,
-          allocation_code: dialogAllocationCode.trim() || undefined,
-        });
-      });
-
-      await Promise.all(promises);
-
-      // Write customer(s), destination(s), & allocation code back to the inventory entry
-      const loadingId = Number(dialogTruckLoadingId);
-      if (loadingId) {
-        try {
-          const firstRow = filledRows[0];
-          const custName = firstRow.customer
-            ? (customerMap.get(Number(firstRow.customer))?.customer_name || firstRow.customer_name)
-            : '';
-          await apiClient.admin.updateDeliveryInventory(loadingId, {
-            ...(firstRow.customer ? { customer: Number(firstRow.customer), customer_name: custName } : {}),
-            ...(firstRow.location.trim() ? { location: firstRow.location.trim() } : {}),
-            ...(dialogAllocationCode.trim() ? { allocation_code: dialogAllocationCode.trim() } : {}),
-          });
-        } catch {
-          // Non-critical
-        }
-      }
-
-      toast({
-        title: assignMode
-          ? `${filledRows.length} customer${filledRows.length > 1 ? 's' : ''} assigned to cycle`
-          : `${filledRows.length} entr${filledRows.length > 1 ? 'ies' : 'y'} recorded`,
-        description: `Truck ${dialogTruckNumber} · ${filledRows.length} customer${filledRows.length > 1 ? 's' : ''}`,
-      });
-      setDialogOpen(false);
-      invalidateAll();
-    } catch (err: unknown) {
-      toast({
-        title: 'Error',
-        description: err instanceof Error ? err.message : 'Failed to save entry',
-        variant: 'destructive',
-      });
-    } finally {
-      setSaving(false);
-    }
-  }, [dialogTruckNumber, dialogDateLoaded, dialogCycleMode, dialogCustomDate, dialogDepot, dialogTruckLoadingId, dialogAllocationCode, saleRows, toast, bankMap, customerMap, assignMode]);
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -1379,26 +1156,19 @@ export default function FillingStations() {
   };
 
   const openQuickPaymentDialog = (group: LedgerGroup) => {
-    if (!group.customerId || !group.location || !group.quantity || (!group.expected && !group.isFillingStation)) {
-      if (group.loadingId) {
-        openPaymentDialog(String(group.loadingId));
-        toast({
-          title: 'Complete the first entry details first',
-          description: 'This row still needs customer, destination, quantity or rate information before follow-up payments can use the short form.',
-        });
-      } else {
-        toast({
-          title: 'This row needs a full setup first',
-          variant: 'destructive',
-        });
-      }
+    if (!group.customerId) {
+      toast({ title: 'Set up this row first', description: 'Click "Set Up" to assign the customer, destination and quantity.', variant: 'destructive' });
       return;
     }
 
     const customer = group.customerId ? customerMap.get(group.customerId) : null;
+    const today = format(new Date(), 'yyyy-MM-dd');
     setQuickPaymentTarget(group);
     setQuickPaymentForm({
       payment_amount: '',
+      rate: group.rate > 0 ? String(group.rate) : '',
+      quantity: '',
+      date_of_payment: today,
       payer_name: '',
       phone_number: customer?.contact_person_phone || customer?.phone_number || '',
       bank_account_id: '',
@@ -1506,19 +1276,23 @@ export default function FillingStations() {
       const bankAcct = bankMap.get(Number(quickPaymentForm.bank_account_id));
       const bankStr = bankAcct ? `${bankAcct.account_number} · ${bankAcct.bank_name}` : undefined;
       const currentUser = localStorage.getItem('fullname') || 'Unknown';
+      // Use form-entered rate/qty when provided, otherwise fall back to group-level values
+      const enteredRate = Number(stripCommas(quickPaymentForm.rate)) || quickPaymentTarget.rate || 0;
+      const enteredQty  = Number(stripCommas(quickPaymentForm.quantity)) || quickPaymentTarget.quantity || 0;
+      const enteredExpected = enteredQty && enteredRate ? enteredQty * enteredRate : quickPaymentTarget.expected || 0;
       const record = await apiClient.admin.createDeliverySale({
         truck_number: quickPaymentTarget.truckNumber,
         date_loaded: quickPaymentTarget.dateLoaded || format(new Date(), 'yyyy-MM-dd'),
         depot_loaded: quickPaymentTarget.depot || undefined,
         customer: quickPaymentTarget.customerId || 0,
         location: quickPaymentTarget.location || undefined,
-        quantity: quickPaymentTarget.quantity || undefined,
-        rate: quickPaymentTarget.rate || undefined,
-        sales_value: quickPaymentTarget.expected || undefined,
+        quantity: enteredQty || undefined,
+        rate: enteredRate || undefined,
+        sales_value: enteredExpected || undefined,
         payment_amount: paymentAmount,
         payer_name: payerName || undefined,
         bank: bankStr,
-        date_of_payment: format(new Date(), 'yyyy-MM-dd'),
+        date_of_payment: quickPaymentForm.date_of_payment || format(new Date(), 'yyyy-MM-dd'),
         phone_number: quickPaymentForm.phone_number.trim() || undefined,
         entered_by: currentUser,
         allocation_code: quickPaymentTarget.code || undefined,
@@ -1529,7 +1303,7 @@ export default function FillingStations() {
         description: `${quickPaymentTarget.truckNumber} · ${fmt(paymentAmount)}`,
       });
       setQuickPaymentTarget(null);
-      setQuickPaymentForm({ payment_amount: '', payer_name: '', phone_number: '', bank_account_id: '' });
+      setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '' });
       invalidateAll();
     } catch (err: unknown) {
       toast({
@@ -1900,86 +1674,43 @@ export default function FillingStations() {
         <div className="flex-1 overflow-auto p-4 sm:p-6">
           <div className="max-w-[1600px] mx-auto space-y-5">
 
-            {/* Header */}
+            {/* ── Page Header ── */}
             <PageHeader
-              title="Filling Stations Ledger"
-              description="Manage loaded truck and add incremental payments under each truck. Only filling stations are shown."
+              title="Filling Stations"
+              description="Fuel allocated to filling stations. Each card is one delivery allocation — record daily sales as the station sells."
               actions={
                 <>
                   <Button variant="default" className="gap-2" onClick={exportExcel} disabled={filteredSales.length === 0}>
                     <Download size={16} /> Download Report
                   </Button>
-                  {/* {!readOnly && (
-                    <Button className="gap-2" onClick={() => openPaymentDialog()}>
-                      <Plus size={16} /> Record Payment
-                    </Button>
-                  )} */}
                 </>
               }
             />
 
-            {/* ══════════════════════════════════════════════════════
-                TRIP CODE MANAGER — create / delete trip identifiers
-            ══════════════════════════════════════════════════════ */}
-            {/* ══════════════════════════════════════════════════════
-                FILTER PANEL — always visible, one unified card
-            ══════════════════════════════════════════════════════ */}
+            {/* ── Summary Cards ── */}
+            <SummaryCards cards={summaryCards} />
+
+            {/* ── Filter Panel ── */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-
-              {/* Card header */}
-              {/* <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-slate-50/60"> */}
-                {/* <Filter size={15} className="text-slate-500" /> */}
-                {/* <span className="text-sm font-semibold text-slate-700">Filter &amp; Search</span> */}
-                {/* Active filter count */}
-                {/* {[truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter].filter(v => v !== 'all').length > 0 && ( */}
-                  {/* <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 text-white leading-none">
-                    {[truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter].filter(v => v !== 'all').length} active
-                  </span> */}
-                {/* )} */}
-                {/* Clear all — only when filters are active */}
-                {/* {([truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter, searchQuery].some(v => v !== 'all' && v !== '')) && (
-                  <button
-                    title="Clear all filters"
-                    onClick={() => {
-                      setTruckFilter('all');
-                      setDepotFilter('all');
-                      setLocationFilter('all');
-                      setCustomerFilter('all');
-                      setTripCodeFilter('all');
-                      setSearchQuery('');
-                    }}
-                    className="ml-auto text-xs text-slate-400 hover:text-red-500 flex items-center gap-1 transition-colors"
-                  >
-                    <X size={12} /> Clear all filters
-                  </button>
-                )}
-              </div> */}
-
-              <div className="p-5 space-y-5">
+              <div className="p-5 space-y-4">
 
                 {/* Search */}
-                <div>
-                  <div className="relative w-full">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                    <Input
-                      placeholder="Type any word — truck number, customer name, payer, bank, code…"
-                      className="pl-9 h-9 text-sm"
-                      value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)}
-                    />
-                    {searchQuery && (
-                      <button
-                        title="Clear search"
-                        onClick={() => setSearchQuery('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
+                <div className="relative w-full">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                  <Input
+                    placeholder="Search by station, truck, payer, code…"
+                    className="pl-9 h-9 text-sm"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button title="Clear search" onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
+                      <X size={14} />
+                    </button>
+                  )}
                 </div>
 
-                {/* Time Period */}
+                {/* Time Presets */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                     <CalendarIcon size={12} /> Time Period
@@ -1989,7 +1720,6 @@ export default function FillingStations() {
                       <button
                         key={tp}
                         type="button"
-                        title={`Show ${tp === 'all' ? 'all time' : tp === 'custom' ? 'custom date range' : tp}`}
                         onClick={() => handlePresetChange(tp)}
                         className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
                           timePreset === tp
@@ -2015,1258 +1745,625 @@ export default function FillingStations() {
                   )}
                 </div>
 
-                <div className="border-t border-slate-100" />            
+                <div className="border-t border-slate-100" />
 
-                {/* Dropdown filters */}
-                <div className="space-y-2">
-                  {/* <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <Filter size={12} /> Narrow Down Results
-                  </p> */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-3">
-
-                    {/* Truck */}
-                    <div className="space-y-1.5">
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                        <Truck size={12} className="text-slate-400" /> Truck
-                      </label>
-                      <select
-                        aria-label="Filter by truck"
-                        value={truckFilter}
-                        onChange={e => setTruckFilter(e.target.value)}
-                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
-                          truckFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
-                        }`}
-                      >
-                        <option value="all">All Trucks</option>
-                        {uniqueTruckNumbers.map(t => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Depot */}
-                    {/* <div className="space-y-1.5">
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                        <Building2 size={12} className="text-slate-400" /> Depot (Loading Point)
-                      </label>
-                      <select
-                        aria-label="Filter by depot"
-                        value={depotFilter}
-                        onChange={e => setDepotFilter(e.target.value)}
-                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
-                          depotFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
-                        }`}
-                      >
-                        <option value="all">All Depots</option>
-                        {uniqueDepots.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
-                    </div> */}
-
-                    {/* Destination */}
-                    <div className="space-y-1.5">
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                        <MapPin size={12} className="text-slate-400" /> Destination
-                      </label>
-                      <select
-                        aria-label="Filter by destination"
-                        value={locationFilter}
-                        onChange={e => setLocationFilter(e.target.value)}
-                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
-                          locationFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
-                        }`}
-                      >
-                        <option value="all">All Destinations</option>
-                        {uniqueLocations.map(l => (
-                          <option key={l} value={l}>{l}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Customer */}
-                    <div className="space-y-1.5">
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                        <Users size={12} className="text-slate-400" /> Customer
-                      </label>
-                      <select
-                        aria-label="Filter by customer"
-                        value={customerFilter}
-                        onChange={e => setCustomerFilter(e.target.value)}
-                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
-                          customerFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
-                        }`}
-                      >
-                        <option value="all">All Customers</option>
-                        {uniqueCustomerOptions.map(c => (
-                          <option key={c.id} value={String(c.id)}>{c.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Code */}
-                    {uniqueAllocationCodes.length > 0 && (
-                      <div className="space-y-1.5">
-                        <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                          <Tag size={12} className="text-purple-400" /> Allocation Code
-                        </label>
-                        <select
-                          aria-label="Filter by Allocation Code"
-                          value={allocationCodeFilter}
-                          onChange={e => setAllocationCodeFilter(e.target.value)}
-                          className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-purple-300 ${
-                            allocationCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          <option value="all">All Allocation Codes</option>
-                          {uniqueAllocationCodes.map(code => {
-                            const count = ledgerGroups.filter(g => g.code === code).length;
-                            return (
-                              <option key={code} value={code}>{code}{count > 0 ? ` (${count} rows)` : ''}</option>
-                            );
-                          })}
-                        </select>
-                      </div>
-                    )}
+                {/* Dropdown Filters */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+                  {/* Truck */}
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><Truck size={12} className="text-slate-400" /> Truck</label>
+                    <select aria-label="Filter by truck" value={truckFilter} onChange={e => setTruckFilter(e.target.value)}
+                      className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${truckFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'}`}>
+                      <option value="all">All Trucks</option>
+                      {uniqueTruckNumbers.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
                   </div>
+                  {/* Destination */}
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><MapPin size={12} className="text-slate-400" /> Destination</label>
+                    <select aria-label="Filter by destination" value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
+                      className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${locationFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'}`}>
+                      <option value="all">All Destinations</option>
+                      {uniqueLocations.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </div>
+                  {/* Station */}
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><Users size={12} className="text-slate-400" /> Station</label>
+                    <select aria-label="Filter by station" value={customerFilter} onChange={e => setCustomerFilter(e.target.value)}
+                      className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${customerFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'}`}>
+                      <option value="all">All Stations</option>
+                      {uniqueCustomerOptions.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  {/* Allocation Code */}
+                  {uniqueAllocationCodes.length > 0 && (
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><Tag size={12} className="text-purple-400" /> Code</label>
+                      <select aria-label="Filter by allocation code" value={allocationCodeFilter} onChange={e => setAllocationCodeFilter(e.target.value)}
+                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${allocationCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-700'}`}>
+                        <option value="all">All Codes</option>
+                        {uniqueAllocationCodes.map(code => <option key={code} value={code}>{code}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {/* Rate */}
+                  {uniqueRates.length > 0 && (
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><TrendingUp size={12} className="text-indigo-400" /> Rate (₦/L)</label>
+                      <select aria-label="Filter by rate" value={rateFilter} onChange={e => setRateFilter(e.target.value)}
+                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${rateFilter !== 'all' ? 'border-indigo-600 font-semibold text-indigo-900 bg-indigo-50' : 'border-slate-200 text-slate-700'}`}>
+                        <option value="all">All Rates</option>
+                        {uniqueRates.map(r => <option key={r} value={String(r)}>₦{r.toLocaleString()}/L</option>)}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
-                {/* ── Divider ─────────────────────────────────────── */}
-                {/* <div className="border-t border-slate-100" /> */}
-
-
-                {/* ── Active filter chips ──────────────────────────── */}
-                {[
-                  truckFilter !== 'all' && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('all') },
-                  depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
-                  locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
-                  customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
-                  allocationCodeFilter !== 'all' && { label: `Code: ${allocationCodeFilter}`, clear: () => setAllocationCodeFilter('all') },
-                  searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
-                ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <span className="text-xs text-slate-400 shrink-0">You're viewing:</span>
-                    {[
-                      truckFilter !== 'all' && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('all') },
-                      depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
-                      locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
-                      customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
-                      allocationCodeFilter !== 'all' && { label: `Code: ${allocationCodeFilter}`, clear: () => setAllocationCodeFilter('all') },
-                      searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
-                    ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
-                      <span key={chip.label} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        chip.label.startsWith('Code:') ? 'bg-purple-700 text-white' : 'bg-slate-900 text-white'
-                      }`}>
-                        {chip.label}
-                        <button title={`Remove: ${chip.label}`} onClick={chip.clear} className="hover:text-slate-300 ml-0.5">
-                          <X size={10} />
-                        </button>
-                      </span>
-                    ))}
+                {/* Active filter chips */}
+                {(truckFilter !== 'all' || locationFilter !== 'all' || customerFilter !== 'all' || allocationCodeFilter !== 'all' || rateFilter !== 'all') && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <span className="text-xs text-slate-500 flex items-center gap-1"><Filter size={11} /> Filtering:</span>
+                    {truckFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium"><Truck size={10} />{truckFilter}<button onClick={() => setTruckFilter('all')}><X size={10} /></button></span>}
+                    {locationFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium"><MapPin size={10} />{locationFilter}<button onClick={() => setLocationFilter('all')}><X size={10} /></button></span>}
+                    {customerFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium"><Users size={10} />{uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}<button onClick={() => setCustomerFilter('all')}><X size={10} /></button></span>}
+                    {allocationCodeFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-medium"><Tag size={10} />{allocationCodeFilter}<button onClick={() => setAllocationCodeFilter('all')}><X size={10} /></button></span>}
+                    {rateFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-xs font-medium"><TrendingUp size={10} />₦{Number(rateFilter).toLocaleString()}/L<button onClick={() => setRateFilter('all')}><X size={10} /></button></span>}
                   </div>
                 )}
-
-                {/* ── Results summary line ─────────────────────────── */}
-                {/* ── Custom PFI Labels ────────────────────────────── */}
-                {/* <div className="border-t border-slate-100" />
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
-                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
-                    </span>
-                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
-                      <span key={pfi} className="inline-flex items-center gap-0.5">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {pfi} → {label}
-                        </span>
-                        {!readOnly && (
-                          <button
-                            type="button"
-                            onClick={() => deletePfiLabel(pfi)}
-                            title={`Remove label for PFI "${pfi}"`}
-                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
-                          >
-                            <X size={10} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                    {Object.keys(pfiCodeMap).length === 0 && (
-                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
-                    )}
-                    {!readOnly && (
-                      <span className="inline-flex items-center gap-1 ml-1">
-                        <input
-                          placeholder="PFI no."
-                <div className="border-t border-slate-100" />
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
-                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
-                    </span>
-                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
-                      <span key={pfi} className="inline-flex items-center gap-0.5">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {pfi} → {label}
-                        </span>
-                        {!readOnly && (
-                          <button
-                            type="button"
-                            onClick={() => deletePfiLabel(pfi)}
-                            title={`Remove label for PFI "${pfi}"`}
-                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
-                          >
-                            <X size={10} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                    {Object.keys(pfiCodeMap).length === 0 && (
-                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
-                    )}
-                    {!readOnly && (
-                      <span className="inline-flex items-center gap-1 ml-1">
-                        <input
-                          placeholder="PFI no."
-                <div className="border-t border-slate-100" />
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
-                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
-                    </span>
-                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
-                      <span key={pfi} className="inline-flex items-center gap-0.5">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {pfi} → {label}
-                        </span>
-                        {!readOnly && (
-                          <button
-                            type="button"
-                            onClick={() => deletePfiLabel(pfi)}
-                            title={`Remove label for PFI "${pfi}"`}
-                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
-                          >
-                            <X size={10} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                    {Object.keys(pfiCodeMap).length === 0 && (
-                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
-                    )}
-                    {!readOnly && (
-                      <span className="inline-flex items-center gap-1 ml-1">
-                        <input
-                          placeholder="PFI no."
-                <div className="border-t border-slate-100" />
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
-                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
-                    </span>
-                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
-                      <span key={pfi} className="inline-flex items-center gap-0.5">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {pfi} → {label}
-                        </span>
-                        {!readOnly && (
-                          <button
-                            type="button"
-                            onClick={() => deletePfiLabel(pfi)}
-                            title={`Remove label for PFI "${pfi}"`}
-                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
-                          >
-                            <X size={10} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                    {Object.keys(pfiCodeMap).length === 0 && (
-                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
-                    )}
-                    {!readOnly && (
-                      <span className="inline-flex items-center gap-1 ml-1">
-                        <input
-                          placeholder="PFI no."
-                <div className="border-t border-slate-100" />
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
-                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
-                    </span>
-                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
-                      <span key={pfi} className="inline-flex items-center gap-0.5">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {pfi} → {label}
-                        </span>
-                        {!readOnly && (
-                          <button
-                            type="button"
-                            onClick={() => deletePfiLabel(pfi)}
-                            title={`Remove label for PFI "${pfi}"`}
-                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
-                          >
-                            <X size={10} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                    {Object.keys(pfiCodeMap).length === 0 && (
-                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
-                    )}
-                    {!readOnly && (
-                      <span className="inline-flex items-center gap-1 ml-1">
-                        <input
-                          placeholder="PFI no."
-                <div className="border-t border-slate-100" />
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
-                      <FileText size={11} className="text-indigo-400" /> Custom PFI Labels
-                    </span>
-                    {Object.entries(pfiCodeMap).map(([pfi, label]) => (
-                      <span key={pfi} className="inline-flex items-center gap-0.5">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {pfi} → {label}
-                        </span>
-                        {!readOnly && (
-                          <button
-                            type="button"
-                            onClick={() => deletePfiLabel(pfi)}
-                            title={`Remove label for PFI "${pfi}"`}
-                            className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
-                          >
-                            <X size={10} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                    {Object.keys(pfiCodeMap).length === 0 && (
-                      <span className="text-xs text-slate-400 italic">No labels — map a system PFI number to your internal code below</span>
-                    )}
-                    {!readOnly && (
-                      <span className="inline-flex items-center gap-1 ml-1">
-                        <input
-                          placeholder="PFI no."
-                          className="h-6 px-2 text-xs rounded border border-dashed border-slate-300 bg-transparent focus:outline-none focus:border-indigo-400 w-16"
-                          value={pfiLabelInput.pfi}
-                          onChange={e => setPfiLabelInput(prev => ({ ...prev, pfi: e.target.value }))}
-                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); savePfiLabel(); } }}
-                        />
-                        <span className="text-slate-400 text-xs">→</span>
-                        <input
-                          placeholder="your code"
-                          className="h-6 px-2 text-xs rounded border border-dashed border-slate-300 bg-transparent focus:outline-none focus:border-indigo-400 w-24 uppercase"
-                          value={pfiLabelInput.label}
-                          onChange={e => setPfiLabelInput(prev => ({ ...prev, label: e.target.value.toUpperCase() }))}
-                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); savePfiLabel(); } }}
-                        />
-                        <button
-                          type="button"
-                          onClick={savePfiLabel}
-                          className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors"
-                        >
-                          Add
-                        </button>
-                      </span>
-                    )}
-                  </div>
-                </div> */}
-
-                {/* ── Codes ────────────────────────────────────────── */}
-                {/* <div className="border-t border-slate-100" />
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 shrink-0">
-                      <Tag size={11} className="text-purple-400" /> PFI Codes
-                    </span>
-                    {tripCodes.map(code => {
-                      const count = Object.values(saleTripMap).filter(v => v === code).length;
-                      return (
-                        <span key={code} className="inline-flex items-center gap-0.5">
-                          <button
-                            type="button"
-                            onClick={() => setTripCodeFilter(prev => prev === code ? 'all' : code)}
-                            className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors ${
-                              tripCodeFilter === code
-                                ? 'bg-purple-700 text-white border-purple-700'
-                                : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
-                            }`}
-                          >
-                            {code}{count > 0 ? ` · ${count}` : ''}
-                          </button>
-                          {!readOnly && (
-                            <button
-                              type="button"
-                              onClick={() => deleteTripCode(code)}
-                              title={`Delete ${code}`}
-                              className="text-slate-300 hover:text-red-400 transition-colors p-0.5 rounded"
-                            >
-                              <X size={10} />
-                            </button>
-                          )}
-                        </span>
-                      );
-                    })}
-                    {tripCodes.length === 0 && (
-                      <span className="text-xs text-slate-400">No codes yet</span>
-                    )}
-                    {!readOnly && (
-                      <span className="inline-flex items-center gap-1 ml-1">
-                        <input
-                          placeholder="+ new code"
-                          className="h-6 px-2 text-xs rounded border border-dashed border-slate-300 bg-transparent focus:outline-none focus:border-purple-400 w-24 uppercase"
-                          value={newTripCodeInput}
-                          onChange={e => setNewTripCodeInput(e.target.value.toUpperCase())}
-                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTripCode(); } }}
-                        />
-                        <button
-                          type="button"
-                          onClick={addTripCode}
-                          className="text-xs text-purple-500 hover:text-purple-700 font-medium transition-colors"
-                        >
-                          Add
-                        </button>
-                      </span>
-                    )}
-                  </div>
-                </div> */}
-
-                {/* ── Results summary line ─────────────────────────── */}
-                {/* <p className="text-xs text-slate-400">
-                  {filteredLedgerGroups.length === ledgerGroups.length
-                    ? <>Showing all <strong className="text-slate-600">{ledgerGroups.length}</strong> rows for <strong className="text-slate-600">{periodLabel}</strong>.</>
-                    : <>Showing <strong className="text-slate-600">{filteredLedgerGroups.length}</strong> of <strong className="text-slate-600">{ledgerGroups.length}</strong> total rows · <strong className="text-slate-600">{periodLabel}</strong>. Adjust or clear filters to see more.</>
-                  }
-                </p> */}
-
-                
-
               </div>
             </div>
 
-            {/* ── Summary Cards ─────────────────────────────────────── */}
-            <SummaryCards cards={summaryCards} />
-
-            {/* ── Table ───────────────────────────────────────────── */}
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-              {isLoading ? (
-                <div className="p-6 space-y-3">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <Skeleton key={i} className="h-12 w-full rounded" />
-                  ))}
+            {/* ── Station Cards ── */}
+            {isLoading ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-slate-100 animate-pulse" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-slate-100 rounded animate-pulse w-3/4" />
+                        <div className="h-3 bg-slate-100 rounded animate-pulse w-1/2" />
+                      </div>
+                    </div>
+                    <div className="h-16 bg-slate-50 rounded-lg animate-pulse" />
+                    <div className="h-2 bg-slate-100 rounded animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            ) : filteredLedgerGroups.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
+                <div className="w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-4">
+                  <Fuel className="text-amber-400" size={32} />
                 </div>
-              ) : filteredLedgerGroups.length === 0 ? (
-                <div className="p-10 text-center">
-                  <Truck className="mx-auto text-slate-300 mb-3" size={40} />
-                  <p className="text-slate-500 font-medium">No sales ledger rows found</p>
-                  <p className="text-sm text-slate-400 mt-1">
-                    {ledgerGroups.length > 0
-                      ? 'Adjust your filters or period.'
-                      : 'Allocate trucks in inventory or click "Record Payment" to create the first row.'}
-                  </p>
-                </div>
-              ) : (
-                  <div className="overflow-x-auto">
-                    <Table className="text-sm">
-                      <TableHeader>
-                        <TableRow className="bg-slate-50/80">
-                          <TableHead className="font-semibold text-slate-700 w-[48px] min-w-[48px] whitespace-nowrap">S/N</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[110px] min-w-[110px] whitespace-nowrap">PFI</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Truck No.</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Customer</TableHead>
-                          {/* <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead> */}
-                          {/* <TableHead className="font-semibold text-slate-700">Depot</TableHead> */}
-                          <TableHead className="font-semibold text-slate-700 w-[150px] min-w-[150px] whitespace-nowrap">Destination</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[130px] min-w-[130px] whitespace-nowrap">Quantity</TableHead>
-                          <TableHead className="font-semibold text-slate-700 text-right w-[120px] min-w-[120px] whitespace-nowrap">Rate</TableHead>
-                          <TableHead className="font-semibold text-slate-700 text-right w-[130px] min-w-[130px] whitespace-nowrap">Expected</TableHead>
-                          <TableHead className="font-semibold text-emerald-700 text-right w-[130px] min-w-[130px] whitespace-nowrap">Payment</TableHead>
-                          <TableHead className="font-semibold text-red-700 text-right w-[130px] min-w-[130px] whitespace-nowrap">Balance</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">Payer</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Bank</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Paid On</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(() => {
-                          let serial = 0;
-                          const rows: React.ReactNode[] = [];
+                <h3 className="text-slate-700 font-semibold text-lg mb-1">No filling station entries found</h3>
+                <p className="text-sm text-slate-400 max-w-xs mx-auto">
+                  {ledgerGroups.filter(g => g.isFillingStation).length > 0
+                    ? 'Adjust your filters or time period.'
+                    : 'Assign filling-station customers to truck allocations in the Sales Ledger to see entries here.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filteredLedgerGroups.map(group => {
+                  const isExpanded = expandedCards.has(group.key);
+                  const pctSold = group.quantity > 0 ? Math.min(100, Math.round((group.totalQtySold / group.quantity) * 100)) : 0;
+                  const hasEntries = group.payments.length > 0;
+                  const isSetUp = !!(group.customerId && group.location);
+                  const theme = getCodeTheme(group.code);
 
-                          filteredLedgerGroups.forEach(group => {
-                            const theme = getCodeTheme(group.code);
-                            const hasSetupDetails = !!(group.customerId && group.location && group.quantity && (group.expected > 0 || group.isFillingStation));
+                  // Per-entry rate filter
+                  const visiblePayments = rateFilter === 'all'
+                    ? group.payments
+                    : group.payments.filter(p => String(toNum(p.rate)) === rateFilter);
 
-                            serial += 1;
-                            rows.push(
-                              <TableRow
-                                key={`${group.key}-main`}
-                                className={`hover:bg-slate-50/50 border-b border-slate-200/70 border-l-[3px] ${theme ? theme.row : 'border-l-transparent'}`}
-                              >
-                                <TableCell className="text-slate-500 text-center w-[48px] min-w-[48px] whitespace-nowrap">{serial}</TableCell>
-                                <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap">
-                                  {group.code ? (
-                                    <span className="text-sm font-semibold text-slate-700">{group.code}</span>
-                                  ) : <span className="text-slate-300">—</span>}
-                                </TableCell>
-                                <TableCell className="font-semibold text-slate-900 w-[120px] min-w-[120px] whitespace-nowrap">
-                                  <div className="flex items-center gap-1.5">
-                                    <Truck size={13} className="text-amber-700" />
-                                    {group.truckNumber || '—'}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="font-semibold text-slate-900 uppercase w-[180px] min-w-[180px] whitespace-nowrap">{group.customerName || '—'}</TableCell>
-                                <TableCell className="text-slate-700 text-sm w-[150px] min-w-[150px] uppercase whitespace-nowrap">{group.location || '—'}</TableCell>
-                                <TableCell className="w-[180px] min-w-[180px] whitespace-nowrap">
-                                  <div className="space-y-1">
-                                    <div className="font-semibold text-slate-900">
-                                      {fmtQty(group.totalQtySold)} / {fmtQty(group.quantity)} Ltrs
-                                    </div>
-                                    {group.quantity > 0 ? (
-                                      <div className="flex items-center gap-1.5">
-                                        {group.totalQtySold === 0 ? (
-                                          <span className="inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20">
-                                            Awaiting Sales
-                                          </span>
-                                        ) : group.totalQtySold < group.quantity ? (
-                                          <span className="inline-flex items-center rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 ring-1 ring-inset ring-sky-600/20">
-                                            Filling ({Math.round((group.totalQtySold / group.quantity) * 100)}%)
-                                          </span>
-                                        ) : (
-                                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 ring-1 ring-inset ring-emerald-600/20 font-bold">
-                                            Filled ({Math.round((group.totalQtySold / group.quantity) * 100)}%)
-                                          </span>
-                                        )}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-right text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">{group.rate > 0 ? fmt(group.rate) : '—'}</TableCell>
-                                <TableCell className="text-right font-medium text-slate-800 w-[130px] min-w-[130px] whitespace-nowrap">{group.expected > 0 ? fmt(group.expected) : '—'}</TableCell>
-                                <TableCell className="text-right font-bold text-emerald-700 w-[130px] min-w-[130px] whitespace-nowrap">
-                                  {fmt(toNum(group.totalPaid))}
-                                </TableCell>
-                                <TableCell className={`text-right font-bold w-[130px] min-w-[130px] whitespace-nowrap ${group.balance > 0 ? 'text-red-600' : group.balance < 0 ? 'text-blue-600' : group.expected > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  return (
+                    <div
+                      key={group.key}
+                      className={`bg-white rounded-xl border shadow-sm overflow-hidden transition-shadow hover:shadow-md ${
+                        group.balance > 0 ? 'border-slate-200' : group.balance < 0 ? 'border-blue-200' : 'border-emerald-200'
+                      }`}
+                    >
+                      {/* Card Header */}
+                      <div className={`px-4 py-3 border-b border-slate-100 ${theme ? theme.row.replace('border-l-[3px]', '').replace('border-l-', '') : ''}`}>
+                        <div className="flex items-start gap-3">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                            !isSetUp ? 'bg-slate-100' : group.balance > 0 ? 'bg-amber-50' : group.balance < 0 ? 'bg-blue-50' : 'bg-emerald-50'
+                          }`}>
+                            <Fuel size={20} className={
+                              !isSetUp ? 'text-slate-400' : group.balance > 0 ? 'text-amber-500' : group.balance < 0 ? 'text-blue-500' : 'text-emerald-500'
+                            } />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-bold text-slate-900 text-sm uppercase leading-tight truncate">
+                              {group.customerName || <span className="text-slate-400 italic font-normal">Customer not set</span>}
+                            </h3>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
+                              <span className="flex items-center gap-1 text-xs text-slate-500">
+                                <Truck size={11} className="text-amber-600" />{group.truckNumber || '—'}
+                              </span>
+                              {group.location && (
+                                <span className="flex items-center gap-1 text-xs text-slate-500">
+                                  <MapPin size={11} className="text-slate-400" />{group.location}
+                                </span>
+                              )}
+                              {group.dateLoaded && (
+                                <span className="flex items-center gap-1 text-xs text-slate-500">
+                                  <CalendarIcon size={11} className="text-slate-400" />
+                                  {(() => { try { return format(parseISO(group.dateLoaded), 'dd MMM yyyy'); } catch { return group.dateLoaded; } })()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {group.code && (
+                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border flex-shrink-0 ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                              {group.code}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Metrics */}
+                      <div className="px-4 py-3">
+                        {!isSetUp ? (
+                          <div className="flex items-center gap-2 py-3 px-3 bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                            <AlertTriangle size={16} className="text-amber-500 flex-shrink-0" />
+                            <p className="text-xs text-slate-500">This truck has no filling station assigned yet.</p>
+                          </div>
+                        ) : (
+                          <>
+                            {/* 4 key numbers */}
+                            <div className="grid grid-cols-2 gap-2 mb-3">
+                              <div className="bg-slate-50 rounded-lg p-2.5">
+                                <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Allocated</p>
+                                <p className="text-sm font-bold text-slate-800 mt-0.5">{group.quantity > 0 ? `${fmtQty(group.quantity)} L` : '—'}</p>
+                              </div>
+                              <div className="bg-slate-50 rounded-lg p-2.5">
+                                <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Sold So Far</p>
+                                <p className="text-sm font-bold text-slate-700 mt-0.5">{group.totalQtySold > 0 ? `${fmtQty(group.totalQtySold)} L` : <span className="text-slate-400 font-normal">Awaiting sales</span>}</p>
+                              </div>
+                              <div className="bg-emerald-50 rounded-lg p-2.5">
+                                <p className="text-[10px] text-emerald-600 font-medium uppercase tracking-wider">Deposited</p>
+                                <p className="text-sm font-bold text-emerald-700 mt-0.5">{fmt(group.totalPaid)}</p>
+                              </div>
+                              <div className={`rounded-lg p-2.5 ${group.balance > 0 ? 'bg-red-50' : group.balance < 0 ? 'bg-blue-50' : 'bg-emerald-50'}`}>
+                                <p className={`text-[10px] font-medium uppercase tracking-wider ${group.balance > 0 ? 'text-red-500' : group.balance < 0 ? 'text-blue-500' : 'text-emerald-500'}`}>
+                                  {group.balance > 0 ? 'Outstanding' : group.balance < 0 ? 'Overpaid' : 'Balance'}
+                                </p>
+                                <p className={`text-sm font-bold mt-0.5 ${group.balance > 0 ? 'text-red-700' : group.balance < 0 ? 'text-blue-700' : 'text-emerald-700'}`}>
                                   {group.expected > 0
                                     ? (group.balance === 0 ? '₦0 ✓' : group.balance > 0 ? fmt(group.balance) : `+${fmt(Math.abs(group.balance))}`)
-                                    : (group.isFillingStation ? 'Open' : ' ')}
-                                </TableCell>
-                                <TableCell className="text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">
-                                  {group.payments.length === 0 ? (
-                                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                                      No payment yet
-                                    </span>
-                                  ) : ' '}
-                                </TableCell>
-                                <TableCell className="text-sm w-[180px] min-w-[180px] whitespace-nowrap"> </TableCell>
-                                <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm"> </TableCell>
-                                <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap">
-                                  <div className="flex gap-1 items-center">
-                                    {!readOnly && (
-                                      <>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-8 text-xs gap-1 border-red-200 text-red-600 hover:bg-red-50"
-                                          title="Delete truck from records (including linked payments)"
-                                          onClick={() => {
-                                            if (!group.loadingId && group.payments.length === 0) {
-                                              toast({ title: 'No linked records found for this truck row', variant: 'destructive' });
-                                              return;
-                                            }
-                                            setDeleteTarget({
-                                              ids: group.payments.map(p => p.id),
-                                              loadingId: group.loadingId,
-                                              mode: 'truck',
-                                              label: `${group.truckNumber} — delete truck${group.payments.length > 0 ? ` and ${group.payments.length} payment${group.payments.length > 1 ? 's' : ''}` : ''}`,
-                                            });
-                                          }}
-                                        >
-                                          <Trash2 size={12} /> Delete
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-8 text-xs gap-1 border-slate-300"
-                                          onClick={() => openSetupDialog(group)}
-                                          title="Assign customer, destination, code and transfer options"
-                                        >
-                                          <UserPlus size={12} /> Set Up
-                                        </Button>
-                                        {hasSetupDetails ? (
-                                          <>
-                                            <Button
-                                              size="sm"
-                                              className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                                              onClick={() => openQuickPaymentDialog(group)}
-                                              title="Quick payment for this customer"
-                                            >
-                                              <Plus size={12} /> Add Payment
-                                            </Button>
-                                            <Button
-                                              size="sm"
-                                              variant="outline"
-                                              className="h-8 text-xs gap-1"
-                                              onClick={() => group.loadingId ? openPaymentDialog(String(group.loadingId)) : openPaymentDialog()}
-                                              title="Add a different customer to this truck cycle"
-                                            >
-                                              <UserPlus size={12} /> New Customer
-                                            </Button>
-                                          </>
-                                        ) : (
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-8 text-xs gap-1"
-                                            onClick={() => group.loadingId ? openPaymentDialog(String(group.loadingId)) : openPaymentDialog()}
-                                          >
-                                            <Plus size={12} /> Add Payment
-                                          </Button>
-                                        )}
-                                      </>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
+                                    : 'Open'}
+                                </p>
+                              </div>
+                            </div>
 
-                            group.payments.forEach(payment => {
-                              const bankParts = payment.bank ? payment.bank.split(' · ') : null;
-                              const dailyQty = toNum(payment.quantity);
-                              const dailyRate = toNum(payment.rate);
-                              const dailyExpected = toNum(payment.sales_value);
-                              const dailyPaid = toNum(payment.payment_amount);
-                              const dayBal = dailyExpected - dailyPaid;
+                            {/* Expected revenue row */}
+                            <div className="flex items-center justify-between mb-3 px-1">
+                              <span className="text-xs text-slate-400">Expected Revenue</span>
+                              <span className="text-xs font-semibold text-slate-700">{group.expected > 0 ? fmt(group.expected) : '—'}</span>
+                            </div>
 
-                              rows.push(
-                                <TableRow
-                                  key={`payment-${payment.id}`}
-                                  className={`bg-slate-50/40 hover:bg-slate-100/60 border-b border-slate-200/60 border-l-[3px] ${theme ? theme.row : 'border-l-transparent'}`}
+                            {/* Progress bar */}
+                            {group.quantity > 0 && (
+                              <div className="mb-3">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[10px] text-slate-400">Volume progress</span>
+                                  <span className="text-[10px] font-semibold text-slate-600">{pctSold}% sold</span>
+                                </div>
+                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all ${pctSold >= 100 ? 'bg-emerald-500' : pctSold >= 60 ? 'bg-amber-400' : 'bg-sky-400'}`}
+                                    style={{ width: `${pctSold}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Rate badge if consistent */}
+                            {group.rate > 0 && (
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className="text-xs text-slate-400">Rate:</span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold border border-indigo-100">
+                                  <TrendingUp size={10} /> ₦{group.rate.toLocaleString()}/L
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/40">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {!readOnly && (
+                            <>
+                              {isSetUp ? (
+                                <Button
+                                  size="sm"
+                                  className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                  onClick={() => openQuickPaymentDialog(group)}
                                 >
-                                  <TableCell className="text-slate-500 text-center w-[48px] min-w-[48px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="font-semibold text-slate-900 w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="font-semibold text-slate-900 uppercase w-[180px] min-w-[180px] whitespace-nowrap"></TableCell>
-                                  <TableCell className="text-slate-400 text-xs w-[150px] min-w-[150px] uppercase whitespace-nowrap text-center italic">↳ daily sale</TableCell>
-                                  <TableCell className="text-slate-600 font-medium w-[130px] min-w-[130px] whitespace-nowrap">{dailyQty > 0 ? `${fmtQty(dailyQty)} Ltrs` : '—'}</TableCell>
-                                  <TableCell className="text-right text-slate-600 font-medium w-[120px] min-w-[120px] whitespace-nowrap">{dailyRate > 0 ? fmt(dailyRate) : '—'}</TableCell>
-                                  <TableCell className="text-right font-medium text-slate-600 w-[130px] min-w-[130px] whitespace-nowrap">{dailyExpected > 0 ? fmt(dailyExpected) : '—'}</TableCell>
-                                  <TableCell className="text-right font-bold text-emerald-600 w-[130px] min-w-[130px] whitespace-nowrap">{fmt(dailyPaid)}</TableCell>
-                                  <TableCell className={`text-right font-bold w-[130px] min-w-[130px] whitespace-nowrap ${dayBal > 0 ? 'text-red-600' : dayBal < 0 ? 'text-blue-600' : 'text-emerald-600'}`}>
-                                    {dayBal > 0 ? fmt(dayBal) : dayBal < 0 ? `+${fmt(Math.abs(dayBal))}` : '₦0 ✓'}
-                                  </TableCell>
-                                  <TableCell className="text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">
-                                    {payment.payer_name ? (
-                                      <div>
-                                        <p className="font-medium uppercase text-xs">{payment.payer_name}</p>
-                                        {payment.phone_number && <p className="text-[10px] text-slate-500">{payment.phone_number}</p>}
-                                      </div>
-                                    ) : payment.phone_number ? <span className="text-[10px] text-slate-500">{payment.phone_number}</span> : ' '}
-                                  </TableCell>
-                                  <TableCell className="text-sm w-[180px] min-w-[180px] whitespace-nowrap">
-                                    {bankParts ? (
-                                      <div>
-                                        <p className="font-semibold text-black text-xs">{bankParts[0]}</p>
-                                        {bankParts[1] && <p className="text-[10px] text-slate-600">{bankParts[1]}</p>}
-                                      </div>
-                                    ) : ' '}
-                                  </TableCell>
-                                  <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-xs">
-                                    {payment.date_of_payment ? format(parseISO(payment.date_of_payment), 'dd MMM yyyy') : ' '}
-                                  </TableCell>
-                                  <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap">
-                                    <div className="flex gap-1 items-center">
-                                      {!readOnly && (
-                                        <>
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-8 text-xs gap-1 border-slate-300"
-                                            title="Edit entry"
-                                            onClick={() => openEditDialog(payment)}
-                                          >
-                                            <Pencil size={12} /> Edit
-                                          </Button>
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-8 text-xs gap-1 border-red-200 text-red-600 hover:bg-red-50"
-                                            title="Delete entry"
-                                            onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} — ${fmt(toNum(payment.payment_amount))}` })}
-                                          >
-                                            <Trash2 size={12} /> Delete
-                                          </Button>
-                                        </>
+                                  <Plus size={13} /> Record Daily Sale
+                                </Button>
+                              ) : null}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs gap-1.5"
+                                onClick={() => openSetupDialog(group)}
+                              >
+                                <UserPlus size={13} /> {isSetUp ? 'Edit Setup' : 'Set Up'}
+                              </Button>
+                            </>
+                          )}
+                          {hasEntries && (
+                            <button
+                              type="button"
+                              onClick={() => toggleCard(group.key)}
+                              className="ml-auto flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 transition-colors font-medium"
+                            >
+                              <LayoutGrid size={13} />
+                              {isExpanded ? 'Hide' : 'Show'} {group.payments.length} {group.payments.length === 1 ? 'Entry' : 'Entries'}
+                            </button>
+                          )}
+                          {!hasEntries && isSetUp && (
+                            <span className="ml-auto text-xs text-slate-400 italic">No sales recorded yet</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expandable Daily Entries */}
+                      {isExpanded && hasEntries && (
+                        <div className="border-t border-slate-200">
+                          <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
+                            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Daily Sales Entries</p>
+                          </div>
+                          <div className="divide-y divide-slate-100">
+                            {visiblePayments.map(payment => {
+                              const dailyQty   = toNum(payment.quantity);
+                              const dailyRate  = toNum(payment.rate);
+                              const dailyExp   = toNum(payment.sales_value);
+                              const dailyPaid  = toNum(payment.payment_amount);
+                              const dayBal     = dailyExp - dailyPaid;
+                              const bankParts  = payment.bank ? payment.bank.split(' · ') : null;
+
+                              return (
+                                <div key={payment.id} className="px-4 py-3 hover:bg-slate-50/60 transition-colors">
+                                  {/* Date + Actions row */}
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-semibold text-slate-700">
+                                        {payment.date_of_payment
+                                          ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
+                                          : <span className="text-slate-400">No date</span>}
+                                      </span>
+                                      {dayBal === 0 && dailyExp > 0 && (
+                                        <span className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-semibold">Settled ✓</span>
+                                      )}
+                                      {dayBal > 0 && (
+                                        <span className="px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 text-[10px] font-semibold">Bal: {fmt(dayBal)}</span>
+                                      )}
+                                      {dayBal < 0 && (
+                                        <span className="px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-semibold">Over: +{fmt(Math.abs(dayBal))}</span>
                                       )}
                                     </div>
-                                  </TableCell>
-                                </TableRow>
+                                    {!readOnly && (
+                                      <div className="flex items-center gap-1">
+                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
+                                          <Pencil size={12} />
+                                        </Button>
+                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
+                                          onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(dailyPaid)}` })}>
+                                          <Trash2 size={12} />
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Entry details grid */}
+                                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                                    <div>
+                                      <span className="text-slate-400">Volume</span>
+                                      <p className="font-semibold text-slate-700">{dailyQty > 0 ? `${fmtQty(dailyQty)} L` : '—'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-400">Rate</span>
+                                      <p className="font-semibold text-slate-700">{dailyRate > 0 ? `₦${dailyRate.toLocaleString()}/L` : '—'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-400">Expected</span>
+                                      <p className="font-semibold text-slate-700">{dailyExp > 0 ? fmt(dailyExp) : '—'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-400">Deposited</span>
+                                      <p className="font-bold text-emerald-700">{fmt(dailyPaid)}</p>
+                                    </div>
+                                  </div>
+                                  {/* Payer + Bank */}
+                                  {(payment.payer_name || bankParts) && (
+                                    <div className="flex flex-wrap items-center gap-3 mt-2 pt-2 border-t border-slate-100">
+                                      {payment.payer_name && (
+                                        <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                                          <Users size={10} /> {payment.payer_name}
+                                          {payment.phone_number && ` · ${payment.phone_number}`}
+                                        </span>
+                                      )}
+                                      {bankParts && (
+                                        <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                                          <Banknote size={10} /> {bankParts[0]}{bankParts[1] ? ` · ${bankParts[1]}` : ''}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               );
-                            });
-                          });
+                            })}
+                          </div>
+                          {/* Delete whole allocation row */}
+                          {!readOnly && (
+                            <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/60 flex justify-end">
+                              <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 hover:text-red-600 gap-1" title="Delete this allocation row and all its entries"
+                                onClick={() => setDeleteTarget({
+                                  ids: group.payments.map(p => p.id),
+                                  loadingId: group.loadingId,
+                                  mode: 'truck',
+                                  label: `${group.customerName || 'row'} on ${group.truckNumber}`,
+                                })}>
+                                <Trash2 size={11} /> Delete entire row
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-                          return rows;
-                        })()}
-                      </TableBody>
-                    </Table>
-                  </div>
-              )}
-            </div>
-
-            {/* {!isLoading && filteredSales.length > 0 && (
-              <p className="text-xs text-slate-400 text-right">
-                Showing {filteredSales.length} of {allSales.length} entries · Period: {periodLabel}
+            {/* Count footer */}
+            {!isLoading && filteredLedgerGroups.length > 0 && (
+              <p className="text-center text-xs text-slate-400">
+                Showing {filteredLedgerGroups.length} station allocation{filteredLedgerGroups.length !== 1 ? 's' : ''} · {totals.entries} daily {totals.entries === 1 ? 'entry' : 'entries'}
               </p>
-            )} */}
+            )}
+
           </div>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* Record Payment Dialog                                          */}
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* Record Daily Sale Dialog                                          */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <Dialog open={!!quickPaymentTarget} onOpenChange={open => { if (!open) setQuickPaymentTarget(null); }}>
+        <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${assignMode ? 'bg-amber-100' : 'bg-emerald-100'}`}>
-                {assignMode
-                  ? <UserPlus className="w-5 h-5 text-amber-600" />
-                  : <Banknote className="w-5 h-5 text-emerald-600" />}
+              <div className="p-2 rounded-lg bg-emerald-100">
+                <Fuel className="w-5 h-5 text-emerald-600" />
               </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h2 className="text-lg font-semibold">
-                    {assignMode ? 'Assign Customer to Cycle' : 'Record Payment'}
-                  </h2>
-                  {/* Mode toggle */}
-                  <div className="flex items-center rounded-md border border-slate-200 overflow-hidden text-xs font-medium shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() => setAssignMode(false)}
-                      className={`px-3 py-1.5 transition-colors ${
-                        !assignMode ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      Record Payment
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAssignMode(true)}
-                      className={`px-3 py-1.5 transition-colors ${
-                        assignMode ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      Assign Only
-                    </button>
-                  </div>
-                </div>
+              <div>
+                <h2 className="text-lg font-semibold">Record Daily Sale</h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  {assignMode
-                    ? 'Link customers to this truck cycle now — add rate & payment later when they pay.'
-                    : 'Select a loaded truck, then add one row per customer with their rate and payment details.'}
+                  {quickPaymentTarget
+                    ? `${quickPaymentTarget.customerName} · ${quickPaymentTarget.truckNumber}${quickPaymentTarget.code ? ` · ${quickPaymentTarget.code}` : ''}`
+                    : ''}
                 </p>
               </div>
             </DialogTitle>
-            <DialogDescription className="sr-only">Record payments against a loaded truck</DialogDescription>
+            <DialogDescription className="sr-only">Record a daily sale and payment for this filling station allocation</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* ── Truck Selector ─────────────────────────────────────── */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                <Truck size={15} className="text-slate-500" /> Select Loaded Truck <span className="text-red-500">*</span>
-              </Label>
-              <select
-                aria-label="Select loaded truck"
-                value={dialogTruckLoadingId}
-                onChange={e => handleTruckSelect(e.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">Select a truck…</option>
-                {loadedTrucks.map(t => {
-                  const plate = t.truck_number || `Truck #${t.truck}`;
-                  const custName = t.customer_name || (t.customer ? customerMap.get(t.customer)?.customer_name : '') || '';
-                  const qty = toNum(t.quantity_allocated);
-                  const statusLabel = t.loading_status === 'offloaded' ? ' [Offloaded]' : '';
-                  const cycleKey = getCycleKey(t.truck_number || '', t.date_allocated || '');
-                  const cycleInfo = cycleNumberMap.get(cycleKey);
-                  const cycle = cyclePaymentSummary.get(cycleKey);
-                  const outstanding = cycle ? cycle.totalExpected - cycle.totalPaid : null;
-                  const cycleLabel = cycleInfo
-                    ? `C${cycleInfo.cycleNum}/${cycleInfo.totalCycles}`
-                    : 'C1/1';
-                  const dateLabel = normalizeCycleDate(t.date_allocated || '');
-                  const pfiLabel = t.pfi_number ? ` | ${t.pfi_number}` : '';
-                  const outstandingLabel = outstanding !== null
-                    ? (outstanding > 0 ? ` | O/S ${fmt(outstanding)}` : ' | Settled')
-                    : '';
-                  return (
-                    <option key={t.id} value={String(t.id)}>
-                      {plate} | {cycleLabel} | {dateLabel || '-'}{pfiLabel} | {fmtQty(qty)} L{custName ? ` → ${custName}` : ''}{outstandingLabel}{statusLabel}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            {/* ── Auto-filled truck header ───────────────────────────── */}
-            {dialogTruckNumber && (
-              <div className="bg-blue-50/60 border border-blue-100 rounded-lg p-3">
-                {/* <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">
-                  Truck Details
-                </p> */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-sm">
+            {/* Station context banner */}
+            {quickPaymentTarget && (
+              <div className="bg-amber-50/70 border border-amber-200/60 rounded-lg p-3">
+                <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Fuel size={12} /> Allocation Summary
+                </p>
+                <div className="grid grid-cols-3 gap-3 text-xs">
                   <div>
-                    <span className="text-slate-500 text-xs">Truck:</span>{' '}
-                    <span className="font-bold text-slate-800">{dialogTruckNumber}</span>
+                    <p className="text-slate-400">Total Allocated</p>
+                    <p className="font-bold text-slate-800">{quickPaymentTarget.quantity > 0 ? `${fmtQty(quickPaymentTarget.quantity)} L` : '—'}</p>
                   </div>
                   <div>
-                    <span className="text-slate-500 text-xs">Depot Loaded:</span>{' '}
-                    <span className="font-medium text-slate-800">{dialogDepot || '—'}</span>
+                    <p className="text-slate-400">Already Sold</p>
+                    <p className="font-bold text-slate-700">{quickPaymentTarget.totalQtySold > 0 ? `${fmtQty(quickPaymentTarget.totalQtySold)} L` : '—'}</p>
                   </div>
                   <div>
-                    <span className="text-slate-500 text-xs">Date Loaded:</span>{' '}
-                    <span className="font-medium text-slate-800">
-                      {dialogDateLoaded ? format(parseISO(dialogDateLoaded), 'dd MMM yyyy') : '—'}
-                    </span>
+                    <p className="text-slate-400">Balance O/S</p>
+                    <p className={`font-bold ${quickPaymentTarget.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {quickPaymentTarget.expected > 0
+                        ? (quickPaymentTarget.balance > 0 ? fmt(quickPaymentTarget.balance) : 'Fully Paid ✓')
+                        : 'Open'}
+                    </p>
                   </div>
-                  {(() => {
-                    // Show cycle-specific outstanding, plus truck-total if there are multiple cycles
-                    const cycleKey = getCycleKey(dialogTruckNumber, dialogDateLoaded);
-                    const cycle = cyclePaymentSummary.get(cycleKey);
-                    const truckTotals = truckPaymentSummary.get(dialogTruckNumber);
-                    const cycleInfo = cycleNumberMap.get(cycleKey);
-                    if (!cycle && !truckTotals) return null;
-                    const cycleBal = cycle ? cycle.totalExpected - cycle.totalPaid : null;
-                    const truckBal = truckTotals ? truckTotals.totalExpected - truckTotals.totalPaid : null;
-                    return (
-                      <>
-                        {cycleBal !== null && (
-                          <div>
-                            <span className="text-slate-500 text-xs">
-                              {cycleInfo && cycleInfo.totalCycles > 1 ? `Cycle ${cycleInfo.cycleNum} Outstanding:` : 'Outstanding:'}
-                            </span>{' '}
-                            <span className={`font-bold ${cycleBal > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                              {cycleBal > 0 ? fmt(cycleBal) : '✓ Paid'}
-                            </span>
-                          </div>
-                        )}
-                        {cycleInfo && cycleInfo.totalCycles > 1 && truckBal !== null && (
-                          <div>
-                            <span className="text-slate-500 text-xs">All {cycleInfo.totalCycles} Cycles Total:</span>{' '}
-                            <span className={`font-bold ${truckBal > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
-                              {truckBal > 0 ? fmt(truckBal) : '✓ Fully settled'}
-                            </span>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
                 </div>
               </div>
             )}
 
-            {/* ── Cycle / Date Loaded selector ──────────────────────── */}
-            {/* ── Allocation Code selector ─────────────────────────── */}
-            {dialogTruckNumber && (
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-                  <Tag size={14} className="text-purple-500" /> Allocation Code
-                </Label>
+            {/* Rate + Volume + Expected */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600">Rate (₦/L) <span className="text-red-500">*</span></Label>
                 <Input
-                  placeholder="e.g. PFI 19B"
-                  value={dialogAllocationCode}
-                  onChange={e => setDialogAllocationCode(e.target.value.toUpperCase())}
-                  className="h-10 text-sm uppercase font-semibold border-purple-200 focus:border-purple-400"
+                  type="text" inputMode="decimal" placeholder="e.g. 1,200" className="h-9 text-sm"
+                  value={quickPaymentForm.rate}
+                  onChange={e => {
+                    const rate = formatWithCommas(e.target.value);
+                    const r = Number(stripCommas(rate)) || 0;
+                    const q = Number(stripCommas(quickPaymentForm.quantity)) || 0;
+                    const expected = r && q ? formatWithCommas(String(r * q)) : '';
+                    setQuickPaymentForm(prev => ({ ...prev, rate, payment_amount: expected || prev.payment_amount }));
+                  }}
                 />
               </div>
-            )}
-
-            {/* ── Remaining allocated quantity alert ───────────────── */}
-            {dialogRemainingQty !== null && (
-              <div className="bg-amber-50/70 border border-amber-200/60 rounded-lg p-3 text-xs text-amber-800 flex items-center justify-between">
-                <div>
-                  <span className="font-semibold">Remaining Allocation:</span>{' '}
-                  <strong className="text-slate-900">{fmtQty(dialogRemainingQty)} Litres</strong> outstanding (Allocated: {fmtQty(toNum(selectedTruck?.quantity_allocated))} Ltrs)
-                </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600">Volume Sold (Ltrs) <span className="text-red-500">*</span></Label>
+                <Input
+                  type="text" inputMode="decimal" placeholder="e.g. 5,000" className="h-9 text-sm"
+                  value={quickPaymentForm.quantity}
+                  onChange={e => {
+                    const quantity = formatWithCommas(e.target.value);
+                    const q = Number(stripCommas(quantity)) || 0;
+                    const r = Number(stripCommas(quickPaymentForm.rate)) || 0;
+                    const expected = r && q ? formatWithCommas(String(r * q)) : '';
+                    setQuickPaymentForm(prev => ({ ...prev, quantity, payment_amount: expected || prev.payment_amount }));
+                  }}
+                />
               </div>
-            )}
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600">Expected (₦)</Label>
+                <Input
+                  readOnly className="h-9 text-sm bg-white font-semibold text-slate-700"
+                  value={(() => {
+                    const r = Number(stripCommas(quickPaymentForm.rate)) || 0;
+                    const q = Number(stripCommas(quickPaymentForm.quantity)) || 0;
+                    return r && q ? `₦${formatWithCommas(String(r * q))}` : '—';
+                  })()}
+                />
+              </div>
+            </div>
 
-            {/* ── Per-customer rows ─────────────────────────────────── */}
-            {dialogTruckNumber && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Customer ({saleRows.length})
-                  </p>
-                  <Button
-                    type="button" variant="outline" size="sm"
-                    className="gap-1.5 text-xs h-8"
-                    onClick={addSaleRow}
-                  >
-                    <UserPlus size={13} /> Add Customer
-                  </Button>
-                </div>
+            {/* Amount Deposited + Date */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600">Amount Deposited (₦) <span className="text-red-500">*</span></Label>
+                <Input
+                  type="text" inputMode="decimal" placeholder="e.g. 5,000,000" className="h-9 text-sm"
+                  value={quickPaymentForm.payment_amount}
+                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, payment_amount: formatWithCommas(e.target.value) }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600 flex items-center gap-1"><CalendarIcon size={11} className="inline" /> Date of Sale</Label>
+                <Input
+                  type="date" className="h-9 text-sm"
+                  value={quickPaymentForm.date_of_payment}
+                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, date_of_payment: e.target.value }))}
+                />
+              </div>
+            </div>
 
-                {saleRows.map((row, idx) => {
-                  const custObj = row.customer ? customerMap.get(Number(row.customer)) : null;
-                  const isFS = isFillingStation(custObj);
-                  const hasError = rowErrors[row.uid] && Object.keys(rowErrors[row.uid]).length;
-
-                  return (
-                  <div
-                    key={row.uid}
-                    className={`border rounded-lg p-3 space-y-3 relative ${hasError ? 'border-red-300 bg-red-50/30' : isFS ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-slate-50/50'}`}
-                  >
-                    {/* Row header */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                        {isFS ? <Fuel size={12} className="text-amber-500" /> : null}
-                        Customer #{idx + 1}
-                        {isFS && (
-                          <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 normal-case tracking-normal">
-                            Filling Station
-                          </span>
-                        )}
-                      </span>
-                      {saleRows.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeSaleRow(row.uid)}
-                          className="text-slate-400 hover:text-red-500 transition-colors p-0.5 rounded"
-                          title="Remove row"
-                        >
-                          <X size={15} />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Customer + Destination + Qty — always shown */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Customer <span className="text-red-500">*</span></Label>
-                        <select
-                          aria-label={`Customer for row ${idx + 1}`}
-                          value={row.customer}
-                          onChange={e => {
-                            const custId = e.target.value;
-                            const cust = custId ? customerMap.get(Number(custId)) : null;
-                            updateSaleRow(row.uid, 'customer', custId);
-                            if (cust) updateSaleRow(row.uid, 'customer_name', cust.customer_name);
-                          }}
-                          className={`h-9 w-full rounded-md border bg-background px-3 py-2 text-sm ${rowErrors[row.uid]?.customer ? 'border-red-400 bg-red-50' : 'border-input'}`}
-                        >
-                          <option value="">Select customer…</option>
-                          {customers.map(c => (
-                            <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
-                          ))}
-                        </select>
-                        {rowErrors[row.uid]?.customer && <p className="text-[11px] text-red-500">{rowErrors[row.uid].customer}</p>}
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Destination <span className="text-red-500">*</span></Label>
-                        <Input
-                          placeholder="e.g. Kano, Abuja…"
-                          className={`h-9 text-sm ${rowErrors[row.uid]?.location ? 'border-red-400 bg-red-50' : ''}`}
-                          value={row.location}
-                          onChange={e => updateSaleRow(row.uid, 'location', e.target.value)}
-                        />
-                        {rowErrors[row.uid]?.location && <p className="text-[11px] text-red-500">{rowErrors[row.uid].location}</p>}
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Quantity (L)</Label>
-                        <Input
-                          type="text" inputMode="decimal" placeholder="e.g. 33,000"
-                          className="h-9 text-sm"
-                          value={row.quantity}
-                          onChange={e => updateSaleRow(row.uid, 'quantity', e.target.value)}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Assign-only hint */}
-                    {assignMode && (
-                      <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
-                        <UserPlus size={14} className="text-amber-500 mt-0.5 shrink-0" />
-                        <p className="text-xs text-amber-700">
-                          <><span className="font-semibold">Assign Only</span> — customer linked to this cycle now. Edit the entry later to add rate and payment once they pay.</>
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Rate + Expected + Payment — payment mode */}
-                    {!assignMode && (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600 flex items-center gap-1">
-                            Rate (₦/L) <span className="text-red-500">*</span>
-                            {row.rateLocked && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                                <FileText size={9} /> Locked
-                              </span>
-                            )}
-                          </Label>
-                          <Input
-                            type="text" inputMode="decimal" placeholder="e.g. 1,210"
-                            className={`h-9 text-sm ${row.rateLocked ? 'bg-amber-50 text-amber-800 font-semibold cursor-not-allowed' : rowErrors[row.uid]?.rate ? 'border-red-400 bg-red-50' : ''}`}
-                            value={row.rate}
-                            readOnly={row.rateLocked}
-                            onChange={e => updateSaleRow(row.uid, 'rate', e.target.value)}
-                            title={row.rateLocked ? `Rate locked at ₦${row.rate}/L from first entry for this customer` : undefined}
-                          />
-                          {rowErrors[row.uid]?.rate && <p className="text-[11px] text-red-500">{rowErrors[row.uid].rate}</p>}
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Expected (₦)</Label>
-                          <Input
-                            readOnly
-                            className="h-9 text-sm bg-white font-semibold text-slate-700"
-                            value={row.sales_value ? `₦${row.sales_value}` : '—'}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Amount Paid (₦)</Label>
-                          <Input
-                            type="text" inputMode="decimal"
-                            className="h-9 text-sm"
-                            value={row.payment_amount}
-                            onChange={e => updateSaleRow(row.uid, 'payment_amount', e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Payment date + Payer + Bank — payment mode */}
-                    {!assignMode && (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">
-                            <CalendarIcon size={11} className="inline mr-1" />Date of Payment <span className="text-red-500">*</span>
-                          </Label>
-                          <Input
-                            type="date"
-                            className={`h-9 text-sm ${rowErrors[row.uid]?.date_of_payment ? 'border-red-400 bg-red-50' : ''}`}
-                            value={row.date_of_payment}
-                            onChange={e => updateSaleRow(row.uid, 'date_of_payment', e.target.value)}
-                          />
-                          {rowErrors[row.uid]?.date_of_payment && <p className="text-[11px] text-red-500">{rowErrors[row.uid].date_of_payment}</p>}
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Payer's Name</Label>
-                          <Input
-                            className={`h-9 text-sm ${rowErrors[row.uid]?.payer_name ? 'border-red-400 bg-red-50' : ''}`}
-                            value={row.payer_name}
-                            onChange={e => {
-                              const cleaned = e.target.value.replace(/[0-9]/g, '');
-                              updateSaleRow(row.uid, 'payer_name', cleaned);
-                            }}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">
-                            <Building2 size={11} className="inline mr-1" />Bank Account <span className="text-red-500">*</span>
-                          </Label>
-                          <select
-                            aria-label={`Bank account for row ${idx + 1}`}
-                            value={row.bank_account_id}
-                            onChange={e => updateSaleRow(row.uid, 'bank_account_id', e.target.value)}
-                            className={`h-9 w-full rounded-md border bg-background px-3 py-2 text-sm ${rowErrors[row.uid]?.bank_account_id ? 'border-red-400 bg-red-50' : 'border-input'}`}
-                          >
-                            <option value="">Select account…</option>
-                            {activeBankAccounts.map(b => (
-                              <option key={b.id} value={String(b.id)}>
-                                {b.account_number} · {b.bank_name}
-                              </option>
-                            ))}
-                          </select>
-                          {rowErrors[row.uid]?.bank_account_id && <p className="text-[11px] text-red-500">{rowErrors[row.uid].bank_account_id}</p>}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Phone + Remarks — always shown */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Phone Number</Label>
-                        <Input
-                          placeholder="e.g. 08012345678"
-                          className="h-9 text-sm"
-                          value={row.phone_number}
-                          onChange={e => updateSaleRow(row.uid, 'phone_number', e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Remarks</Label>
-                        <Input
-                          placeholder={isFS ? 'e.g. Awaiting sale…' : 'e.g. Partial Payment, Full Payment…'}
-                          className="h-9 text-sm"
-                          value={row.remarks}
-                          onChange={e => updateSaleRow(row.uid, 'remarks', e.target.value)}
-                        />
-                      </div>
-                    </div>
+            {/* Live balance preview */}
+            {(() => {
+              const r = Number(stripCommas(quickPaymentForm.rate)) || 0;
+              const q = Number(stripCommas(quickPaymentForm.quantity)) || 0;
+              const expected = r && q ? r * q : 0;
+              const paid = Number(stripCommas(quickPaymentForm.payment_amount)) || 0;
+              if (!expected && !paid) return null;
+              const bal = expected - paid;
+              return (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 grid grid-cols-3 gap-3 text-sm">
+                  <div><p className="text-xs text-slate-400">Expected</p><p className="font-bold text-slate-800">{expected > 0 ? fmt(expected) : '—'}</p></div>
+                  <div><p className="text-xs text-slate-400">Deposited</p><p className="font-bold text-emerald-700">{paid > 0 ? fmt(paid) : '—'}</p></div>
+                  <div>
+                    <p className="text-xs text-slate-400">Balance</p>
+                    <p className={`font-bold ${bal > 0 ? 'text-red-600' : bal < 0 ? 'text-blue-600' : 'text-emerald-600'}`}>
+                      {bal === 0 ? '₦0 ✓' : bal > 0 ? fmt(bal) : `+${fmt(Math.abs(bal))}`}
+                    </p>
                   </div>
-                  );
-                })}
+                </div>
+              );
+            })()}
 
-                {/* ── Grand Total Summary ──────────────────────────── */}
-                {(() => {
-                  const grandExpected = saleRows.reduce((s, r) => s + (Number(stripCommas(r.sales_value)) || 0), 0);
-                  const grandPayment = saleRows.reduce((s, r) => s + (Number(stripCommas(r.payment_amount)) || 0), 0);
-                  // Use cycle-scoped previously-paid (not whole-truck)
-                  const cycleKey = getCycleKey(dialogTruckNumber, dialogDateLoaded);
-                  const cycle = cyclePaymentSummary.get(cycleKey);
-                  const previouslyPaid = cycle?.totalPaid || 0;
-                  if (!grandExpected && !grandPayment) return null;
-                  return (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mt-1">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Grand Total (all rows)</p>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                        {grandExpected > 0 && (
-                          <div>
-                            <p className="text-xs text-slate-400">Total Expected</p>
-                            <p className="font-bold text-slate-800">{fmt(grandExpected)}</p>
-                          </div>
-                        )}
-                        {grandPayment > 0 && (
-                          <div>
-                            <p className="text-xs text-slate-400">This Payment</p>
-                            <p className="font-bold text-emerald-700">{fmt(grandPayment)}</p>
-                          </div>
-                        )}
-                        {previouslyPaid > 0 && (
-                          <div>
-                            <p className="text-xs text-slate-400">Previously Paid</p>
-                            <p className="font-medium text-slate-600">{fmt(previouslyPaid)}</p>
-                          </div>
-                        )}
-                        {grandExpected > 0 && (
-                          <div>
-                            <p className="text-xs text-slate-400">Balance After</p>
-                            {(() => {
-                              const bal = grandExpected - previouslyPaid - grandPayment;
-                              return (
-                                <p className={`font-bold ${bal > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                  {bal > 0 ? fmt(bal) + ' remaining' : '✓ Fully paid'}
-                                </p>
-                              );
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
+            {/* Payer + Phone */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600">Payer's Name</Label>
+                <Input placeholder="Name only" className="h-9 text-sm"
+                  value={quickPaymentForm.payer_name}
+                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, payer_name: e.target.value.replace(/[0-9]/g, '') }))}
+                />
               </div>
-            )}
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600">Phone Number</Label>
+                <Input className="h-9 text-sm"
+                  value={quickPaymentForm.phone_number}
+                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, phone_number: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {/* Bank Account */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Bank Account <span className="text-red-500">*</span></Label>
+              <select aria-label="Select bank account" value={quickPaymentForm.bank_account_id}
+                onChange={e => setQuickPaymentForm(prev => ({ ...prev, bank_account_id: e.target.value }))}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="">Select account…</option>
+                {activeBankAccounts.map(b => (
+                  <option key={b.id} value={String(b.id)}>{b.account_number} · {b.bank_name}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={saving} className="gap-2">
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-              {saving ? 'Saving…' : `Record ${saleRows.filter(r => r.customer).length || ''} Payment${saleRows.filter(r => r.customer).length !== 1 ? 's' : ''}`}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickPaymentTarget(null)} disabled={quickPaymentSaving}>Cancel</Button>
+            <Button onClick={handleQuickPaymentSave} disabled={quickPaymentSaving} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+              {quickPaymentSaving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+              {quickPaymentSaving ? 'Saving…' : 'Save Entry'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* Set Up Dialog                                                      */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
       <Dialog open={!!setupTarget} onOpenChange={open => { if (!open) setSetupTarget(null); }}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-amber-100">
-                <UserPlus className="w-5 h-5 text-amber-600" />
-              </div>
+              <div className="p-2 rounded-lg bg-blue-100"><UserPlus className="w-5 h-5 text-blue-600" /></div>
               <div>
-                <h2 className="text-lg font-semibold">Row Setup</h2>
-                <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  {setupTarget ? `${setupTarget.truckNumber} · ${setupTarget.dateLoaded ? format(parseISO(setupTarget.dateLoaded), 'dd MMM yyyy') : 'No date'}` : 'Assign customer and destination'}
-                </p>
+                <h2 className="text-lg font-semibold">{setupTarget?.customerName ? 'Edit Setup' : 'Set Up Allocation'}</h2>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">{setupTarget?.truckNumber} · {setupTarget?.dateLoaded}</p>
               </div>
             </DialogTitle>
-            <DialogDescription className="sr-only">Setup customer, destination, code and transfer for selected row</DialogDescription>
+            <DialogDescription className="sr-only">Assign a filling station customer and destination to this truck allocation</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label>Customer</Label>
-                <select
-                  aria-label="Setup customer"
-                  value={setupCustomer}
-                  onChange={e => setSetupCustomer(e.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Select customer…</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={String(c.id)}>{c.customer_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label>Destination</Label>
-                <Input
-                  value={setupDestination}
-                  onChange={e => setSetupDestination(e.target.value)}
-                  placeholder="e.g. Kano, Abuja"
-                />
-              </div>
-            </div>
-
             <div className="space-y-1">
-              <Label>Allocation Code</Label>
-              <Input
-                placeholder="e.g. PFI 19B"
-                value={setupCode}
-                onChange={e => setSetupCode(e.target.value.toUpperCase())}
-                className="h-10 text-sm uppercase font-semibold border-purple-200 focus:border-purple-400"
-              />
+              <Label>Filling Station <span className="text-red-500">*</span></Label>
+              <select aria-label="Setup customer" value={setupCustomer} onChange={e => setSetupCustomer(e.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="">Select filling station…</option>
+                {customers.map(c => <option key={c.id} value={String(c.id)}>{c.customer_name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>Destination / Location <span className="text-red-500">*</span></Label>
+              <Input placeholder="e.g. Oguta Road, Owerri" value={setupDestination} onChange={e => setSetupDestination(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Allocation Code <span className="text-xs text-slate-400">(optional)</span></Label>
+              <Input placeholder="e.g. SOR-001" value={setupCode} onChange={e => setSetupCode(e.target.value.toUpperCase())} />
             </div>
 
+            {/* Overpayment transfer */}
             {setupTarget && setupTarget.balance < 0 && (
-              <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
-                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Transfer Overpayment</p>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider flex items-center gap-1.5"><ArrowRightLeft size={12} /> Transfer Overpayment</p>
                 <p className="text-xs text-blue-700">Available: {fmt(Math.abs(setupTarget.balance))}</p>
                 <div className="space-y-1">
                   <Label>Transfer To</Label>
-                  <select
-                    aria-label="Setup transfer target"
-                    value={setupTransferTargetKey}
-                    onChange={e => setSetupTransferTargetKey(e.target.value)}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
+                  <select aria-label="Setup transfer target" value={setupTransferTargetKey} onChange={e => setSetupTransferTargetKey(e.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                     <option value="">Select target row…</option>
-                    {ledgerGroups
-                      .filter(group => group.key !== setupTarget.key)
-                      .map(group => (
-                        <option key={group.key} value={group.key}>
-                          {group.truckNumber} · {group.customerName || 'Customer pending'} · Bal {group.expected > 0 ? fmt(group.balance) : '—'}
-                        </option>
-                      ))}
+                    {ledgerGroups.filter(g => g.key !== setupTarget.key).map(g => (
+                      <option key={g.key} value={g.key}>{g.truckNumber} · {g.customerName || 'Customer pending'} · Bal {g.expected > 0 ? fmt(g.balance) : '—'}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1">
                   <Label>Transfer Amount</Label>
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={setupTransferAmount}
-                    onChange={e => setSetupTransferAmount(formatWithCommas(e.target.value))}
-                    placeholder="e.g. 1,000,000"
-                  />
+                  <Input type="text" inputMode="decimal" value={setupTransferAmount} onChange={e => setSetupTransferAmount(formatWithCommas(e.target.value))} placeholder="e.g. 1,000,000" />
                 </div>
                 <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    onClick={handleSetupTransfer}
-                    disabled={setupTransferSaving}
-                    className="gap-2 bg-blue-600 hover:bg-blue-700"
-                  >
+                  <Button type="button" onClick={handleSetupTransfer} disabled={setupTransferSaving} className="gap-2 bg-blue-600 hover:bg-blue-700">
                     {setupTransferSaving ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
                     {setupTransferSaving ? 'Transferring…' : 'Transfer Now'}
                   </Button>
@@ -3285,370 +2382,122 @@ export default function FillingStations() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!quickPaymentTarget} onOpenChange={open => { if (!open) setQuickPaymentTarget(null); }}>
-        <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-100">
-                <Banknote className="w-5 h-5 text-emerald-600" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold">Add Payment</h2>
-                <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  {quickPaymentTarget
-                    ? `${quickPaymentTarget.truckNumber} · ${quickPaymentTarget.customerName || 'Customer pending'}${quickPaymentTarget.code ? ` · ${quickPaymentTarget.code}` : ''}`
-                    : 'Record another payment for this row'}
-                </p>
-              </div>
-            </DialogTitle>
-            <DialogDescription className="sr-only">Record a follow-up payment for an existing row</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            {quickPaymentTarget && (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-slate-400">Expected</p>
-                  <p className="font-semibold text-slate-800">{quickPaymentTarget.expected > 0 ? fmt(quickPaymentTarget.expected) : '—'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Current Balance</p>
-                  <p className={`font-semibold ${quickPaymentTarget.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                    {quickPaymentTarget.expected > 0 ? (quickPaymentTarget.balance > 0 ? fmt(quickPaymentTarget.balance) : 'Fully Paid ✓') : '—'}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-1">
-              <Label>Amount Paid</Label>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={quickPaymentForm.payment_amount}
-                onChange={e => setQuickPaymentForm(prev => ({ ...prev, payment_amount: formatWithCommas(e.target.value) }))}
-                placeholder="e.g. 5,000,000"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label>Payer's Name</Label>
-                <Input
-                  value={quickPaymentForm.payer_name}
-                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, payer_name: e.target.value.replace(/[0-9]/g, '') }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Phone Number</Label>
-                <Input
-                  value={quickPaymentForm.phone_number}
-                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, phone_number: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label>Bank Account</Label>
-              <select
-                aria-label="Quick payment bank account"
-                value={quickPaymentForm.bank_account_id}
-                onChange={e => setQuickPaymentForm(prev => ({ ...prev, bank_account_id: e.target.value }))}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">Select account…</option>
-                {activeBankAccounts.map(b => (
-                  <option key={b.id} value={String(b.id)}>
-                    {b.account_number} · {b.bank_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setQuickPaymentTarget(null)} disabled={quickPaymentSaving}>
-              Cancel
-            </Button>
-            <Button onClick={handleQuickPaymentSave} disabled={quickPaymentSaving} className="gap-2">
-              {quickPaymentSaving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-              {quickPaymentSaving ? 'Saving…' : 'Save Payment'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* Edit Entry Dialog                                              */}
-      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* Edit Entry Dialog                                                  */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
       <Dialog open={!!editTarget} onOpenChange={open => { if (!open) { setEditTarget(null); setEditForm(null); } }}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[580px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-100">
-                <Pencil className="w-5 h-5 text-blue-600" />
-              </div>
+              <div className="p-2 rounded-lg bg-slate-100"><Pencil className="w-5 h-5 text-slate-600" /></div>
               <div>
                 <h2 className="text-lg font-semibold">Edit Entry</h2>
-                <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  {editTarget?.truck_number} — {editTarget ? (editTarget.customer_name || `Customer #${editTarget.customer}`) : ''}
-                </p>
+                <p className="text-sm font-normal text-slate-500">{editTarget?.truck_number} · {editTarget?.date_of_payment}</p>
               </div>
             </DialogTitle>
-            <DialogDescription className="sr-only">Edit a sales ledger entry</DialogDescription>
+            <DialogDescription className="sr-only">Edit a daily sale entry</DialogDescription>
           </DialogHeader>
 
-          {editForm && editTarget && (() => {
-            const rateIsLocked = toNum(editTarget.rate) > 0;
-
-            // All known loading dates for this truck — from inventory records
-            const truckCycleDates = truckLoadingDates.get(editTarget.truck_number) || [];
-            // Also include the entry's current date_loaded if not already in the list
-            const allEditDates = editTarget.date_loaded && !truckCycleDates.includes(editTarget.date_loaded)
-              ? [...truckCycleDates, editTarget.date_loaded].sort()
-              : truckCycleDates;
-            const editIsCustomDate = editForm.date_loaded !== '' &&
-              !allEditDates.includes(editForm.date_loaded) &&
-              editForm.date_loaded !== editTarget.date_loaded;
-
-            return (
+          {editForm && (
             <div className="space-y-4 py-2">
-              {/* Info banner for filling-station rows with no rate yet */}
-              {(!toNum(editTarget.rate) || !toNum(editTarget.sales_value)) && (
-                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <Fuel size={14} className="text-amber-500 mt-0.5 shrink-0" />
-                  <p className="text-xs text-amber-700">
-                    This entry has no rate or revenue yet — fill them in below now that the station has sold.
-                  </p>
-                </div>
-              )}
-              {/* Lock notice */}
-              {/* {(rateIsLocked || dopIsLocked) && (
-                <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                  <span className="text-slate-400 mt-0.5 shrink-0">🔒</span>
-                  <p className="text-xs text-slate-500">
-                    {[
-                      rateIsLocked && 'Rate is locked once set.',
-                      dopIsLocked  && 'Date of payment is locked once recorded.',
-                    ].filter(Boolean).join(' ')}
-                  </p>
-                </div>
-              )} */}
-
-              {/* Cycle / Date Loaded — always visible */}
-              {/* Row 1: Destination + Qty */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Destination</Label>
-                  <Input
-                    value={editForm.location}
-                    onChange={e => setEditForm(f => f ? { ...f, location: e.target.value } : f)}
-                    className="h-9 text-sm"
-                    placeholder="e.g. Kano"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Quantity (L)</Label>
-                  <Input
-                    type="text" inputMode="decimal"
-                    value={editForm.quantity}
+                  <Label className="text-xs">Volume (Ltrs)</Label>
+                  <Input className="h-9 text-sm" value={editForm.quantity}
                     onChange={e => {
                       const qty = formatWithCommas(e.target.value);
-                      const r = Number(stripCommas(editForm.rate)) || 0;
                       const q = Number(stripCommas(qty)) || 0;
+                      const r = toNum(editTarget?.rate ?? 0) || Number(stripCommas(editForm.rate)) || 0;
                       const sv = q && r ? formatWithCommas(String(q * r)) : editForm.sales_value;
-                      setEditForm(f => f ? { ...f, quantity: qty, sales_value: sv } : f);
+                      setEditForm(prev => prev ? { ...prev, quantity: qty, sales_value: sv } : null);
                     }}
-                    className="h-9 text-sm"
-                    placeholder="e.g. 33,000"
                   />
                 </div>
-              </div>
-
-              {/* Code */}
-              <div className="space-y-1">
-                <Label className="text-xs text-slate-600 flex items-center gap-1.5">
-                  <Tag size={11} className="text-purple-500" /> Allocation Code
-                </Label>
-                <Input
-                  placeholder="e.g. PFI 19B"
-                  value={editAllocationCode}
-                  onChange={e => setEditAllocationCode(e.target.value.toUpperCase())}
-                  className="h-9 text-sm uppercase font-semibold border-purple-200 focus:border-purple-400"
-                />
-              </div>
-
-              {/* Row 2: Rate + Expected */}
-              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-600 flex items-center gap-1">
-                    Rate (₦/L){rateIsLocked && <span className="text-slate-400"></span>}
-                  </Label>
-                  <Input
-                    type="text" inputMode="decimal"
-                    value={editForm.rate}
-                    disabled={rateIsLocked}
+                  <Label className="text-xs">Rate (₦/L){toNum(editTarget?.rate ?? 0) > 0 && <span className="text-slate-400 ml-1 text-[10px]">(locked)</span>}</Label>
+                  <Input className="h-9 text-sm" readOnly={toNum(editTarget?.rate ?? 0) > 0}
+                    value={toNum(editTarget?.rate ?? 0) > 0 ? formatWithCommas(String(toNum(editTarget!.rate))) : editForm.rate}
                     onChange={e => {
-                      if (rateIsLocked) return;
+                      if (toNum(editTarget?.rate ?? 0) > 0) return;
                       const rate = formatWithCommas(e.target.value);
                       const r = Number(stripCommas(rate)) || 0;
                       const q = Number(stripCommas(editForm.quantity)) || 0;
                       const sv = q && r ? formatWithCommas(String(q * r)) : editForm.sales_value;
-                      setEditForm(f => f ? { ...f, rate, sales_value: sv } : f);
+                      setEditForm(prev => prev ? { ...prev, rate, sales_value: sv } : null);
                     }}
-                    className={`h-9 text-sm ${rateIsLocked ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : ''}`}
-                    placeholder="e.g. 1,210"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Total Expected (₦)</Label>
-                  <Input
-                    type="text" inputMode="decimal"
-                    value={editForm.sales_value}
-                    onChange={e => setEditForm(f => f ? { ...f, sales_value: formatWithCommas(e.target.value) } : f)}
-                    className="h-9 text-sm font-semibold"
-                    placeholder="Auto-computed or manual"
+                  <Label className="text-xs">Expected (₦)</Label>
+                  <Input className="h-9 text-sm" value={editForm.sales_value}
+                    onChange={e => setEditForm(prev => prev ? { ...prev, sales_value: formatWithCommas(e.target.value) } : null)}
                   />
                 </div>
               </div>
-
-              {/* Row 3: Payment + Date */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Amount Paid (₦)</Label>
-                  <Input
-                    type="text" inputMode="decimal"
-                    value={editForm.payment_amount}
-                    onChange={e => setEditForm(f => f ? { ...f, payment_amount: formatWithCommas(e.target.value) } : f)}
-                    className="h-9 text-sm"
-                    placeholder="e.g. 5,000,000"
+                  <Label className="text-xs">Amount Paid (₦)</Label>
+                  <Input className="h-9 text-sm" value={editForm.payment_amount}
+                    onChange={e => setEditForm(prev => prev ? { ...prev, payment_amount: formatWithCommas(e.target.value) } : null)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-600 flex items-center gap-1">
-                    Date of Payment
-                  </Label>
-                  <Input
-                    type="date"
-                    value={editForm.date_of_payment}
-                    onChange={e => setEditForm(f => f ? { ...f, date_of_payment: e.target.value } : f)}
-                    className="h-9 text-sm"
+                  <Label className="text-xs">Date of Payment</Label>
+                  <Input type="date" className="h-9 text-sm" value={editForm.date_of_payment}
+                    onChange={e => setEditForm(prev => prev ? { ...prev, date_of_payment: e.target.value } : null)}
                   />
                 </div>
               </div>
-
-              {/* Row 4: Payer + Bank */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Payer's Name</Label>
-                  <Input
-                    value={editForm.payer_name}
-                    onChange={e => setEditForm(f => f ? { ...f, payer_name: e.target.value.replace(/[0-9]/g, '') } : f)}
-                    className="h-9 text-sm"
-                    placeholder="Name only"
+                  <Label className="text-xs">Payer's Name</Label>
+                  <Input className="h-9 text-sm" value={editForm.payer_name}
+                    onChange={e => setEditForm(prev => prev ? { ...prev, payer_name: e.target.value.replace(/[0-9]/g, '') } : null)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Bank Account</Label>
-                  <select
-                    aria-label="Bank account"
-                    value={editForm.bank_account_id}
-                    onChange={e => setEditForm(f => f ? { ...f, bank_account_id: e.target.value } : f)}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                  >
-                    <option value="">Select account…</option>
-                    {BANK_ACCOUNTS.filter(b => b.is_active).map(b => (
-                      <option key={b.id} value={String(b.id)}>
-                        {b.account_number} · {b.bank_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Row 5: Phone + Remarks */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Phone Number</Label>
-                  <Input
-                    value={editForm.phone_number}
-                    onChange={e => setEditForm(f => f ? { ...f, phone_number: e.target.value } : f)}
-                    className="h-9 text-sm"
-                    placeholder="e.g. 08012345678"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Remarks</Label>
-                  <Input
-                    value={editForm.remarks}
-                    onChange={e => setEditForm(f => f ? { ...f, remarks: e.target.value } : f)}
-                    className="h-9 text-sm"
-                    placeholder="e.g. Full Payment"
+                  <Label className="text-xs">Phone</Label>
+                  <Input className="h-9 text-sm" value={editForm.phone_number}
+                    onChange={e => setEditForm(prev => prev ? { ...prev, phone_number: e.target.value } : null)}
                   />
                 </div>
               </div>
-
-              {/* Live balance preview */}
-              {editForm.sales_value && (
-                (() => {
-                  const sv = Number(stripCommas(editForm.sales_value)) || 0;
-                  const pa = Number(stripCommas(editForm.payment_amount)) || 0;
-                  // Sum all other payments for this truck+customer within the same cycle only.
-                  const currentCycleKey = getCycleKey(editTarget.truck_number, editTarget.date_loaded);
-                  const otherPaid = allSales
-                    .filter(s =>
-                      s.id !== editTarget.id &&
-                      s.customer === editTarget.customer &&
-                      getCycleKey(s.truck_number, s.date_loaded) === currentCycleKey,
-                    )
-                    .reduce((sum, s) => sum + toNum(s.payment_amount), 0);
-                  const bal = sv - pa - otherPaid;
-                  return (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 grid grid-cols-3 gap-3 text-sm">
-                      <div>
-                        <p className="text-xs text-slate-400">Expected</p>
-                        <p className="font-bold text-slate-800">{sv > 0 ? fmt(sv) : '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-400">Total Paid</p>
-                        <p className="font-bold text-emerald-700">{fmt(pa + otherPaid)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-400">Balance</p>
-                        <p className={`font-bold ${bal > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                          {bal > 0 ? fmt(bal) : '✓ Fully paid'}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })()
-              )}
+              <div className="space-y-1">
+                <Label className="text-xs">Bank Account</Label>
+                <select aria-label="Edit bank account" value={editForm.bank_account_id}
+                  onChange={e => setEditForm(prev => prev ? { ...prev, bank_account_id: e.target.value } : null)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                  <option value="">Select account…</option>
+                  {activeBankAccounts.map(b => <option key={b.id} value={String(b.id)}>{b.account_number} · {b.bank_name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Remarks</Label>
+                <Input className="h-9 text-sm" value={editForm.remarks}
+                  onChange={e => setEditForm(prev => prev ? { ...prev, remarks: e.target.value } : null)}
+                />
+              </div>
             </div>
-            );
-          })()}
+          )}
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => { setEditTarget(null); setEditForm(null); }} disabled={editSaving}>
-              Cancel
-            </Button>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditTarget(null); setEditForm(null); }} disabled={editSaving}>Cancel</Button>
             <Button onClick={handleEditSave} disabled={editSaving} className="gap-2">
-              {editSaving ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}
+              {editSaving ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
               {editSaving ? 'Saving…' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* Delete Confirmation                                            */}
-      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* Delete Confirm Dialog                                              */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
       <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className="bg-red-100 p-2 rounded-lg">
-                <Trash2 className="w-5 h-5 text-red-600" />
-              </div>
+              <div className="p-2 rounded-lg bg-red-100"><Trash2 className="w-5 h-5 text-red-600" /></div>
               <span>Confirm Delete</span>
             </DialogTitle>
             <DialogDescription className="pt-2 text-slate-600">
