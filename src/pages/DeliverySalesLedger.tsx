@@ -3182,7 +3182,7 @@ export default function DeliverySalesLedger() {
                                 <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm">
                                   {payment.date_of_payment ? format(parseISO(payment.date_of_payment), 'dd MMM yyyy') : ' '}
                                 </TableCell>
-                                {/* <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
+                                <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
                                   <div className="flex gap-1 items-center justify-center" onClick={(e) => e.stopPropagation()}>
                                     {!readOnly && (
                                       <>
@@ -3207,7 +3207,7 @@ export default function DeliverySalesLedger() {
                                       </>
                                     )}
                                   </div>
-                                </TableCell> */}
+                                </TableCell>
                               </TableRow>
                             );
                           });
