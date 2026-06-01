@@ -132,6 +132,18 @@ const getCustomerName = (o: Order): string => {
   );
 };
 
+const getCompanyName = (o: Order): string => {
+  return (
+    o.user?.companyName ||
+    o.user?.company_name ||
+    o.companyName ||
+    o.company_name ||
+    o.customer?.companyName ||
+    o.customer?.company_name ||
+    '—'
+  );
+};
+
 const getPhone = (o: Order): string =>
   o.user?.phone_number || o.user?.phone || '—';
 
@@ -446,7 +458,7 @@ export default function DepotView() {
       }
 
       return true;
-    }).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    }).sort((a, b) => a.created_at.localeCompare(b.created_at));
   }, [allOrders, timePreset, customFrom, customTo, statusFilter, locationFilter, productFilter, pfiFilter, releaseTypeFilter, searchQuery]);
 
   // ── Summary cards ─────────────────────────────────────────────────
@@ -508,12 +520,13 @@ export default function DepotView() {
     const ordersWs = XLSX.utils.aoa_to_sheet([
       ['SALES ORDERS REPORT'],
       [''],
-      ['REFERENCE', 'DATE', 'CUSTOMER', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS', 'PHONE'],
+      ['REFERENCE', 'DATE', 'CUSTOMER', 'COMPANY', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS', 'PHONE'],
       ...filteredOrders.map(order => {
         const qty = toNum(order.quantity);
         const unitPrice = getUnitPrice(order);
         const amount = toNum(order.total_price);
         const customer = getCustomerName(order).toUpperCase();
+        const company = getCompanyName(order).toUpperCase();
         const location = getLocation(order).toUpperCase();
         const pfi = getPfiNumber(order).toUpperCase();
         const truck = getTruckNumber(order).toUpperCase();
@@ -527,6 +540,7 @@ export default function DepotView() {
           String(getOrderReference(order) || order.id).toUpperCase(),
           fmtDateTime(order.created_at).toUpperCase(),
           customer,
+          company,
           location,
           pfi,
           truck,
@@ -545,12 +559,12 @@ export default function DepotView() {
       { s: { r: 11, c: 0 }, e: { r: 11, c: 1 } },
     ];
     ordersWs['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 13 } },
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 12 } },
     ];
 
     summaryWs['!cols'] = [{ wch: 24 }, { wch: 28 }];
     ordersWs['!cols'] = [
-      { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 20 }, { wch: 18 }, { wch: 16 },
+      { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 18 }, { wch: 16 },
       { wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 16 },
     ];
 
@@ -563,9 +577,9 @@ export default function DepotView() {
 
     for (let rowIndex = 3; rowIndex < (ordersWs['!ref'] ? filteredOrders.length + 3 : 0); rowIndex += 1) {
       const row = rowIndex + 1;
-      const qtyCell = ordersWs[`H${row}`];
-      const unitPriceCell = ordersWs[`I${row}`];
-      const amountCell = ordersWs[`J${row}`];
+      const qtyCell = ordersWs[`I${row}`];
+      const unitPriceCell = ordersWs[`J${row}`];
+      const amountCell = ordersWs[`K${row}`];
       if (qtyCell) qtyCell.z = '#,##0';
       if (unitPriceCell) unitPriceCell.z = '#,##0.00';
       if (amountCell) amountCell.z = '#,##0.00';
