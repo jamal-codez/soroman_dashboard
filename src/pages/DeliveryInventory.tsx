@@ -568,21 +568,12 @@ export default function DeliveryInventory() {
       );
     }
 
-    const codeOrder = new Map<string, number>();
-    deliveryCodes.forEach((c, i) => codeOrder.set(c, i));
-
     return list.sort((a, b) => {
-      const aRank = a.code ? (codeOrder.get(a.code) ?? 10_000) : 99_999;
-      const bRank = b.code ? (codeOrder.get(b.code) ?? 10_000) : 99_999;
-      if (aRank !== bRank) return aRank - bRank;
-      const codeDiff = (a.code || '').localeCompare(b.code || '');
-      if (codeDiff !== 0) return codeDiff;
-      const truckDiff = a.truckPlate.localeCompare(b.truckPlate);
-      if (truckDiff !== 0) return truckDiff;
-      const sOrd = { loaded: 0, offloaded: 1, empty: 2 };
-      return sOrd[a.status] - sOrd[b.status];
+      const dateA = a.date_offloaded || a.date_allocated || '';
+      const dateB = b.date_offloaded || b.date_allocated || '';
+      return dateB.localeCompare(dateA);
     });
-  }, [truckRecords, statusFilter, pfiFilter, customerFilter, truckFilter, codeFilter, dateFrom, dateTo, searchQuery, deliveryCodes]);
+  }, [truckRecords, statusFilter, pfiFilter, customerFilter, truckFilter, codeFilter, dateFrom, dateTo, searchQuery]);
 
   // Group filtered records by allocation code — preserving the sorted order
   const grouped = useMemo((): [string, TruckRecord[]][] => {
@@ -593,18 +584,29 @@ export default function DeliveryInventory() {
       arr.push(r);
       map.set(key, arr);
     });
-    const codeOrder = new Map<string, number>();
-    deliveryCodes.forEach((c, i) => codeOrder.set(c, i));
-    return [...map.entries()].sort(([a], [b]) => {
-      if (!a && !b) return 0;
-      if (!a) return 1;
-      if (!b) return -1;
-      const aR = codeOrder.get(a) ?? 10_000;
-      const bR = codeOrder.get(b) ?? 10_000;
-      if (aR !== bR) return aR - bR;
-      return a.localeCompare(b);
+
+    // 1. Sort records inside each code group: recent ones up (date_offloaded falling back to date_allocated)
+    map.forEach(records => {
+      records.sort((x, y) => {
+        const dateX = x.date_offloaded || x.date_allocated || '';
+        const dateY = y.date_offloaded || y.date_allocated || '';
+        return dateY.localeCompare(dateX);
+      });
     });
-  }, [filtered, deliveryCodes]);
+
+    // 2. Sort the code groups themselves by their most recent record's date in descending order (recent ones up)
+    return [...map.entries()].sort(([codeA, recordsA], [codeB, recordsB]) => {
+      const maxDateA = recordsA.reduce((max, r) => {
+        const d = r.date_offloaded || r.date_allocated || '';
+        return d > max ? d : max;
+      }, '');
+      const maxDateB = recordsB.reduce((max, r) => {
+        const d = r.date_offloaded || r.date_allocated || '';
+        return d > max ? d : max;
+      }, '');
+      return maxDateB.localeCompare(maxDateA);
+    });
+  }, [filtered]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Derived / Summaries
@@ -1428,7 +1430,7 @@ export default function DeliveryInventory() {
                   <Table className="text-sm">
                     <TableHeader>
                       <TableRow className="bg-slate-50/80">
-                        <TableHead className="w-[44px] text-center">
+                        {/* <TableHead className="w-[44px] text-center">
                           <input
                             type="checkbox"
                             aria-label="Select all visible rows"
@@ -1442,22 +1444,22 @@ export default function DeliveryInventory() {
                               }
                             }}
                           />
-                        </TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[40px] text-center">#</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[115px]">Code</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[120px]">Truck</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[105px]">Quantity</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Depot</TableHead>
-                        <TableHead className="font-semibold text-slate-700">PFI</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Product</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Customers (Sales)</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Rate(s)</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Destination</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[85px]">Status</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[95px]">Date Loaded</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[95px]">Date Sold</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[90px]">Sold By</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[190px]">Actions</TableHead>
+                        </TableHead> */}
+                        <TableHead className="text-sm text-slate-700 w-[40px] text-center">#</TableHead>
+                        <TableHead className="text-sm text-slate-700 w-[115px]">PFI Code</TableHead>
+                        <TableHead className="text-sm text-slate-700 w-[120px]">Truck</TableHead>
+                        <TableHead className="text-sm text-slate-700 w-[105px]">Quantity</TableHead>
+                        <TableHead className="text-sm text-slate-700">Depot Loaded</TableHead>
+                        {/* <TableHead className="font-semibold text-slate-700">PFI</TableHead> */}
+                        <TableHead className="text-sm text-slate-700">Product</TableHead>
+                        <TableHead className="text-sm text-slate-700">Customer</TableHead>
+                        <TableHead className="text-sm text-slate-700">Rate(s)</TableHead>
+                        <TableHead className="text-sm text-slate-700">Destination</TableHead>
+                        <TableHead className="text-sm text-slate-700 w-[85px]">Status</TableHead>
+                        <TableHead className="text-sm text-slate-700 w-[95px]">Date Loaded</TableHead>
+                        <TableHead className="text-sm text-slate-700 w-[95px]">Date Sold</TableHead>
+                        {/* <TableHead className="font-semibold text-slate-700 w-[90px]">Sold By</TableHead> */}
+                        <TableHead className="text-sm text-slate-700 w-[190px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1573,7 +1575,7 @@ export default function DeliveryInventory() {
                                   </TableCell>
 
                                   <TableCell>
-                                    <span className="font-semibold text-slate-900 flex items-center gap-1.5">
+                                    <span className="font-semibold text-sm text-slate-900 flex items-center gap-1.5">
                                       <Truck size={12} className="text-slate-400 shrink-0" />
                                       {r.truckPlate}
                                     </span>
@@ -1582,20 +1584,20 @@ export default function DeliveryInventory() {
                                     )} */}
                                   </TableCell>
 
-                                  <TableCell className="font-bold text-slate-800">
+                                  <TableCell className="text-sm font-semibold text-slate-800">
                                     {r.qty > 0 ? `${fmtQty(r.qty)} Litres` : '—'}
                                   </TableCell>
 
-                                  <TableCell className="text-slate-600 text-xs">{r.depotDisplay || '—'}</TableCell>
-                                  <TableCell className="text-slate-700 font-medium whitespace-nowrap text-xs">{r.pfiLabel || '—'}</TableCell>
-                                  <TableCell className="font-medium text-slate-700 whitespace-nowrap text-xs">{r.product || '—'}</TableCell>
+                                  <TableCell className="text-slate-800 text-sm">{r.depotDisplay || '—'}</TableCell>
+                                  {/* <TableCell className="text-slate-700 font-medium whitespace-nowrap text-xs">{r.pfiLabel || '—'}</TableCell> */}
+                                  <TableCell className="font-medium text-slate-800 whitespace-nowrap text-sm">{r.product || '—'}</TableCell>
 
                                   {/* Customers (from Sales Ledger) */}
                                   <TableCell>
                                     {salesEntries && salesEntries.length > 0 ? (
                                       <div className="flex flex-col gap-0.5">
                                         {salesEntries.map(e => (
-                                          <span key={e.customerId} className="text-sm text-slate-900 font-medium capitalize whitespace-nowrap">
+                                          <span key={e.customerId} className="text-sm text-slate-900 font-normal capitalize whitespace-nowrap">
                                             {e.customerName || `#${e.customerId}`}
                                           </span>
                                         ))}
@@ -1623,7 +1625,7 @@ export default function DeliveryInventory() {
                                     )}
                                   </TableCell>
 
-                                  <TableCell className="text-slate-600 uppercase text-xs">{r.destination || '—'}</TableCell>
+                                  <TableCell className="text-slate-700 capitalize text-sm">{r.destination || '—'}</TableCell>
 
                                   <TableCell>
                                     {badge && Icon ? (
@@ -1633,11 +1635,11 @@ export default function DeliveryInventory() {
                                     ) : '—'}
                                   </TableCell>
 
-                                  <TableCell className="whitespace-nowrap text-slate-500 text-xs">
+                                  <TableCell className="whitespace-nowrap text-slate-700 text-sm">
                                     {r.date_allocated ? format(parseISO(r.date_allocated), 'dd MMM yy') : '—'}
                                   </TableCell>
 
-                                  <TableCell className="whitespace-nowrap text-slate-500 text-xs">
+                                  <TableCell className="whitespace-nowrap text-slate-700 text-sm">
                                     {r.date_offloaded ? format(parseISO(r.date_offloaded), 'dd MMM yy') : '—'}
                                   </TableCell>
 
@@ -1657,7 +1659,7 @@ export default function DeliveryInventory() {
                                           <CheckCircle2 size={11} /> Offload
                                         </Button>
                                       )}
-                                      {/* {!readOnly && (
+                                      {!readOnly && (
                                         <Button
                                           size="sm"
                                           variant="outline"
@@ -1665,9 +1667,9 @@ export default function DeliveryInventory() {
                                           onClick={() => openEditDialog(r)}
                                           title="Edit this allocation record"
                                         >
-                                          <Pencil size={11} /> Edit
+                                          <Pencil size={12} /> Edit
                                         </Button>
-                                      )} */}
+                                      )}
                                       {/* {!readOnly && (
                                         <Button
                                           size="sm"

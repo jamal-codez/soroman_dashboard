@@ -144,6 +144,7 @@ interface QuickPaymentForm {
   payer_name: string;
   phone_number: string;
   bank_account_id: string;
+  date_of_payment: string;
 }
 
 interface BackendPfi {
@@ -395,6 +396,7 @@ export default function DeliverySalesLedger() {
     payer_name: '',
     phone_number: '',
     bank_account_id: '',
+    date_of_payment: '',
   });
   const [quickPaymentSaving, setQuickPaymentSaving] = useState(false);
   const [setupTarget, setSetupTarget] = useState<LedgerGroup | null>(null);
@@ -1750,12 +1752,14 @@ export default function DeliverySalesLedger() {
     }
 
     const customer = group.customerId ? customerMap.get(group.customerId) : null;
+    const today = format(new Date(), 'yyyy-MM-dd');
     setQuickPaymentTarget(group);
     setQuickPaymentForm({
       payment_amount: '',
       payer_name: '',
       phone_number: customer?.contact_person_phone || customer?.phone_number || '',
       bank_account_id: '',
+      date_of_payment: today,
     });
   };
 
@@ -1869,7 +1873,7 @@ export default function DeliverySalesLedger() {
         payment_amount: paymentAmount,
         payer_name: payerName || undefined,
         bank: bankStr,
-        date_of_payment: format(new Date(), 'yyyy-MM-dd'),
+        date_of_payment: quickPaymentForm.date_of_payment || format(new Date(), 'yyyy-MM-dd'),
         phone_number: quickPaymentForm.phone_number.trim() || undefined,
         entered_by: currentUser,
       }) as { id?: number };
@@ -1883,7 +1887,7 @@ export default function DeliverySalesLedger() {
         description: `${quickPaymentTarget.truckNumber} · ${fmt(paymentAmount)}`,
       });
       setQuickPaymentTarget(null);
-      setQuickPaymentForm({ payment_amount: '', payer_name: '', phone_number: '', bank_account_id: '' });
+      setQuickPaymentForm({ payment_amount: '', payer_name: '', phone_number: '', bank_account_id: '', date_of_payment: '' });
       invalidateAll();
     } catch (err: unknown) {
       toast({
@@ -2926,7 +2930,7 @@ export default function DeliverySalesLedger() {
                         <TableHead className="font-semibold text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">Payer</TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Bank</TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Paid On</TableHead>
-                        {/* <TableHead className="font-semibold text-slate-700 w-[100px] min-w-[100px] whitespace-nowrap text-center">Actions</TableHead> */}
+                        <TableHead className="font-semibold text-slate-700 w-[100px] min-w-[100px] whitespace-nowrap text-center">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -2984,7 +2988,7 @@ export default function DeliverySalesLedger() {
                               </TableCell>
                               <TableCell className="text-sm w-[180px] min-w-[180px] whitespace-nowrap"> </TableCell>
                               <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm"> </TableCell>
-                              {/* <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
+                              <TableCell className="w-[100px] min-w-[100px] whitespace-nowrap text-center">
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -3000,7 +3004,7 @@ export default function DeliverySalesLedger() {
                                     <>Manage <ChevronDown size={12} /></>
                                   )}
                                 </Button>
-                              </TableCell> */}
+                              </TableCell>
                             </TableRow>
                           );
 
@@ -3828,30 +3832,71 @@ export default function DeliverySalesLedger() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {quickPaymentTarget && (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-slate-400">Expected</p>
-                  <p className="font-semibold text-slate-800">{quickPaymentTarget.expected > 0 ? fmt(quickPaymentTarget.expected) : '—'}</p>
+            {quickPaymentTarget && (() => {
+              const amountTyped = Number(stripCommas(quickPaymentForm.payment_amount)) || 0;
+              const remainingBalance = quickPaymentTarget.balance - amountTyped;
+              return (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm space-y-2">
+                  <div className="grid grid-cols-2 gap-3 pb-2 border-b border-dashed border-slate-200">
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">Expected</p>
+                      <p className="font-bold text-slate-800 mt-0.5">{quickPaymentTarget.expected > 0 ? fmt(quickPaymentTarget.expected) : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">Current Balance</p>
+                      <p className={`font-bold mt-0.5 ${quickPaymentTarget.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {quickPaymentTarget.expected > 0 ? (quickPaymentTarget.balance > 0 ? fmt(quickPaymentTarget.balance) : 'Fully Paid ✓') : '—'}
+                      </p>
+                    </div>
+                  </div>
+                  {amountTyped > 0 && (
+                    <div className="grid grid-cols-2 gap-3 pt-1 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div>
+                        <p className="text-xs text-indigo-500 font-semibold">Payment Preview</p>
+                        <p className="font-extrabold text-indigo-600 mt-0.5">{fmt(amountTyped)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400 font-medium">New Balance After</p>
+                        <p className={`font-extrabold mt-0.5 ${
+                          remainingBalance === 0 
+                            ? 'text-emerald-600' 
+                            : remainingBalance > 0 
+                              ? 'text-red-600' 
+                              : 'text-blue-600'
+                        }`}>
+                          {remainingBalance === 0 
+                            ? 'Fully Settled ✓' 
+                            : remainingBalance > 0 
+                              ? fmt(remainingBalance) 
+                              : `+${fmt(Math.abs(remainingBalance))} Overpaid`
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <p className="text-xs text-slate-400">Current Balance</p>
-                  <p className={`font-semibold ${quickPaymentTarget.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                    {quickPaymentTarget.expected > 0 ? (quickPaymentTarget.balance > 0 ? fmt(quickPaymentTarget.balance) : 'Fully Paid ✓') : '—'}
-                  </p>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
-            <div className="space-y-1">
-              <Label>Amount Paid</Label>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={quickPaymentForm.payment_amount}
-                onChange={e => setQuickPaymentForm(prev => ({ ...prev, payment_amount: formatWithCommas(e.target.value) }))}
-                placeholder="e.g. 5,000,000"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Amount Paid</Label>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={quickPaymentForm.payment_amount}
+                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, payment_amount: formatWithCommas(e.target.value) }))}
+                  placeholder="e.g. 5,000,000"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Date Paid</Label>
+                <Input
+                  type="date"
+                  value={quickPaymentForm.date_of_payment}
+                  onChange={e => setQuickPaymentForm(prev => ({ ...prev, date_of_payment: e.target.value }))}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

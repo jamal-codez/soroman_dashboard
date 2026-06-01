@@ -55,6 +55,7 @@ type BackendPfi = {
   // New fields from the backend after the allowed_locations migration
   allowed_locations?: number[];
   allowed_location_names?: string[];
+  delivery_allocated_qty?: number | string;
 };
 
 type BackendProduct = { id: number; name: string };
@@ -228,7 +229,12 @@ export default function PFIPage() {
       // Prefer locally-computed sold qty (confirmed orders only) over the backend annotation
       // which includes cancelled/pending orders and produces inflated figures.
       const soldFromOrders = pfiSoldQtyMap.get(p.pfi_number);
-      const sold = soldFromOrders !== undefined ? soldFromOrders : coerceSoldLitres(p);
+      let sold = soldFromOrders !== undefined ? soldFromOrders : coerceSoldLitres(p);
+      
+      // Include quantities allocated/loaded to Delivery Inventory
+      const deliveryAllocated = coerceNumber(p.delivery_allocated_qty);
+      sold += deliveryAllocated;
+      
       const remaining = Math.max(0, starting - sold);
       const pct = starting > 0 ? Math.min(100, (sold / starting) * 100) : 0;
       const totalAmount = coerceAmount(p, sold);
