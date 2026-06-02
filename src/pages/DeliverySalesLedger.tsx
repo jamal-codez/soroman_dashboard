@@ -801,7 +801,10 @@ export default function DeliverySalesLedger() {
       });
     }
     if (tripCodeFilter !== 'all') {
-      result = result.filter(s => saleTripMap[s.id] === tripCodeFilter);
+      result = result.filter(s => {
+        const code = s.allocation_code || saleTripMap[s.id] || '';
+        return code.trim().toUpperCase() === tripCodeFilter.trim().toUpperCase();
+      });
     }
     const q = searchQuery.trim().toLowerCase();
     if (q) {
@@ -813,7 +816,7 @@ export default function DeliverySalesLedger() {
         (s.bank || '').toLowerCase().includes(q) ||
         (s.customer_name || customerMap.get(s.customer)?.customer_name || '').toLowerCase().includes(q) ||
         (s.remarks || '').toLowerCase().includes(q) ||
-        (saleTripMap[s.id] || '').toLowerCase().includes(q),
+        (s.allocation_code || saleTripMap[s.id] || '').toLowerCase().includes(q),
       );
     }
     return result.sort((a, b) => {
@@ -2205,8 +2208,8 @@ export default function DeliverySalesLedger() {
     const totalTrucks = truckSet.size;
 
     const COLS = [
-      'S/N', 'PFI', 'TRUCK NO.', 'CUSTOMER', 'DESTINATION',
-      'QTY (LTRS)', 'RATE (₦)', 'AMOUNT (₦)', 'PAYMENT (₦)', 'BALANCE (₦)',
+      'S/N', 'PFI', 'ALLOCATION CODE', 'TRUCK NO.', 'CUSTOMER', 'DESTINATION',
+      'QTY (LTRS)', 'RATE (₦)', 'EXPECTED (₦)', 'PAYMENT (₦)', 'BALANCE (₦)',
       'PAYER', 'BANK', 'PAYMENT DATE',
     ] as const;
 
@@ -2270,15 +2273,19 @@ export default function DeliverySalesLedger() {
         rowNum += 1;
         aoa.push([
           rowNum,
-          tripCode,
+          pfi || '',
+          tripCode || '',
           truckNumWithSerial || '',
           custNameGroup,
           dest,
-          // pfi,
-          // dateLoadedStr,
-          // depot,
           group.quantity > 0 ? n(group.quantity) : '',
-          '', '', '', '', '', '', '', '', '',
+          group.rate > 0 ? n(group.rate) : '',
+          group.expected > 0 ? n(group.expected) : '',
+          '', // payment
+          group.expected > 0 ? n(group.expected) : '', // balance = expected
+          '', // payer
+          '', // bank
+          '', // date
         ]);
       } else {
         // Sort payments chronologically within group
@@ -2289,26 +2296,18 @@ export default function DeliverySalesLedger() {
         });
 
         let cumulativePaid = 0;
-        let prevQty = '';
-        let prevRate = '';
 
         sortedPayments.forEach((s, idx) => {
           rowNum += 1;
           cumulativePaid += toNum(s.payment_amount);
           const runningBalance = group.expected - cumulativePaid;
           const custName = u(s.customer_name || customerMap.get(s.customer)?.customer_name || '');
-          const thisQty = toNum(s.quantity) > 0 ? n(toNum(s.quantity)) : '';
-          const thisRate = toNum(s.rate) > 0 ? n(toNum(s.rate)) : '';
 
           // First row of group: emit truck/loading fields; subsequent: blank
           const isFirst = idx === 0;
 
-          // Qty & Rate: show only on change
-          const qtyCell = thisQty !== prevQty ? thisQty : '';
-          const rateCell = thisRate !== prevRate ? thisRate : '';
-
           let balanceCell = '';
-          if (typeof runningBalance === 'number') {
+          if (group.expected > 0) {
             if (runningBalance > 0) balanceCell = n(runningBalance);
             else if (runningBalance < 0) balanceCell = `+${n(Math.abs(runningBalance))} OVERPAID`;
             else balanceCell = 'FULLY PAID';
@@ -2316,45 +2315,44 @@ export default function DeliverySalesLedger() {
 
           aoa.push([
             rowNum,
-            isFirst ? tripCode : '',
+            isFirst ? (pfi || '') : '',
+            isFirst ? (tripCode || '') : '',
             isFirst ? truckNumWithSerial : '',
-            // isFirst ? pfi           : '',
-            // isFirst ? dateLoadedStr : '',
-            // isFirst ? depot         : '',
             isFirst ? custName : '',
             isFirst ? dest : '',
-            qtyCell,
-            rateCell,
-            isFirst && toNum(s.sales_value) > 0 ? n(toNum(s.sales_value)) : '',
+            isFirst && group.quantity > 0 ? n(group.quantity) : '',
+            isFirst && group.rate > 0 ? n(group.rate) : '',
+            isFirst && group.expected > 0 ? n(group.expected) : '',
             toNum(s.payment_amount) > 0 ? n(toNum(s.payment_amount)) : '',
             balanceCell,
             u(s.payer_name || ''),
-            // s.phone_number  || '',
             u(s.bank || ''),
             safeFmtDate(s.date_of_payment),
-            // u(s.entered_by  || ''),
           ]);
-
-          prevQty = thisQty;
-          prevRate = thisRate;
         });
 
         // Subtotal row
         aoa.push([
-          '',
-          '', '', '', '', '',
-          // group.quantity > 0 ? n(group.quantity) : '',
-          '',
-          group.expected > 0 ? n(group.expected) : '',
-          group.totalPaid > 0 ? n(group.totalPaid) : '',
+          '', // S/N
+          '', // PFI
+          '', // ALLOCATION CODE
+          '', // TRUCK NO.
+          'SUBTOTAL', // CUSTOMER
+          '', // DESTINATION
+          group.quantity > 0 ? n(group.quantity) : '', // QTY
+          '', // RATE
+          group.expected > 0 ? n(group.expected) : '', // EXPECTED
+          group.totalPaid > 0 ? n(group.totalPaid) : '', // PAYMENT
           group.balance === 0
             ? 'FULLY PAID'
             : group.balance > 0
               ? n(group.balance)
               : group.balance < 0
                 ? `+${n(Math.abs(group.balance))} OVERPAID`
-                : '',
-          '', '', '', '', '',
+                : '', // BALANCE
+          '', // PAYER
+          '', // BANK
+          '', // PAYMENT DATE
         ]);
       }
 
@@ -3354,6 +3352,32 @@ export default function DeliverySalesLedger() {
                             );
                           });
                         });
+
+                        // Add Grand Totals Footer Row
+                        rows.push(
+                          <TableRow key="grand-totals-footer" className="bg-slate-100/90 font-bold border-t-2 border-slate-300 hover:bg-slate-100/90">
+                            <TableCell className="text-center font-bold text-slate-800">Σ</TableCell>
+                            <TableCell colSpan={5} className="font-bold text-slate-800 uppercase tracking-wider text-left pl-4">
+                              TOTALS ({filteredLedgerGroups.length} Cycles)
+                            </TableCell>
+                            <TableCell className="font-extrabold text-slate-900 whitespace-nowrap">
+                              {totals.totalQty > 0 ? `${fmtQty(totals.totalQty)} Ltrs` : '—'}
+                            </TableCell>
+                            <TableCell className="text-right text-slate-400">—</TableCell>
+                            <TableCell className="text-right font-extrabold text-slate-900 whitespace-nowrap">
+                              {totals.totalExpected > 0 ? fmt(totals.totalExpected) : '—'}
+                            </TableCell>
+                            <TableCell className="text-right font-extrabold text-emerald-800 whitespace-nowrap">
+                              {fmt(totals.totalPaid)}
+                            </TableCell>
+                            <TableCell className={`text-right font-extrabold whitespace-nowrap ${
+                              totals.outstanding > 0 ? 'text-red-700' : totals.outstanding < 0 ? 'text-blue-700' : 'text-emerald-700'
+                            }`}>
+                              {totals.outstanding === 0 ? '₦0' : totals.outstanding > 0 ? fmt(totals.outstanding) : `+${fmt(Math.abs(totals.outstanding))}`}
+                            </TableCell>
+                            <TableCell colSpan={4}></TableCell>
+                          </TableRow>
+                        );
 
                         return rows;
                       })()}
