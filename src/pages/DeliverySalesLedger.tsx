@@ -333,6 +333,9 @@ export default function DeliverySalesLedger() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // ── View toggle: truck-grouped ledger vs flat daily payments list ──
+  const [activeView, setActiveView] = useState<'ledger' | 'daily'>('ledger');
   const [truckFilter, setTruckFilter] = useState<string>('all');
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [customerFilter, setCustomerFilter] = useState<string>('all');
@@ -962,18 +965,7 @@ export default function DeliverySalesLedger() {
     sortedLoadings.forEach(loading => {
       const cycleKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
       const cycleSales = salesByCycle.get(cycleKey) || [];
-      let payments = cycleSales.filter(sale => {
-        if (matchedSaleIds.has(sale.id)) return false;
-        const customerMatches = loading.customer ? sale.customer === loading.customer : true;
-        const locationMatches = loading.location
-          ? normalizeText(sale.location) === normalizeText(loading.location)
-          : true;
-        return customerMatches && locationMatches;
-      });
-
-      if (payments.length === 0 && loading.customer) {
-        payments = cycleSales.filter(sale => !matchedSaleIds.has(sale.id) && sale.customer === loading.customer);
-      }
+      let payments = cycleSales.filter(sale => !matchedSaleIds.has(sale.id));
 
       // Fallback for undated loadings: claim any unmatched sales for this truck
       // (handles the case where the sale was saved with today's date because
@@ -981,46 +973,95 @@ export default function DeliverySalesLedger() {
       if (payments.length === 0 && !loading.date_allocated) {
         const truckKey = (loading.truck_number || '').trim().toUpperCase();
         const truckSales = salesByTruck.get(truckKey) || [];
-        payments = truckSales.filter(sale => {
-          if (matchedSaleIds.has(sale.id)) return false;
-          const customerMatches = loading.customer ? sale.customer === loading.customer : true;
-          return customerMatches;
-        });
+        payments = truckSales.filter(sale => !matchedSaleIds.has(sale.id));
       }
 
       payments = sortPayments(payments);
       payments.forEach(payment => matchedSaleIds.add(payment.id));
 
-      const firstPayment = payments[0];
-      const customerId = loading.customer ?? firstPayment?.customer ?? null;
-      const customerObj = customerId ? customerMap.get(customerId) : null;
-      const expected = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
-      const rate = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0);
-      const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
-      const quantity = toNum(loading.quantity_allocated);
       const pfiNumber = getLoadingPfiNumber(loading);
       const allocationCode = loading.allocation_code || payments.map(sale => sale.allocation_code).find(Boolean) || '';
 
-      groups.push({
-        key: `loading:${loading.id}`,
-        loadingId: loading.id,
-        truckNumber: loading.truck_number || '',
-        dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
-        depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
-        location: loading.location || firstPayment?.location || '',
-        customerId,
-        customerName: loading.customer_name || customerObj?.customer_name || firstPayment?.customer_name || '',
-        quantity,
-        rate,
-        expected,
-        totalPaid,
-        balance: expected - totalPaid,
-        pfiNumber,
-        allocationCode,
-        code: allocationCode,
-        payments,
-        isFillingStation: isFillingStation(customerObj),
+      // ── Multi-customer split ───────────────────────────────────────────
+      // When a single truck is split across multiple customers (each with their
+      // own qty entered in the Record Payment dialog), group the payments by
+      // customer and create a separate LedgerGroup row for each customer.
+      const byCustomer = new Map<number | null, DeliverySale[]>();
+      payments.forEach(sale => {
+        const cid = sale.customer ?? null;
+        const arr = byCustomer.get(cid) ?? [];
+        arr.push(sale);
+        byCustomer.set(cid, arr);
       });
+
+      const isMultiCustomer = byCustomer.size > 1;
+
+      if (isMultiCustomer) {
+        byCustomer.forEach((customerPayments, custId) => {
+          const customerObj = custId ? customerMap.get(custId) : null;
+          const firstPayment = customerPayments[0];
+          const expected = customerPayments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
+          const rate = customerPayments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0);
+          const totalPaid = customerPayments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
+          // Use the MAX quantity across this customer's payment records.
+          // All payment rows for the same customer on one truck load carry the
+          // same allocated qty (e.g. Musa Bauchi 30,000L across 2 payment rows).
+          // Summing would incorrectly double-count; max gives the true allocation.
+          const quantity = customerPayments.reduce((max, sale) => Math.max(max, toNum(sale.quantity)), 0);
+
+          groups.push({
+            key: `loading:${loading.id}:${custId ?? 'none'}`,
+            loadingId: loading.id,
+            truckNumber: loading.truck_number || '',
+            dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
+            depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
+            location: loading.location || firstPayment?.location || '',
+            customerId: custId,
+            customerName: customerObj?.customer_name || firstPayment?.customer_name || '',
+            quantity,
+            rate,
+            expected,
+            totalPaid,
+            balance: expected - totalPaid,
+            pfiNumber,
+            allocationCode,
+            code: allocationCode,
+            payments: customerPayments,
+            isFillingStation: isFillingStation(customerObj),
+          });
+        });
+      } else {
+        // Single customer (or no payments yet) — original behaviour, keep using
+        // loading.quantity_allocated as the authoritative quantity.
+        const firstPayment = payments[0];
+        const customerId = loading.customer ?? firstPayment?.customer ?? null;
+        const customerObj = customerId ? customerMap.get(customerId) : null;
+        const expected = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.sales_value)), 0);
+        const rate = payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0);
+        const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
+        const quantity = toNum(loading.quantity_allocated);
+
+        groups.push({
+          key: `loading:${loading.id}`,
+          loadingId: loading.id,
+          truckNumber: loading.truck_number || '',
+          dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
+          depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
+          location: loading.location || firstPayment?.location || '',
+          customerId,
+          customerName: loading.customer_name || customerObj?.customer_name || firstPayment?.customer_name || '',
+          quantity,
+          rate,
+          expected,
+          totalPaid,
+          balance: expected - totalPaid,
+          pfiNumber,
+          allocationCode,
+          code: allocationCode,
+          payments,
+          isFillingStation: isFillingStation(customerObj),
+        });
+      }
     });
 
     const unmatchedGroups = new Map<string, DeliverySale[]>();
@@ -2327,6 +2368,68 @@ export default function DeliverySalesLedger() {
     XLSX.writeFile(wb, `DELIVERY SALES LEDGER.xlsx`);
   }, [filteredLedgerGroups, customerMap, timePreset, customFrom, customTo]);
 
+  // ── Daily Payments flat export ─────────────────────────────────────
+  const exportDailyPayments = useCallback(() => {
+    if (!filteredSales.length) return;
+    const n = (v: number) => v > 0 ? v.toLocaleString('en-NG') : '—';
+    const u = (s: string) => (s || '').toUpperCase();
+    const safeFmtDate = (d: string | null | undefined): string => {
+      if (!d) return '';
+      try { return format(parseISO(d), 'dd/MM/yyyy'); } catch { return d.split('T')[0] || d; }
+    };
+    const period = timePreset === 'custom'
+      ? `${customFrom || '?'}_TO_${customTo || '?'}`
+      : timePreset.toUpperCase();
+
+    const aoa: (string | number)[][] = [];
+    aoa.push(['DAILY PAYMENTS REPORT']);
+    aoa.push([]);
+    aoa.push(['PERIOD', period]);
+    aoa.push(['TOTAL ENTRIES', filteredSales.length]);
+    aoa.push(['TOTAL PAID', `\u20a6 ${n(filteredSales.reduce((s, p) => s + toNum(p.payment_amount), 0))}`]);
+    aoa.push([]);
+    aoa.push([
+      'S/N', 'DATE PAID', 'TRUCK NO.', 'CUSTOMER', 'DESTINATION',
+      'VOLUME (L)', 'RATE (\u20a6/L)', 'EXPECTED (\u20a6)', 'AMOUNT PAID (\u20a6)',
+      'PAYER', 'BANK', 'PHONE', 'ENTERED BY',
+    ]);
+
+    filteredSales.forEach((s, idx) => {
+      aoa.push([
+        idx + 1,
+        safeFmtDate(s.date_of_payment || s.date_loaded),
+        u(s.truck_number),
+        u(s.customer_name || customerMap.get(s.customer)?.customer_name || ''),
+        u(s.location || ''),
+        toNum(s.quantity) > 0 ? toNum(s.quantity) : '',
+        toNum(s.rate) > 0 ? toNum(s.rate) : '',
+        toNum(s.sales_value) > 0 ? toNum(s.sales_value) : '',
+        toNum(s.payment_amount) > 0 ? toNum(s.payment_amount) : '',
+        u(s.payer_name || ''),
+        u(s.bank || ''),
+        s.phone_number || '',
+        u(s.entered_by || ''),
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [
+      { wch: 6 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 20 },
+      { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 16 },
+      { wch: 22 }, { wch: 22 }, { wch: 16 }, { wch: 18 },
+    ];
+    // Number format for volume, rate, expected, paid columns
+    for (let r = 7; r <= filteredSales.length + 6; r += 1) {
+      (['F', 'G', 'H', 'I'] as const).forEach(col => {
+        const cell = ws[`${col}${r}`];
+        if (cell && typeof cell.v === 'number') cell.z = '#,##0.00';
+      });
+    }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Daily Payments');
+    XLSX.writeFile(wb, `DAILY PAYMENTS - ${period}.xlsx`);
+  }, [filteredSales, customerMap, timePreset, customFrom, customTo]);
+
   const activeBankAccounts = useMemo(
     () => BANK_ACCOUNTS.filter(b => b.is_active),
     [],
@@ -2355,8 +2458,14 @@ export default function DeliverySalesLedger() {
               description="Manage loaded truck and add incremental payments under each truck."
               actions={
                 <>
-                  <Button variant="default" className="gap-2" onClick={exportExcel} disabled={filteredSales.length === 0}>
-                    <Download size={16} /> Download Report
+                  <Button
+                    variant="default"
+                    className="gap-2"
+                    onClick={activeView === 'ledger' ? exportExcel : exportDailyPayments}
+                    disabled={activeView === 'ledger' ? filteredLedgerGroups.length === 0 : filteredSales.length === 0}
+                  >
+                    <Download size={16} />
+                    {activeView === 'ledger' ? 'Download Truck Ledger' : 'Download Daily Payments'}
                   </Button>
                   {/* {!readOnly && (
                     <Button className="gap-2" onClick={() => openPaymentDialog()}>
@@ -2888,11 +2997,40 @@ export default function DeliverySalesLedger() {
               </div>
             </div>
 
+            {/* ── View Switcher ────────────────────────────────────── */}
+            <div className="flex items-center gap-1 bg-white rounded-lg border border-slate-200 shadow-sm p-1 self-start w-fit">
+              <button
+                onClick={() => setActiveView('ledger')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                  activeView === 'ledger'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                }`}
+              >
+                <Truck size={14} /> Truck Ledger
+              </button>
+              <button
+                onClick={() => setActiveView('daily')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                  activeView === 'daily'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                }`}
+              >
+                <CalendarIcon size={14} /> Daily Payments
+                {filteredSales.length > 0 && (
+                  <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[11px] font-bold leading-none ${
+                    activeView === 'daily' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}>{filteredSales.length}</span>
+                )}
+              </button>
+            </div>
+
             {/* ── Summary Cards ─────────────────────────────────────── */}
             <SummaryCards cards={summaryCards} />
 
-            {/* ── Table ───────────────────────────────────────────── */}
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+            {/* ── Truck Ledger Table ───────────────────────────────── */}
+            {activeView === 'ledger' && <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               {isLoading ? (
                 <div className="p-6 space-y-3">
                   {Array.from({ length: 6 }).map((_, i) => (
@@ -3223,13 +3361,103 @@ export default function DeliverySalesLedger() {
                   </Table>
                 </div>
               )}
-            </div>
+            </div>}
 
-            {/* {!isLoading && filteredSales.length > 0 && (
-              <p className="text-xs text-slate-400 text-right">
-                Showing {filteredSales.length} of {allSales.length} entries · Period: {periodLabel}
-              </p>
-            )} */}
+            {/* ── Daily Payments Flat View ──────────────────────── */}
+            {activeView === 'daily' && (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+                {isLoading ? (
+                  <div className="p-6 space-y-3">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full rounded" />
+                    ))}
+                  </div>
+                ) : filteredSales.length === 0 ? (
+                  <div className="p-10 text-center">
+                    <CalendarIcon className="mx-auto text-slate-300 mb-3" size={40} />
+                    <p className="text-slate-500 font-medium">No payment entries found</p>
+                    <p className="text-sm text-slate-400 mt-1">Adjust your filters or date range to see payments.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <Table className="text-sm">
+                        <TableHeader>
+                          <TableRow className="bg-slate-50/80">
+                            <TableHead className="font-semibold text-slate-700 w-[48px] min-w-[48px] text-center">S/N</TableHead>
+                            <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Date Paid</TableHead>
+                            <TableHead className="font-semibold text-slate-700 w-[130px] min-w-[130px] whitespace-nowrap">Truck No.</TableHead>
+                            <TableHead className="font-semibold text-slate-700 w-[190px] min-w-[190px] whitespace-nowrap">Customer</TableHead>
+                            <TableHead className="font-semibold text-slate-700 w-[150px] min-w-[150px] whitespace-nowrap">Destination</TableHead>
+                            <TableHead className="font-semibold text-slate-700 text-right w-[120px] min-w-[120px] whitespace-nowrap">Volume (L)</TableHead>
+                            <TableHead className="font-semibold text-slate-700 text-right w-[120px] min-w-[120px] whitespace-nowrap">Rate (₦/L)</TableHead>
+                            <TableHead className="font-semibold text-slate-700 text-right w-[140px] min-w-[140px] whitespace-nowrap">Expected (₦)</TableHead>
+                            <TableHead className="font-semibold text-emerald-700 text-right w-[140px] min-w-[140px] whitespace-nowrap">Amount Paid (₦)</TableHead>
+                            <TableHead className="font-semibold text-slate-700 w-[170px] min-w-[170px] whitespace-nowrap">Payer</TableHead>
+                            <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Bank</TableHead>
+                            <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Entered By</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredSales.map((sale, idx) => {
+                            const customerName = sale.customer_name || customerMap.get(sale.customer)?.customer_name || '—';
+                            const datePaid = sale.date_of_payment || sale.date_loaded;
+                            return (
+                              <TableRow key={sale.id} className="hover:bg-slate-50/70 border-b border-slate-100">
+                                <TableCell className="text-slate-400 text-center w-[48px]">{idx + 1}</TableCell>
+                                <TableCell className="text-slate-600 whitespace-nowrap w-[120px]">
+                                  {datePaid
+                                    ? (() => { try { return format(parseISO(datePaid), 'dd MMM yyyy'); } catch { return datePaid; } })()
+                                    : '—'}
+                                </TableCell>
+                                <TableCell className="font-semibold text-slate-900 whitespace-nowrap w-[130px]">
+                                  <div className="flex items-center gap-1.5">
+                                    <Truck size={12} className="text-amber-700" />
+                                    {sale.truck_number || '—'}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="font-medium text-slate-800 uppercase whitespace-nowrap w-[190px]">{customerName}</TableCell>
+                                <TableCell className="text-slate-600 uppercase whitespace-nowrap w-[150px]">{sale.location || '—'}</TableCell>
+                                <TableCell className="text-right text-slate-700 whitespace-nowrap w-[120px]">
+                                  {toNum(sale.quantity) > 0 ? fmtQty(toNum(sale.quantity)) : '—'}
+                                </TableCell>
+                                <TableCell className="text-right text-slate-700 whitespace-nowrap w-[120px]">
+                                  {toNum(sale.rate) > 0 ? fmt(toNum(sale.rate)) : '—'}
+                                </TableCell>
+                                <TableCell className="text-right text-slate-700 whitespace-nowrap w-[140px]">
+                                  {toNum(sale.sales_value) > 0 ? fmt(toNum(sale.sales_value)) : '—'}
+                                </TableCell>
+                                <TableCell className="text-right font-bold text-emerald-700 whitespace-nowrap w-[140px]">
+                                  {toNum(sale.payment_amount) > 0 ? fmt(toNum(sale.payment_amount)) : '—'}
+                                </TableCell>
+                                <TableCell className="text-slate-600 whitespace-nowrap w-[170px]">{sale.payer_name || '—'}</TableCell>
+                                <TableCell className="text-slate-600 text-xs whitespace-nowrap w-[180px]">{sale.bank || '—'}</TableCell>
+                                <TableCell className="text-slate-500 text-xs whitespace-nowrap w-[120px]">{sale.entered_by || '—'}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {/* Footer totals */}
+                    <div className="border-t border-slate-200 bg-slate-50/70 px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-sm text-slate-500">
+                        Showing <strong className="text-slate-700">{filteredSales.length}</strong> payment{filteredSales.length !== 1 ? 's' : ''}
+                        {' · '}<span className="font-medium text-slate-600">{periodLabel}</span>
+                      </span>
+                      <div className="flex items-center gap-6 text-sm">
+                        <span className="text-slate-600">
+                          Total Paid:{' '}
+                          <strong className="text-emerald-700 text-base">
+                            {fmt(filteredSales.reduce((s, p) => s + toNum(p.payment_amount), 0))}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

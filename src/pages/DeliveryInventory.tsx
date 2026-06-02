@@ -473,21 +473,26 @@ export default function DeliveryInventory() {
     return m;
   }, [allPfis]);
 
-  // (truck_number::date_allocated) → sales customer+rate data for that cycle
+  // (truck_number::date_loaded) → per-customer {qty, rates} for that cycle
+  // qty = max allocation across all payment rows for that customer
+  // (multiple payment rows carry the same qty; max prevents double-counting)
   const truckSalesMap = useMemo(() => {
-    const map = new Map<string, { customerId: number; customerName: string; rates: Set<number> }[]>();
+    const map = new Map<string, { customerId: number; customerName: string; qty: number; rates: Set<number> }[]>();
     allSales.forEach(s => {
       if (!s.truck_number) return;
       const cycleKey = `${s.truck_number}::${s.date_loaded || ''}`;
       const existing = map.get(cycleKey) || [];
       const rate = toNum(s.rate);
+      const sQty = toNum(s.quantity);
       const custEntry = existing.find(e => e.customerId === s.customer);
       if (custEntry) {
         if (rate > 0) custEntry.rates.add(rate);
+        if (sQty > custEntry.qty) custEntry.qty = sQty;
       } else {
         existing.push({
           customerId: s.customer,
           customerName: s.customer_name || '',
+          qty: sQty,
           rates: rate > 0 ? new Set([rate]) : new Set(),
         });
       }
@@ -1543,21 +1548,6 @@ export default function DeliveryInventory() {
                                     }`}
                                 >
                                   {/* Checkbox */}
-                                  {/* <TableCell className="text-center px-3">
-                                    <input
-                                      type="checkbox"
-                                      aria-label={`Select ${r.truckPlate}`}
-                                      className="h-4 w-4 rounded border-slate-300 accent-blue-600 cursor-pointer"
-                                      checked={selectedRowIds.has(r.id)}
-                                      onChange={e => {
-                                        setSelectedRowIds(prev => {
-                                          const next = new Set(prev);
-                                          e.target.checked ? next.add(r.id) : next.delete(r.id);
-                                          return next;
-                                        });
-                                      }}
-                                    />
-                                  </TableCell> */}
                                   <TableCell className="text-slate-400 text-center text-xs">{idx + 1}</TableCell>
 
                                   {/* Code column — inline per row */}
@@ -1575,13 +1565,17 @@ export default function DeliveryInventory() {
                                   </TableCell>
 
                                   <TableCell>
-                                    <span className="font-semibold text-sm text-slate-900 flex items-center gap-1.5">
-                                      <Truck size={12} className="text-slate-400 shrink-0" />
-                                      {r.truckPlate}
-                                    </span>
-                                    {/* {r.driverName && (
-                                      <span className="text-[11px] text-slate-400 block">{r.driverName}</span>
-                                    )} */}
+                                    <div className="flex flex-col gap-1">
+                                      <span className="font-semibold text-sm text-slate-900 flex items-center gap-1.5">
+                                        <Truck size={12} className="text-slate-400 shrink-0" />
+                                        {r.truckPlate}
+                                      </span>
+                                      {salesEntries && salesEntries.length > 1 && (
+                                        <span className="inline-flex self-start items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap">
+                                          Split Load
+                                        </span>
+                                      )}
+                                    </div>
                                   </TableCell>
 
                                   <TableCell className="text-sm font-semibold text-slate-800">
@@ -1592,15 +1586,29 @@ export default function DeliveryInventory() {
                                   {/* <TableCell className="text-slate-700 font-medium whitespace-nowrap text-xs">{r.pfiLabel || '—'}</TableCell> */}
                                   <TableCell className="font-medium text-slate-800 whitespace-nowrap text-sm">{r.product || '—'}</TableCell>
 
-                                  {/* Customers (from Sales Ledger) */}
+                                  {/* Customers + per-customer qty (from Sales Ledger) */}
                                   <TableCell>
                                     {salesEntries && salesEntries.length > 0 ? (
-                                      <div className="flex flex-col gap-0.5">
-                                        {salesEntries.map(e => (
-                                          <span key={e.customerId} className="text-sm text-slate-900 font-normal capitalize whitespace-nowrap">
-                                            {e.customerName || `#${e.customerId}`}
-                                          </span>
-                                        ))}
+                                      <div className="flex flex-col gap-1.5 py-1">
+                                        {salesEntries.map(e => {
+                                          const hasSplit = salesEntries.length > 1;
+                                          return (
+                                            <div key={e.customerId || 'none'} className="flex items-center gap-2 h-[22px]">
+                                              <span className="text-sm text-slate-900 font-medium capitalize whitespace-nowrap">
+                                                {e.customerName || `Customer #${e.customerId}`}
+                                              </span>
+                                              {e.qty > 0 && (
+                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${
+                                                  hasSplit
+                                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                                    : 'bg-slate-50 text-slate-600 border-slate-200'
+                                                }`}>
+                                                  {fmtQty(e.qty)}L
+                                                </span>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     ) : (
                                       <span className="text-slate-300 text-xs">—</span>
@@ -1610,14 +1618,16 @@ export default function DeliveryInventory() {
                                   {/* Rates (from Sales Ledger) */}
                                   <TableCell>
                                     {salesEntries && salesEntries.length > 0 ? (
-                                      <div className="flex flex-col gap-0.5">
-                                        {salesEntries.map(e => (
-                                          <span key={e.customerId} className="text-sm text-slate-700 whitespace-nowrap">
-                                            {e.rates.size > 0
-                                              ? [...e.rates].map(rate => `₦${rate.toLocaleString()}`).join(', ')
-                                              : <span className="text-slate-300">—</span>
-                                            }
-                                          </span>
+                                      <div className="flex flex-col gap-1.5 py-1">
+                                        {salesEntries.map((e, idx) => (
+                                          <div key={e.customerId || idx} className="h-[22px] flex items-center">
+                                            <span className="text-sm text-slate-700 whitespace-nowrap font-medium">
+                                              {e.rates.size > 0
+                                                ? [...e.rates].map(rate => `₦${rate.toLocaleString()}`).join(', ')
+                                                : <span className="text-slate-300">—</span>
+                                              }
+                                            </span>
+                                          </div>
                                         ))}
                                       </div>
                                     ) : (
