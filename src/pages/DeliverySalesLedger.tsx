@@ -3420,7 +3420,7 @@ export default function DeliverySalesLedger() {
                                 className={`bg-slate-50/40 hover:bg-slate-100/60 border-b border-slate-200/60 border-l-[3px] ${theme ? theme.row : 'border-l-transparent'}`}
                               >
                                 <TableCell className="w-[48px] min-w-[48px] whitespace-nowrap"></TableCell>
-                                <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap"></TableCell>
+                                {/* <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap"></TableCell> */}
                                 <TableCell className="w-[160px] min-w-[160px] whitespace-nowrap"></TableCell>
                                 <TableCell className="w-[120px] min-w-[120px] whitespace-nowrap"></TableCell>
                                 <TableCell className="w-[180px] min-w-[180px] whitespace-nowrap"></TableCell>
