@@ -3182,8 +3182,8 @@ export default function DeliverySalesLedger() {
                     <TableHeader>
                       <TableRow className="bg-slate-50/80">
                         <TableHead className="font-semibold text-slate-700 w-[48px] min-w-[48px] whitespace-nowrap">S/N</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[110px] min-w-[110px] whitespace-nowrap">PFI</TableHead>
-                        <TableHead className="font-semibold text-slate-700 w-[160px] min-w-[160px] whitespace-nowrap">Allocation Code</TableHead>
+                        {/* <TableHead className="font-semibold text-slate-700 w-[110px] min-w-[110px] whitespace-nowrap">PFI</TableHead> */}
+                        <TableHead className="font-semibold text-slate-700 w-[160px] min-w-[160px] whitespace-nowrap">PFI Code</TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[120px] min-w-[120px] whitespace-nowrap">Truck No.</TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[180px] min-w-[180px] whitespace-nowrap">Customer</TableHead>
                         {/* <TableHead className="font-semibold text-slate-700">Date Loaded</TableHead> */}
@@ -3217,11 +3217,11 @@ export default function DeliverySalesLedger() {
                               onClick={() => toggleGroupExpanded(group.key)}
                             >
                               <TableCell className="text-slate-500 text-center w-[48px] min-w-[48px] whitespace-nowrap">{serial}</TableCell>
-                              <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap">
+                              {/* <TableCell className="w-[110px] min-w-[110px] whitespace-nowrap">
                                 {group.pfiNumber ? (
                                   <span className="text-sm font-semibold text-slate-700">{group.pfiNumber}</span>
                                 ) : <span className="text-slate-300">—</span>}
-                              </TableCell>
+                              </TableCell> */}
                               <TableCell className="w-[160px] min-w-[160px] whitespace-nowrap">
                                 {group.allocationCode ? (
                                   <span className="text-sm font-semibold text-slate-700">{group.allocationCode}</span>
