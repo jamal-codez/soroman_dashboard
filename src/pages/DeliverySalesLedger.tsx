@@ -341,6 +341,7 @@ export default function DeliverySalesLedger() {
   const [customerFilter, setCustomerFilter] = useState<string>('all');
   const [depotFilter, setDepotFilter] = useState<string>('all');
   const [cycleFilter, setCycleFilter] = useState<string>('all'); // 'all' | '1' | '2' | ...
+  const [customerTypeFilter, setCustomerTypeFilter] = useState<'all' | 'filling_station' | 'normal'>('all');
 
   // ── Allocation & Trip Codes (now loaded from localStorage, shared with Inventory) ──
   const [tripCodes, setTripCodes] = useState<string[]>(() => {
@@ -806,6 +807,13 @@ export default function DeliverySalesLedger() {
         return code.trim().toUpperCase() === tripCodeFilter.trim().toUpperCase();
       });
     }
+    if (customerTypeFilter !== 'all') {
+      result = result.filter(s => {
+        const custObj = s.customer ? customerMap.get(s.customer) : null;
+        const isFS = isFillingStation(custObj);
+        return customerTypeFilter === 'filling_station' ? isFS : !isFS;
+      });
+    }
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       result = result.filter(s =>
@@ -824,7 +832,7 @@ export default function DeliverySalesLedger() {
       const dateB = b.date_of_payment || b.date_loaded || '';
       return dateB.localeCompare(dateA);
     });
-  }, [timeFilteredSales, truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter, searchQuery, customerMap, saleTripMap, cycleNumberMap]);
+  }, [timeFilteredSales, truckFilter, locationFilter, customerFilter, depotFilter, cycleFilter, tripCodeFilter, searchQuery, customerMap, saleTripMap, cycleNumberMap, customerTypeFilter]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Running balance per row — scoped per cycle (truck + date_loaded)
@@ -1018,7 +1026,9 @@ export default function DeliverySalesLedger() {
             truckNumber: loading.truck_number || '',
             dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
             depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
-            location: loading.location || firstPayment?.location || '',
+            location: isFillingStation(customerObj)
+              ? (customerObj?.customer_name || '')
+              : (firstPayment?.location || loading.location || ''),
             customerId: custId,
             customerName: customerObj?.customer_name || firstPayment?.customer_name || '',
             quantity,
@@ -1050,7 +1060,9 @@ export default function DeliverySalesLedger() {
           truckNumber: loading.truck_number || '',
           dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
           depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
-          location: loading.location || firstPayment?.location || '',
+          location: isFillingStation(customerObj)
+            ? (customerObj?.customer_name || '')
+            : (firstPayment?.location || loading.location || ''),
           customerId,
           customerName: loading.customer_name || customerObj?.customer_name || firstPayment?.customer_name || '',
           quantity,
@@ -1093,7 +1105,9 @@ export default function DeliverySalesLedger() {
         truckNumber: firstPayment.truck_number,
         dateLoaded: firstPayment.date_loaded || '',
         depot: firstPayment.depot_loaded || '',
-        location: firstPayment.location || '',
+        location: isFillingStation(customerObj)
+          ? (customerObj?.customer_name || '')
+          : (firstPayment.location || ''),
         customerId: firstPayment.customer || null,
         customerName: firstPayment.customer_name || customerObj?.customer_name || '',
         quantity,
@@ -1137,6 +1151,11 @@ export default function DeliverySalesLedger() {
     if (tripCodeFilter !== 'all') {
       result = result.filter(group => group.code === tripCodeFilter);
     }
+    if (customerTypeFilter !== 'all') {
+      result = result.filter(group => {
+        return customerTypeFilter === 'filling_station' ? group.isFillingStation : !group.isFillingStation;
+      });
+    }
 
     const query = searchQuery.trim().toLowerCase();
     if (query) {
@@ -1168,7 +1187,7 @@ export default function DeliverySalesLedger() {
       if (truckDiff !== 0) return truckDiff;
       return (right.dateLoaded || '').localeCompare(left.dateLoaded || '');
     });
-  }, [ledgerGroups, dateRange, truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter, searchQuery, tripCodes]);
+  }, [ledgerGroups, dateRange, truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter, searchQuery, tripCodes, customerTypeFilter]);
 
   const totals = useMemo(() => {
     let totalExpected = 0;
@@ -1562,7 +1581,7 @@ export default function DeliverySalesLedger() {
     const custId = loading.customer ? String(loading.customer) : '';
     const custObj = loading.customer ? customerMap.get(loading.customer) : null;
     const custName = loading.customer_name || custObj?.customer_name || '';
-    const destination = loading.location || '';
+    const destination = isFillingStation(custObj) ? custName : (loading.location || '');
     const qty = toNum(loading.quantity_allocated);
 
     // Check for existing rate for this cycle+customer combo
@@ -1633,11 +1652,12 @@ export default function DeliverySalesLedger() {
         } else {
           updated.rateLocked = false;
         }
-        // Auto-fill phone number and payer name from customer profile for filling stations
+        // Auto-fill phone number, payer name, and destination from customer profile for filling stations
         if (selectedCustomer && isFillingStation(selectedCustomer)) {
           if (selectedCustomer.contact_person) updated.payer_name = selectedCustomer.contact_person;
           if (selectedCustomer.contact_person_phone) updated.phone_number = selectedCustomer.contact_person_phone;
           else if (selectedCustomer.phone_number) updated.phone_number = selectedCustomer.phone_number;
+          updated.location = selectedCustomer.customer_name;
         }
       }
 
@@ -1884,13 +1904,20 @@ export default function DeliverySalesLedger() {
       const customerName = customerId ? (customerMap.get(customerId)?.customer_name || '') : '';
 
       if (setupTarget.loadingId) {
+        const isMulti = setupTarget.key.split(':').length > 2;
         // ── Inventory-linked row: update the loading record AND all linked sales ──
-        await apiClient.admin.updateDeliveryInventory(setupTarget.loadingId, {
-          customer: customerId || undefined,
-          customer_name: customerName || undefined,
-          location: setupDestination.trim() || undefined,
-          allocation_code: normalized || null,
-        });
+        if (isMulti) {
+          await apiClient.admin.updateDeliveryInventory(setupTarget.loadingId, {
+            allocation_code: normalized || null,
+          });
+        } else {
+          await apiClient.admin.updateDeliveryInventory(setupTarget.loadingId, {
+            customer: customerId || undefined,
+            customer_name: customerName || undefined,
+            location: setupDestination.trim() || undefined,
+            allocation_code: normalized || null,
+          });
+        }
 
         if (setupTarget.payments.length > 0) {
           await Promise.all(
@@ -2637,7 +2664,7 @@ export default function DeliverySalesLedger() {
                   {/* <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                     <Filter size={12} /> Narrow Down Results
                   </p> */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
 
                     {/* Truck */}
                     <div className="space-y-1.5">
@@ -2658,46 +2685,6 @@ export default function DeliverySalesLedger() {
                       </select>
                     </div>
 
-                    {/* Depot */}
-                    {/* <div className="space-y-1.5">
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                        <Building2 size={12} className="text-slate-400" /> Depot (Loading Point)
-                      </label>
-                      <select
-                        aria-label="Filter by depot"
-                        value={depotFilter}
-                        onChange={e => setDepotFilter(e.target.value)}
-                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
-                          depotFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
-                        }`}
-                      >
-                        <option value="all">All Depots</option>
-                        {uniqueDepots.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
-                    </div> */}
-
-                    {/* Destination */}
-                    {/* <div className="space-y-1.5">
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                        <MapPin size={12} className="text-slate-400" /> Destination
-                      </label>
-                      <select
-                        aria-label="Filter by destination"
-                        value={locationFilter}
-                        onChange={e => setLocationFilter(e.target.value)}
-                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${
-                          locationFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
-                        }`}
-                      >
-                        <option value="all">All Destinations</option>
-                        {uniqueLocations.map(l => (
-                          <option key={l} value={l}>{l}</option>
-                        ))}
-                      </select>
-                    </div> */}
-
                     {/* Customer */}
                     <div className="space-y-1.5">
                       <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
@@ -2714,6 +2701,24 @@ export default function DeliverySalesLedger() {
                         {uniqueCustomerOptions.map(c => (
                           <option key={c.id} value={String(c.id)}>{c.name}</option>
                         ))}
+                      </select>
+                    </div>
+
+                    {/* Customer Type */}
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                        <Building2 size={12} className="text-slate-400" /> Customer Type
+                      </label>
+                      <select
+                        aria-label="Filter by Customer Type"
+                        value={customerTypeFilter}
+                        onChange={e => setCustomerTypeFilter(e.target.value as any)}
+                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 ${customerTypeFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'
+                          }`}
+                      >
+                        <option value="all">All Customer Types</option>
+                        <option value="normal">Normal Customers Only</option>
+                        <option value="filling_station">Filling Stations Only</option>
                       </select>
                     </div>
 
@@ -2753,6 +2758,7 @@ export default function DeliverySalesLedger() {
                   depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
                   locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                   customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
+                  customerTypeFilter !== 'all' && { label: `Customer Type: ${customerTypeFilter === 'filling_station' ? 'Filling Station' : 'Normal Customer'}`, clear: () => setCustomerTypeFilter('all') },
                   tripCodeFilter !== 'all' && { label: `Allocation Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
                   searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                 ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
@@ -2763,6 +2769,7 @@ export default function DeliverySalesLedger() {
                         depotFilter !== 'all' && { label: `Depot: ${depotFilter}`, clear: () => setDepotFilter('all') },
                         locationFilter !== 'all' && { label: `Destination: ${locationFilter}`, clear: () => setLocationFilter('all') },
                         customerFilter !== 'all' && { label: `Customer: ${uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}`, clear: () => setCustomerFilter('all') },
+                        customerTypeFilter !== 'all' && { label: `Customer Type: ${customerTypeFilter === 'filling_station' ? 'Filling Station' : 'Normal Customer'}`, clear: () => setCustomerTypeFilter('all') },
                         tripCodeFilter !== 'all' && { label: `Allocation Code: ${tripCodeFilter}`, clear: () => setTripCodeFilter('all') },
                         searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                       ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (

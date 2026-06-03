@@ -101,6 +101,26 @@ interface InventoryEntry {
   allocation_code?: string;
 }
 
+const LEGACY_FS_PREFIX = '__type:filling_station__';
+const isFillingStation = (c: DeliveryCustomer | undefined | null): boolean =>
+  c?.customer_type === 'filling_station' ||
+  (c?.customer_type == null && !!c?.notes?.startsWith(LEGACY_FS_PREFIX));
+
+const normalizeCycleDate = (dateValue: string | undefined | null): string => {
+  if (!dateValue) return '';
+  const raw = String(dateValue).trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  try {
+    return format(parseISO(raw), 'yyyy-MM-dd');
+  } catch {
+    return raw.split('T')[0] || raw;
+  }
+};
+
+const getCycleKey = (truckNum: string, dateLoaded: string | undefined | null): string =>
+  `${(truckNum || '').trim().toUpperCase()}||${normalizeCycleDate(dateLoaded)}`;
+
 /** Enriched row — every row is a truck record */
 type TruckRecord = InventoryEntry & {
   status: 'loaded' | 'offloaded' | 'empty';
@@ -113,6 +133,7 @@ type TruckRecord = InventoryEntry & {
   product: string;
   qty: number;
   code: string;
+  isFillingStation: boolean;
 };
 
 /** Full edit target */
@@ -224,6 +245,7 @@ export default function DeliveryInventory() {
   const [customerFilter, setCustomerFilter] = useState('');
   const [truckFilter, setTruckFilter] = useState('');
   const [codeFilter, setCodeFilter] = useState('');
+  const [customerTypeFilter, setCustomerTypeFilter] = useState<'all' | 'filling_station' | 'normal'>('all');
 
   // ── Allocation Codes (managed list stored in localStorage / backend sync) ──
   const [deliveryCodes, setDeliveryCodes] = useState<string[]>(() => {
@@ -473,33 +495,84 @@ export default function DeliveryInventory() {
     return m;
   }, [allPfis]);
 
-  // (truck_number::date_loaded) → per-customer {qty, rates} for that cycle
-  // qty = max allocation across all payment rows for that customer
-  // (multiple payment rows carry the same qty; max prevents double-counting)
+  // Match sales to loaded trucks (by loading record ID) exactly matching Sales Ledger matching logic
   const truckSalesMap = useMemo(() => {
-    const map = new Map<string, { customerId: number; customerName: string; qty: number; rates: Set<number> }[]>();
-    allSales.forEach(s => {
-      if (!s.truck_number) return;
-      const cycleKey = `${s.truck_number}::${s.date_loaded || ''}`;
-      const existing = map.get(cycleKey) || [];
-      const rate = toNum(s.rate);
-      const sQty = toNum(s.quantity);
-      const custEntry = existing.find(e => e.customerId === s.customer);
-      if (custEntry) {
-        if (rate > 0) custEntry.rates.add(rate);
-        if (sQty > custEntry.qty) custEntry.qty = sQty;
-      } else {
-        existing.push({
-          customerId: s.customer,
-          customerName: s.customer_name || '',
-          qty: sQty,
-          rates: rate > 0 ? new Set([rate]) : new Set(),
-        });
-      }
-      map.set(cycleKey, existing);
+    const map = new Map<number, { customerId: number; customerName: string; qty: number; rates: Set<number>; location: string }[]>();
+    
+    const filteredLoadings = allEntries
+      .filter(e => !!(e.truck || e.truck_number || e.loading_status));
+    const sortedLoadings = [
+      ...filteredLoadings.filter(l => !!(l.date_allocated)),
+      ...filteredLoadings.filter(l => !(l.date_allocated)),
+    ];
+
+    const salesByCycle = new Map<string, DeliverySale[]>();
+    const salesByTruck = new Map<string, DeliverySale[]>();
+    const cycleAliasMap = ledgerSettingsQuery.data?.cycle_alias_map || {};
+
+    allSales.forEach(sale => {
+      if (!sale.truck_number) return;
+      const rawKey = getCycleKey(sale.truck_number, sale.date_loaded);
+      const cycleKey = cycleAliasMap[rawKey] || rawKey;
+      
+      const existingCycle = salesByCycle.get(cycleKey) ?? [];
+      existingCycle.push(sale);
+      salesByCycle.set(cycleKey, existingCycle);
+
+      const truckKey = (sale.truck_number || '').trim().toUpperCase();
+      const existingTruck = salesByTruck.get(truckKey) ?? [];
+      existingTruck.push(sale);
+      salesByTruck.set(truckKey, existingTruck);
     });
+
+    const matchedSaleIds = new Set<number>();
+
+    sortedLoadings.forEach(loading => {
+      const rawKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
+      const cycleKey = cycleAliasMap[rawKey] || rawKey;
+      
+      const cycleSales = salesByCycle.get(cycleKey) || [];
+      let payments = cycleSales.filter(sale => !matchedSaleIds.has(sale.id));
+
+      if (payments.length === 0 && !loading.date_allocated) {
+        const truckKey = (loading.truck_number || '').trim().toUpperCase();
+        const truckSales = salesByTruck.get(truckKey) || [];
+        payments = truckSales.filter(sale => !matchedSaleIds.has(sale.id));
+      }
+
+      payments.forEach(p => matchedSaleIds.add(p.id));
+
+      const customerGroups: { customerId: number; customerName: string; qty: number; rates: Set<number>; location: string }[] = [];
+      payments.forEach(s => {
+        const rate = toNum(s.rate);
+        const sQty = toNum(s.quantity);
+        const sCustId = s.customer ? Number(s.customer) : 0;
+        const custEntry = customerGroups.find(e => Number(e.customerId) === sCustId);
+
+        const customerObj = s.customer ? customerMap.get(sCustId) : null;
+        const isFS = isFillingStation(customerObj);
+        const sLoc = isFS ? (customerObj?.customer_name || s.customer_name || '') : (s.location || '');
+
+        if (custEntry) {
+          if (rate > 0) custEntry.rates.add(rate);
+          if (sQty > custEntry.qty) custEntry.qty = sQty;
+          if (sLoc && !custEntry.location) custEntry.location = sLoc;
+        } else {
+          customerGroups.push({
+            customerId: sCustId,
+            customerName: s.customer_name || '',
+            qty: sQty,
+            rates: rate > 0 ? new Set([rate]) : new Set(),
+            location: sLoc,
+          });
+        }
+      });
+
+      map.set(loading.id, customerGroups);
+    });
+
     return map;
-  }, [allSales]);
+  }, [allSales, allEntries, customerMap, ledgerSettingsQuery.data]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Enrich entries into TruckRecord[]
@@ -517,13 +590,16 @@ export default function DeliveryInventory() {
           status: inferStatus(entry),
           truckPlate: entry.truck_number || truck?.plate_number || '—',
           driverName: truck?.driver_name || '',
-          destination: entry.location || '',
+          destination: isFillingStation(customer)
+            ? (customer?.customer_name || entry.customer_name || '')
+            : (entry.location || ''),
           depotDisplay: entry.depot || entry.pfi_location || pfi?.location_name || '',
           custName: entry.customer_name || customer?.customer_name || '',
           pfiLabel: entry.pfi_number || pfi?.pfi_number || '',
           product: entry.pfi_product || pfi?.product_name || '',
           qty: toNum(entry.quantity_allocated),
           code: entry.allocation_code || '',
+          isFillingStation: isFillingStation(customer),
         };
       });
   }, [allEntries, truckMap, customerMap, pfiMap]);
@@ -533,7 +609,7 @@ export default function DeliveryInventory() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const hasDateFilter = !!(dateFrom || dateTo);
-  const hasAnyFilter = !!(searchQuery || hasDateFilter || statusFilter !== 'all' || pfiFilter || customerFilter || truckFilter || codeFilter);
+  const hasAnyFilter = !!(searchQuery || hasDateFilter || statusFilter !== 'all' || pfiFilter || customerFilter || truckFilter || codeFilter || customerTypeFilter !== 'all');
 
   const filtered = useMemo(() => {
     let list = [...truckRecords];
@@ -544,6 +620,11 @@ export default function DeliveryInventory() {
     if (customerFilter) list = list.filter(r => r.customer === Number(customerFilter));
     if (codeFilter) list = list.filter(r => r.code === codeFilter);
     if (truckFilter) list = list.filter(r => r.truckPlate === truckFilter);
+    if (customerTypeFilter !== 'all') {
+      list = list.filter(r => {
+        return customerTypeFilter === 'filling_station' ? r.isFillingStation : !r.isFillingStation;
+      });
+    }
 
     if (dateFrom || dateTo) {
       list = list.filter(r => {
@@ -578,7 +659,7 @@ export default function DeliveryInventory() {
       const dateB = b.date_offloaded || b.date_allocated || '';
       return dateB.localeCompare(dateA);
     });
-  }, [truckRecords, statusFilter, pfiFilter, customerFilter, truckFilter, codeFilter, dateFrom, dateTo, searchQuery]);
+  }, [truckRecords, statusFilter, pfiFilter, customerFilter, truckFilter, codeFilter, dateFrom, dateTo, searchQuery, customerTypeFilter]);
 
   // Group filtered records by allocation code — preserving the sorted order
   const grouped = useMemo((): [string, TruckRecord[]][] => {
@@ -1012,6 +1093,7 @@ export default function DeliveryInventory() {
     setCustomerFilter('');
     setTruckFilter('');
     setCodeFilter('');
+    setCustomerTypeFilter('all');
   };
 
   const handleBulkAssign = useCallback(async () => {
@@ -1220,7 +1302,7 @@ export default function DeliveryInventory() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-slate-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-2 border-t border-slate-100">
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Status</label>
                   <select aria-label="Filter by status" value={statusFilter}
@@ -1245,19 +1327,6 @@ export default function DeliveryInventory() {
                   </select>
                 </div>
 
-                {/* <div className="flex flex-col gap-1 min-w-[150px]">
-                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">PFI</label>
-                  <select aria-label="Filter by PFI" value={pfiFilter}
-                    onChange={e => setPfiFilter(e.target.value)}
-                    className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm">
-                    <option value="">All PFIs</option>
-                    {distinctPfis.map(([id, label]) => {
-                      const count = truckRecords.filter(r => r.pfi === id).length;
-                      return <option key={id} value={String(id)}>{label}{count > 0 ? ` (${count} entries)` : ''}</option>;
-                    })}
-                  </select>
-                </div> */}
-
                 <div className="flex flex-col gap-1 min-w-[150px]">
                   <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Customer</label>
                   <select aria-label="Filter by customer" value={customerFilter}
@@ -1268,6 +1337,17 @@ export default function DeliveryInventory() {
                       const count = truckRecords.filter(r => r.customer === id).length;
                       return <option key={id} value={String(id)}>{name}{count > 0 ? ` (${count} entries)` : ''}</option>;
                     })}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1 min-w-[150px]">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Customer Type</label>
+                  <select aria-label="Filter by Customer Type" value={customerTypeFilter}
+                    onChange={e => setCustomerTypeFilter(e.target.value as any)}
+                    className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm">
+                    <option value="all">All Customer Types</option>
+                    <option value="normal">Normal Customers Only</option>
+                    <option value="filling_station">Filling Stations Only</option>
                   </select>
                 </div>
 
@@ -1338,6 +1418,7 @@ export default function DeliveryInventory() {
                 truckFilter && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('') },
                 pfiFilter && { label: `PFI: ${distinctPfis.find(([id]) => String(id) === pfiFilter)?.[1] || pfiFilter}`, clear: () => setPfiFilter('') },
                 customerFilter && { label: `Customer: ${distinctCustomers.find(([id]) => String(id) === customerFilter)?.[1] || customerFilter}`, clear: () => setCustomerFilter('') },
+                customerTypeFilter !== 'all' && { label: `Type: ${customerTypeFilter === 'filling_station' ? 'Filling Station' : 'Normal Customer'}`, clear: () => setCustomerTypeFilter('all') },
                 codeFilter && { label: `Allocation Code: ${codeFilter}`, clear: () => setCodeFilter('') },
                 searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
               ].filter((x): x is { label: string; clear: () => void } => !!x).length > 0 && (
@@ -1348,6 +1429,7 @@ export default function DeliveryInventory() {
                       truckFilter && { label: `Truck: ${truckFilter}`, clear: () => setTruckFilter('') },
                       pfiFilter && { label: `PFI: ${distinctPfis.find(([id]) => String(id) === pfiFilter)?.[1] || pfiFilter}`, clear: () => setPfiFilter('') },
                       customerFilter && { label: `Customer: ${distinctCustomers.find(([id]) => String(id) === customerFilter)?.[1] || customerFilter}`, clear: () => setCustomerFilter('') },
+                      customerTypeFilter !== 'all' && { label: `Type: ${customerTypeFilter === 'filling_station' ? 'Filling Station' : 'Normal Customer'}`, clear: () => setCustomerTypeFilter('all') },
                       codeFilter && { label: `Allocation Code: ${codeFilter}`, clear: () => setCodeFilter('') },
                       searchQuery && { label: `Search: "${searchQuery}"`, clear: () => setSearchQuery('') },
                     ].filter((x): x is { label: string; clear: () => void } => !!x).map(chip => (
@@ -1536,8 +1618,7 @@ export default function DeliveryInventory() {
                             records.forEach((r, idx) => {
                               const badge = statusBadge[r.status];
                               const Icon = badge?.icon;
-                              const cycleKey = `${r.truckPlate}::${r.date_allocated || ''}`;
-                              const salesEntries = truckSalesMap.get(cycleKey);
+                              const salesEntries = truckSalesMap.get(r.id);
 
                               rows.push(
                                 <TableRow
@@ -1610,6 +1691,10 @@ export default function DeliveryInventory() {
                                           );
                                         })}
                                       </div>
+                                    ) : r.custName ? (
+                                      <span className="text-sm text-slate-900 font-medium capitalize whitespace-nowrap">
+                                        {r.custName}
+                                      </span>
                                     ) : (
                                       <span className="text-slate-300 text-xs">—</span>
                                     )}
@@ -1635,7 +1720,29 @@ export default function DeliveryInventory() {
                                     )}
                                   </TableCell>
 
-                                  <TableCell className="text-slate-700 capitalize text-sm">{r.destination || '—'}</TableCell>
+                                  {/* Destination (from Sales Ledger if split, or fallback to r.destination) */}
+                                  <TableCell>
+                                    {salesEntries && salesEntries.length > 0 ? (
+                                      <div className="flex flex-col gap-1.5 py-1">
+                                        {salesEntries.map((e, idx) => {
+                                          const customerObj = e.customerId ? customerMap.get(e.customerId) : null;
+                                          const isFS = isFillingStation(customerObj);
+                                          const destDisplay = isFS 
+                                            ? (customerObj?.customer_name || e.customerName || '') 
+                                            : (e.location || r.destination || '—');
+                                          return (
+                                            <div key={e.customerId || idx} className="h-[22px] flex items-center">
+                                              <span className="text-sm text-slate-700 capitalize whitespace-nowrap">
+                                                {destDisplay || '—'}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-700 capitalize text-sm">{r.destination || '—'}</span>
+                                    )}
+                                  </TableCell>
 
                                   <TableCell>
                                     {badge && Icon ? (

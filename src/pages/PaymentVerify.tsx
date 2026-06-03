@@ -647,15 +647,24 @@ export default function PaymentVerification() {
 
       // 2. Overlay or merge with the verify-orders pending items (taking precedence for bank/payment specifics)
       verifyRes.results.forEach((item: PaymentOrder) => {
-        if (item && typeof item.id === 'number') {
-          const existing = map.get(item.id);
-          const amount = item.amount || (existing ? existing.amount : '0');
-          map.set(item.id, {
-            ...existing,
-            ...item,
-            amount,
-            status: 'pending' as const,
-          });
+        if (item) {
+          const rawOrderId = item.order_id;
+          const orderId = typeof rawOrderId === 'number'
+            ? rawOrderId
+            : (typeof rawOrderId === 'string' ? parseInt(rawOrderId, 10) : null);
+          const targetId = (orderId && !isNaN(orderId)) ? orderId : (typeof item.id === 'number' ? item.id : null);
+
+          if (typeof targetId === 'number') {
+            const existing = map.get(targetId);
+            const amount = item.amount || (existing ? existing.amount : '0');
+            map.set(targetId, {
+              ...existing,
+              ...item,
+              id: targetId,
+              amount,
+              status: 'pending' as const,
+            });
+          }
         }
       });
 
