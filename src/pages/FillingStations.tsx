@@ -818,7 +818,7 @@ export default function FillingStations() {
           truckNumber: loading.truck_number || '',
           dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
           depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
-          location: customerObj?.customer_name || loading.location || firstPayment?.location || '',
+          location: loading.location || customerObj?.customer_name || firstPayment?.location || '',
           customerId,
           customerName: loading.customer_name || customerObj?.customer_name || firstPayment?.customer_name || '',
           quantity,
@@ -871,7 +871,7 @@ export default function FillingStations() {
         truckNumber: firstPayment.truck_number,
         dateLoaded: firstPayment.date_loaded || '',
         depot: firstPayment.depot_loaded || '',
-        location: customerObj?.customer_name || firstPayment.location || '',
+        location: firstPayment.location || customerObj?.customer_name || '',
         customerId: firstPayment.customer || null,
         customerName: firstPayment.customer_name || customerObj?.customer_name || '',
         quantity,
@@ -962,10 +962,13 @@ export default function FillingStations() {
   const totals = useMemo(() => {
     let totalExpected = 0;
     let totalPaid = 0;
+    let totalExpenses = 0;
+    let totalNetPaid = 0;
     let totalQtyAllocated = 0;
     let totalQtySold = 0;
     let totalOutstanding = 0;
     let totalOverpaid = 0;
+    let totalBalance = 0;
     let entries = 0;
 
     const uniqueTrucks = new Set<string>();
@@ -979,6 +982,9 @@ export default function FillingStations() {
       totalQtySold += Math.max(0, toNum(group.totalQtySold));
       totalExpected += Math.max(0, toNum(group.expected));
       totalPaid += toNum(group.totalPaid);
+      totalExpenses += toNum(group.totalExpenses);
+      totalNetPaid += toNum(group.totalPaid) - toNum(group.totalExpenses);
+      totalBalance += toNum(group.balance);
       entries += group.payments.length;
 
       const bal = toNum(group.balance);
@@ -990,35 +996,32 @@ export default function FillingStations() {
       entries,
       totalExpected,
       totalPaid,
+      totalExpenses,
+      totalNetPaid,
       totalQtyAllocated,
       totalQtySold,
-      outstanding: totalExpected - totalPaid,
+      outstanding: totalOutstanding,
       totalOutstanding,
       totalOverpaid,
+      balance: totalBalance,
       truckCount: uniqueTrucks.size,
       customerCount: uniqueCustomers.size,
     };
   }, [filteredLedgerGroups]);
 
   const summaryCards = useMemo((): SummaryCard[] => {
-    const netBalance = totals.totalOutstanding - totals.totalOverpaid;
-
     const cards: SummaryCard[] = [
       { title: 'Qty Allocated (Ltrs)', value: totals.totalQtyAllocated > 0 ? totals.totalQtyAllocated.toLocaleString() : '0', icon: <Truck size={20} />, tone: 'neutral' },
-      { title: 'Qty Sold (Ltrs)',  value: totals.totalQtySold > 0 ? totals.totalQtySold.toLocaleString() : '0', icon: <Fuel size={20} />,      tone: 'neutral' },
-      { title: 'Expected Revenue', value: fmt(totals.totalExpected),                                     icon: <TrendingUp size={20} />, tone: 'neutral' },
-      { title: 'Total Paid',       value: fmt(totals.totalPaid),                                         icon: <Banknote size={20} />,   tone: 'green'   },
+      { title: 'Qty Sold (Ltrs)', value: totals.totalQtySold > 0 ? totals.totalQtySold.toLocaleString() : '0', icon: <Fuel size={20} />, tone: 'neutral' },
+      { title: 'Expected Revenue', value: fmt(totals.totalExpected), icon: <TrendingUp size={20} />, tone: 'neutral' },
+      { title: 'Total Deposited', value: fmt(totals.totalPaid), icon: <Banknote size={20} />, tone: 'green' },
+      { title: 'Total Expenses', value: fmt(totals.totalExpenses), icon: <Receipt size={20} />, tone: 'amber' },
+      { title: 'Net Collected', value: fmt(totals.totalNetPaid), icon: <Wallet size={20} />, tone: 'blue' },
       {
         title: 'Outstanding',
-        value: totals.totalOutstanding > 0 ? fmt(totals.totalOutstanding) : '₦0',
-        icon:  <Wallet size={20} />,
-        tone:  totals.totalOutstanding > 0 ? ('red' as const) : ('green' as const),
-      },
-      {
-        title: 'Net Balance',
-        value: netBalance <= 0 ? (netBalance < 0 ? `+${fmt(Math.abs(netBalance))}` : '₦0') : fmt(netBalance),
-        icon:  <TrendingUp size={20} />,
-        tone:  netBalance <= 0 ? ('blue' as const) : ('red' as const),
+        value: totals.balance > 0 ? fmt(totals.balance) : '₦0',
+        icon: <Wallet size={20} />,
+        tone: totals.balance > 0 ? 'red' : 'green',
       },
     ];
 
@@ -1200,6 +1203,7 @@ export default function FillingStations() {
     const today = format(new Date(), 'yyyy-MM-dd');
     setQuickPaymentTarget(group);
     setActiveEntryTab(tab);
+    if (tab === 'expense') setActiveView('expenses_ledger');
     setQuickPaymentForm({
       payment_amount: '',
       rate: group.rate > 0 ? String(group.rate) : '',
@@ -1309,7 +1313,7 @@ export default function FillingStations() {
         const enteredExpected = enteredQty * enteredRate;
         await apiClient.admin.createDeliverySale({
           truck_number: quickPaymentTarget.truckNumber,
-          date_loaded: quickPaymentTarget.dateLoaded || format(new Date(), 'yyyy-MM-dd'),
+          date_loaded: quickPaymentTarget.dateLoaded || undefined,
           depot_loaded: quickPaymentTarget.depot || undefined,
           customer: quickPaymentTarget.customerId || 0,
           location: quickPaymentTarget.location || undefined,
@@ -1327,6 +1331,7 @@ export default function FillingStations() {
           title: 'Daily sale recorded',
           description: `${quickPaymentTarget.truckNumber} · ${enteredQty.toLocaleString()} Ltrs @ ₦${enteredRate.toLocaleString()}/L`,
         });
+        setActiveView('sales_ledger');
         setQuickPaymentTarget(null);
         setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', remarks: '' });
         invalidateAll();
@@ -1366,7 +1371,7 @@ export default function FillingStations() {
 
         await apiClient.admin.createDeliverySale({
           truck_number: quickPaymentTarget.truckNumber,
-          date_loaded: quickPaymentTarget.dateLoaded || format(new Date(), 'yyyy-MM-dd'),
+          date_loaded: quickPaymentTarget.dateLoaded || undefined,
           depot_loaded: quickPaymentTarget.depot || undefined,
           customer: quickPaymentTarget.customerId || 0,
           location: quickPaymentTarget.location || undefined,
@@ -1387,6 +1392,7 @@ export default function FillingStations() {
           title: 'Deposit recorded',
           description: `${quickPaymentTarget.truckNumber} · ₦${paymentAmount.toLocaleString()}`,
         });
+        setActiveView('deposits_ledger');
         setQuickPaymentTarget(null);
         setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', remarks: '' });
         invalidateAll();
@@ -1419,7 +1425,7 @@ export default function FillingStations() {
 
         await apiClient.admin.createDeliverySale({
           truck_number: quickPaymentTarget.truckNumber,
-          date_loaded: quickPaymentTarget.dateLoaded || format(new Date(), 'yyyy-MM-dd'),
+          date_loaded: quickPaymentTarget.dateLoaded || undefined,
           depot_loaded: quickPaymentTarget.depot || undefined,
           customer: quickPaymentTarget.customerId || 0,
           location: quickPaymentTarget.location || undefined,
@@ -1439,6 +1445,12 @@ export default function FillingStations() {
         toast({
           title: 'Expense recorded',
           description: `${quickPaymentTarget.truckNumber} · ₦${expenseAmount.toLocaleString()}`,
+        });
+        setActiveView('expenses_ledger');
+        setCollapsedCards(prev => {
+          const next = new Set(prev);
+          next.delete(quickPaymentTarget.key);
+          return next;
         });
         setQuickPaymentTarget(null);
         setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', remarks: '' });
@@ -1672,27 +1684,8 @@ export default function FillingStations() {
     aoa.push(['FILLING STATIONS SALES & COLLECTION REPORT — ' + period]);
     aoa.push([]);
 
-    // Compute grand totals
-    const grandQtyAllocated = totals.totalQtyAllocated;
-    const grandQtySold = totals.totalQtySold;
-    const grandExpected = totals.totalExpected;
-    const grandPaid = totals.totalPaid;
-    const grandExpenses = filteredLedgerGroups.reduce((sum, g) => sum + g.totalExpenses, 0);
-    const grandNetPaid = grandPaid - grandExpenses;
-    const grandBalance = totals.outstanding;
-
-    aoa.push(['GRAND TOTALS SUMMARY']);
-    aoa.push(['TOTAL ALLOCATED (LTRS)', n(grandQtyAllocated)]);
-    aoa.push(['TOTAL SOLD SO FAR (LTRS)',  n(grandQtySold)]);
-    aoa.push(['TOTAL EXPECTED REVENUE',   fmtNaira(grandExpected)]);
-    aoa.push(['TOTAL PAID / DEPOSITED',  fmtNaira(grandPaid)]);
-    aoa.push(['TOTAL EXPENSES',           fmtNaira(grandExpenses)]);
-    aoa.push(['NET AMOUNT (PAID - EXPENSES)', fmtNaira(grandNetPaid)]);
-    aoa.push(['TOTAL OUTSTANDING',       fmtNaira(grandBalance)]);
-    aoa.push([]);
-
     const COLS = [
-      'S/N', 'STATION', 'TRUCK NO.', 'ALLOC CODE', 'ALLOC DATE', 'ALLOCATED (L)', 
+      'S/N', 'STATION', 'TRUCK NO.', 'ALLOC CODE', 'ALLOC DATE', 'ALLOCATED (L)',
       'ENTRY DATE', 'ENTRY TYPE', 'VOLUME (L)', 'RATE (₦/L)', 'EXPECTED (₦)', 'DEPOSITED (₦)',
       'EXPENSES (₦)', 'NET AMOUNT (₦)', 'PAYER NAME', 'BANK ACCOUNT', 'REMARKS'
     ];
@@ -1722,7 +1715,6 @@ export default function FillingStations() {
       } catch {}
 
       if (actualEntries.length === 0) {
-        // Output one row if there are no manual sales/deposits/expenses logged yet
         globalSn += 1;
         aoa.push([
           globalSn,
@@ -1789,7 +1781,6 @@ export default function FillingStations() {
         });
       }
 
-      // Add a subtotal row for this cycle group
       const netPaid = group.totalPaid - group.totalExpenses;
       const outstandingBal = group.expected - netPaid;
       aoa.push([
@@ -1812,9 +1803,19 @@ export default function FillingStations() {
         outstandingBal > 0 ? `Outstanding: ₦${outstandingBal.toLocaleString()}` : outstandingBal < 0 ? `Overpaid: +₦${Math.abs(outstandingBal).toLocaleString()}` : 'Fully Settled ✓'
       ]);
 
-      // Separator row
       aoa.push([]);
     });
+
+    aoa.push([]);
+    aoa.push(['SUMMARY']);
+    aoa.push(['TOTAL ALLOCATED (LTRS)', n(totals.totalQtyAllocated)]);
+    aoa.push(['TOTAL SOLD SO FAR (LTRS)', n(totals.totalQtySold)]);
+    aoa.push(['TOTAL EXPECTED REVENUE', fmtNaira(totals.totalExpected)]);
+    aoa.push(['TOTAL PAID / DEPOSITED', fmtNaira(totals.totalPaid)]);
+    aoa.push(['TOTAL EXPENSES', fmtNaira(totals.totalExpenses)]);
+    aoa.push(['NET COLLECTED', fmtNaira(totals.totalNetPaid)]);
+    aoa.push(['TOTAL OUTSTANDING', fmtNaira(totals.outstanding)]);
+    aoa.push(['NET BALANCE', totals.balance >= 0 ? fmtNaira(totals.balance) : `+${fmtNaira(Math.abs(totals.balance))}`]);
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
@@ -2064,6 +2065,9 @@ export default function FillingStations() {
                           const dailySalesOnly = group.payments.filter(
                             p => toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity
                           );
+                          const expensesOnly = group.payments.filter(
+                            p => toNum(p.expenses_amount ?? 0) > 0
+                          );
 
                           return (
                             <React.Fragment key={group.key}>
@@ -2213,6 +2217,60 @@ export default function FillingStations() {
                                           </TableBody>
                                         </Table>
                                       )}
+
+                                      {expensesOnly.length > 0 && (
+                                        <div className="mt-6">
+                                          <div className="px-4 py-3 bg-orange-50 border border-orange-100 rounded-t-xl text-orange-700 font-semibold text-xs uppercase tracking-[0.12em] flex items-center gap-2">
+                                            <Receipt size={12} /> Expense Records
+                                          </div>
+                                          <Table className="text-xs border border-slate-200 rounded-b-xl overflow-hidden">
+                                            <TableHeader>
+                                              <TableRow className="bg-slate-50/40">
+                                                <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
+                                                <TableHead className="font-semibold text-slate-500 w-[120px]">Date of Expense</TableHead>
+                                                <TableHead className="font-semibold text-orange-600 text-right w-[150px]">Amount (₦)</TableHead>
+                                                <TableHead className="font-semibold text-slate-500">Description</TableHead>
+                                                <TableHead className="font-semibold text-slate-500 w-[100px] text-center">Actions</TableHead>
+                                              </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                              {expensesOnly.map((payment, expenseIdx) => {
+                                                const expenseAmt = toNum(payment.expenses_amount ?? 0);
+                                                return (
+                                                  <TableRow key={`expense-${payment.id}`} className="hover:bg-slate-50/50">
+                                                    <TableCell className="text-center text-slate-400">{expenseIdx + 1}</TableCell>
+                                                    <TableCell className="text-slate-600 font-medium">
+                                                      {payment.date_of_payment
+                                                        ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
+                                                        : '—'}
+                                                    </TableCell>
+                                                    <TableCell className="text-right text-orange-700 font-bold">{fmt(expenseAmt)}</TableCell>
+                                                    <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
+                                                      {payment.remarks || '—'}
+                                                    </TableCell>
+                                                    <TableCell className="text-center">
+                                                      <div className="flex gap-1 items-center justify-center">
+                                                        {!readOnly && (
+                                                          <>
+                                                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
+                                                              <Pencil size={11} />
+                                                            </Button>
+                                                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
+                                                              onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(expenseAmt)}` })}>
+                                                              <Trash2 size={11} />
+                                                            </Button>
+                                                          </>
+                                                        )}
+                                                      </div>
+                                                    </TableCell>
+                                                  </TableRow>
+                                                );
+                                              })}
+                                            </TableBody>
+                                          </Table>
+                                        </div>
+                                      )}
+
                                       {!readOnly && (
                                         <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/50 flex justify-end">
                                           <Button size="sm" variant="ghost" className="h-7 text-[11px] text-red-500 hover:text-red-700 gap-1 animate-pulse"
@@ -2299,6 +2357,9 @@ export default function FillingStations() {
                           // Get only bank deposits entries (payment_amount > 0)
                           const depositsOnly = group.payments.filter(
                             p => toNum(p.payment_amount) > 0
+                          );
+                          const expensesOnly = group.payments.filter(
+                            p => toNum(p.expenses_amount ?? 0) > 0
                           );
 
                           return (
@@ -2458,6 +2519,60 @@ export default function FillingStations() {
                                           </TableBody>
                                         </Table>
                                       )}
+
+                                      {expensesOnly.length > 0 && (
+                                        <div className="mt-6">
+                                          <div className="px-4 py-3 bg-orange-50 border border-orange-100 rounded-t-xl text-orange-700 font-semibold text-xs uppercase tracking-[0.12em] flex items-center gap-2">
+                                            <Receipt size={12} /> Expense Records
+                                          </div>
+                                          <Table className="text-xs border border-slate-200 rounded-b-xl overflow-hidden">
+                                            <TableHeader>
+                                              <TableRow className="bg-slate-50/40">
+                                                <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
+                                                <TableHead className="font-semibold text-slate-500 w-[120px]">Date of Expense</TableHead>
+                                                <TableHead className="font-semibold text-orange-600 text-right w-[150px]">Amount (₦)</TableHead>
+                                                <TableHead className="font-semibold text-slate-500">Description</TableHead>
+                                                <TableHead className="font-semibold text-slate-500 w-[100px] text-center">Actions</TableHead>
+                                              </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                              {expensesOnly.map((payment, expenseIdx) => {
+                                                const expenseAmt = toNum(payment.expenses_amount ?? 0);
+                                                return (
+                                                  <TableRow key={`expense-${payment.id}`} className="hover:bg-slate-50/50">
+                                                    <TableCell className="text-center text-slate-400">{expenseIdx + 1}</TableCell>
+                                                    <TableCell className="text-slate-600 font-medium">
+                                                      {payment.date_of_payment
+                                                        ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
+                                                        : '—'}
+                                                    </TableCell>
+                                                    <TableCell className="text-right text-orange-700 font-bold">{fmt(expenseAmt)}</TableCell>
+                                                    <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
+                                                      {payment.remarks || '—'}
+                                                    </TableCell>
+                                                    <TableCell className="text-center">
+                                                      <div className="flex gap-1 items-center justify-center">
+                                                        {!readOnly && (
+                                                          <>
+                                                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
+                                                              <Pencil size={11} />
+                                                            </Button>
+                                                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
+                                                              onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(expenseAmt)}` })}>
+                                                              <Trash2 size={11} />
+                                                            </Button>
+                                                          </>
+                                                        )}
+                                                      </div>
+                                                    </TableCell>
+                                                  </TableRow>
+                                                );
+                                              })}
+                                            </TableBody>
+                                          </Table>
+                                        </div>
+                                      )}
+
                                       {!readOnly && (
                                         <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/50 flex justify-end">
                                           <Button size="sm" variant="ghost" className="h-7 text-[11px] text-red-500 hover:text-red-700 gap-1 animate-pulse"
