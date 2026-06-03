@@ -21,7 +21,7 @@ import {
   TrendingUp, Banknote, Building2,
   Calendar as CalendarIcon, UserPlus, X, Fuel,
   MapPin, Users, LayoutGrid, Filter, AlertTriangle, Tag,
-  Clock, Link2, ArrowRightLeft,
+  Clock, Link2, ArrowRightLeft, ChevronRight,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -334,9 +334,9 @@ export default function FillingStations() {
   const [quickPaymentSaving, setQuickPaymentSaving] = useState(false);
 
   // ── Card expand/collapse ───────────────────────────────────────────
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const [collapsedCards, setCollapsedCards] = useState<Set<string>>(new Set());
   const toggleCard = (key: string) =>
-    setExpandedCards(prev => {
+    setCollapsedCards(prev => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
@@ -674,14 +674,7 @@ export default function FillingStations() {
     return map;
   }, [filteredSales, cycleAliasMap]);
 
-  // Which cycle groups are collapsed (default: all expanded)
-  const [collapsedTrucks, setCollapsedTrucks] = useState<Set<string>>(new Set());
-  const toggleTruck = (cycleKey: string) =>
-    setCollapsedTrucks(prev => {
-      const next = new Set(prev);
-      next.has(cycleKey) ? next.delete(cycleKey) : next.add(cycleKey);
-      return next;
-    });
+
 
   // Unique truck numbers for filter dropdown
   const uniqueTruckNumbers = useMemo(() => {
@@ -1956,6 +1949,7 @@ export default function FillingStations() {
                     <Table className="text-sm">
                       <TableHeader>
                         <TableRow className="bg-slate-50/80">
+                          <TableHead className="w-[40px]"></TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[48px] text-center">S/N</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[200px]">Station Name</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[120px]">Truck No.</TableHead>
@@ -1970,7 +1964,7 @@ export default function FillingStations() {
                       </TableHeader>
                       <TableBody>
                         {filteredLedgerGroups.map((group, idx) => {
-                          const isExpanded = expandedCards.has(group.key);
+                          const isExpanded = !collapsedCards.has(group.key);
                           const theme = getCodeTheme(group.code);
                           const pctSold = group.quantity > 0 ? Math.min(100, Math.round((group.totalQtySold / group.quantity) * 100)) : 0;
                           
@@ -1981,7 +1975,19 @@ export default function FillingStations() {
 
                           return (
                             <React.Fragment key={group.key}>
-                              <TableRow className={`hover:bg-slate-50/60 border-b border-slate-100 ${isExpanded ? 'bg-slate-50/30' : ''}`}>
+                              <TableRow className={`hover:bg-slate-50/60 border-b border-slate-100 transition-colors ${isExpanded ? 'bg-sky-50/10' : ''}`}>
+                                <TableCell className={`text-center p-0 w-[40px] transition-all ${isExpanded ? 'border-l-2 border-sky-500' : 'border-l-2 border-transparent'}`}>
+                                  <button
+                                    onClick={() => toggleCard(group.key)}
+                                    className="p-1 rounded hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition-all duration-200 focus:outline-none"
+                                    title={isExpanded ? "Collapse details" : "Expand details"}
+                                  >
+                                    <ChevronRight
+                                      size={16}
+                                      className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-90 text-slate-700 font-bold' : ''}`}
+                                    />
+                                  </button>
+                                </TableCell>
                                 <TableCell className="text-slate-400 text-center">{idx + 1}</TableCell>
                                 <TableCell className="font-bold text-slate-900 uppercase whitespace-nowrap">{group.customerName || '—'}</TableCell>
                                 <TableCell className="font-semibold text-slate-800 whitespace-nowrap">
@@ -2045,15 +2051,6 @@ export default function FillingStations() {
                                         </Button>
                                       </>
                                     )}
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className={`h-8 text-xs gap-1.5 ${isExpanded ? 'bg-slate-100' : ''}`}
-                                      onClick={() => toggleCard(group.key)}
-                                    >
-                                      <LayoutGrid size={12} />
-                                      {isExpanded ? 'Hide' : 'View'} ({dailySalesOnly.length})
-                                    </Button>
                                   </div>
                                 </TableCell>
                               </TableRow>
@@ -2061,9 +2058,9 @@ export default function FillingStations() {
                               {/* Expanded sub-table showing only daily sales pump readings */}
                               {isExpanded && (
                                 <TableRow className="bg-slate-50/20 hover:bg-slate-50/20 border-none">
-                                  <TableCell colSpan={10} className="p-4 pl-12">
-                                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden max-w-4xl">
-                                      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                                  <TableCell colSpan={11} className="p-4 pl-12">
+                                    <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden max-w-4xl border-l-4 border-l-sky-500 transition-all">
+                                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                                         <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
                                           <Fuel size={13} className="text-sky-500" /> Daily Pump Sales Records
                                         </h4>
@@ -2146,7 +2143,7 @@ export default function FillingStations() {
                         })}
                         {/* Footer row displaying totals */}
                         <TableRow className="bg-slate-100/90 font-bold border-t-2 border-slate-300 hover:bg-slate-100/90">
-                          <TableCell className="text-center font-bold text-slate-800">Σ</TableCell>
+                          <TableCell colSpan={2} className="text-center font-bold text-slate-800">Σ</TableCell>
                           <TableCell colSpan={4} className="font-bold text-slate-800 uppercase tracking-wider text-left pl-4">
                             TOTALS ({filteredLedgerGroups.length} Stations)
                           </TableCell>
@@ -2190,6 +2187,7 @@ export default function FillingStations() {
                     <Table className="text-sm">
                       <TableHeader>
                         <TableRow className="bg-slate-50/80">
+                          <TableHead className="w-[40px]"></TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[48px] text-center">S/N</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[200px]">Station Name</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[120px]">Truck No.</TableHead>
@@ -2203,7 +2201,7 @@ export default function FillingStations() {
                       </TableHeader>
                       <TableBody>
                         {filteredLedgerGroups.map((group, idx) => {
-                          const isExpanded = expandedCards.has(group.key);
+                          const isExpanded = !collapsedCards.has(group.key);
                           const theme = getCodeTheme(group.code);
                           
                           // Get only bank deposits entries (payment_amount > 0)
@@ -2213,7 +2211,19 @@ export default function FillingStations() {
 
                           return (
                             <React.Fragment key={group.key}>
-                              <TableRow className={`hover:bg-slate-50/60 border-b border-slate-100 ${isExpanded ? 'bg-slate-50/30' : ''}`}>
+                              <TableRow className={`hover:bg-slate-50/60 border-b border-slate-100 transition-colors ${isExpanded ? 'bg-emerald-50/10' : ''}`}>
+                                <TableCell className={`text-center p-0 w-[40px] transition-all ${isExpanded ? 'border-l-2 border-emerald-500' : 'border-l-2 border-transparent'}`}>
+                                  <button
+                                    onClick={() => toggleCard(group.key)}
+                                    className="p-1 rounded hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition-all duration-200 focus:outline-none"
+                                    title={isExpanded ? "Collapse details" : "Expand details"}
+                                  >
+                                    <ChevronRight
+                                      size={16}
+                                      className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-90 text-slate-700 font-bold' : ''}`}
+                                    />
+                                  </button>
+                                </TableCell>
                                 <TableCell className="text-slate-400 text-center">{idx + 1}</TableCell>
                                 <TableCell className="font-bold text-slate-900 uppercase whitespace-nowrap">{group.customerName || '—'}</TableCell>
                                 <TableCell className="font-semibold text-slate-800 whitespace-nowrap">
@@ -2278,15 +2288,6 @@ export default function FillingStations() {
                                         </Button>
                                       </>
                                     )}
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className={`h-8 text-xs gap-1.5 ${isExpanded ? 'bg-slate-100' : ''}`}
-                                      onClick={() => toggleCard(group.key)}
-                                    >
-                                      <LayoutGrid size={12} />
-                                      {isExpanded ? 'Hide' : 'View'} ({depositsOnly.length})
-                                    </Button>
                                   </div>
                                 </TableCell>
                               </TableRow>
@@ -2294,9 +2295,9 @@ export default function FillingStations() {
                               {/* Expanded sub-table showing bank deposit entries */}
                               {isExpanded && (
                                 <TableRow className="bg-slate-50/20 hover:bg-slate-50/20 border-none">
-                                  <TableCell colSpan={9} className="p-4 pl-12">
-                                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden max-w-4xl">
-                                      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                                  <TableCell colSpan={10} className="p-4 pl-12">
+                                    <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden max-w-4xl border-l-4 border-l-emerald-500 transition-all">
+                                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                                         <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
                                           <Banknote size={13} className="text-emerald-600" /> Bank Deposits & Collections
                                         </h4>
@@ -2387,7 +2388,7 @@ export default function FillingStations() {
                         })}
                         {/* Footer row displaying totals */}
                         <TableRow className="bg-slate-100/90 font-bold border-t-2 border-slate-300 hover:bg-slate-100/90">
-                          <TableCell className="text-center">Total</TableCell>
+                          <TableCell colSpan={2} className="text-center font-bold text-slate-800">Σ</TableCell>
                           <TableCell colSpan={4} className="text-left text-slate-500 text-xs font-semibold uppercase">
                             Showing {filteredLedgerGroups.length} Station Cycles
                           </TableCell>
