@@ -1675,151 +1675,214 @@ export default function FillingStations() {
       ? `${customFrom || '?'}_TO_${customTo || '?'}`
       : timePreset.toUpperCase();
 
-    const n = (v: number) => v > 0 ? v.toLocaleString('en-NG') : '0';
     const fmtNaira = (v: number) => v !== 0 ? `₦${v.toLocaleString('en-NG', { minimumFractionDigits: 2 })}` : '₦0.00';
     const u = (s: string) => (s || '').toUpperCase();
 
-    const aoa: (string | number)[][] = [];
+    const wb = XLSX.utils.book_new();
 
-    aoa.push(['FILLING STATIONS SALES & COLLECTION REPORT — ' + period]);
-    aoa.push([]);
-
-    const COLS = [
-      'S/N', 'STATION', 'TRUCK NO.', 'ALLOC CODE', 'ALLOC DATE', 'ALLOCATED (L)',
-      'ENTRY DATE', 'ENTRY TYPE', 'VOLUME (L)', 'RATE (₦/L)', 'EXPECTED (₦)', 'DEPOSITED (₦)',
-      'EXPENSES (₦)', 'NET AMOUNT (₦)', 'PAYER NAME', 'BANK ACCOUNT', 'REMARKS'
+    // ── helpers ────────────────────────────────────────────────────────
+    const entryColHeaders = [
+      'S/N', 'TRUCK NO.', 'ALLOC CODE', 'ALLOC DATE', 'ALLOCATED (L)',
+      'ENTRY DATE', 'ENTRY TYPE', 'VOLUME (L)', 'RATE (₦/L)',
+      'EXPECTED (₦)', 'DEPOSITED (₦)', 'EXPENSES (₦)', 'NET AMOUNT (₦)',
+      'PAYER NAME', 'BANK ACCOUNT', 'REMARKS',
     ];
 
-    aoa.push(COLS);
+    const buildEntryRows = (groups: typeof filteredLedgerGroups) => {
+      const rows: (string | number)[][] = [];
+      let sn = 0;
+      groups.forEach(group => {
+        const truckNo = u(group.truckNumber);
+        const allocCode = u(group.code || '—');
+        let allocDateStr = '—';
+        try { if (group.dateLoaded) allocDateStr = format(parseISO(group.dateLoaded), 'dd/MM/yyyy'); } catch {}
 
-    let globalSn = 0;
-
-    filteredLedgerGroups.forEach((group) => {
-      // Gather manual pump sales, bank deposits, and expenses, sorted chronologically
-      const actualEntries = group.payments.filter(p => 
-        (toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity) || 
-        toNum(p.payment_amount) > 0 ||
-        toNum(p.expenses_amount ?? 0) > 0
-      ).sort((a, b) => {
-        const dateA = a.date_of_payment || a.date_loaded || '';
-        const dateB = b.date_of_payment || b.date_loaded || '';
-        return dateA.localeCompare(dateB) || a.id - b.id;
-      });
-
-      const stationName = u(group.customerName);
-      const truckNo = u(group.truckNumber);
-      const allocCode = u(group.code || '—');
-      let allocDateStr = '—';
-      try {
-        if (group.dateLoaded) allocDateStr = format(parseISO(group.dateLoaded), 'dd/MM/yyyy');
-      } catch {}
-
-      if (actualEntries.length === 0) {
-        globalSn += 1;
-        aoa.push([
-          globalSn,
-          stationName,
-          truckNo,
-          allocCode,
-          allocDateStr,
-          group.quantity > 0 ? group.quantity : 0,
-          '—',
-          'INITIAL ALLOC (NO ENTRIES)',
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          '—',
-          '—',
-          'No sales, deposits or expenses recorded yet.'
-        ]);
-      } else {
-        actualEntries.forEach((entry) => {
-          globalSn += 1;
-          const entryDate = entry.date_of_payment || entry.date_loaded || '';
-          let entryDateStr = '—';
-          try {
-            if (entryDate) entryDateStr = format(parseISO(entryDate), 'dd/MM/yyyy');
-          } catch {}
-
-          const dailyQty = toNum(entry.quantity);
-          const dailyRate = toNum(entry.rate);
-          const dailyDeposit = toNum(entry.payment_amount);
-          const dailyExpense = toNum(entry.expenses_amount ?? 0);
-          const isSale = dailyQty > 0 && dailyQty < group.quantity;
-          const isExpense = dailyExpense > 0;
-          const isDeposit = dailyDeposit > 0;
-          
-          let entryType = 'OTHER';
-          if (isSale) entryType = 'DAILY SALE';
-          else if (isExpense) entryType = 'EXPENSE';
-          else if (isDeposit) entryType = 'BANK DEPOSIT';
-
-          const netAmount = dailyDeposit - dailyExpense;
-
-          aoa.push([
-            globalSn,
-            stationName,
-            truckNo,
-            allocCode,
-            allocDateStr,
-            group.quantity > 0 ? group.quantity : 0,
-            entryDateStr,
-            entryType,
-            isSale ? dailyQty : '—',
-            isSale ? dailyRate : '—',
-            isSale ? toNum(entry.sales_value) : '—',
-            isDeposit || isSale ? dailyDeposit : '—',
-            isExpense ? dailyExpense : '—',
-            isDeposit || isExpense ? netAmount : '—',
-            u(entry.payer_name || '—'),
-            u(entry.bank || '—'),
-            u(entry.remarks || '')
-          ]);
+        const actualEntries = group.payments.filter(p =>
+          (toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity) ||
+          toNum(p.payment_amount) > 0 ||
+          toNum(p.expenses_amount ?? 0) > 0,
+        ).sort((a, b) => {
+          const dA = a.date_of_payment || a.date_loaded || '';
+          const dB = b.date_of_payment || b.date_loaded || '';
+          return dA.localeCompare(dB) || a.id - b.id;
         });
-      }
 
-      const netPaid = group.totalPaid - group.totalExpenses;
-      const outstandingBal = group.expected - netPaid;
-      aoa.push([
-        '',
-        `SUBTOTAL: ${stationName} (${truckNo})`,
-        '',
-        '',
-        '',
-        group.quantity > 0 ? group.quantity : 0,
-        '',
-        'SUBTOTALS',
-        group.totalQtySold,
-        '',
-        group.expected,
-        group.totalPaid,
-        group.totalExpenses,
-        netPaid,
-        '',
-        '',
-        outstandingBal > 0 ? `Outstanding: ₦${outstandingBal.toLocaleString()}` : outstandingBal < 0 ? `Overpaid: +₦${Math.abs(outstandingBal).toLocaleString()}` : 'Fully Settled ✓'
-      ]);
+        if (actualEntries.length === 0) {
+          sn += 1;
+          rows.push([sn, truckNo, allocCode, allocDateStr, group.quantity > 0 ? group.quantity : 0,
+            '—', 'INITIAL ALLOC (NO ENTRIES)', 0, 0, 0, 0, 0, 0, '—', '—',
+            'No sales, deposits or expenses recorded yet.']);
+        } else {
+          actualEntries.forEach(entry => {
+            sn += 1;
+            const entryDate = entry.date_of_payment || entry.date_loaded || '';
+            let entryDateStr = '—';
+            try { if (entryDate) entryDateStr = format(parseISO(entryDate), 'dd/MM/yyyy'); } catch {}
 
-      aoa.push([]);
+            const dailyQty = toNum(entry.quantity);
+            const dailyRate = toNum(entry.rate);
+            const dailyDeposit = toNum(entry.payment_amount);
+            const dailyExpense = toNum(entry.expenses_amount ?? 0);
+            const isSale = dailyQty > 0 && dailyQty < group.quantity;
+            const isExpense = dailyExpense > 0;
+            const isDeposit = dailyDeposit > 0;
+
+            let entryType = 'OTHER';
+            if (isSale) entryType = 'DAILY SALE';
+            else if (isExpense) entryType = 'EXPENSE';
+            else if (isDeposit) entryType = 'BANK DEPOSIT';
+
+            const netAmount = dailyDeposit - dailyExpense;
+
+            rows.push([
+              sn, truckNo, allocCode, allocDateStr, group.quantity > 0 ? group.quantity : 0,
+              entryDateStr, entryType,
+              isSale ? dailyQty : '—',
+              isSale ? dailyRate : '—',
+              isSale ? toNum(entry.sales_value) : '—',
+              isDeposit || isSale ? dailyDeposit : '—',
+              isExpense ? dailyExpense : '—',
+              isDeposit || isExpense ? netAmount : '—',
+              u(entry.payer_name || '—'),
+              u(entry.bank || '—'),
+              u(entry.remarks || ''),
+            ]);
+          });
+        }
+
+        // Subtotal row per truck cycle within station sheet
+        const netPaid = group.totalPaid - group.totalExpenses;
+        const outstandingBal = group.expected - netPaid;
+        rows.push([
+          '', `SUBTOTAL: ${truckNo} (${allocCode})`, '', '', group.quantity > 0 ? group.quantity : 0,
+          '', 'SUBTOTALS',
+          group.totalQtySold, '',
+          group.expected, group.totalPaid, group.totalExpenses, netPaid,
+          '', '',
+          outstandingBal > 0
+            ? `Outstanding: ₦${outstandingBal.toLocaleString()}`
+            : outstandingBal < 0
+              ? `Overpaid: +₦${Math.abs(outstandingBal).toLocaleString()}`
+              : 'Fully Settled ✓',
+        ]);
+        rows.push([]);
+      });
+      return rows;
+    };
+
+    // ════════════════════════════════════════════════════════════════
+    // SHEET 1 — Summary (one row per station)
+    // ════════════════════════════════════════════════════════════════
+    const summaryAoa: (string | number)[][] = [];
+    summaryAoa.push([`FILLING STATIONS — SUMMARY REPORT — ${period}`]);
+    summaryAoa.push([]);
+    summaryAoa.push([
+      'S/N', 'STATION NAME', 'NO. CYCLES',
+      'QTY ALLOCATED (L)', 'QTY SOLD (L)',
+      'EXPECTED (₦)', 'DEPOSITED (₦)', 'EXPENSES (₦)',
+      'NET COLLECTED (₦)', 'OUTSTANDING (₦)', 'STATUS',
+    ]);
+
+    // Group filteredLedgerGroups by customer name
+    const byStation = new Map<string, typeof filteredLedgerGroups>();
+    filteredLedgerGroups.forEach(group => {
+      const key = (group.customerName || 'UNKNOWN').trim().toUpperCase();
+      const arr = byStation.get(key) ?? [];
+      arr.push(group);
+      byStation.set(key, arr);
     });
 
-    aoa.push([]);
-    aoa.push(['SUMMARY']);
-    aoa.push(['TOTAL ALLOCATED (LTRS)', n(totals.totalQtyAllocated)]);
-    aoa.push(['TOTAL SOLD SO FAR (LTRS)', n(totals.totalQtySold)]);
-    aoa.push(['TOTAL EXPECTED REVENUE', fmtNaira(totals.totalExpected)]);
-    aoa.push(['TOTAL PAID / DEPOSITED', fmtNaira(totals.totalPaid)]);
-    aoa.push(['TOTAL EXPENSES', fmtNaira(totals.totalExpenses)]);
-    aoa.push(['NET COLLECTED', fmtNaira(totals.totalNetPaid)]);
-    aoa.push(['TOTAL OUTSTANDING', fmtNaira(totals.outstanding)]);
-    aoa.push(['NET BALANCE', totals.balance >= 0 ? fmtNaira(totals.balance) : `+${fmtNaira(Math.abs(totals.balance))}`]);
+    let sumQtyAllocated = 0, sumQtySold = 0, sumExpected = 0;
+    let sumDeposited = 0, sumExpenses = 0, sumNet = 0, sumOutstanding = 0;
+    let summaryRowSn = 0;
 
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Filling Station Ledger');
+    byStation.forEach((groups, stationName) => {
+      summaryRowSn += 1;
+      const stQtyAlloc = groups.reduce((s, g) => s + Math.max(0, g.quantity), 0);
+      const stQtySold = groups.reduce((s, g) => s + Math.max(0, g.totalQtySold), 0);
+      const stExpected = groups.reduce((s, g) => s + Math.max(0, g.expected), 0);
+      const stDeposited = groups.reduce((s, g) => s + g.totalPaid, 0);
+      const stExpenses = groups.reduce((s, g) => s + g.totalExpenses, 0);
+      const stNet = stDeposited - stExpenses;
+      const stOutstanding = Math.max(0, stExpected - stNet);
+      const stStatus = stOutstanding === 0
+        ? 'SETTLED ✓'
+        : stDeposited === 0 ? 'NO DEPOSIT' : 'OUTSTANDING';
+
+      summaryAoa.push([
+        summaryRowSn, stationName, groups.length,
+        stQtyAlloc, stQtySold,
+        stExpected, stDeposited, stExpenses,
+        stNet, stOutstanding, stStatus,
+      ]);
+
+      sumQtyAllocated += stQtyAlloc;
+      sumQtySold += stQtySold;
+      sumExpected += stExpected;
+      sumDeposited += stDeposited;
+      sumExpenses += stExpenses;
+      sumNet += stNet;
+      sumOutstanding += stOutstanding;
+    });
+
+    summaryAoa.push([]);
+    summaryAoa.push([
+      'GRAND TOTAL', '', byStation.size > 0 ? filteredLedgerGroups.length : 0,
+      sumQtyAllocated, sumQtySold,
+      sumExpected, sumDeposited, sumExpenses,
+      sumNet, sumOutstanding, '',
+    ]);
+    summaryAoa.push([]);
+    summaryAoa.push(['Generated:', new Date().toLocaleString('en-NG')]);
+
+    const summaryWs = XLSX.utils.aoa_to_sheet(summaryAoa);
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
+
+    // ════════════════════════════════════════════════════════════════
+    // SHEETS 2+ — One sheet per station
+    // ════════════════════════════════════════════════════════════════
+    byStation.forEach((groups, stationName) => {
+      const sheetAoa: (string | number)[][] = [];
+      sheetAoa.push([`STATION: ${stationName} — ${period}`]);
+      sheetAoa.push([]);
+
+      // Station-level summary block at top
+      const stQtyAlloc = groups.reduce((s, g) => s + Math.max(0, g.quantity), 0);
+      const stQtySold = groups.reduce((s, g) => s + Math.max(0, g.totalQtySold), 0);
+      const stExpected = groups.reduce((s, g) => s + Math.max(0, g.expected), 0);
+      const stDeposited = groups.reduce((s, g) => s + g.totalPaid, 0);
+      const stExpenses = groups.reduce((s, g) => s + g.totalExpenses, 0);
+      const stNet = stDeposited - stExpenses;
+      const stOutstanding = stExpected - stNet;
+
+      sheetAoa.push(['STATION SUMMARY']);
+      sheetAoa.push(['Qty Allocated (L)', stQtyAlloc]);
+      sheetAoa.push(['Qty Sold (L)', stQtySold]);
+      sheetAoa.push(['Expected Revenue', fmtNaira(stExpected)]);
+      sheetAoa.push(['Total Deposited', fmtNaira(stDeposited)]);
+      sheetAoa.push(['Total Expenses', fmtNaira(stExpenses)]);
+      sheetAoa.push(['Net Collected', fmtNaira(stNet)]);
+      sheetAoa.push([
+        'Outstanding / Balance',
+        stOutstanding > 0
+          ? fmtNaira(stOutstanding) + ' OUTSTANDING'
+          : stOutstanding < 0
+            ? fmtNaira(Math.abs(stOutstanding)) + ' OVERPAID'
+            : 'FULLY SETTLED ✓',
+      ]);
+      sheetAoa.push([]);
+      sheetAoa.push(['TRANSACTION DETAIL']);
+      sheetAoa.push(entryColHeaders);
+
+      const entryRows = buildEntryRows(groups);
+      entryRows.forEach(row => sheetAoa.push(row));
+
+      // Safe sheet name: max 31 chars, no special chars
+      const safeSheetName = stationName.replace(/[\\/*?[\]:]/g, '').slice(0, 31);
+      const stationWs = XLSX.utils.aoa_to_sheet(sheetAoa);
+      XLSX.utils.book_append_sheet(wb, stationWs, safeSheetName);
+    });
+
     XLSX.writeFile(wb, `FILLING-STATION-LEDGER-${period}.xlsx`);
   }, [filteredLedgerGroups, totals, timePreset, customFrom, customTo]);
 
