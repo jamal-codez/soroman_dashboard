@@ -21,7 +21,7 @@ import {
   TrendingUp, Banknote, Building2,
   Calendar as CalendarIcon, UserPlus, X, Fuel,
   MapPin, Users, LayoutGrid, Filter, AlertTriangle, Tag,
-  Clock, Link2, ArrowRightLeft, ChevronRight,
+  Clock, Link2, ArrowRightLeft, ChevronRight, Receipt,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -94,6 +94,7 @@ interface DeliverySale {
   rate: string | number;
   sales_value: string | number;
   payment_amount: string | number;
+  expenses_amount?: string | number;
   balance: string | number;
   payer_name: string;
   bank: string;
@@ -141,6 +142,7 @@ interface LedgerGroup {
   rate: number;
   expected: number;
   totalPaid: number;
+  totalExpenses: number;
   balance: number;
   pfiNumber: string;
   code: string;
@@ -319,8 +321,8 @@ export default function FillingStations() {
   const [mergePrimary, setMergePrimary] = useState<string | null>(null);
 
   const [quickPaymentTarget, setQuickPaymentTarget] = useState<LedgerGroup | null>(null);
-  const [activeEntryTab, setActiveEntryTab] = useState<'sale' | 'deposit'>('sale');
-  const [activeView, setActiveView] = useState<'sales_ledger' | 'deposits_ledger'>('sales_ledger');
+  const [activeEntryTab, setActiveEntryTab] = useState<'sale' | 'deposit' | 'expense'>('sale');
+  const [activeView, setActiveView] = useState<'sales_ledger' | 'deposits_ledger' | 'expenses_ledger'>('sales_ledger');
   const [quickPaymentForm, setQuickPaymentForm] = useState<QuickPaymentForm>({
     payment_amount: '',
     rate: '',
@@ -802,6 +804,7 @@ export default function FillingStations() {
         const rate = dailySales.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0) || payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0);
         // Deposits paid includes all payments/deposits recorded.
         const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
+        const totalExpenses = payments.reduce((sum, sale) => sum + toNum(sale.expenses_amount ?? 0), 0);
         const totalQtySold = dailySales.reduce((sum, sale) => sum + toNum(sale.quantity), 0);
 
         const pfiNumber = loading.pfi_number || '';
@@ -823,7 +826,8 @@ export default function FillingStations() {
           rate,
           expected,
           totalPaid,
-          balance: expected - totalPaid,
+          totalExpenses,
+          balance: expected - (totalPaid - totalExpenses),
           pfiNumber,
           code: derivedCode,
           payments,
@@ -859,6 +863,7 @@ export default function FillingStations() {
 
       const expected = dailySales.reduce((sum, sale) => sum + toNum(sale.sales_value), 0);
       const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
+      const totalExpenses = payments.reduce((sum, sale) => sum + toNum(sale.expenses_amount ?? 0), 0);
       const totalQtySold = dailySales.reduce((sum, sale) => sum + toNum(sale.quantity), 0);
 
       groups.push({
@@ -874,7 +879,8 @@ export default function FillingStations() {
         rate: dailySales.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0) || sorted.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0),
         expected,
         totalPaid,
-        balance: expected - totalPaid,
+        totalExpenses,
+        balance: expected - (totalPaid - totalExpenses),
         pfiNumber: '',
         code: firstPayment.allocation_code || sorted.map(sale => sale.allocation_code).find(Boolean) || '',
         payments: sorted,
@@ -1184,7 +1190,7 @@ export default function FillingStations() {
     return match ? String(match.id) : '';
   };
 
-  const openQuickPaymentDialog = (group: LedgerGroup, tab: 'sale' | 'deposit' = 'sale') => {
+  const openQuickPaymentDialog = (group: LedgerGroup, tab: 'sale' | 'deposit' | 'expense' = 'sale') => {
     if (!group.customerId) {
       toast({ title: 'Set up this row first', description: 'Click "Set Up" to assign the customer, destination and quantity.', variant: 'destructive' });
       return;
@@ -1333,7 +1339,7 @@ export default function FillingStations() {
       } finally {
         setQuickPaymentSaving(false);
       }
-    } else {
+    } else if (activeEntryTab === 'deposit') {
       // bank deposit
       const paymentAmount = Number(stripCommas(quickPaymentForm.payment_amount));
       const payerName = quickPaymentForm.payer_name.trim();
@@ -1388,6 +1394,59 @@ export default function FillingStations() {
         toast({
           title: 'Error',
           description: err instanceof Error ? err.message : 'Failed to record deposit',
+          variant: 'destructive',
+        });
+      } finally {
+        setQuickPaymentSaving(false);
+      }
+    } else if (activeEntryTab === 'expense') {
+      // daily expense
+      const expenseAmount = Number(stripCommas(quickPaymentForm.payment_amount));
+      const expenseDesc = quickPaymentForm.remarks.trim();
+
+      if (!expenseAmount || expenseAmount <= 0) {
+        toast({ title: 'Enter a valid expense amount', variant: 'destructive' });
+        return;
+      }
+      if (!expenseDesc) {
+        toast({ title: 'Enter an expense description', variant: 'destructive' });
+        return;
+      }
+
+      setQuickPaymentSaving(true);
+      try {
+        const currentUser = localStorage.getItem('fullname') || 'Unknown';
+
+        await apiClient.admin.createDeliverySale({
+          truck_number: quickPaymentTarget.truckNumber,
+          date_loaded: quickPaymentTarget.dateLoaded || format(new Date(), 'yyyy-MM-dd'),
+          depot_loaded: quickPaymentTarget.depot || undefined,
+          customer: quickPaymentTarget.customerId || 0,
+          location: quickPaymentTarget.location || undefined,
+          quantity: 0,
+          rate: 0,
+          sales_value: 0,
+          payment_amount: 0,
+          expenses_amount: expenseAmount,
+          payer_name: 'EXPENSE',
+          bank: 'EXPENSE',
+          date_of_payment: quickPaymentForm.date_of_payment || format(new Date(), 'yyyy-MM-dd'),
+          remarks: expenseDesc,
+          entered_by: currentUser,
+          allocation_code: quickPaymentTarget.code || undefined,
+        });
+
+        toast({
+          title: 'Expense recorded',
+          description: `${quickPaymentTarget.truckNumber} · ₦${expenseAmount.toLocaleString()}`,
+        });
+        setQuickPaymentTarget(null);
+        setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', remarks: '' });
+        invalidateAll();
+      } catch (err: unknown) {
+        toast({
+          title: 'Error',
+          description: err instanceof Error ? err.message : 'Failed to record expense',
           variant: 'destructive',
         });
       } finally {
@@ -1618,6 +1677,8 @@ export default function FillingStations() {
     const grandQtySold = totals.totalQtySold;
     const grandExpected = totals.totalExpected;
     const grandPaid = totals.totalPaid;
+    const grandExpenses = filteredLedgerGroups.reduce((sum, g) => sum + g.totalExpenses, 0);
+    const grandNetPaid = grandPaid - grandExpenses;
     const grandBalance = totals.outstanding;
 
     aoa.push(['GRAND TOTALS SUMMARY']);
@@ -1625,13 +1686,15 @@ export default function FillingStations() {
     aoa.push(['TOTAL SOLD SO FAR (LTRS)',  n(grandQtySold)]);
     aoa.push(['TOTAL EXPECTED REVENUE',   fmtNaira(grandExpected)]);
     aoa.push(['TOTAL PAID / DEPOSITED',  fmtNaira(grandPaid)]);
+    aoa.push(['TOTAL EXPENSES',           fmtNaira(grandExpenses)]);
+    aoa.push(['NET AMOUNT (PAID - EXPENSES)', fmtNaira(grandNetPaid)]);
     aoa.push(['TOTAL OUTSTANDING',       fmtNaira(grandBalance)]);
     aoa.push([]);
 
     const COLS = [
       'S/N', 'STATION', 'TRUCK NO.', 'ALLOC CODE', 'ALLOC DATE', 'ALLOCATED (L)', 
       'ENTRY DATE', 'ENTRY TYPE', 'VOLUME (L)', 'RATE (₦/L)', 'EXPECTED (₦)', 'DEPOSITED (₦)',
-      'PAYER NAME', 'BANK ACCOUNT', 'REMARKS'
+      'EXPENSES (₦)', 'NET AMOUNT (₦)', 'PAYER NAME', 'BANK ACCOUNT', 'REMARKS'
     ];
 
     aoa.push(COLS);
@@ -1639,10 +1702,11 @@ export default function FillingStations() {
     let globalSn = 0;
 
     filteredLedgerGroups.forEach((group) => {
-      // Gather manual pump sales and bank deposits, sorted chronologically
+      // Gather manual pump sales, bank deposits, and expenses, sorted chronologically
       const actualEntries = group.payments.filter(p => 
         (toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity) || 
-        toNum(p.payment_amount) > 0
+        toNum(p.payment_amount) > 0 ||
+        toNum(p.expenses_amount ?? 0) > 0
       ).sort((a, b) => {
         const dateA = a.date_of_payment || a.date_loaded || '';
         const dateB = b.date_of_payment || b.date_loaded || '';
@@ -1658,7 +1722,7 @@ export default function FillingStations() {
       } catch {}
 
       if (actualEntries.length === 0) {
-        // Output one row if there are no manual sales/deposits logged yet
+        // Output one row if there are no manual sales/deposits/expenses logged yet
         globalSn += 1;
         aoa.push([
           globalSn,
@@ -1668,14 +1732,16 @@ export default function FillingStations() {
           allocDateStr,
           group.quantity > 0 ? group.quantity : 0,
           '—',
-          'INITIAL ALLOC (NO PUMP SALES)',
+          'INITIAL ALLOC (NO ENTRIES)',
+          0,
+          0,
           0,
           0,
           0,
           0,
           '—',
           '—',
-          'No sales or deposits recorded yet.'
+          'No sales, deposits or expenses recorded yet.'
         ]);
       } else {
         actualEntries.forEach((entry) => {
@@ -1688,8 +1754,18 @@ export default function FillingStations() {
 
           const dailyQty = toNum(entry.quantity);
           const dailyRate = toNum(entry.rate);
+          const dailyDeposit = toNum(entry.payment_amount);
+          const dailyExpense = toNum(entry.expenses_amount ?? 0);
           const isSale = dailyQty > 0 && dailyQty < group.quantity;
-          const entryType = isSale ? 'DAILY SALE' : 'BANK DEPOSIT';
+          const isExpense = dailyExpense > 0;
+          const isDeposit = dailyDeposit > 0;
+          
+          let entryType = 'OTHER';
+          if (isSale) entryType = 'DAILY SALE';
+          else if (isExpense) entryType = 'EXPENSE';
+          else if (isDeposit) entryType = 'BANK DEPOSIT';
+
+          const netAmount = dailyDeposit - dailyExpense;
 
           aoa.push([
             globalSn,
@@ -1703,7 +1779,9 @@ export default function FillingStations() {
             isSale ? dailyQty : '—',
             isSale ? dailyRate : '—',
             isSale ? toNum(entry.sales_value) : '—',
-            !isSale ? toNum(entry.payment_amount) : '—',
+            isDeposit || isSale ? dailyDeposit : '—',
+            isExpense ? dailyExpense : '—',
+            isDeposit || isExpense ? netAmount : '—',
             u(entry.payer_name || '—'),
             u(entry.bank || '—'),
             u(entry.remarks || '')
@@ -1712,7 +1790,8 @@ export default function FillingStations() {
       }
 
       // Add a subtotal row for this cycle group
-      const outstandingBal = group.expected - group.totalPaid;
+      const netPaid = group.totalPaid - group.totalExpenses;
+      const outstandingBal = group.expected - netPaid;
       aoa.push([
         '',
         `SUBTOTAL: ${stationName} (${truckNo})`,
@@ -1726,6 +1805,8 @@ export default function FillingStations() {
         '',
         group.expected,
         group.totalPaid,
+        group.totalExpenses,
+        netPaid,
         '',
         '',
         outstandingBal > 0 ? `Outstanding: ₦${outstandingBal.toLocaleString()}` : outstandingBal < 0 ? `Overpaid: +₦${Math.abs(outstandingBal).toLocaleString()}` : 'Fully Settled ✓'
@@ -1926,6 +2007,17 @@ export default function FillingStations() {
                 }`}
               >
                 <Banknote size={14} /> Deposits & Collections Table
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView('expenses_ledger')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                  activeView === 'expenses_ledger'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                }`}
+              >
+                <Receipt size={14} /> Expenses Table
               </button>
             </div>
 
@@ -2425,6 +2517,196 @@ export default function FillingStations() {
               </div>
             )}
 
+            {/* ── Daily Expenses Table ── */}
+            {activeView === 'expenses_ledger' && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                {isLoading ? (
+                  <div className="p-6 space-y-3">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full rounded" />
+                    ))}
+                  </div>
+                ) : filteredLedgerGroups.length === 0 ? (
+                  <div className="p-16 text-center">
+                    <Receipt className="mx-auto text-slate-300 mb-3" size={40} />
+                    <p className="text-slate-500 font-medium">No filling station allocations found</p>
+                    <p className="text-sm text-slate-400 mt-1">Assign filling stations in the inventory or Sales Ledger first.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table className="text-sm">
+                      <TableHeader>
+                        <TableRow className="bg-slate-50/80">
+                          <TableHead className="w-[40px]"></TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[48px] text-center">S/N</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[200px]">Station Name</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[120px]">Truck No.</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[120px]">Date Allocated</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[100px] text-center">Code</TableHead>
+                          <TableHead className="font-semibold text-slate-700 text-right w-[150px]">Total Expenses (₦)</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[180px] text-center">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredLedgerGroups.map((group, idx) => {
+                          const isExpanded = !collapsedCards.has(group.key);
+                          const theme = getCodeTheme(group.code);
+                          
+                          // Get only expense entries (expenses_amount > 0)
+                          const expensesOnly = group.payments.filter(
+                            p => toNum(p.expenses_amount ?? 0) > 0
+                          );
+
+                          return (
+                            <React.Fragment key={group.key}>
+                              <TableRow className={`hover:bg-slate-50/60 border-b border-slate-100 transition-colors ${isExpanded ? 'bg-orange-50/10' : ''}`}>
+                                <TableCell className={`text-center p-0 w-[40px] transition-all ${isExpanded ? 'border-l-2 border-orange-500' : 'border-l-2 border-transparent'}`}>
+                                  <button
+                                    onClick={() => toggleCard(group.key)}
+                                    className="p-1 rounded hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition-all duration-200 focus:outline-none"
+                                    title={isExpanded ? "Collapse details" : "Expand details"}
+                                  >
+                                    <ChevronRight
+                                      size={16}
+                                      className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-90 text-slate-700 font-bold' : ''}`}
+                                    />
+                                  </button>
+                                </TableCell>
+                                <TableCell className="text-slate-400 text-center">{idx + 1}</TableCell>
+                                <TableCell className="font-bold text-slate-900 uppercase whitespace-nowrap">{group.customerName || '—'}</TableCell>
+                                <TableCell className="font-semibold text-slate-800 whitespace-nowrap">
+                                  <div className="flex items-center gap-1.5">
+                                    <Truck size={12} className="text-amber-600" />
+                                    {group.truckNumber || '—'}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-slate-600 whitespace-nowrap">
+                                  {group.dateLoaded
+                                    ? (() => { try { return format(parseISO(group.dateLoaded), 'dd MMM yyyy'); } catch { return group.dateLoaded; } })()
+                                    : '—'}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {group.code ? (
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                                      {group.code}
+                                    </span>
+                                  ) : '—'}
+                                </TableCell>
+                                <TableCell className="text-right text-orange-700 font-bold whitespace-nowrap">
+                                  {group.totalExpenses > 0 ? fmt(group.totalExpenses) : '—'}
+                                </TableCell>
+                                <TableCell className="text-center whitespace-nowrap">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    {!readOnly && (
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          className="h-8 text-xs gap-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold"
+                                          onClick={() => openQuickPaymentDialog(group, 'expense')}
+                                        >
+                                          <Receipt size={12} /> Record Expense
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700"
+                                          onClick={() => openSetupDialog(group)}
+                                          title="Edit Setup"
+                                        >
+                                          <Pencil size={13} />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+
+                              {/* Expanded sub-table showing expense entries */}
+                              {isExpanded && (
+                                <TableRow className="bg-slate-50/20 hover:bg-slate-50/20 border-none">
+                                  <TableCell colSpan={8} className="p-4 pl-12">
+                                    <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden max-w-4xl border-l-4 border-l-orange-500 transition-all">
+                                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                                        <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                                          <Receipt size={13} className="text-orange-500" /> Daily Expense Records
+                                        </h4>
+                                      </div>
+                                      {expensesOnly.length === 0 ? (
+                                        <p className="p-6 text-sm text-slate-400 text-center italic bg-white">No expense records found for this cycle.</p>
+                                      ) : (
+                                        <Table className="text-xs">
+                                          <TableHeader>
+                                            <TableRow className="bg-slate-50/40">
+                                              <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
+                                              <TableHead className="font-semibold text-slate-500 w-[120px]">Date of Expense</TableHead>
+                                              <TableHead className="font-semibold text-orange-600 text-right w-[150px]">Amount (₦)</TableHead>
+                                              <TableHead className="font-semibold text-slate-500">Description</TableHead>
+                                              <TableHead className="font-semibold text-slate-500 w-[100px] text-center">Actions</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {expensesOnly.map((payment, subIdx) => {
+                                              const expenseAmt = toNum(payment.expenses_amount ?? 0);
+                                              return (
+                                                <TableRow key={payment.id} className="hover:bg-slate-50/50">
+                                                  <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
+                                                  <TableCell className="text-slate-600 font-medium">
+                                                    {payment.date_of_payment
+                                                      ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
+                                                      : '—'}
+                                                  </TableCell>
+                                                  <TableCell className="text-right text-orange-700 font-bold">{fmt(expenseAmt)}</TableCell>
+                                                  <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
+                                                    {payment.remarks || '—'}
+                                                  </TableCell>
+                                                  <TableCell className="text-center">
+                                                    <div className="flex gap-1 items-center justify-center">
+                                                      {!readOnly && (
+                                                        <>
+                                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
+                                                            <Pencil size={11} />
+                                                          </Button>
+                                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
+                                                            onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(expenseAmt)}` })}>
+                                                            <Trash2 size={11} />
+                                                          </Button>
+                                                        </>
+                                                      )}
+                                                    </div>
+                                                  </TableCell>
+                                                </TableRow>
+                                              );
+                                            })}
+                                          </TableBody>
+                                        </Table>
+                                      )}
+                                      {!readOnly && (
+                                        <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+                                          <Button size="sm" variant="ghost" className="h-7 text-[11px] text-red-500 hover:text-red-700 gap-1 animate-pulse"
+                                            onClick={() => setDeleteTarget({
+                                              ids: group.payments.map(p => p.id),
+                                              loadingId: group.loadingId,
+                                              mode: 'truck',
+                                              label: `entire cycle of ${group.customerName || 'row'} on ${group.truckNumber}`,
+                                            })}>
+                                            <Trash2 size={11} /> Delete allocation row & all entries
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         </div>
       </div>
@@ -2436,16 +2718,18 @@ export default function FillingStations() {
         <DialogContent className="sm:max-w-[540px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${activeEntryTab === 'sale' ? 'bg-sky-100' : 'bg-emerald-100'}`}>
+              <div className={`p-2 rounded-lg ${activeEntryTab === 'sale' ? 'bg-sky-100' : activeEntryTab === 'deposit' ? 'bg-emerald-100' : 'bg-orange-100'}`}>
                 {activeEntryTab === 'sale' ? (
                   <Fuel className="w-5 h-5 text-sky-600" />
-                ) : (
+                ) : activeEntryTab === 'deposit' ? (
                   <Banknote className="w-5 h-5 text-emerald-600" />
+                ) : (
+                  <Receipt className="w-5 h-5 text-orange-600" />
                 )}
               </div>
               <div>
                 <h2 className="text-lg font-bold">
-                  {activeEntryTab === 'sale' ? 'Record Daily Pump Sale' : 'Record Bank Deposit'}
+                  {activeEntryTab === 'sale' ? 'Record Daily Pump Sale' : activeEntryTab === 'deposit' ? 'Record Bank Deposit' : 'Record Daily Expense'}
                 </h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
                   {quickPaymentTarget
@@ -2454,7 +2738,7 @@ export default function FillingStations() {
                 </p>
               </div>
             </DialogTitle>
-            <DialogDescription className="sr-only">Record daily fuel sales volume and price or actual bank payment deposits for this station allocation</DialogDescription>
+            <DialogDescription className="sr-only">Record daily fuel sales volume and price or actual bank payment deposits or operating expenses for this station allocation</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
@@ -2486,7 +2770,7 @@ export default function FillingStations() {
             )}
 
             {/* Tab Switcher */}
-            <div className="flex p-1 bg-slate-100 rounded-lg mb-2">
+            <div className="flex p-1 bg-slate-100 rounded-lg mb-2 gap-1">
               <button
                 type="button"
                 className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${
@@ -2510,6 +2794,18 @@ export default function FillingStations() {
               >
                 <Banknote size={14} className={activeEntryTab === 'deposit' ? 'text-emerald-500' : ''} />
                 Bank Deposit
+              </button>
+              <button
+                type="button"
+                className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${
+                  activeEntryTab === 'expense'
+                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200/50'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                onClick={() => setActiveEntryTab('expense')}
+              >
+                <Receipt size={14} className={activeEntryTab === 'expense' ? 'text-orange-500' : ''} />
+                Daily Expense
               </button>
             </div>
 
@@ -2633,13 +2929,53 @@ export default function FillingStations() {
               </div>
             )}
 
+            {/* Tab Content: Daily Expense */}
+            {activeEntryTab === 'expense' && (
+              <div className="space-y-4 pt-1 animate-fadeIn">
+                <div className="bg-orange-50 border border-orange-200/75 rounded-lg p-3 flex gap-2">
+                  <Receipt size={16} className="text-orange-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-semibold text-orange-800">Record Daily Expense</p>
+                    <p className="text-[10px] text-orange-600 mt-0.5">Record expenses like supplies, paper, maintenance etc. These reduce your net balance.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Expense Amount (₦) <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="text" inputMode="decimal" placeholder="e.g. 50,000" className="h-9 text-sm"
+                      value={quickPaymentForm.payment_amount}
+                      onChange={e => setQuickPaymentForm(prev => ({ ...prev, payment_amount: formatWithCommas(e.target.value) }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600 flex items-center gap-1"><CalendarIcon size={11} className="inline" /> Date of Expense</Label>
+                    <Input
+                      type="date" className="h-9 text-sm"
+                      value={quickPaymentForm.date_of_payment}
+                      onChange={e => setQuickPaymentForm(prev => ({ ...prev, date_of_payment: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-600">Expense Description <span className="text-red-500">*</span></Label>
+                  <Input placeholder="e.g. Printing paper, cleaning supplies, maintenance" className="h-9 text-sm"
+                    value={quickPaymentForm.remarks}
+                    onChange={e => setQuickPaymentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  />
+                </div>
+              </div>
+            )}
+
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setQuickPaymentTarget(null)} disabled={quickPaymentSaving}>Cancel</Button>
-            <Button onClick={handleQuickPaymentSave} disabled={quickPaymentSaving} className={`gap-2 ${activeEntryTab === 'sale' ? 'bg-sky-600 hover:bg-sky-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-              {quickPaymentSaving ? <Loader2 size={16} className="animate-spin" /> : activeEntryTab === 'sale' ? <Fuel size={16} /> : <Banknote size={16} />}
-              {quickPaymentSaving ? 'Saving…' : activeEntryTab === 'sale' ? 'Save Daily Sale' : 'Save Bank Deposit'}
+            <Button onClick={handleQuickPaymentSave} disabled={quickPaymentSaving} className={`gap-2 ${activeEntryTab === 'sale' ? 'bg-sky-600 hover:bg-sky-700' : activeEntryTab === 'deposit' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-orange-600 hover:bg-orange-700'}`}>
+              {quickPaymentSaving ? <Loader2 size={16} className="animate-spin" /> : activeEntryTab === 'sale' ? <Fuel size={16} /> : activeEntryTab === 'deposit' ? <Banknote size={16} /> : <Receipt size={16} />}
+              {quickPaymentSaving ? 'Saving…' : activeEntryTab === 'sale' ? 'Save Daily Sale' : activeEntryTab === 'deposit' ? 'Save Bank Deposit' : 'Save Expense'}
             </Button>
           </DialogFooter>
         </DialogContent>

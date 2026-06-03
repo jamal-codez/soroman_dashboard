@@ -1806,6 +1806,7 @@ export const apiClient = {
       rate?: number;
       sales_value?: number;
       payment_amount?: number;
+      expenses_amount?: number;
       payer_name?: string;
       bank?: string;
       date_of_payment?: string;
@@ -1836,6 +1837,7 @@ export const apiClient = {
         rate: number;
         sales_value: number;
         payment_amount: number;
+        expenses_amount: number;
         payer_name: string;
         bank: string;
         date_of_payment: string;
