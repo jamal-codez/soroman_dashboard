@@ -15,7 +15,7 @@ import {
 import { apiClient, fetchAllPages } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { CalendarDays, Download, Lock, Save } from 'lucide-react';
+import { CalendarDays, Download, Lock, Save, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -253,6 +253,72 @@ export default function DailySalesReport() {
     queryFn: () => apiClient.admin.getUsers(),
     staleTime: 60_000,
   });
+
+  // Report Approval Status Query
+  const approvalStatusQuery = useQuery({
+    queryKey: ['report-approval-status', selectedDateKey],
+    queryFn: async () => {
+      const data = await apiClient.admin.getReportApprovalStatus(selectedDateKey);
+      return data as {
+        date: string;
+        approved: boolean;
+        approved_at: string | null;
+        approved_by: number | null;
+        approved_by_name: string | null;
+        sent: boolean;
+        sent_at: string | null;
+        sent_log: string | null;
+      };
+    },
+    staleTime: 5000,
+  });
+
+  const [isMutating, setIsMutating] = useState(false);
+
+  const handleApprove = async () => {
+    setIsMutating(true);
+    try {
+      await apiClient.admin.approveReport(selectedDateKey);
+      toast({
+        title: 'Report Approved',
+        description: `The sales report for ${selectedDateKey} has been successfully approved for automatic nightly sending.`,
+      });
+      approvalStatusQuery.refetch();
+    } catch (error: any) {
+      toast({
+        title: 'Approval Failed',
+        description: error.message || 'Could not approve the report.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const handleSendImmediately = async () => {
+    const confirm = window.confirm(
+      `Are you sure you want to send the Daily Sales Report for ${selectedDateKey} to all configured recipients immediately?\n\nThis will send emails and SMS right now.`
+    );
+    if (!confirm) return;
+
+    setIsMutating(true);
+    try {
+      const res = await apiClient.admin.sendReportImmediately(selectedDateKey);
+      toast({
+        title: 'Report Dispatched',
+        description: res.message || `The sales report for ${selectedDateKey} was sent successfully.`,
+      });
+      approvalStatusQuery.refetch();
+    } catch (error: any) {
+      toast({
+        title: 'Dispatch Failed',
+        description: error.message || 'An error occurred while sending the report.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsMutating(false);
+    }
+  };
 
   const allOrders: OrderLike[] = useMemo(() => {
     const r = ordersQuery.data as { results?: OrderLike[] } | undefined;
@@ -670,28 +736,151 @@ export default function DailySalesReport() {
               }
             />
 
-            {/* Status strip */}
-            {/* <div className={cn(
-              'rounded-lg border px-4 py-3 flex items-center justify-between gap-3',
-              locked ? 'bg-slate-50 border-slate-200'
-                : isToday ? 'bg-emerald-50 border-emerald-200'
-                : 'bg-amber-50 border-amber-200'
-            )}>
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium text-slate-800">
-                  {locked ? 'Saved & locked' : isToday ? 'Today — editable' : 'Past day — view only'}
-                </span>
-                <span className="text-xs text-slate-500 bg-white border border-slate-200 rounded px-2 py-0.5">{selectedDateKey}</span>
-              </div>
-              {locked && (
-                <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                  <Lock size={11} /> Read-only
-                </span>
-              )}
-              {!locked && isToday && (
-                <span className="text-xs text-slate-400 hidden sm:block">Click a column header to rename it. Fill in the input fields and save when ready.</span>
-              )}
-            </div> */}
+            {/* Report Confirmation & Dispatch Control */}
+            {(() => {
+              const statusData = approvalStatusQuery.data;
+              const isStatusLoading = approvalStatusQuery.isLoading;
+
+              if (isStatusLoading) {
+                return (
+                  <div className="bg-white/80 backdrop-blur-md border border-slate-200/60 shadow-sm rounded-xl p-5">
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                      <span className="text-sm text-slate-500">Checking dispatch approval status...</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (!statusData) return null;
+
+              const { approved, approved_at, approved_by_name, sent, sent_at, sent_log } = statusData;
+
+              // Determine visual states
+              let cardBg = "bg-white/70 border-slate-200/80 shadow-slate-100/30";
+              let statusText = "Pending Approval";
+              let statusDesc = "This report has not been approved. The daily schedule at 9 PM will skip sending it unless it is approved.";
+              let badgeCls = "bg-amber-50 text-amber-800 border-amber-200/50";
+              let glowCls = "from-amber-500/5 to-orange-500/5";
+              let dotCls = "bg-amber-500 animate-pulse";
+              let iconEl = <Info className="h-5 w-5 text-amber-600" />;
+
+              if (sent) {
+                cardBg = "bg-white/80 border-slate-200 shadow-slate-100/50";
+                statusText = "Sent / Dispatched";
+                statusDesc = `This report has been successfully dispatched to all administrators.`;
+                badgeCls = "bg-blue-50 text-blue-800 border-blue-200/50";
+                glowCls = "from-blue-500/5 to-indigo-500/5";
+                dotCls = "bg-blue-500";
+                iconEl = <Mail className="h-5 w-5 text-blue-600" />;
+              } else if (approved) {
+                cardBg = "bg-white/80 border-slate-200 shadow-slate-100/50";
+                statusText = "Approved for Auto-Send";
+                statusDesc = "This report is approved. It will automatically dispatch tonight at 9 PM.";
+                badgeCls = "bg-emerald-50 text-emerald-800 border-emerald-200/50";
+                glowCls = "from-emerald-500/5 to-teal-500/5";
+                dotCls = "bg-emerald-500 animate-ping";
+                iconEl = <CheckCircle2 className="h-5 w-5 text-emerald-600" />;
+              }
+
+              return (
+                <div className={cn(
+                  "relative overflow-hidden rounded-xl border p-5 backdrop-blur-md shadow-sm transition-all duration-300",
+                  cardBg
+                )}>
+                  {/* Subtle color glow backdrops */}
+                  <div className={cn("absolute inset-0 -z-10 bg-gradient-to-r opacity-50", glowCls)} />
+                  
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+                    
+                    {/* Information Area */}
+                    <div className="space-y-2.5 max-w-3xl">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 border border-slate-200/60 shadow-inner">
+                          {iconEl}
+                        </span>
+                        
+                        <h3 className="text-sm font-semibold text-slate-800 tracking-tight">Report Dispatch Control</h3>
+                        
+                        <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border", badgeCls)}>
+                          <span className={cn("h-1.5 w-1.5 rounded-full", dotCls)} />
+                          {statusText}
+                        </div>
+
+                        <span className="text-xs text-slate-400 font-mono">Date: {selectedDateKey}</span>
+                      </div>
+
+                      <p className="text-sm text-slate-600 leading-relaxed">{statusDesc}</p>
+
+                      {/* Approval Meta Information */}
+                      {approved && (
+                        <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 w-max">
+                          <span className="font-semibold text-slate-700">Approved by:</span>
+                          <span>{approved_by_name || "System"}</span>
+                          <span className="text-slate-300">•</span>
+                          <span className="font-semibold text-slate-700">Time:</span>
+                          <span>{approved_at ? format(parseISO(approved_at), 'dd MMM yyyy, HH:mm') : '—'}</span>
+                        </div>
+                      )}
+
+                      {/* Sent Meta & Logs */}
+                      {sent && (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 w-max">
+                            <span className="font-semibold text-slate-700">Sent at:</span>
+                            <span>{sent_at ? format(parseISO(sent_at), 'dd MMM yyyy, HH:mm') : '—'}</span>
+                          </div>
+                          
+                          {sent_log && (
+                            <div className="space-y-1">
+                              <span className="text-xs font-semibold text-slate-600 block">Dispatch Logs:</span>
+                              <pre className={cn(
+                                "font-mono text-xs p-3 rounded-lg border max-w-full overflow-x-auto max-h-[150px] leading-relaxed shadow-inner",
+                                sent_log.toLowerCase().includes("fail") || sent_log.toLowerCase().includes("error")
+                                  ? "bg-rose-50/70 text-rose-700 border-rose-200"
+                                  : "bg-slate-900 text-slate-200 border-slate-800"
+                              )}>
+                                {sent_log}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2.5 shrink-0 self-start md:self-center">
+                      {!sent && !approved && (
+                        <Button
+                          size="sm"
+                          onClick={handleApprove}
+                          disabled={isMutating}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm transition-all h-9 gap-1.5 rounded-lg active:scale-95 animate-fade-in"
+                        >
+                          {isMutating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                          Approve Report
+                        </Button>
+                      )}
+
+                      <Button
+                        variant={sent ? "outline" : "default"}
+                        size="sm"
+                        onClick={handleSendImmediately}
+                        disabled={isMutating}
+                        className={cn(
+                          "font-medium shadow-sm transition-all h-9 gap-1.5 rounded-lg active:scale-95",
+                          !sent && "bg-indigo-600 hover:bg-indigo-700 text-white"
+                        )}
+                      >
+                        {isMutating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                        {sent ? "Resend Now" : "Send Now"}
+                      </Button>
+                    </div>
+
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Main table */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">

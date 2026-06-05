@@ -998,6 +998,35 @@ export const apiClient = {
       return response.json();
     },
 
+    // Report Approval Flow
+    getReportApprovalStatus: async (date: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/approval/status/?date=${date}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    approveReport: async (date: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/approval/approve/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ date }),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    sendReportImmediately: async (date: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/approval/send-now/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ date }),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
     updateUser: async (userId: number, data: Record<string, unknown>) => {
       const response = await safeFetch(`${ADMIN_BASE}/users/${userId}/`, {
         method: 'PATCH',
