@@ -191,7 +191,7 @@ const ROWS: { label: string; kind: RowKind; isManual: boolean }[] = [
   { label: "Yesterday's carried over loading", kind: 'manual-carried', isManual: true },
   { label: 'Product brought forward (opening litres)', kind: 'manual-opening', isManual: true },
   { label: 'Litres sold today', kind: 'auto-sold-all', isManual: false },
-//   { label: 'Litres released', kind: 'auto-sold-released', isManual: false },
+  //   { label: 'Litres released', kind: 'auto-sold-released', isManual: false },
   { label: 'Unit price(s)', kind: 'auto-unit-price', isManual: false },
   { label: 'Tank balance (litres)', kind: 'auto-tank-balance', isManual: false },
   { label: 'No. of trucks loaded', kind: 'auto-tickets', isManual: false },
@@ -199,7 +199,7 @@ const ROWS: { label: string; kind: RowKind; isManual: boolean }[] = [
   { label: 'Total sales amount', kind: 'auto-revenue', isManual: false },
   { label: 'Differentials', kind: 'auto-differentials', isManual: false },
   { label: 'Loading left over', kind: 'auto-loading-leftover', isManual: false },
-//   { label: 'Staff name', kind: 'manual-staff', isManual: true },
+  //   { label: 'Staff name', kind: 'manual-staff', isManual: true },
 ];
 
 // Rows where we draw a section divider above
@@ -530,7 +530,7 @@ export default function DailySalesReport() {
       row("Yesterday's carried over loading", depots.map(d => toNum(manualByDepot[d]?.carriedOverLoading)), totals.carriedOver),
       row('Product brought forward (opening litres)', depots.map(d => toNum(manualByDepot[d]?.openingLitres)), totals.opening),
       row('Litres sold today', depots.map(d => metricsByDepot[d]?.litresSoldAll ?? 0), totals.litresSoldAll),
-    //   row('Litres released (paid + released)', depots.map(d => metricsByDepot[d]?.litresSoldReleased ?? 0), totals.litresSoldReleased),
+      //   row('Litres released (paid + released)', depots.map(d => metricsByDepot[d]?.litresSoldReleased ?? 0), totals.litresSoldReleased),
       row('Unit price(s)', depots.map(d => { const ups = metricsByDepot[d]?.unitPrices ?? []; return ups.length ? ups.map(u => u.toLocaleString()).join(', ') : '—'; }), '—'),
       row('Tank balance (litres)', depots.map(d => tankBalanceByDepot[d] ?? 0), totals.tankBalance),
       row('No. of trucks sold', depots.map(d => metricsByDepot[d]?.ticketsAll ?? 0), totals.ticketsAll),
@@ -538,7 +538,7 @@ export default function DailySalesReport() {
       row('Total sales amount', depots.map(d => metricsByDepot[d]?.revenueAll ?? 0), totals.revenueAll),
       row('Differentials', depots.map(d => differentialsByDepot[d] ?? 0), Object.values(differentialsByDepot).reduce((s, n) => s + n, 0)),
       row('Loading left over', depots.map(d => tankBalanceByDepot[d] ?? 0), totals.loadingLeftOver),
-    //   row('Staff name', depots.map(d => manualByDepot[d]?.staffName || ''), ''),
+      //   row('Staff name', depots.map(d => manualByDepot[d]?.staffName || ''), ''),
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -624,20 +624,20 @@ export default function DailySalesReport() {
           </select>
         );
       }
-      case 'auto-sold-all':      return <span className="text-sm">{fmtQty(met.litresSoldAll)}</span>;
+      case 'auto-sold-all': return <span className="text-sm">{fmtQty(met.litresSoldAll)}</span>;
       case 'auto-sold-released': return <span className="text-sm">{fmtQty(met.litresSoldReleased)}</span>;
       case 'auto-unit-price': {
         const ups = met.unitPrices;
         return <span className="text-sm text-slate-600">{ups.length ? ups.map(u => u.toLocaleString()).join(', ') : '—'}</span>;
       }
-      case 'auto-tank-balance':      return <span className="text-sm">{fmtQty(tankBalanceByDepot[depot] ?? 0)}</span>;
-      case 'auto-tickets':           return <span className="text-sm">{(met.ticketsAll).toLocaleString()}</span>;
-      case 'auto-revenue':           return <span className="text-sm font-medium text-emerald-700">{fmtMoney(met.revenueAll)}</span>;
+      case 'auto-tank-balance': return <span className="text-sm">{fmtQty(tankBalanceByDepot[depot] ?? 0)}</span>;
+      case 'auto-tickets': return <span className="text-sm">{(met.ticketsAll).toLocaleString()}</span>;
+      case 'auto-revenue': return <span className="text-sm font-medium text-emerald-700">{fmtMoney(met.revenueAll)}</span>;
       case 'auto-differentials': {
         const v = differentialsByDepot[depot] ?? 0;
         return <span className={cn('text-sm font-medium', v === 0 ? 'text-slate-400' : v > 0 ? 'text-amber-700' : 'text-red-600')}>{fmtQty(v)}</span>;
       }
-      case 'auto-loading-leftover':  return <span className="text-sm">{fmtQty(tankBalanceByDepot[depot] ?? 0)}</span>;
+      case 'auto-loading-leftover': return <span className="text-sm">{fmtQty(tankBalanceByDepot[depot] ?? 0)}</span>;
     }
   };
 
@@ -645,18 +645,18 @@ export default function DailySalesReport() {
 
   const renderTotalCell = (row: typeof ROWS[number]): string => {
     switch (row.kind) {
-      case 'manual-carried':        return fmtQty(totals.carriedOver);
-      case 'manual-opening':        return fmtQty(totals.opening);
-      case 'auto-sold-all':         return fmtQty(totals.litresSoldAll);
-      case 'auto-sold-released':    return fmtQty(totals.litresSoldReleased);
-      case 'auto-unit-price':       return '—';
-      case 'auto-tank-balance':     return fmtQty(totals.tankBalance);
-      case 'auto-tickets':          return totals.ticketsAll.toLocaleString();
-      case 'manual-amount-paid':    return fmtMoney(totals.amountPaid);
-      case 'auto-revenue':          return fmtMoney(totals.revenueAll);
-      case 'auto-differentials':    return fmtQty(Object.values(differentialsByDepot).reduce((s, n) => s + n, 0));
+      case 'manual-carried': return fmtQty(totals.carriedOver);
+      case 'manual-opening': return fmtQty(totals.opening);
+      case 'auto-sold-all': return fmtQty(totals.litresSoldAll);
+      case 'auto-sold-released': return fmtQty(totals.litresSoldReleased);
+      case 'auto-unit-price': return '—';
+      case 'auto-tank-balance': return fmtQty(totals.tankBalance);
+      case 'auto-tickets': return totals.ticketsAll.toLocaleString();
+      case 'manual-amount-paid': return fmtMoney(totals.amountPaid);
+      case 'auto-revenue': return fmtMoney(totals.revenueAll);
+      case 'auto-differentials': return fmtQty(Object.values(differentialsByDepot).reduce((s, n) => s + n, 0));
       case 'auto-loading-leftover': return fmtQty(totals.loadingLeftOver);
-      case 'manual-staff':          return '—';
+      case 'manual-staff': return '—';
     }
   };
 
@@ -790,18 +790,18 @@ export default function DailySalesReport() {
                 )}>
                   {/* Subtle color glow backdrops */}
                   <div className={cn("absolute inset-0 -z-10 bg-gradient-to-r opacity-50", glowCls)} />
-                  
+
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
-                    
+
                     {/* Information Area */}
                     <div className="space-y-2.5 max-w-3xl">
                       <div className="flex items-center gap-2.5 flex-wrap">
                         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 border border-slate-200/60 shadow-inner">
                           {iconEl}
                         </span>
-                        
+
                         <h3 className="text-sm font-semibold text-slate-800 tracking-tight">Report Dispatch Control</h3>
-                        
+
                         <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border", badgeCls)}>
                           <span className={cn("h-1.5 w-1.5 rounded-full", dotCls)} />
                           {statusText}
@@ -830,7 +830,7 @@ export default function DailySalesReport() {
                             <span className="font-semibold text-slate-700">Sent at:</span>
                             <span>{sent_at ? format(parseISO(sent_at), 'dd MMM yyyy, HH:mm') : '—'}</span>
                           </div>
-                          
+
                           {sent_log && (
                             <div className="space-y-1">
                               <span className="text-xs font-semibold text-slate-600 block">Dispatch Logs:</span>
