@@ -206,7 +206,7 @@ export const apiClient = {
       return true;
     },
 
-    
+
 
     // Analytics
     getAnalytics: async () => {
@@ -308,7 +308,7 @@ export const apiClient = {
 
       return response.json();
     },
-    
+
 
     // Bank Accounts
     getBankAccounts: async (params?: {
@@ -334,7 +334,7 @@ export const apiClient = {
     updateProductPrice: async (productId: number, data: { unit_price: number }) => {
       const response = await safeFetch(`${ADMIN_BASE}/products/${productId}/`, {
         method: 'PATCH',
-        headers:getHeaders(),
+        headers: getHeaders(),
         body: JSON.stringify(data),
       });
 
@@ -461,24 +461,24 @@ export const apiClient = {
         headers: getHeaders(),
         body: JSON.stringify(payload || {}),
       });
-    
+
       if (!response.ok) {
         // Surface backend status on 409 so we can see what Order.status really is.
         const payload = (await response
           .json()
           .catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
-    
+
         const baseMsg =
           (typeof payload.error === 'string' && payload.error) ||
           (typeof payload.detail === 'string' && payload.detail) ||
           (await safeReadError(response));
-    
+
         const actualStatus = typeof payload.status === 'string' ? payload.status : undefined;
         const suffix = actualStatus ? ` (order status: ${actualStatus})` : '';
-    
+
         throw new Error(`Confirm payment failed (${response.status}): ${baseMsg}${suffix}`);
       }
-    
+
       return response.json();
     },
 
@@ -611,6 +611,39 @@ export const apiClient = {
       return true;
     },
 
+    // Partially update editable order fields from Depot View
+    patchAdminOrder: async (
+      orderId: number | string,
+      data: {
+        created_at?: string;    // ISO 8601 datetime e.g. "2024-01-15T10:30:00"
+        quantity?: number;
+        total_price?: number;
+        truck_number?: string;
+        driver_name?: string;
+        driver_phone?: string;
+        narration?: string;
+      }
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const err = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const message =
+          (typeof err.error === 'string' && err.error) ||
+          (typeof err.detail === 'string' && err.detail) ||
+          `Failed to update order (${response.status})`;
+        throw new Error(message);
+      }
+
+      return response.json();
+    },
+
+
+
     // Agents (Admin)
     adminListAgents: async (params?: { type?: 'general' | 'location'; location_id?: number; is_active?: boolean; search?: string; page?: number; page_size?: number }) => {
       const url = new URL(`${ADMIN_BASE}/agents/`);
@@ -702,7 +735,7 @@ export const apiClient = {
     },
 
 
-    
+
 
     // Products CRUD
     getProducts: async (params?: { page?: number; page_size?: number }) => {
@@ -721,7 +754,7 @@ export const apiClient = {
 
     getProductsInventory: async (params?: { page?: number; page_size?: number; state_id?: number }) => {
       const url = new URL(`${ADMIN_BASE}/inventory_products/`);
-      
+
       if (params) {
         Object.entries(params).forEach(([key, value]) => {
           if (value !== undefined && value !== null) {
@@ -772,15 +805,15 @@ export const apiClient = {
         headers: getHeaders(),
         body: JSON.stringify(updatedState),
       });
-    
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to update state prices');
       }
-    
+
       return response.json();
     },
-    
+
     toggleStateStatus: async (StatetId: string) => {
       const response = await safeFetch(`${ADMIN_BASE}/state/${StatetId}/togglestatus/`, {
         method: 'POST',
@@ -1009,15 +1042,15 @@ export const apiClient = {
         headers: getHeaders(),
         body: JSON.stringify(data),
       });
-  
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to create offline sale');
       }
-  
+
       return response.json();
     },
-  
+
     getOfflineSales: async () => {
       const response = await safeFetch(`${ADMIN_BASE}/offline-sales/`, {
         headers: getHeaders(),
@@ -1025,7 +1058,7 @@ export const apiClient = {
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
-    
+
     deleteOfflineSale: async (id: string) => {
       const response = await safeFetch(`${ADMIN_BASE}/offline-sales/${id}/`, {
         method: 'DELETE',
@@ -1422,7 +1455,7 @@ export const apiClient = {
     /** PATCH /api/admin/fleet/trucks/<id>/ */
     updateFleetTruck: async (
       id: number,
-      data: Partial<{ plate_number: string; driver_name: string; driver_phone: string; max_capacity: number | null; notes: string; is_active: boolean; [key: string]: unknown }>
+      data: Partial<{ plate_number: string; driver_name: string; driver_phone: string; max_capacity: number | null; notes: string; is_active: boolean;[key: string]: unknown }>
     ) => {
       const response = await safeFetch(`${ADMIN_BASE}/fleet/trucks/${id}/`, {
         method: 'PATCH',
@@ -2021,9 +2054,9 @@ export const apiClient = {
     /** GET /api/admin/feedback/ — list all feedback submissions */
     getFeedback: async (params?: { page?: number; page_size?: number; status?: string }) => {
       const q = new URLSearchParams();
-      if (params?.page)      q.set('page', String(params.page));
+      if (params?.page) q.set('page', String(params.page));
       if (params?.page_size) q.set('page_size', String(params.page_size));
-      if (params?.status)    q.set('status', params.status);
+      if (params?.status) q.set('status', params.status);
       const response = await safeFetch(`${ADMIN_BASE}/feedback/?${q}`, { headers: getHeaders() });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json() as Promise<{ count: number; results: FeedbackEntry[] }>;

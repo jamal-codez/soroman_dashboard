@@ -4,7 +4,7 @@
 // location, product, status, PFI, search. No actions — view only.
 //
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
@@ -14,20 +14,21 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
-  Search, X, CalendarDays, Eye,
+  Search, X, CalendarDays, Eye, Pencil,
   Truck, Package, DollarSign, Clock, CheckCircle2, XCircle,
   MapPin, User, Phone, Hash, Building2, Fuel, FileText,
   ShieldCheck, ListFilter, RefreshCw,
-  FuelIcon,
+  FuelIcon, Save, AlertCircle,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -214,6 +215,255 @@ const matchesPreset = (iso: string, preset: TimePreset): boolean => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Edit Order Dialog
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface EditOrderForm {
+  created_at: string;   // local datetime string for <input type="datetime-local">
+  quantity: string;
+  total_price: string;
+  truck_number: string;
+  driver_name: string;
+  driver_phone: string;
+  narration: string;
+}
+
+const EditOrderDialog = ({
+  order,
+  open,
+  onClose,
+  onSaved,
+}: {
+  order: Order | null;
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) => {
+  const toLocalDTInput = (iso: string): string => {
+    try {
+      // Convert stored ISO (UTC) to the local datetime-local value
+      const d = parseISO(iso);
+      // format as YYYY-MM-DDTHH:mm (no seconds — datetime-local value format)
+      return format(d, "yyyy-MM-dd'T'HH:mm");
+    } catch {
+      return '';
+    }
+  };
+
+  const buildInitialForm = (o: Order): EditOrderForm => ({
+    created_at: o.created_at ? toLocalDTInput(o.created_at) : '',
+    quantity: String(o.quantity ?? ''),
+    total_price: String(o.total_price ?? ''),
+    truck_number: getTruckNumber(o) === '—' ? '' : getTruckNumber(o),
+    driver_name: getDriverName(o) === '—' ? '' : getDriverName(o),
+    driver_phone: getDriverPhone(o) === '—' ? '' : getDriverPhone(o),
+    narration: String((o as Record<string, unknown>).payment_narration ?? o.narration ?? ''),
+  });
+
+  const [form, setForm] = React.useState<EditOrderForm>(() =>
+    order ? buildInitialForm(order) : {
+      created_at: '', quantity: '', total_price: '',
+      truck_number: '', driver_name: '', driver_phone: '', narration: '',
+    }
+  );
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+
+  // Re-seed form whenever the selected order changes
+  React.useEffect(() => {
+    if (order) setForm(buildInitialForm(order));
+    setSaveError(null);
+  }, [order]);
+
+  if (!order) return null;
+
+  const field = (key: keyof EditOrderForm) => ({
+    value: form[key],
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setForm(prev => ({ ...prev, [key]: e.target.value })),
+  });
+
+  const handleSave = async () => {
+    setSaveError(null);
+    setSaving(true);
+    try {
+      const payload: Parameters<typeof apiClient.admin.patchAdminOrder>[1] = {};
+
+      // Only send changed fields
+      const orig = buildInitialForm(order);
+
+      if (form.created_at && form.created_at !== orig.created_at) {
+        // datetime-local value is in local time — send as ISO string
+        const localDt = new Date(form.created_at);
+        payload.created_at = localDt.toISOString();
+      }
+      if (form.quantity !== orig.quantity && form.quantity.trim()) {
+        const n = parseInt(form.quantity, 10);
+        if (!isNaN(n) && n > 0) payload.quantity = n;
+      }
+      if (form.total_price !== orig.total_price && form.total_price.trim()) {
+        const n = parseFloat(form.total_price.replace(/,/g, ''));
+        if (!isNaN(n)) payload.total_price = n;
+      }
+      if (form.truck_number !== orig.truck_number)
+        payload.truck_number = form.truck_number.trim();
+      if (form.driver_name !== orig.driver_name)
+        payload.driver_name = form.driver_name.trim();
+      if (form.driver_phone !== orig.driver_phone)
+        payload.driver_phone = form.driver_phone.trim();
+      if (form.narration !== orig.narration)
+        payload.narration = form.narration.trim();
+
+      if (Object.keys(payload).length === 0) {
+        onClose();
+        return;
+      }
+
+      await apiClient.admin.patchAdminOrder(order.id, payload);
+      onSaved();
+      onClose();
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save changes.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const ref = getOrderReference(order);
+
+  return (
+    <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-[580px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-amber-100">
+              <Pencil className="w-4 h-4 text-amber-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Edit Order</h2>
+              <p className="text-sm font-normal text-slate-500 mt-0.5">
+                Ref: <span className="font-mono font-semibold text-amber-700">{ref}</span>
+              </p>
+            </div>
+          </DialogTitle>
+          <DialogDescription className="sr-only">Edit order details</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Error banner */}
+          {saveError && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
+              <AlertCircle size={15} className="mt-0.5 shrink-0" />
+              <span>{saveError}</span>
+            </div>
+          )}
+
+          {/* Order Date */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <CalendarDays size={12} /> Order Date
+            </Label>
+            <input
+              type="datetime-local"
+              className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              {...field('created_at')}
+            />
+            <p className="text-[11px] text-slate-400">Changing this corrects the order's recorded date for reports.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {/* Quantity */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Fuel size={12} /> Quantity (L)
+              </Label>
+              <Input
+                type="number"
+                min="1"
+                className="h-9 text-sm"
+                placeholder="e.g. 45000"
+                {...field('quantity')}
+              />
+            </div>
+
+            {/* Total Price */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <DollarSign size={12} /> Total Amount (₦)
+              </Label>
+              <Input
+                type="number"
+                min="0"
+                className="h-9 text-sm"
+                placeholder="e.g. 4500000"
+                {...field('total_price')}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {/* Truck Number */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Truck size={12} /> Truck No.
+              </Label>
+              <Input className="h-9 text-sm" placeholder="e.g. ABC-123-XY" {...field('truck_number')} />
+            </div>
+
+            {/* Driver Name */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <User size={12} /> Driver Name
+              </Label>
+              <Input className="h-9 text-sm" placeholder="Driver full name" {...field('driver_name')} />
+            </div>
+          </div>
+
+          {/* Driver Phone */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <Phone size={12} /> Driver Phone
+            </Label>
+            <Input className="h-9 text-sm" placeholder="e.g. 0801 234 5678" {...field('driver_phone')} />
+          </div>
+
+          {/* Narration */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <FileText size={12} /> Narration / Remarks
+            </Label>
+            <Textarea
+              className="text-sm resize-none"
+              rows={3}
+              placeholder="Optional notes or payment narration"
+              {...field('narration')}
+            />
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2 pt-2">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? (
+              <><RefreshCw size={13} className="animate-spin" /> Saving…</>
+            ) : (
+              <><Save size={13} /> Save Changes</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Detail Dialog
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -370,6 +620,14 @@ export default function DepotView() {
 
   // ── Detail dialog ─────────────────────────────────────────────────
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+  // ── Edit dialog ───────────────────────────────────────────────────
+  const [editOrder, setEditOrder] = useState<Order | null>(null);
+  const queryClient = useQueryClient();
+
+  const handleEditSaved = () => {
+    queryClient.invalidateQueries({ queryKey: ['depot-view-orders'] });
+  };
 
   // ── Data ──────────────────────────────────────────────────────────
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
@@ -936,6 +1194,7 @@ export default function DepotView() {
                         <TableHead className="font-semibold text-slate-700">PFI</TableHead>
                         {/* <TableHead className="font-semibold text-slate-700">Driver</TableHead> */}
                         <TableHead className="font-semibold text-slate-700 w-[60px]">Details</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[60px]">Edit</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1055,6 +1314,17 @@ export default function DepotView() {
                                 <Eye size={14} />
                               </Button>
                             </TableCell>
+
+                            <TableCell>
+                              <Button
+                                size="sm" variant="ghost"
+                                className="h-8 w-8 p-0 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
+                                title="Edit order details"
+                                onClick={() => setEditOrder(o)}
+                              >
+                                <Pencil size={14} />
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -1080,6 +1350,14 @@ export default function DepotView() {
         order={selectedOrder}
         open={!!selectedOrder}
         onClose={() => setSelectedOrder(null)}
+      />
+
+      {/* Edit dialog */}
+      <EditOrderDialog
+        order={editOrder}
+        open={!!editOrder}
+        onClose={() => setEditOrder(null)}
+        onSaved={handleEditSaved}
       />
     </div>
   );

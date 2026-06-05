@@ -498,7 +498,7 @@ export default function DeliveryInventory() {
   // Match sales to loaded trucks (by loading record ID) exactly matching Sales Ledger matching logic
   const truckSalesMap = useMemo(() => {
     const map = new Map<number, { customerId: number; customerName: string; qty: number; rates: Set<number>; location: string }[]>();
-    
+
     const filteredLoadings = allEntries
       .filter(e => !!(e.truck || e.truck_number || e.loading_status));
     const sortedLoadings = [
@@ -514,7 +514,7 @@ export default function DeliveryInventory() {
       if (!sale.truck_number) return;
       const rawKey = getCycleKey(sale.truck_number, sale.date_loaded);
       const cycleKey = cycleAliasMap[rawKey] || rawKey;
-      
+
       const existingCycle = salesByCycle.get(cycleKey) ?? [];
       existingCycle.push(sale);
       salesByCycle.set(cycleKey, existingCycle);
@@ -530,7 +530,7 @@ export default function DeliveryInventory() {
     sortedLoadings.forEach(loading => {
       const rawKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
       const cycleKey = cycleAliasMap[rawKey] || rawKey;
-      
+
       const cycleSales = salesByCycle.get(cycleKey) || [];
       let payments = cycleSales.filter(sale => !matchedSaleIds.has(sale.id));
 
@@ -1679,11 +1679,10 @@ export default function DeliveryInventory() {
                                                 {e.customerName || `Customer #${e.customerId}`}
                                               </span>
                                               {e.qty > 0 && (
-                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${
-                                                  hasSplit
-                                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                                    : 'bg-slate-50 text-slate-600 border-slate-200'
-                                                }`}>
+                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${hasSplit
+                                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                                  : 'bg-slate-50 text-slate-600 border-slate-200'
+                                                  }`}>
                                                   {fmtQty(e.qty)}L
                                                 </span>
                                               )}
@@ -1727,8 +1726,8 @@ export default function DeliveryInventory() {
                                         {salesEntries.map((e, idx) => {
                                           const customerObj = e.customerId ? customerMap.get(e.customerId) : null;
                                           const isFS = isFillingStation(customerObj);
-                                          const destDisplay = isFS 
-                                            ? (customerObj?.customer_name || e.customerName || '') 
+                                          const destDisplay = isFS
+                                            ? (customerObj?.customer_name || e.customerName || '')
                                             : (e.location || r.destination || '—');
                                           return (
                                             <div key={e.customerId || idx} className="h-[22px] flex items-center">

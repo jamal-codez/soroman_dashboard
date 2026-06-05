@@ -551,7 +551,7 @@ export default function FillingStations() {
     cyclePaymentSummary.forEach((cycle) => {
       const t = map.get(cycle.truckNumber) || { totalExpected: 0, totalPaid: 0 };
       t.totalExpected += cycle.totalExpected;
-      t.totalPaid     += cycle.totalPaid;
+      t.totalPaid += cycle.totalPaid;
       map.set(cycle.truckNumber, t);
     });
     return map;
@@ -756,84 +756,84 @@ export default function FillingStations() {
     ];
 
     sortedLoadings.forEach(loading => {
-        const cycleKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
-        const cycleSales = salesByCycle.get(cycleKey) || [];
-        let payments = cycleSales.filter(sale => {
+      const cycleKey = getCycleKey(loading.truck_number || '', loading.date_allocated || '');
+      const cycleSales = salesByCycle.get(cycleKey) || [];
+      let payments = cycleSales.filter(sale => {
+        if (matchedSaleIds.has(sale.id)) return false;
+        const customerMatches = loading.customer ? sale.customer === loading.customer : true;
+        const locationMatches = loading.location
+          ? normalizeText(sale.location) === normalizeText(loading.location)
+          : true;
+        return customerMatches && locationMatches;
+      });
+
+      if (payments.length === 0 && loading.customer) {
+        payments = cycleSales.filter(sale => !matchedSaleIds.has(sale.id) && sale.customer === loading.customer);
+      }
+
+      if (payments.length === 0 && !loading.date_allocated) {
+        const truckKey = (loading.truck_number || '').trim().toUpperCase();
+        const truckSales = salesByTruck.get(truckKey) || [];
+        payments = truckSales.filter(sale => {
           if (matchedSaleIds.has(sale.id)) return false;
           const customerMatches = loading.customer ? sale.customer === loading.customer : true;
-          const locationMatches = loading.location
-            ? normalizeText(sale.location) === normalizeText(loading.location)
-            : true;
-          return customerMatches && locationMatches;
+          return customerMatches;
         });
+      }
 
-        if (payments.length === 0 && loading.customer) {
-          payments = cycleSales.filter(sale => !matchedSaleIds.has(sale.id) && sale.customer === loading.customer);
-        }
+      payments = sortPayments(payments);
+      payments.forEach(payment => matchedSaleIds.add(payment.id));
 
-        if (payments.length === 0 && !loading.date_allocated) {
-          const truckKey = (loading.truck_number || '').trim().toUpperCase();
-          const truckSales = salesByTruck.get(truckKey) || [];
-          payments = truckSales.filter(sale => {
-            if (matchedSaleIds.has(sale.id)) return false;
-            const customerMatches = loading.customer ? sale.customer === loading.customer : true;
-            return customerMatches;
-          });
-        }
+      const firstPayment = payments[0];
+      const customerId = loading.customer ?? firstPayment?.customer ?? null;
+      const customerObj = customerId ? customerMap.get(customerId) : null;
 
-        payments = sortPayments(payments);
-        payments.forEach(payment => matchedSaleIds.add(payment.id));
+      // Allocated quantity is the maximum quantity among payments (customer's initial assignment entry),
+      // or falls back to loading.quantity_allocated if payments are empty.
+      const maxSaleQty = payments.reduce((max, sale) => Math.max(max, toNum(sale.quantity)), 0);
+      const quantity = maxSaleQty > 0 ? maxSaleQty : toNum(loading.quantity_allocated);
 
-        const firstPayment = payments[0];
-        const customerId = loading.customer ?? firstPayment?.customer ?? null;
-        const customerObj = customerId ? customerMap.get(customerId) : null;
-        
-        // Allocated quantity is the maximum quantity among payments (customer's initial assignment entry),
-        // or falls back to loading.quantity_allocated if payments are empty.
-        const maxSaleQty = payments.reduce((max, sale) => Math.max(max, toNum(sale.quantity)), 0);
-        const quantity = maxSaleQty > 0 ? maxSaleQty : toNum(loading.quantity_allocated);
-
-        // Daily pump sales are entries where the quantity is strictly less than the allocated quantity.
-        const dailySales = payments.filter(sale => {
-          const q = toNum(sale.quantity);
-          return q > 0 && q < quantity;
-        });
-
-        // Expected revenue is derived strictly from the daily sales at the pump.
-        const expected = dailySales.reduce((sum, sale) => sum + toNum(sale.sales_value), 0);
-        const rate = dailySales.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0) || payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0);
-        // Deposits paid includes all payments/deposits recorded.
-        const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
-        const totalExpenses = payments.reduce((sum, sale) => sum + toNum(sale.expenses_amount ?? 0), 0);
-        const totalQtySold = dailySales.reduce((sum, sale) => sum + toNum(sale.quantity), 0);
-
-        const pfiNumber = loading.pfi_number || '';
-        const derivedCode = loading.allocation_code
-          || payments.map(sale => sale.allocation_code).find(Boolean)
-          || '';
-
-        groups.push({
-          key: `loading:${loading.id}`,
-          loadingId: loading.id,
-          truckNumber: loading.truck_number || '',
-          dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
-          depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
-          location: loading.location || customerObj?.customer_name || firstPayment?.location || '',
-          customerId,
-          customerName: loading.customer_name || customerObj?.customer_name || firstPayment?.customer_name || '',
-          quantity,
-          totalQtySold,
-          rate,
-          expected,
-          totalPaid,
-          totalExpenses,
-          balance: expected - (totalPaid - totalExpenses),
-          pfiNumber,
-          code: derivedCode,
-          payments,
-          isFillingStation: isFillingStation(customerObj),
-        });
+      // Daily pump sales are entries where the quantity is strictly less than the allocated quantity.
+      const dailySales = payments.filter(sale => {
+        const q = toNum(sale.quantity);
+        return q > 0 && q < quantity;
       });
+
+      // Expected revenue is derived strictly from the daily sales at the pump.
+      const expected = dailySales.reduce((sum, sale) => sum + toNum(sale.sales_value), 0);
+      const rate = dailySales.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0) || payments.reduce((maxValue, sale) => Math.max(maxValue, toNum(sale.rate)), 0);
+      // Deposits paid includes all payments/deposits recorded.
+      const totalPaid = payments.reduce((sum, sale) => sum + toNum(sale.payment_amount), 0);
+      const totalExpenses = payments.reduce((sum, sale) => sum + toNum(sale.expenses_amount ?? 0), 0);
+      const totalQtySold = dailySales.reduce((sum, sale) => sum + toNum(sale.quantity), 0);
+
+      const pfiNumber = loading.pfi_number || '';
+      const derivedCode = loading.allocation_code
+        || payments.map(sale => sale.allocation_code).find(Boolean)
+        || '';
+
+      groups.push({
+        key: `loading:${loading.id}`,
+        loadingId: loading.id,
+        truckNumber: loading.truck_number || '',
+        dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
+        depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
+        location: loading.location || customerObj?.customer_name || firstPayment?.location || '',
+        customerId,
+        customerName: loading.customer_name || customerObj?.customer_name || firstPayment?.customer_name || '',
+        quantity,
+        totalQtySold,
+        rate,
+        expected,
+        totalPaid,
+        totalExpenses,
+        balance: expected - (totalPaid - totalExpenses),
+        pfiNumber,
+        code: derivedCode,
+        payments,
+        isFillingStation: isFillingStation(customerObj),
+      });
+    });
 
     const unmatchedGroups = new Map<string, DeliverySale[]>();
     allSales.forEach(sale => {
@@ -852,7 +852,7 @@ export default function FillingStations() {
       const sorted = sortPayments(payments);
       const firstPayment = sorted[0];
       const customerObj = firstPayment.customer ? customerMap.get(firstPayment.customer) : null;
-      
+
       const quantity = payments.reduce((max, sale) => Math.max(max, toNum(sale.quantity)), 0);
 
       // Daily pump sales are entries where the quantity is strictly less than the allocated quantity.
@@ -1037,9 +1037,9 @@ export default function FillingStations() {
       const r = toNum(s.rate);
       if (!r) return;
       const prev = map.get(r) ?? { rate: r, qty: 0, expected: 0, paid: 0, entryCount: 0 };
-      prev.qty      += toNum(s.quantity);
+      prev.qty += toNum(s.quantity);
       prev.expected += toNum(s.sales_value);
-      prev.paid     += toNum(s.payment_amount);
+      prev.paid += toNum(s.payment_amount);
       prev.entryCount += 1;
       map.set(r, prev);
     });
@@ -1572,17 +1572,17 @@ export default function FillingStations() {
     const pa = toNum(sale.payment_amount);
     const qty = toNum(sale.quantity);
     setEditForm({
-      quantity:         qty > 0 ? formatWithCommas(String(qty)) : '',
-      rate:             rate > 0 ? formatWithCommas(String(rate)) : '',
-      sales_value:      sv > 0 ? formatWithCommas(String(sv)) : '',
-      payment_amount:   pa > 0 ? formatWithCommas(String(pa)) : '',
-      payer_name:       sale.payer_name || '',
-      bank_account_id:  bankStringToId(sale.bank || ''),
-      date_of_payment:  sale.date_of_payment || '',
-      remarks:          sale.remarks || '',
-      phone_number:     sale.phone_number || '',
-      location:         sale.location || '',
-      date_loaded:      sale.date_loaded || '',
+      quantity: qty > 0 ? formatWithCommas(String(qty)) : '',
+      rate: rate > 0 ? formatWithCommas(String(rate)) : '',
+      sales_value: sv > 0 ? formatWithCommas(String(sv)) : '',
+      payment_amount: pa > 0 ? formatWithCommas(String(pa)) : '',
+      payer_name: sale.payer_name || '',
+      bank_account_id: bankStringToId(sale.bank || ''),
+      date_of_payment: sale.date_of_payment || '',
+      remarks: sale.remarks || '',
+      phone_number: sale.phone_number || '',
+      location: sale.location || '',
+      date_loaded: sale.date_loaded || '',
     });
   };
 
@@ -1695,7 +1695,7 @@ export default function FillingStations() {
         const truckNo = u(group.truckNumber);
         const allocCode = u(group.code || '—');
         let allocDateStr = '—';
-        try { if (group.dateLoaded) allocDateStr = format(parseISO(group.dateLoaded), 'dd/MM/yyyy'); } catch {}
+        try { if (group.dateLoaded) allocDateStr = format(parseISO(group.dateLoaded), 'dd/MM/yyyy'); } catch { }
 
         const actualEntries = group.payments.filter(p =>
           (toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity) ||
@@ -1717,7 +1717,7 @@ export default function FillingStations() {
             sn += 1;
             const entryDate = entry.date_of_payment || entry.date_loaded || '';
             let entryDateStr = '—';
-            try { if (entryDate) entryDateStr = format(parseISO(entryDate), 'dd/MM/yyyy'); } catch {}
+            try { if (entryDate) entryDateStr = format(parseISO(entryDate), 'dd/MM/yyyy'); } catch { }
 
             const dailyQty = toNum(entry.quantity);
             const dailyRate = toNum(entry.rate);
@@ -1955,11 +1955,10 @@ export default function FillingStations() {
                         key={tp}
                         type="button"
                         onClick={() => handlePresetChange(tp)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-                          timePreset === tp
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:bg-slate-50'
-                        }`}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${timePreset === tp
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:bg-slate-50'
+                          }`}
                       >
                         {tp === 'all' ? 'All Time' : tp === 'custom' ? 'Custom Range' : tp.charAt(0).toUpperCase() + tp.slice(1)}
                       </button>
@@ -2053,33 +2052,30 @@ export default function FillingStations() {
               <button
                 type="button"
                 onClick={() => setActiveView('sales_ledger')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
-                  activeView === 'sales_ledger'
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${activeView === 'sales_ledger'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                  }`}
               >
                 <Fuel size={14} /> Daily Sales Table
               </button>
               <button
                 type="button"
                 onClick={() => setActiveView('deposits_ledger')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
-                  activeView === 'deposits_ledger'
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${activeView === 'deposits_ledger'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                  }`}
               >
                 <Banknote size={14} /> Deposits & Collections Table
               </button>
               <button
                 type="button"
                 onClick={() => setActiveView('expenses_ledger')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
-                  activeView === 'expenses_ledger'
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${activeView === 'expenses_ledger'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                  }`}
               >
                 <Receipt size={14} /> Expenses Table
               </button>
@@ -2123,7 +2119,7 @@ export default function FillingStations() {
                           const isExpanded = !collapsedCards.has(group.key);
                           const theme = getCodeTheme(group.code);
                           const pctSold = group.quantity > 0 ? Math.min(100, Math.round((group.totalQtySold / group.quantity) * 100)) : 0;
-                          
+
                           // Hide the setup/initial allocation record from the daily sales sub-table
                           const dailySalesOnly = group.payments.filter(
                             p => toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity
@@ -2182,9 +2178,8 @@ export default function FillingStations() {
                                       <span>{pctSold}% sold</span>
                                     </div>
                                     <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                                      <div className={`h-full rounded-full transition-all ${
-                                        pctSold >= 100 ? 'bg-emerald-500' : pctSold >= 60 ? 'bg-amber-400' : 'bg-sky-400'
-                                      }`} style={{ width: `${pctSold}%` }} />
+                                      <div className={`h-full rounded-full transition-all ${pctSold >= 100 ? 'bg-emerald-500' : pctSold >= 60 ? 'bg-amber-400' : 'bg-sky-400'
+                                        }`} style={{ width: `${pctSold}%` }} />
                                     </div>
                                   </div>
                                 </TableCell>
@@ -2416,7 +2411,7 @@ export default function FillingStations() {
                         {filteredLedgerGroups.map((group, idx) => {
                           const isExpanded = !collapsedCards.has(group.key);
                           const theme = getCodeTheme(group.code);
-                          
+
                           // Get only bank deposits entries (payment_amount > 0)
                           const depositsOnly = group.payments.filter(
                             p => toNum(p.payment_amount) > 0
@@ -2467,17 +2462,16 @@ export default function FillingStations() {
                                   {group.totalPaid > 0 ? fmt(group.totalPaid) : '—'}
                                 </TableCell>
                                 <TableCell className="text-right whitespace-nowrap">
-                                  <span className={`font-bold ${
-                                    group.balance > 0 
-                                      ? 'text-red-600' 
-                                      : group.balance < 0 
-                                        ? 'text-blue-600' 
-                                        : 'text-emerald-600'
-                                  }`}>
-                                    {group.balance === 0 
-                                      ? '₦0.00 ✓' 
-                                      : group.balance > 0 
-                                        ? fmt(group.balance) 
+                                  <span className={`font-bold ${group.balance > 0
+                                    ? 'text-red-600'
+                                    : group.balance < 0
+                                      ? 'text-blue-600'
+                                      : 'text-emerald-600'
+                                    }`}>
+                                    {group.balance === 0
+                                      ? '₦0.00 ✓'
+                                      : group.balance > 0
+                                        ? fmt(group.balance)
                                         : `+${fmt(Math.abs(group.balance))}`
                                     }
                                   </span>
@@ -2669,17 +2663,16 @@ export default function FillingStations() {
                             {fmt(totals.totalPaid)}
                           </TableCell>
                           <TableCell className="text-right whitespace-nowrap">
-                            <span className={`font-bold ${
-                              totals.outstanding > 0 
-                                ? 'text-red-600' 
-                                : totals.outstanding < 0 
-                                  ? 'text-blue-600' 
-                                  : 'text-emerald-600'
-                            }`}>
-                              {totals.outstanding === 0 
-                                ? '₦0.00 ✓' 
-                                : totals.outstanding > 0 
-                                  ? fmt(totals.outstanding) 
+                            <span className={`font-bold ${totals.outstanding > 0
+                              ? 'text-red-600'
+                              : totals.outstanding < 0
+                                ? 'text-blue-600'
+                                : 'text-emerald-600'
+                              }`}>
+                              {totals.outstanding === 0
+                                ? '₦0.00 ✓'
+                                : totals.outstanding > 0
+                                  ? fmt(totals.outstanding)
                                   : `+${fmt(Math.abs(totals.outstanding))}`
                               }
                             </span>
@@ -2729,7 +2722,7 @@ export default function FillingStations() {
                         {filteredLedgerGroups.map((group, idx) => {
                           const isExpanded = !collapsedCards.has(group.key);
                           const theme = getCodeTheme(group.code);
-                          
+
                           // Get only expense entries (expenses_amount > 0)
                           const expensesOnly = group.payments.filter(
                             p => toNum(p.expenses_amount ?? 0) > 0
@@ -2951,11 +2944,10 @@ export default function FillingStations() {
             <div className="flex p-1 bg-slate-100 rounded-lg mb-2 gap-1">
               <button
                 type="button"
-                className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${
-                  activeEntryTab === 'sale'
-                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200/50'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
+                className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${activeEntryTab === 'sale'
+                  ? 'bg-white text-slate-900 shadow-sm border border-slate-200/50'
+                  : 'text-slate-500 hover:text-slate-800'
+                  }`}
                 onClick={() => setActiveEntryTab('sale')}
               >
                 <Fuel size={14} className={activeEntryTab === 'sale' ? 'text-sky-500' : ''} />
@@ -2963,11 +2955,10 @@ export default function FillingStations() {
               </button>
               <button
                 type="button"
-                className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${
-                  activeEntryTab === 'deposit'
-                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200/50'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
+                className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${activeEntryTab === 'deposit'
+                  ? 'bg-white text-slate-900 shadow-sm border border-slate-200/50'
+                  : 'text-slate-500 hover:text-slate-800'
+                  }`}
                 onClick={() => setActiveEntryTab('deposit')}
               >
                 <Banknote size={14} className={activeEntryTab === 'deposit' ? 'text-emerald-500' : ''} />
@@ -2975,11 +2966,10 @@ export default function FillingStations() {
               </button>
               <button
                 type="button"
-                className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${
-                  activeEntryTab === 'expense'
-                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200/50'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
+                className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 ${activeEntryTab === 'expense'
+                  ? 'bg-white text-slate-900 shadow-sm border border-slate-200/50'
+                  : 'text-slate-500 hover:text-slate-800'
+                  }`}
                 onClick={() => setActiveEntryTab('expense')}
               >
                 <Receipt size={14} className={activeEntryTab === 'expense' ? 'text-orange-500' : ''} />
@@ -3240,11 +3230,10 @@ export default function FillingStations() {
           {editTarget && (
             <DialogHeader>
               <DialogTitle className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${
-                  (toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0))
-                    ? 'bg-sky-100'
-                    : 'bg-emerald-100'
-                }`}>
+                <div className={`p-2 rounded-lg ${(toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0))
+                  ? 'bg-sky-100'
+                  : 'bg-emerald-100'
+                  }`}>
                   {(toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0)) ? (
                     <Fuel className="w-5 h-5 text-sky-600" />
                   ) : (
@@ -3396,11 +3385,10 @@ export default function FillingStations() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => { setEditTarget(null); setEditForm(null); }} disabled={editSaving}>Cancel</Button>
-            <Button onClick={handleEditSave} disabled={editSaving} className={`gap-2 ${
-              editTarget && (toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0))
-                ? 'bg-sky-600 hover:bg-sky-700'
-                : 'bg-emerald-600 hover:bg-emerald-700'
-            }`}>
+            <Button onClick={handleEditSave} disabled={editSaving} className={`gap-2 ${editTarget && (toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0))
+              ? 'bg-sky-600 hover:bg-sky-700'
+              : 'bg-emerald-600 hover:bg-emerald-700'
+              }`}>
               {editSaving ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
               {editSaving ? 'Saving…' : 'Save Changes'}
             </Button>
