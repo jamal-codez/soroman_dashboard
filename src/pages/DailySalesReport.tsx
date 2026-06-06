@@ -1,3 +1,4 @@
+import React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format, parseISO, startOfDay, endOfDay, isWithinInterval, subDays } from 'date-fns';
@@ -15,7 +16,7 @@ import {
 import { apiClient, fetchAllPages } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { CalendarDays, Download, Lock, Save, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert } from 'lucide-react';
+import { CalendarDays, Download, Lock, Save, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert, Users, FileSpreadsheet, ClipboardCheck, ChevronLeft, ChevronRight, CalendarClock } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -549,6 +550,38 @@ export default function DailySalesReport() {
 
   const isLoading = ordersQuery.isLoading || pfisQuery.isLoading;
 
+  // ── Dates History Pagination ───────────────────────────────────────────────
+  const [datesPage, setDatesPage] = useState(1);
+  const datesPageSize = 15;
+
+  const datesQuery = useQuery({
+    queryKey: ['staff-report-dates', datesPage],
+    queryFn: () => apiClient.admin.listStaffReportDates(datesPage, datesPageSize),
+    staleTime: 20_000,
+    keepPreviousData: true,
+  });
+
+  // ── Staff Daily Report Submissions ────────────────────────────────────────
+  const staffDailyListQuery = useQuery({
+    queryKey: ['staff-daily-list', selectedDateKey],
+    queryFn: () => apiClient.admin.listStaffDailyEntries(selectedDateKey),
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const [isStaffDownloading, setIsStaffDownloading] = useState(false);
+
+  const handleDownloadStaffExcel = async () => {
+    setIsStaffDownloading(true);
+    try {
+      await apiClient.admin.downloadStaffDailyExcel(selectedDateKey);
+    } catch (err: any) {
+      toast({ title: 'Download failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setIsStaffDownloading(false);
+    }
+  };
+
   // ── Cell renderers ─────────────────────────────────────────────────
   // NOTE: All input rendering is done inline (not as sub-components) to
   // prevent React from unmounting/remounting inputs on every render,
@@ -950,6 +983,259 @@ export default function DailySalesReport() {
                 </Table>
               </div>
             </div>
+
+
+            {/* ── Staff Submissions Panel ─────────────────────────── */}
+            {(() => {
+              const staffListQuery_data = staffDailyListQuery.data;
+              const staffReports: Record<string, unknown>[] = staffListQuery_data?.reports ?? [];
+              const staffCount: number = staffListQuery_data?.count ?? 0;
+              const isStaffLoading = staffDailyListQuery.isLoading;
+
+              return (
+                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-5 py-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100">
+                        <Users size={14} className="text-blue-600" />
+                      </span>
+                      <h3 className="text-sm font-semibold text-slate-800">Staff Submissions</h3>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                        {isStaffLoading ? '…' : staffCount} location{staffCount !== 1 ? 's' : ''} submitted
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 h-8 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      disabled={staffCount === 0 || isStaffDownloading}
+                      onClick={handleDownloadStaffExcel}
+                    >
+                      {isStaffDownloading
+                        ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
+                        : <><FileSpreadsheet size={13} /> Download Excel ({staffCount} {staffCount === 1 ? 'location' : 'locations'})</>
+                      }
+                    </Button>
+                  </div>
+
+                  {/* Content */}
+                  {isStaffLoading ? (
+                    <div className="flex items-center gap-3 px-5 py-6 text-sm text-slate-400">
+                      <Loader2 size={15} className="animate-spin" /> Loading staff submissions…
+                    </div>
+                  ) : staffReports.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 px-5 py-10 text-center">
+                      <ClipboardCheck size={28} className="text-slate-200" />
+                      <p className="text-sm text-slate-400">No staff reports submitted for {selectedDateKey} yet.</p>
+                      <p className="text-xs text-slate-300">Staff can submit via the <strong className="text-slate-500">My Daily Report</strong> page.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                            <th className="px-4 py-2.5 text-left">#</th>
+                            <th className="px-4 py-2.5 text-left">Location</th>
+                            <th className="px-4 py-2.5 text-right">Carried Over</th>
+                            <th className="px-4 py-2.5 text-right">Opening Ltrs</th>
+                            <th className="px-4 py-2.5 text-right">Litres Sold</th>
+                            <th className="px-4 py-2.5 text-right">Price</th>
+                            <th className="px-4 py-2.5 text-right">Tank Balance</th>
+                            <th className="px-4 py-2.5 text-right">Trucks</th>
+                            <th className="px-4 py-2.5 text-right">Amt Paid</th>
+                            <th className="px-4 py-2.5 text-right">Total Sales</th>
+                            <th className="px-4 py-2.5 text-right">Differentials</th>
+                            <th className="px-4 py-2.5 text-right">Leftover</th>
+                            <th className="px-4 py-2.5 text-left">Submitted By</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {staffReports.map((rpt, idx) => {
+                            const fmtN = (v: unknown) => {
+                              const n = Number(v);
+                              if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
+                              return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+                            };
+                            const fmtM = (v: unknown) => {
+                              const n = Number(v);
+                              if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
+                              return `₦${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+                            };
+                            return (
+                              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                                <td className="px-4 py-2.5 text-slate-400 text-xs">{idx + 1}</td>
+                                <td className="px-4 py-2.5 font-semibold text-slate-800">{String(rpt.location || '—')}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.yesterday_carried_over_loading)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.product_brought_forward)}</td>
+                                <td className="px-4 py-2.5 text-right font-medium text-slate-700">{fmtN(rpt.litres_sold_today)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtM(rpt.price)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.tank_balance)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.num_trucks_sold)}</td>
+                                <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.amount_paid)}</td>
+                                <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.total_sales_amount)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.differentials)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.loading_left_over)}</td>
+                                <td className="px-4 py-2.5 text-xs text-slate-500">{String(rpt.submitted_by_name || '—')}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        {/* Totals row */}
+                        {staffReports.length > 0 && (() => {
+                          const sum = (key: string) => staffReports.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+                          return (
+                            <tfoot>
+                              <tr className="border-t-2 border-slate-200 bg-blue-50/60 font-bold text-slate-800 text-xs">
+                                <td className="px-4 py-3" colSpan={2}>TOTALS ({staffReports.length} locations)</td>
+                                <td className="px-4 py-3 text-right">{sum('yesterday_carried_over_loading').toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right">{sum('product_brought_forward').toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right">{sum('litres_sold_today').toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right">—</td>
+                                <td className="px-4 py-3 text-right">{sum('tank_balance').toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right">{sum('num_trucks_sold').toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right text-emerald-700">₦{sum('amount_paid').toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right text-emerald-700">₦{sum('total_sales_amount').toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right">{sum('differentials').toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right">{sum('loading_left_over').toLocaleString()}</td>
+                                <td className="px-4 py-3"></td>
+                              </tr>
+                            </tfoot>
+                          );
+                        })()}
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+
+            {/* ── Report History (all dates, paginated) ───────────────── */}
+            {(() => {
+              const datesData = datesQuery.data;
+              const dateRows = datesData?.results ?? [];
+              const totalDatePages = datesData?.total_pages ?? 1;
+              const totalDates = datesData?.count ?? 0;
+
+              return (
+                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100">
+                        <CalendarClock size={14} className="text-slate-600" />
+                      </span>
+                      <h3 className="text-sm font-semibold text-slate-800">Report History</h3>
+                      <span className="text-xs text-slate-400">All submitted dates</span>
+                    </div>
+                    <span className="text-xs text-slate-400">{totalDates} date{totalDates !== 1 ? 's' : ''} total</span>
+                  </div>
+
+                  {datesQuery.isLoading ? (
+                    <div className="flex items-center gap-2 px-5 py-6 text-sm text-slate-400">
+                      <Loader2 size={14} className="animate-spin" /> Loading…
+                    </div>
+                  ) : dateRows.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 py-10 text-center">
+                      <CalendarClock size={28} className="text-slate-200" />
+                      <p className="text-sm text-slate-400">No staff reports submitted yet.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/30">
+                            <th className="px-5 py-2.5 text-left">Date</th>
+                            <th className="px-5 py-2.5 text-center">Locations Submitted</th>
+                            <th className="px-5 py-2.5 text-left">Last Submission</th>
+                            <th className="px-5 py-2.5 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {dateRows.map((row, idx) => {
+                            return (
+                              <tr key={row.date} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}>
+                                <td className="px-5 py-3 font-semibold text-slate-800">
+                                  {row.date}
+                                  {row.date === selectedDateKey && (
+                                    <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">Selected</span>
+                                  )}
+                                </td>
+                                <td className="px-5 py-3 text-center">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                                    <Users size={10} />
+                                    {row.count}
+                                  </span>
+                                </td>
+                                <td className="px-5 py-3 text-xs text-slate-500">
+                                  {row.last_submission ? format(parseISO(row.last_submission), 'dd MMM yyyy, HH:mm') : '—'}
+                                </td>
+                                <td className="px-5 py-3 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      onClick={() => {
+                                        // Clicking "View" switches to that date in the report above
+                                        // We can't directly set selectedDateKey (it's in local state)
+                                        // but we can find the date input and dispatch a change
+                                        const dateInput = document.querySelector('[data-date-picker]') as HTMLInputElement | null;
+                                        if (dateInput) {
+                                          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                                          nativeInputValueSetter?.call(dateInput, row.date);
+                                          dateInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                        }
+                                      }}
+                                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                                    >
+                                      View
+                                    </button>
+                                    <button
+                                      onClick={() => apiClient.admin.downloadStaffDailyExcel(row.date).catch(e => alert('Download failed: ' + e.message))}
+                                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                                    >
+                                      <FileSpreadsheet size={11} /> Excel
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+
+                      {/* Pagination */}
+                      {totalDatePages > 1 && (
+                        <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">
+                          <span className="text-xs text-slate-400">
+                            Page {datesPage} of {totalDatePages}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              disabled={datesPage <= 1 || datesQuery.isFetching}
+                              onClick={() => setDatesPage(p => p - 1)}
+                            >
+                              <ChevronLeft size={13} />
+                            </Button>
+                            <span className="text-xs font-medium text-slate-600">{datesPage}/{totalDatePages}</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              disabled={datesPage >= totalDatePages || datesQuery.isFetching}
+                              onClick={() => setDatesPage(p => p + 1)}
+                            >
+                              <ChevronRight size={13} />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* {!locked && isToday && (
               <p className="text-xs text-slate-400 text-center pb-2">

@@ -1026,6 +1026,130 @@ export const apiClient = {
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
     },
+    // ── Staff Daily Sales Report (self-entry) ──────────────────────────
+
+    /** POST /api/admin/reports/staff/submit/ — submit or overwrite a location report */
+    submitStaffDailyReport: async (data: {
+      date: string;
+      location: string;
+      submitted_by_name?: string;
+      yesterday_carried_over_loading?: string | number;
+      product_brought_forward?: string | number;
+      litres_sold_today?: string | number;
+      price?: string | number;
+      tank_balance?: string | number;
+      num_trucks_sold?: string | number;
+      amount_paid?: string | number;
+      total_sales_amount?: string | number;
+      differentials?: string | number;
+      loading_left_over?: string | number;
+      remarks?: string;
+    }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/staff/submit/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** GET /api/admin/reports/staff/my-entry/?date=&location= */
+    getMyStaffDailyEntry: async (date: string, location?: string) => {
+      const url = new URL(`${ADMIN_BASE}/reports/staff/my-entry/`);
+      url.searchParams.set('date', date);
+      if (location) url.searchParams.set('location', location);
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{ report: Record<string, unknown> | null }>;
+    },
+
+    /** GET /api/admin/reports/staff/list/?date= */
+    listStaffDailyEntries: async (date: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/staff/list/?date=${date}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        date: string;
+        count: number;
+        reports: Array<Record<string, unknown>>;
+      }>;
+    },
+
+
+    /** GET /api/admin/reports/staff/pfi-data/?date= — active PFIs with opening_balance and sold_today */
+    getStaffReportPFIData: async (date: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/staff/pfi-data/?date=${date}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        date: string;
+        pfis: Array<{
+          pfi_id: number;
+          pfi_number: string;
+          location_id: number;
+          location_name: string;
+          product_id: number;
+          product_name: string;
+          starting_qty_litres: string;
+          opening_balance: string;
+          sold_today: string;
+          price: string;
+          notes: string;
+        }>;
+      }>;
+    },
+
+    /** GET /api/admin/reports/staff/dates/?page=&page_size= — paginated date summary list */
+    listStaffReportDates: async (page = 1, pageSize = 15) => {
+      const response = await safeFetch(
+        `${ADMIN_BASE}/reports/staff/dates/?page=${page}&page_size=${pageSize}`,
+        { headers: getHeaders() }
+      );
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        count: number;
+        total_pages: number;
+        page: number;
+        page_size: number;
+        results: Array<{ date: string; count: number; last_submission: string | null }>;
+      }>;
+    },
+
+    /** GET /api/admin/reports/staff/history/?page=&page_size=&all=0|1 */
+    getStaffReportHistory: async (page = 1, pageSize = 10, all = false) => {
+      const url = `${ADMIN_BASE}/reports/staff/history/?page=${page}&page_size=${pageSize}${all ? '&all=1' : ''}`;
+      const response = await safeFetch(url, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        count: number;
+        total_pages: number;
+        page: number;
+        page_size: number;
+        results: Array<Record<string, unknown>>;
+      }>;
+    },
+
+    /** GET /api/admin/reports/staff/download/?date= — download combined Excel */
+    downloadStaffDailyExcel: async (date: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/staff/download/?date=${date}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `Daily-Sales-Report-${date}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    },
+
+
 
     updateUser: async (userId: number, data: Record<string, unknown>) => {
       const response = await safeFetch(`${ADMIN_BASE}/users/${userId}/`, {
