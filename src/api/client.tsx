@@ -1096,6 +1096,7 @@ export const apiClient = {
           starting_qty_litres: string;
           opening_balance: string;
           sold_today: string;
+          remaining_balance: string;
           price: string;
           notes: string;
         }>;

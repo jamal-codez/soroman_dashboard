@@ -23,6 +23,7 @@ interface PFIOption {
   product_name: string;
   opening_balance: string;
   sold_today: string;
+  remaining_balance: string;
   price: string;
 }
 
@@ -208,7 +209,7 @@ export default function StaffDailySalesReportForm() {
     setForm(prev => ({
       ...prev,
       location: pfi.location_name,
-      product_brought_forward: numVal(pfi.opening_balance),
+      product_brought_forward: numVal(pfi.remaining_balance),
       litres_sold_today: numVal(pfi.sold_today),
       price: numVal(pfi.price),
     }));
@@ -412,8 +413,8 @@ export default function StaffDailySalesReportForm() {
                               {/* Quick stats */}
                               <div className="mt-2 flex gap-3 text-[10px]">
                                 <span className="text-slate-500">
-                                  Opening: <strong className="text-slate-700">
-                                    {Number(pfi.opening_balance).toLocaleString(undefined, { maximumFractionDigits: 0 })} L
+                                  Remaining: <strong className={Number(pfi.remaining_balance) <= 0 ? 'text-red-500' : 'text-slate-700'}>
+                                    {Number(pfi.remaining_balance).toLocaleString(undefined, { maximumFractionDigits: 0 })} L
                                   </strong>
                                 </span>
                                 <span className="text-slate-500">
