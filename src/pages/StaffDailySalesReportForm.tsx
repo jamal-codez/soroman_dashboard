@@ -10,7 +10,7 @@ import { apiClient } from '@/api/client';
 import {
   Plus, X, ChevronLeft, ChevronRight, Loader2, CheckCircle2,
   ClipboardList, Edit3, FileBarChart2, AlertCircle, Send,
-  MapPin, User, Calendar, Package
+  MapPin, User, Calendar, Package, Trash2
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,6 +79,11 @@ const display = (v: unknown, money = false): string => {
 
 const rawNum = (s: string) => s.replace(/,/g, '').trim();
 
+const toNum = (s: string) => {
+  const n = Number(rawNum(s));
+  return Number.isFinite(n) ? n : 0;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Field Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -107,7 +112,7 @@ function Field({
             disabled={readOnly}
             rows={2}
             placeholder="Optional…"
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 disabled:bg-slate-50 transition-all resize-none"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 disabled:bg-slate-50 transition-all resize-none"
           />
         ) : (
           <input
@@ -122,7 +127,7 @@ function Field({
             onFocus={(e) => onChange(rawNum(e.target.value))}
             disabled={readOnly}
             placeholder="0"
-            className={`w-full rounded-lg border py-2 text-sm text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:border-blue-400 disabled:bg-slate-50 transition-all ${prefix ? 'pl-8 pr-3' : suffix ? 'pl-3 pr-10' : 'px-3'} ${highlight ? 'border-blue-300 bg-blue-50/40 focus:ring-blue-500/30' : 'border-slate-200 bg-white focus:ring-blue-500/30'}`}
+            className={`w-full rounded-lg border py-2 text-sm text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:border-green-400 disabled:bg-slate-50 transition-all ${prefix ? 'pl-8 pr-3' : suffix ? 'pl-3 pr-10' : 'px-3'} ${highlight ? 'border-green-300 bg-green-50/40 focus:ring-green-500/30' : 'border-slate-200 bg-white focus:ring-green-500/30'}`}
           />
         )}
         {suffix && (
@@ -138,7 +143,20 @@ function Field({
 // ─────────────────────────────────────────────────────────────────────────────
 // History Table Row
 // ─────────────────────────────────────────────────────────────────────────────
-function HistoryRow({ rpt, idx, onEdit }: { rpt: Record<string, unknown>; idx: number; onEdit: () => void }) {
+function HistoryRow({
+  rpt, idx, onEdit, onDelete, confirmId, onConfirmDelete, onCancelDelete,
+}: {
+  rpt: Record<string, unknown>;
+  idx: number;
+  onEdit: () => void;
+  onDelete: () => void;
+  confirmId: number | null;
+  onConfirmDelete: () => void;
+  onCancelDelete: () => void;
+}) {
+  const id = rpt.id as number;
+  const isPending = confirmId === id;
+
   return (
     <tr className={`text-sm border-b border-slate-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
       <td className="px-4 py-3 font-medium text-slate-800">{String(rpt.date || '—')}</td>
@@ -149,12 +167,43 @@ function HistoryRow({ rpt, idx, onEdit }: { rpt: Record<string, unknown>; idx: n
         {rpt.updated_at ? format(parseISO(String(rpt.updated_at)), 'dd MMM, HH:mm') : '—'}
       </td>
       <td className="px-4 py-3 text-right">
-        <button
-          onClick={onEdit}
-          className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
-        >
-          <Edit3 size={12} /> Edit
-        </button>
+        {isPending ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-xs text-red-600 font-medium">Delete?</span>
+            <button
+              type="button"
+              onClick={onConfirmDelete}
+              className="text-xs font-semibold text-red-600 hover:text-red-800 transition-colors"
+            >
+              Yes
+            </button>
+            <span className="text-slate-300">|</span>
+            <button
+              type="button"
+              onClick={onCancelDelete}
+              className="text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              No
+            </button>
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-800 transition-colors"
+            >
+              <Edit3 size={12} /> Edit
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="inline-flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600 transition-colors"
+            >
+              <Trash2 size={12} /> Delete
+            </button>
+          </span>
+        )}
       </td>
     </tr>
   );
@@ -176,9 +225,10 @@ export default function StaffDailySalesReportForm() {
 
   // ── State ──────────────────────────────────────────────────────────
   const [showForm, setShowForm] = useState(false);
-  const [editDate, setEditDate] = useState(today);   // which date we're editing
+  const [editDate, setEditDate] = useState(today);
   const [form, setForm] = useState<FormFields>(EMPTY);
   const [histPage, setHistPage] = useState(1);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const set = useCallback((key: keyof FormFields) => (value: string) => {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -215,6 +265,27 @@ export default function StaffDailySalesReportForm() {
     }));
   }, [form.pfi_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Auto-calculate total_sales_amount and tank_balance ──────────────
+  useEffect(() => {
+    const litres = toNum(form.litres_sold_today);
+    const price  = toNum(form.price);
+    const opening = toNum(form.product_brought_forward);
+    const carryover = toNum(form.yesterday_carried_over_loading);
+
+    const totalSales = litres * price;
+    const tankBalance = opening + carryover - litres;
+
+    setForm(prev => ({
+      ...prev,
+      total_sales_amount: totalSales > 0
+        ? totalSales.toLocaleString(undefined, { maximumFractionDigits: 0 })
+        : '',
+      tank_balance: tankBalance > 0
+        ? tankBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })
+        : '',
+    }));
+  }, [form.litres_sold_today, form.price, form.product_brought_forward, form.yesterday_carried_over_loading]);
+
   // ── Load existing entry when editing ───────────────────────────────
   const existingQuery = useQuery({
     queryKey: ['staff-existing-entry', editDate, form.location],
@@ -226,7 +297,6 @@ export default function StaffDailySalesReportForm() {
   useEffect(() => {
     const rpt = existingQuery.data?.report;
     if (!rpt) return;
-    // Preserve PFI selection; fill from existing record
     setForm(prev => ({
       ...prev,
       yesterday_carried_over_loading: numVal(rpt.yesterday_carried_over_loading),
@@ -247,7 +317,7 @@ export default function StaffDailySalesReportForm() {
   const openEdit = (rpt: Record<string, unknown>) => {
     setEditDate(String(rpt.date ?? today));
     setForm({
-      pfi_id: '',  // PFI unknown from history; staff re-selects if needed
+      pfi_id: '',
       location: String(rpt.location ?? ''),
       yesterday_carried_over_loading: numVal(rpt.yesterday_carried_over_loading),
       product_brought_forward: numVal(rpt.product_brought_forward),
@@ -296,6 +366,22 @@ export default function StaffDailySalesReportForm() {
     },
   });
 
+  // ── Delete ─────────────────────────────────────────────────────────
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiClient.admin.deleteStaffDailyReport(id),
+    onSuccess: () => {
+      toast({ title: 'Report deleted', description: 'The entry has been removed.' });
+      setConfirmDeleteId(null);
+      qc.invalidateQueries({ queryKey: ['staff-report-history'] });
+      qc.invalidateQueries({ queryKey: ['staff-daily-list'] });
+      qc.invalidateQueries({ queryKey: ['staff-report-dates'] });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Delete failed', description: err.message, variant: 'destructive' });
+      setConfirmDeleteId(null);
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.location.trim()) {
@@ -305,7 +391,7 @@ export default function StaffDailySalesReportForm() {
     mutation.mutate();
   };
 
-  // ── Totals pagination ───────────────────────────────────────────────
+  // ── Pagination ──────────────────────────────────────────────────────
   const totalPages = histQuery.data?.total_pages ?? 1;
   const histCount  = histQuery.data?.count ?? 0;
   const history    = histQuery.data?.results ?? [];
@@ -325,7 +411,7 @@ export default function StaffDailySalesReportForm() {
             {/* ── Header ─────────────────────────────────────────── */}
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
-                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">My Daily Report</h1>
+                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff Daily Report</h1>
                 <p className="text-sm text-slate-500 mt-1">
                   <span className="inline-flex items-center gap-1.5">
                     <User size={13} />
@@ -346,7 +432,7 @@ export default function StaffDailySalesReportForm() {
                     setForm(EMPTY);
                   }
                 }}
-                className={`gap-2 shadow-sm transition-all font-semibold ${showForm ? 'bg-slate-700 hover:bg-slate-800 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                className={`gap-2 shadow-sm transition-all font-semibold ${showForm ? 'bg-slate-700 hover:bg-slate-800 text-white' : 'bg-green-600 hover:bg-green-700 text-white'}`}
               >
                 {showForm ? <><X size={15} /> Cancel</> : <><Plus size={15} /> New Report</>}
               </Button>
@@ -354,16 +440,16 @@ export default function StaffDailySalesReportForm() {
 
             {/* ── Form Panel ─────────────────────────────────────── */}
             {showForm && (
-              <div className="rounded-2xl border border-blue-200/60 bg-white shadow-md shadow-blue-100/30 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-200">
+              <div className="rounded-2xl border border-green-200/60 bg-white shadow-md shadow-green-100/30 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-200">
 
                 {/* Form header */}
-                <div className="border-b border-slate-100 bg-gradient-to-r from-blue-600 to-blue-700 px-5 py-4">
+                <div className="border-b border-slate-100 bg-gradient-to-r from-green-600 to-green-700 px-5 py-4">
                   <h2 className="text-base font-bold text-white flex items-center gap-2">
                     <ClipboardList size={16} />
                     {editDate === today ? "Today's Report" : `Report for ${editDate}`}
                   </h2>
-                  <p className="text-xs text-blue-200 mt-0.5">
-                    Select a PFI to auto-fill stock figures — you can edit any field before submitting.
+                  <p className="text-xs text-green-200 mt-0.5">
+                    Select a PFI to upload your report, you can edit any auto-filled field before submitting.
                   </p>
                 </div>
 
@@ -372,8 +458,8 @@ export default function StaffDailySalesReportForm() {
                   {/* ── Step 1: PFI Selection ─── */}
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold shrink-0">1</span>
-                      <span className="text-sm font-semibold text-slate-700">Select Active PFI</span>
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-600 text-white text-[10px] font-bold shrink-0">1</span>
+                      <span className="text-sm font-semibold text-slate-700">Select PFI</span>
                     </div>
 
                     {pfiQuery.isLoading ? (
@@ -382,7 +468,7 @@ export default function StaffDailySalesReportForm() {
                       </div>
                     ) : pfis.length === 0 ? (
                       <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                        <AlertCircle size={14} /> No active PFIs found for today.
+                        <AlertCircle size={14} /> No PFIs found for today.
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -393,11 +479,11 @@ export default function StaffDailySalesReportForm() {
                               key={pfi.pfi_id}
                               type="button"
                               onClick={() => setForm(prev => ({ ...prev, pfi_id: String(pfi.pfi_id) }))}
-                              className={`text-left rounded-xl border p-3.5 transition-all ${isSelected ? 'border-blue-500 bg-blue-50 shadow-sm shadow-blue-100' : 'border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/30'}`}
+                              className={`text-left rounded-xl border p-3.5 transition-all ${isSelected ? 'border-green-500 bg-green-50 shadow-sm shadow-green-100' : 'border-slate-200 bg-white hover:border-green-300 hover:bg-green-50/30'}`}
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
-                                  <p className={`text-xs font-bold truncate ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
+                                  <p className={`text-xs font-bold truncate ${isSelected ? 'text-green-700' : 'text-slate-800'}`}>
                                     {pfi.pfi_number}
                                   </p>
                                   <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
@@ -407,10 +493,9 @@ export default function StaffDailySalesReportForm() {
                                   </p>
                                 </div>
                                 {isSelected && (
-                                  <CheckCircle2 size={16} className="text-blue-600 shrink-0 mt-0.5" />
+                                  <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5" />
                                 )}
                               </div>
-                              {/* Quick stats */}
                               <div className="mt-2 flex gap-3 text-[10px]">
                                 <span className="text-slate-500">
                                   Remaining: <strong className={Number(pfi.remaining_balance) <= 0 ? 'text-red-500' : 'text-slate-700'}>
@@ -418,7 +503,7 @@ export default function StaffDailySalesReportForm() {
                                   </strong>
                                 </span>
                                 <span className="text-slate-500">
-                                  Sold today: <strong className={Number(pfi.sold_today) > 0 ? 'text-emerald-700' : 'text-slate-400'}>
+                                  Sold: <strong className={Number(pfi.sold_today) > 0 ? 'text-emerald-700' : 'text-slate-400'}>
                                     {Number(pfi.sold_today).toLocaleString(undefined, { maximumFractionDigits: 0 })} L
                                   </strong>
                                 </span>
@@ -432,7 +517,7 @@ export default function StaffDailySalesReportForm() {
                     {/* Location display */}
                     {form.location && (
                       <div className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                        <MapPin size={12} className="text-blue-500" />
+                        <MapPin size={12} className="text-green-500" />
                         Location: <strong>{form.location}</strong>
                         {existingQuery.data?.report && (
                           <span className="ml-auto text-amber-600 font-semibold">⚠ Existing entry found — editing it</span>
@@ -447,7 +532,7 @@ export default function StaffDailySalesReportForm() {
                       <div className="flex items-center gap-2">
                         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-white text-[10px] font-bold shrink-0">2</span>
                         <span className="text-sm font-semibold text-slate-700">Confirm &amp; Fill Details</span>
-                        <span className="text-[10px] text-slate-400 ml-1">Fields marked in blue are auto-filled — review and edit as needed</span>
+                        {/* <span className="text-[10px] text-slate-400 ml-1">Fields in green are auto-filled or calculated — review and edit as needed</span> */}
                       </div>
 
                       {/* Loading Figures */}
@@ -465,7 +550,7 @@ export default function StaffDailySalesReportForm() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <Field label="Litres Sold Today" value={form.litres_sold_today} onChange={set('litres_sold_today')} suffix="Ltrs" highlight />
                           <Field label="Price per Litre" value={form.price} onChange={set('price')} prefix="₦" highlight />
-                          <Field label="Tank Balance" value={form.tank_balance} onChange={set('tank_balance')} suffix="Ltrs" />
+                          <Field label="Tank Balance" value={form.tank_balance} onChange={set('tank_balance')} suffix="Ltrs" highlight />
                           <Field label="No. of Trucks Sold" value={form.num_trucks_sold} onChange={set('num_trucks_sold')} />
                         </div>
                       </fieldset>
@@ -475,7 +560,7 @@ export default function StaffDailySalesReportForm() {
                         <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Financial Figures</legend>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <Field label="Amount Paid" value={form.amount_paid} onChange={set('amount_paid')} prefix="₦" />
-                          <Field label="Total Sales Amount" value={form.total_sales_amount} onChange={set('total_sales_amount')} prefix="₦" />
+                          <Field label="Total Sales Amount" value={form.total_sales_amount} onChange={set('total_sales_amount')} prefix="₦" highlight />
                           <Field label="Differentials" value={form.differentials} onChange={set('differentials')} suffix="Ltrs" />
                           <Field label="Loading Left Over" value={form.loading_left_over} onChange={set('loading_left_over')} suffix="Ltrs" />
                         </div>
@@ -503,7 +588,7 @@ export default function StaffDailySalesReportForm() {
                       type="submit"
                       size="sm"
                       disabled={mutation.isPending || !form.pfi_id}
-                      className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white min-w-[150px]"
+                      className="gap-1.5 bg-green-600 hover:bg-green-700 text-white min-w-[150px]"
                     >
                       {mutation.isPending ? (
                         <><Loader2 size={14} className="animate-spin" /> Saving…</>
@@ -552,14 +637,23 @@ export default function StaffDailySalesReportForm() {
                           <th className="px-4 py-2.5 text-left">Date</th>
                           <th className="px-4 py-2.5 text-left">Location</th>
                           <th className="px-4 py-2.5 text-right">Litres Sold</th>
-                          <th className="px-4 py-2.5 text-right">Total Sales</th>
+                          <th className="px-4 py-2.5 text-right">Amount</th>
                           <th className="px-4 py-2.5 text-right">Submitted</th>
-                          <th className="px-4 py-2.5 text-right">Action</th>
+                          <th className="px-4 py-2.5 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {history.map((rpt, i) => (
-                          <HistoryRow key={`${rpt.date}-${rpt.location}`} rpt={rpt} idx={i} onEdit={() => openEdit(rpt)} />
+                          <HistoryRow
+                            key={`${rpt.date}-${rpt.location}`}
+                            rpt={rpt}
+                            idx={i}
+                            onEdit={() => openEdit(rpt)}
+                            onDelete={() => setConfirmDeleteId(rpt.id as number)}
+                            confirmId={confirmDeleteId}
+                            onConfirmDelete={() => deleteMutation.mutate(confirmDeleteId!)}
+                            onCancelDelete={() => setConfirmDeleteId(null)}
+                          />
                         ))}
                       </tbody>
                     </table>

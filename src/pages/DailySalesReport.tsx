@@ -1,8 +1,7 @@
 import React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { format, parseISO, startOfDay, endOfDay, isWithinInterval, subDays } from 'date-fns';
-import * as XLSX from 'xlsx';
+import { format, parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -16,7 +15,7 @@ import {
 import { apiClient, fetchAllPages } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { CalendarDays, Download, Lock, Save, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert, Users, FileSpreadsheet, ClipboardCheck, ChevronLeft, ChevronRight, CalendarClock } from 'lucide-react';
+import { CalendarDays, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert, Users, FileSpreadsheet, ClipboardCheck, ChevronLeft, ChevronRight, CalendarClock } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -214,7 +213,7 @@ export default function DailySalesReport() {
   const { toast } = useToast();
 
   const today = useMemo(() => new Date(), []);
-  const todayKey = useMemo(() => format(today, 'yyyy-MM-dd'), [today]);
+  const todayKey = useMemo(() => format(today, 'dd-MM-yyyy'), [today]);
 
   const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey);
   const selectedDate = useMemo(() => parseISO(`${selectedDateKey}T00:00:00`), [selectedDateKey]);
@@ -498,55 +497,7 @@ export default function DailySalesReport() {
     return t;
   }, [depots, manualByDepot, metricsByDepot, tankBalanceByDepot]);
 
-  // ── Save ───────────────────────────────────────────────────────────
-
-  const saveTodaySnapshot = useCallback(() => {
-    if (!isToday) return;
-    const tankBalanceAtSave: Record<string, number> = {};
-    depots.forEach(d => { tankBalanceAtSave[d] = activePfiByDepot[d]?.remainingLitres ?? 0; });
-
-    const snap: DailyReportSnapshot = { date: selectedDateKey, depots: manualByDepot, tankBalanceAtSave };
-    localStorage.setItem(snapshotKey(selectedDateKey), JSON.stringify(snap));
-
-    const hist = safeJsonParse<string[]>(localStorage.getItem(historyKey), []);
-    const nextHist = Array.from(new Set([selectedDateKey, ...hist])).sort((a, b) => b.localeCompare(a));
-    localStorage.setItem(historyKey, JSON.stringify(nextHist));
-
-    toast({ title: 'Report saved', description: `${selectedDateKey} has been locked. It will be read-only after today.` });
-  }, [isToday, manualByDepot, selectedDateKey, depots, activePfiByDepot, toast]);
-
   const historyDates = useMemo(() => safeJsonParse<string[]>(localStorage.getItem(historyKey), []), []);
-
-  // ── Export ─────────────────────────────────────────────────────────
-
-  const exportXlsx = useCallback(() => {
-    if (depots.length === 0) return;
-    const header = ['Metric', ...depots.map(d => getAlias(d)), 'Total'];
-    const row = (label: string, values: (string | number)[], total: string | number) => [label, ...values, total];
-
-    const wsData: Array<Array<string | number>> = [
-      [`Daily Sales Report — ${selectedDateKey}`],
-      [],
-      header,
-      row("Yesterday's carried over loading", depots.map(d => toNum(manualByDepot[d]?.carriedOverLoading)), totals.carriedOver),
-      row('Product brought forward (opening litres)', depots.map(d => toNum(manualByDepot[d]?.openingLitres)), totals.opening),
-      row('Litres sold today', depots.map(d => metricsByDepot[d]?.litresSoldAll ?? 0), totals.litresSoldAll),
-      //   row('Litres released (paid + released)', depots.map(d => metricsByDepot[d]?.litresSoldReleased ?? 0), totals.litresSoldReleased),
-      row('Unit price(s)', depots.map(d => { const ups = metricsByDepot[d]?.unitPrices ?? []; return ups.length ? ups.map(u => u.toLocaleString()).join(', ') : '—'; }), '—'),
-      row('Tank balance (litres)', depots.map(d => tankBalanceByDepot[d] ?? 0), totals.tankBalance),
-      row('No. of trucks sold', depots.map(d => metricsByDepot[d]?.ticketsAll ?? 0), totals.ticketsAll),
-      row('Total amount paid', depots.map(d => toNum(manualByDepot[d]?.amountPaid)), totals.amountPaid),
-      row('Total sales amount', depots.map(d => metricsByDepot[d]?.revenueAll ?? 0), totals.revenueAll),
-      row('Differentials', depots.map(d => differentialsByDepot[d] ?? 0), Object.values(differentialsByDepot).reduce((s, n) => s + n, 0)),
-      row('Loading left over', depots.map(d => tankBalanceByDepot[d] ?? 0), totals.loadingLeftOver),
-      //   row('Staff name', depots.map(d => manualByDepot[d]?.staffName || ''), ''),
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Daily Report');
-    XLSX.writeFile(wb, `Daily-Sales-Report-${selectedDateKey}.xlsx`);
-  }, [depots, differentialsByDepot, manualByDepot, metricsByDepot, selectedDateKey, tankBalanceByDepot, totals]);
 
   const isLoading = ordersQuery.isLoading || pfisQuery.isLoading;
 
@@ -739,32 +690,6 @@ export default function DailySalesReport() {
                         .map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   )}
-
-                  {/* <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-9 text-sm"
-                    onClick={() => setSelectedDateKey(format(subDays(today, 1), 'yyyy-MM-dd'))}
-                  >
-                    Yesterday
-                  </Button> */}
-
-                  <div className="h-5 w-px bg-slate-200" />
-
-                  <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={exportXlsx} disabled={depots.length === 0}>
-                    <Download size={14} /> Export
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    className="h-9 gap-1.5"
-                    onClick={saveTodaySnapshot}
-                    disabled={!isToday || locked}
-                    title={!isToday ? 'Only today can be saved' : locked ? 'Already saved' : "Save today's report"}
-                  >
-                    {locked ? <Lock size={14} /> : <Save size={14} />}
-                    {locked ? 'Saved' : 'Save today'}
-                  </Button>
                 </div>
               }
             />
@@ -789,106 +714,54 @@ export default function DailySalesReport() {
 
               const { approved, approved_at, approved_by_name, sent, sent_at, sent_log } = statusData;
 
-              // Determine visual states
-              let cardBg = "bg-white/70 border-slate-200/80 shadow-slate-100/30";
-              let statusText = "Pending Approval";
-              let statusDesc = "This report has not been approved. The daily schedule at 9 PM will skip sending it unless it is approved.";
-              let badgeCls = "bg-amber-50 text-amber-800 border-amber-200/50";
-              let glowCls = "from-amber-500/5 to-orange-500/5";
-              let dotCls = "bg-amber-500 animate-pulse";
-              let iconEl = <Info className="h-5 w-5 text-amber-600" />;
+              // Determine status presentation
+              let statusText = "Pending";
+              let statusDesc = `The daily orders report for ${selectedDateKey} has not been approved yet. The 9:00PM schedule will skip sending it unless it's approved before then.`;
+              let badgeCls = "bg-amber-50 text-amber-700 border-amber-200";
+              let iconWrapCls = "bg-amber-50 border-amber-200";
+              let iconEl = <Info className="h-4.5 w-4.5 text-amber-600" />;
 
               if (sent) {
-                cardBg = "bg-white/80 border-slate-200 shadow-slate-100/50";
-                statusText = "Sent / Dispatched";
-                statusDesc = `This report has been successfully dispatched to all administrators.`;
-                badgeCls = "bg-blue-50 text-blue-800 border-blue-200/50";
-                glowCls = "from-blue-500/5 to-indigo-500/5";
-                dotCls = "bg-blue-500";
-                iconEl = <Mail className="h-5 w-5 text-blue-600" />;
+                statusText = "Sent";
+                statusDesc = `The daily orders report for ${selectedDateKey} has been sent to all admin and finance team members.`;
+                badgeCls = "bg-slate-100 text-slate-700 border-slate-300";
+                iconWrapCls = "bg-slate-100 border-slate-300";
+                iconEl = <Mail className="h-4.5 w-4.5 text-slate-600" />;
               } else if (approved) {
-                cardBg = "bg-white/80 border-slate-200 shadow-slate-100/50";
-                statusText = "Approved for Auto-Send";
-                statusDesc = "This report is approved. It will automatically dispatch tonight at 9 PM.";
-                badgeCls = "bg-emerald-50 text-emerald-800 border-emerald-200/50";
-                glowCls = "from-emerald-500/5 to-teal-500/5";
-                dotCls = "bg-emerald-500 animate-ping";
-                iconEl = <CheckCircle2 className="h-5 w-5 text-emerald-600" />;
+                statusText = "Approved";
+                statusDesc = `The daily orders report for ${selectedDateKey} is approved and will automatically be sent at 9:00PM tonight.`;
+                badgeCls = "bg-emerald-50 text-emerald-700 border-emerald-200";
+                iconWrapCls = "bg-emerald-50 border-emerald-200";
+                iconEl = <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600" />;
               }
 
               return (
-                <div className={cn(
-                  "relative overflow-hidden rounded-xl border p-5 backdrop-blur-md shadow-sm transition-all duration-300",
-                  cardBg
-                )}>
-                  {/* Subtle color glow backdrops */}
-                  <div className={cn("absolute inset-0 -z-10 bg-gradient-to-r opacity-50", glowCls)} />
-
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
-
-                    {/* Information Area */}
-                    <div className="space-y-2.5 max-w-3xl">
-                      <div className="flex items-center gap-2.5 flex-wrap">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 border border-slate-200/60 shadow-inner">
-                          {iconEl}
-                        </span>
-
-                        <h3 className="text-sm font-semibold text-slate-800 tracking-tight">Report Dispatch Control</h3>
-
-                        <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border", badgeCls)}>
-                          <span className={cn("h-1.5 w-1.5 rounded-full", dotCls)} />
-                          {statusText}
+                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  {/* Header: status + description */}
+                  <div className="p-5 space-y-4">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full border", iconWrapCls)}>
+                        {iconEl}
+                      </span>
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-sm font-semibold text-slate-800">Today's Orders Report</h3>
+                          <span className={cn("px-2 py-0.5 rounded-full text-xs font-semibold border", badgeCls)}>
+                            {statusText}
+                          </span>
                         </div>
-
-                        <span className="text-xs text-slate-400 font-mono">Date: {selectedDateKey}</span>
+                        <p className="text-sm text-slate-600 leading-relaxed max-w-2xl">{statusDesc}</p>
                       </div>
-
-                      <p className="text-sm text-slate-600 leading-relaxed">{statusDesc}</p>
-
-                      {/* Approval Meta Information */}
-                      {approved && (
-                        <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 w-max">
-                          <span className="font-semibold text-slate-700">Approved by:</span>
-                          <span>{approved_by_name || "System"}</span>
-                          <span className="text-slate-300">•</span>
-                          <span className="font-semibold text-slate-700">Time:</span>
-                          <span>{approved_at ? format(parseISO(approved_at), 'dd MMM yyyy, HH:mm') : '—'}</span>
-                        </div>
-                      )}
-
-                      {/* Sent Meta & Logs */}
-                      {sent && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 w-max">
-                            <span className="font-semibold text-slate-700">Sent at:</span>
-                            <span>{sent_at ? format(parseISO(sent_at), 'dd MMM yyyy, HH:mm') : '—'}</span>
-                          </div>
-
-                          {sent_log && (
-                            <div className="space-y-1">
-                              <span className="text-xs font-semibold text-slate-600 block">Dispatch Logs:</span>
-                              <pre className={cn(
-                                "font-mono text-xs p-3 rounded-lg border max-w-full overflow-x-auto max-h-[150px] leading-relaxed shadow-inner",
-                                sent_log.toLowerCase().includes("fail") || sent_log.toLowerCase().includes("error")
-                                  ? "bg-rose-50/70 text-rose-700 border-rose-200"
-                                  : "bg-slate-900 text-slate-200 border-slate-800"
-                              )}>
-                                {sent_log}
-                              </pre>
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-2.5 shrink-0 self-start md:self-center">
+                    {/* Actions */}
+                    <div className="flex items-center gap-2.5 pl-12">
                       {!sent && !approved && (
                         <Button
                           size="sm"
                           onClick={handleApprove}
                           disabled={isMutating}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm transition-all h-9 gap-1.5 rounded-lg active:scale-95 animate-fade-in"
+                          className="bg-green-600 hover:bg-green-700 text-white font-semibold shadow-sm h-9 gap-1.5 px-4"
                         >
                           {isMutating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                           Approve Report
@@ -896,27 +769,66 @@ export default function DailySalesReport() {
                       )}
 
                       <Button
-                        variant={sent ? "outline" : "default"}
                         size="sm"
                         onClick={handleSendImmediately}
                         disabled={isMutating}
                         className={cn(
-                          "font-medium shadow-sm transition-all h-9 gap-1.5 rounded-lg active:scale-95",
-                          !sent && "bg-indigo-600 hover:bg-indigo-700 text-white"
+                          "font-semibold shadow-sm h-9 gap-1.5 px-4",
+                          sent
+                            ? "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+                            : "bg-slate-900 hover:bg-slate-800 text-white"
                         )}
                       >
                         {isMutating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                         {sent ? "Resend Now" : "Send Now"}
                       </Button>
                     </div>
-
                   </div>
+
+                  {/* Meta footer: approval / dispatch details */}
+                  {(approved || sent) && (
+                    <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3 space-y-2.5">
+                      {approved && (
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <span className="font-semibold text-slate-700">Approved by</span>
+                          <span>{approved_by_name || "System"}</span>
+                          <span className="text-slate-300">•</span>
+                          <span>{approved_at ? format(parseISO(approved_at), 'dd MMM yyyy, HH:mm') : '—'}</span>
+                        </div>
+                      )}
+
+                      {sent && (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                            <span className="font-semibold text-slate-700">Sent at</span>
+                            <span>{sent_at ? format(parseISO(sent_at), 'dd MMM yyyy, HH:mm') : '—'}</span>
+                          </div>
+
+                          {sent_log && (
+                            <details className="group">
+                              <summary className="cursor-pointer text-xs font-medium text-slate-500 hover:text-slate-700 select-none">
+                                Dispatch logs
+                              </summary>
+                              <pre className={cn(
+                                "mt-1.5 font-mono text-xs p-3 rounded-lg border max-w-full overflow-x-auto max-h-[150px] leading-relaxed",
+                                sent_log.toLowerCase().includes("fail") || sent_log.toLowerCase().includes("error")
+                                  ? "bg-rose-50/70 text-rose-700 border-rose-200"
+                                  : "bg-slate-900 text-slate-200 border-slate-800"
+                              )}>
+                                {sent_log}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
 
             {/* Main table */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            {/* <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -982,7 +894,7 @@ export default function DailySalesReport() {
                   </TableBody>
                 </Table>
               </div>
-            </div>
+            </div> */}
 
 
             {/* ── Staff Submissions Panel ─────────────────────────── */}
@@ -1000,21 +912,21 @@ export default function DailySalesReport() {
                       <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100">
                         <Users size={14} className="text-blue-600" />
                       </span>
-                      <h3 className="text-sm font-semibold text-slate-800">Staff Submissions</h3>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                      <h3 className="text-sm font-semibold text-slate-800">Staff Daily Reports</h3>
+                      {/* <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
                         {isStaffLoading ? '…' : staffCount} location{staffCount !== 1 ? 's' : ''} submitted
-                      </span>
+                      </span> */}
                     </div>
                     <Button
-                      variant="outline"
+                      variant="default"
                       size="sm"
-                      className="gap-1.5 h-8 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      className="gap-1.5 h-8 text-xs text-white hover:bg-green-500"
                       disabled={staffCount === 0 || isStaffDownloading}
                       onClick={handleDownloadStaffExcel}
                     >
                       {isStaffDownloading
                         ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
-                        : <><FileSpreadsheet size={13} /> Download Excel ({staffCount} {staffCount === 1 ? 'location' : 'locations'})</>
+                        : <><FileSpreadsheet size={13} /> Download Report</>
                       }
                     </Button>
                   </div>
@@ -1035,7 +947,7 @@ export default function DailySalesReport() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                            <th className="px-4 py-2.5 text-left">#</th>
+                            <th className="px-4 py-2.5 text-left">S/N</th>
                             <th className="px-4 py-2.5 text-left">Location</th>
                             <th className="px-4 py-2.5 text-right">Carried Over</th>
                             <th className="px-4 py-2.5 text-right">Opening Ltrs</th>
@@ -1087,7 +999,7 @@ export default function DailySalesReport() {
                           return (
                             <tfoot>
                               <tr className="border-t-2 border-slate-200 bg-blue-50/60 font-bold text-slate-800 text-xs">
-                                <td className="px-4 py-3" colSpan={2}>TOTALS ({staffReports.length} locations)</td>
+                                <td className="px-4 py-3 uppercase" colSpan={2}>Total</td>
                                 <td className="px-4 py-3 text-right">{sum('yesterday_carried_over_loading').toLocaleString()}</td>
                                 <td className="px-4 py-3 text-right">{sum('product_brought_forward').toLocaleString()}</td>
                                 <td className="px-4 py-3 text-right">{sum('litres_sold_today').toLocaleString()}</td>
@@ -1126,9 +1038,9 @@ export default function DailySalesReport() {
                         <CalendarClock size={14} className="text-slate-600" />
                       </span>
                       <h3 className="text-sm font-semibold text-slate-800">Report History</h3>
-                      <span className="text-xs text-slate-400">All submitted dates</span>
+                      {/* <span className="text-xs text-slate-400">All submitted dates</span> */}
                     </div>
-                    <span className="text-xs text-slate-400">{totalDates} date{totalDates !== 1 ? 's' : ''} total</span>
+                    {/* <span className="text-xs text-slate-400">{totalDates} date{totalDates !== 1 ? 's' : ''} total</span> */}
                   </div>
 
                   {datesQuery.isLoading ? (
@@ -1146,8 +1058,8 @@ export default function DailySalesReport() {
                         <thead>
                           <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/30">
                             <th className="px-5 py-2.5 text-left">Date</th>
-                            <th className="px-5 py-2.5 text-center">Locations Submitted</th>
-                            <th className="px-5 py-2.5 text-left">Last Submission</th>
+                            <th className="px-5 py-2.5 text-center">Location</th>
+                            <th className="px-5 py-2.5 text-left">Submission Time</th>
                             <th className="px-5 py-2.5 text-right">Actions</th>
                           </tr>
                         </thead>
@@ -1172,7 +1084,7 @@ export default function DailySalesReport() {
                                 </td>
                                 <td className="px-5 py-3 text-right">
                                   <div className="flex items-center justify-end gap-2">
-                                    <button
+                                    {/* <button
                                       onClick={() => {
                                         // Clicking "View" switches to that date in the report above
                                         // We can't directly set selectedDateKey (it's in local state)
@@ -1187,7 +1099,7 @@ export default function DailySalesReport() {
                                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
                                     >
                                       View
-                                    </button>
+                                    </button> */}
                                     <button
                                       onClick={() => apiClient.admin.downloadStaffDailyExcel(row.date).catch(e => alert('Download failed: ' + e.message))}
                                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"

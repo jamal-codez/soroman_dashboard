@@ -1133,6 +1133,17 @@ export const apiClient = {
       }>;
     },
 
+    /** DELETE /api/admin/reports/staff/<id>/delete/ — permanently remove a report entry */
+    deleteStaffDailyReport: async (id: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/staff/${id}/delete/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok && response.status !== 204) {
+        throw new Error(await safeReadError(response));
+      }
+    },
+
     /** GET /api/admin/reports/staff/download/?date= — download combined Excel */
     downloadStaffDailyExcel: async (date: string) => {
       const response = await safeFetch(`${ADMIN_BASE}/reports/staff/download/?date=${date}`, {

@@ -31,6 +31,7 @@ import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { isCurrentUserReadOnly } from '@/roles';
+import { cn } from '@/lib/utils';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -322,7 +323,6 @@ export default function FillingStations() {
 
   const [quickPaymentTarget, setQuickPaymentTarget] = useState<LedgerGroup | null>(null);
   const [activeEntryTab, setActiveEntryTab] = useState<'sale' | 'deposit' | 'expense'>('sale');
-  const [activeView, setActiveView] = useState<'sales_ledger' | 'deposits_ledger' | 'expenses_ledger'>('sales_ledger');
   const [quickPaymentForm, setQuickPaymentForm] = useState<QuickPaymentForm>({
     payment_amount: '',
     rate: '',
@@ -1203,7 +1203,6 @@ export default function FillingStations() {
     const today = format(new Date(), 'yyyy-MM-dd');
     setQuickPaymentTarget(group);
     setActiveEntryTab(tab);
-    if (tab === 'expense') setActiveView('expenses_ledger');
     setQuickPaymentForm({
       payment_amount: '',
       rate: group.rate > 0 ? String(group.rate) : '',
@@ -1331,7 +1330,6 @@ export default function FillingStations() {
           title: 'Daily sale recorded',
           description: `${quickPaymentTarget.truckNumber} · ${enteredQty.toLocaleString()} Ltrs @ ₦${enteredRate.toLocaleString()}/L`,
         });
-        setActiveView('sales_ledger');
         setQuickPaymentTarget(null);
         setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', remarks: '' });
         invalidateAll();
@@ -1392,7 +1390,6 @@ export default function FillingStations() {
           title: 'Deposit recorded',
           description: `${quickPaymentTarget.truckNumber} · ₦${paymentAmount.toLocaleString()}`,
         });
-        setActiveView('deposits_ledger');
         setQuickPaymentTarget(null);
         setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', remarks: '' });
         invalidateAll();
@@ -1446,7 +1443,6 @@ export default function FillingStations() {
           title: 'Expense recorded',
           description: `${quickPaymentTarget.truckNumber} · ₦${expenseAmount.toLocaleString()}`,
         });
-        setActiveView('expenses_ledger');
         setCollapsedCards(prev => {
           const next = new Set(prev);
           next.delete(quickPaymentTarget.key);
@@ -2047,836 +2043,429 @@ export default function FillingStations() {
               </div>
             </div>
 
-            {/* ── View Switcher ── */}
-            <div className="flex items-center gap-1 bg-white rounded-lg border border-slate-200 shadow-sm p-1 self-start w-fit">
-              <button
-                type="button"
-                onClick={() => setActiveView('sales_ledger')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${activeView === 'sales_ledger'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                  }`}
-              >
-                <Fuel size={14} /> Daily Sales Table
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveView('deposits_ledger')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${activeView === 'deposits_ledger'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                  }`}
-              >
-                <Banknote size={14} /> Deposits & Collections Table
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveView('expenses_ledger')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all ${activeView === 'expenses_ledger'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                  }`}
-              >
-                <Receipt size={14} /> Expenses Table
-              </button>
+            {/* ── Unified Station Ledger: sales, deposits & expenses in one place ── */}
+            <div className="space-y-4">
+              {isLoading ? (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="h-16 w-full rounded-lg" />
+                  ))}
+                </div>
+              ) : filteredLedgerGroups.length === 0 ? (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-16 text-center">
+                  <Fuel className="mx-auto text-slate-300 mb-3" size={40} />
+                  <p className="text-slate-500 font-medium">No filling station allocations found</p>
+                  <p className="text-sm text-slate-400 mt-1">Assign filling stations in the inventory or Sales Ledger first.</p>
+                </div>
+              ) : (
+                <>
+                  {filteredLedgerGroups.map((group, idx) => {
+                    const isExpanded = !collapsedCards.has(group.key);
+                    const theme = getCodeTheme(group.code);
+                    const pctSold = group.quantity > 0 ? Math.min(100, Math.round((group.totalQtySold / group.quantity) * 100)) : 0;
+
+                    const dailySalesOnly = group.payments.filter(
+                      p => toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity
+                    );
+                    const depositsOnly = group.payments.filter(p => toNum(p.payment_amount) > 0);
+                    const expensesOnly = group.payments.filter(p => toNum(p.expenses_amount ?? 0) > 0);
+
+                    return (
+                      <div
+                        key={group.key}
+                        className={cn(
+                          'bg-white rounded-xl shadow-sm border overflow-hidden transition-all',
+                          isExpanded ? 'border-emerald-200 ring-1 ring-emerald-100' : 'border-slate-200'
+                        )}
+                      >
+                        {/* Card header: identity, key metrics & actions */}
+                        <div className="p-4 sm:p-5">
+                          <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div className="flex items-start gap-3">
+                              <button
+                                onClick={() => toggleCard(group.key)}
+                                className="mt-1 p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-all duration-200 focus:outline-none"
+                                title={isExpanded ? 'Collapse details' : 'Expand details'}
+                              >
+                                <ChevronRight
+                                  size={18}
+                                  className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-90 text-emerald-600' : ''}`}
+                                />
+                              </button>
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="font-bold text-slate-900 uppercase tracking-tight">{group.customerName || 'Unnamed Station'}</h3>
+                                  {group.code && (
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                                      {group.code}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                                  <span className="flex items-center gap-1"><Truck size={12} className="text-amber-600" /> {group.truckNumber || '—'}</span>
+                                  <span className="text-slate-300">•</span>
+                                  <span>
+                                    {group.dateLoaded
+                                      ? (() => { try { return format(parseISO(group.dateLoaded), 'dd MMM yyyy'); } catch { return group.dateLoaded; } })()
+                                      : '—'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {!readOnly && (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <Button
+                                  size="sm"
+                                  className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                                  onClick={() => openQuickPaymentDialog(group, 'sale')}
+                                >
+                                  <Fuel size={12} /> Record Sale
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-8 text-xs gap-1 bg-slate-900 hover:bg-slate-800 text-white font-semibold"
+                                  onClick={() => openQuickPaymentDialog(group, 'deposit')}
+                                >
+                                  <Banknote size={12} /> Record Deposit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50 font-semibold"
+                                  onClick={() => openQuickPaymentDialog(group, 'expense')}
+                                >
+                                  <Receipt size={12} /> Record Expense
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700"
+                                  onClick={() => openSetupDialog(group)}
+                                  title="Edit Setup"
+                                >
+                                  <Pencil size={13} />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Metrics row: everything visible at a glance */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mt-4 pt-4 border-t border-slate-100">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Allocated / Sold</p>
+                              <p className="text-sm font-bold text-slate-800 mt-0.5">
+                                {group.quantity > 0 ? `${fmtQty(group.quantity)} L` : '—'}
+                                <span className="text-slate-300 mx-1">/</span>
+                                {group.totalQtySold > 0 ? `${fmtQty(group.totalQtySold)} L` : <span className="text-slate-400 font-normal italic text-xs">none</span>}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Expected Revenue</p>
+                              <p className="text-sm font-bold text-slate-800 mt-0.5">{group.expected > 0 ? fmt(group.expected) : '₦0'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Deposited</p>
+                              <p className="text-sm font-bold text-emerald-700 mt-0.5">{group.totalPaid > 0 ? fmt(group.totalPaid) : '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Expenses</p>
+                              <p className="text-sm font-bold text-amber-700 mt-0.5">{group.totalExpenses > 0 ? fmt(group.totalExpenses) : '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Balance</p>
+                              <p className={`text-sm font-bold mt-0.5 ${group.balance > 0 ? 'text-red-600' : group.balance < 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
+                                {group.balance === 0
+                                  ? '₦0.00 ✓'
+                                  : group.balance > 0
+                                    ? fmt(group.balance)
+                                    : `+${fmt(Math.abs(group.balance))}`}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Sales Progress</p>
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all ${pctSold >= 100 ? 'bg-emerald-500' : pctSold >= 60 ? 'bg-amber-400' : 'bg-slate-400'}`}
+                                    style={{ width: `${pctSold}%` }}
+                                  />
+                                </div>
+                                <span className="text-[11px] font-semibold text-slate-500">{pctSold}%</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Expanded: daily sales, deposits & expenses — all stacked together */}
+                        {isExpanded && (
+                          <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5 space-y-4">
+                            {/* Daily Sales */}
+                            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                                <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                                  <Fuel size={13} className="text-emerald-600" /> Daily Pump Sales
+                                </h4>
+                                <span className="text-[11px] text-slate-400 italic">Allocation: {fmtQty(group.quantity)} Ltrs</span>
+                              </div>
+                              {dailySalesOnly.length === 0 ? (
+                                <p className="p-5 text-sm text-slate-400 text-center italic">No daily pump sales recorded yet for this cycle.</p>
+                              ) : (
+                                <div className="overflow-x-auto">
+                                  <Table className="text-xs">
+                                    <TableHeader>
+                                      <TableRow className="bg-slate-50/40">
+                                        <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 w-[120px]">Date</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 text-right w-[130px]">Volume (Ltrs)</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 text-right w-[110px]">Rate (₦/L)</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 text-right w-[140px]">Value (₦)</TableHead>
+                                        <TableHead className="font-semibold text-slate-500">Remarks</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 w-[90px] text-center">Actions</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {dailySalesOnly.map((payment, subIdx) => {
+                                        const dailyQty = toNum(payment.quantity);
+                                        const dailyRate = toNum(payment.rate);
+                                        const dailyExp = toNum(payment.sales_value);
+                                        return (
+                                          <TableRow key={payment.id} className="hover:bg-slate-50/50">
+                                            <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
+                                            <TableCell className="text-slate-600 font-medium">
+                                              {payment.date_of_payment
+                                                ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
+                                                : '—'}
+                                            </TableCell>
+                                            <TableCell className="text-right text-slate-700 font-bold">{fmtQty(dailyQty)} Ltrs</TableCell>
+                                            <TableCell className="text-right text-slate-600">₦{dailyRate.toLocaleString()}/L</TableCell>
+                                            <TableCell className="text-right text-slate-800 font-semibold">{fmt(dailyExp)}</TableCell>
+                                            <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
+                                              {payment.remarks || '—'}
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                              <div className="flex gap-1 items-center justify-center">
+                                                {!readOnly && (
+                                                  <>
+                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
+                                                      <Pencil size={11} />
+                                                    </Button>
+                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
+                                                      onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmtQty(dailyQty)}L` })}>
+                                                      <Trash2 size={11} />
+                                                    </Button>
+                                                  </>
+                                                )}
+                                              </div>
+                                            </TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Deposits */}
+                            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                                <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                                  <Banknote size={13} className="text-emerald-600" /> Bank Deposits & Collections
+                                </h4>
+                                <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                                  <span>Expected: {fmt(group.expected)}</span>
+                                  <span className="text-slate-300">|</span>
+                                  <span>Paid: {fmt(group.totalPaid)}</span>
+                                </div>
+                              </div>
+                              {depositsOnly.length === 0 ? (
+                                <p className="p-5 text-sm text-slate-400 text-center italic">No deposit records found for this cycle.</p>
+                              ) : (
+                                <div className="overflow-x-auto">
+                                  <Table className="text-xs">
+                                    <TableHeader>
+                                      <TableRow className="bg-slate-50/40">
+                                        <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 w-[120px]">Date</TableHead>
+                                        <TableHead className="font-semibold text-emerald-600 text-right w-[130px]">Amount</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 w-[170px]">Bank Account</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 w-[140px]">Payer</TableHead>
+                                        <TableHead className="font-semibold text-slate-500">Remarks</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 w-[90px] text-center">Actions</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {depositsOnly.map((payment, subIdx) => {
+                                        const dailyPaid = toNum(payment.payment_amount);
+                                        const bankParts = payment.bank ? payment.bank.split(' · ') : null;
+                                        return (
+                                          <TableRow key={payment.id} className="hover:bg-slate-50/50">
+                                            <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
+                                            <TableCell className="text-slate-600 font-medium">
+                                              {payment.date_of_payment
+                                                ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
+                                                : '—'}
+                                            </TableCell>
+                                            <TableCell className="text-right text-emerald-700 font-bold">{fmt(dailyPaid)}</TableCell>
+                                            <TableCell className="text-slate-600 font-medium">
+                                              {bankParts ? `${bankParts[0]} (${bankParts[1] || ''})` : 'Internal / Other'}
+                                            </TableCell>
+                                            <TableCell className="text-slate-600 font-medium">
+                                              {payment.payer_name || '—'}
+                                              {payment.phone_number && <span className="text-[10px] text-slate-400 block">{payment.phone_number}</span>}
+                                            </TableCell>
+                                            <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
+                                              {payment.remarks || '—'}
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                              <div className="flex gap-1 items-center justify-center">
+                                                {!readOnly && (
+                                                  <>
+                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
+                                                      <Pencil size={11} />
+                                                    </Button>
+                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
+                                                      onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(dailyPaid)}` })}>
+                                                      <Trash2 size={11} />
+                                                    </Button>
+                                                  </>
+                                                )}
+                                              </div>
+                                            </TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Expenses */}
+                            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                                <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                                  <Receipt size={13} className="text-amber-600" /> Daily Expenses
+                                </h4>
+                                <span className="text-[11px] text-slate-400 italic">Total: {fmt(group.totalExpenses)}</span>
+                              </div>
+                              {expensesOnly.length === 0 ? (
+                                <p className="p-5 text-sm text-slate-400 text-center italic">No expense records found for this cycle.</p>
+                              ) : (
+                                <div className="overflow-x-auto">
+                                  <Table className="text-xs">
+                                    <TableHeader>
+                                      <TableRow className="bg-slate-50/40">
+                                        <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 w-[120px]">Date</TableHead>
+                                        <TableHead className="font-semibold text-amber-600 text-right w-[130px]">Amount</TableHead>
+                                        <TableHead className="font-semibold text-slate-500">Description</TableHead>
+                                        <TableHead className="font-semibold text-slate-500 w-[90px] text-center">Actions</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {expensesOnly.map((payment, subIdx) => {
+                                        const expenseAmt = toNum(payment.expenses_amount ?? 0);
+                                        return (
+                                          <TableRow key={`expense-${payment.id}`} className="hover:bg-slate-50/50">
+                                            <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
+                                            <TableCell className="text-slate-600 font-medium">
+                                              {payment.date_of_payment
+                                                ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
+                                                : '—'}
+                                            </TableCell>
+                                            <TableCell className="text-right text-amber-700 font-bold">{fmt(expenseAmt)}</TableCell>
+                                            <TableCell className="text-slate-500 italic truncate max-w-[260px]" title={payment.remarks || ''}>
+                                              {payment.remarks || '—'}
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                              <div className="flex gap-1 items-center justify-center">
+                                                {!readOnly && (
+                                                  <>
+                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
+                                                      <Pencil size={11} />
+                                                    </Button>
+                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
+                                                      onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(expenseAmt)}` })}>
+                                                      <Trash2 size={11} />
+                                                    </Button>
+                                                  </>
+                                                )}
+                                              </div>
+                                            </TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              )}
+                            </div>
+
+                            {!readOnly && (
+                              <div className="flex justify-end pt-1">
+                                <Button size="sm" variant="ghost" className="h-7 text-[11px] text-red-500 hover:text-red-700 gap-1"
+                                  onClick={() => setDeleteTarget({
+                                    ids: group.payments.map(p => p.id),
+                                    loadingId: group.loadingId,
+                                    mode: 'truck',
+                                    label: `entire cycle of ${group.customerName || 'row'} on ${group.truckNumber}`,
+                                  })}>
+                                  <Trash2 size={11} /> Delete allocation row & all entries
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Combined totals bar — sales, deposits & expenses at a glance */}
+                  <div className="bg-slate-900 text-white rounded-xl shadow-sm px-5 sm:px-6 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                        Totals across {filteredLedgerGroups.length} station{filteredLedgerGroups.length === 1 ? '' : 's'}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                        <div>
+                          <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Allocated</span>
+                          <span className="font-bold">{totals.totalQtyAllocated > 0 ? `${fmtQty(totals.totalQtyAllocated)} L` : '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Sold</span>
+                          <span className="font-bold">{totals.totalQtySold > 0 ? `${fmtQty(totals.totalQtySold)} L` : '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Expected</span>
+                          <span className="font-bold">{fmt(totals.totalExpected)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Deposited</span>
+                          <span className="font-bold text-emerald-400">{fmt(totals.totalPaid)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Expenses</span>
+                          <span className="font-bold text-amber-400">{fmt(totals.totalExpenses)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Outstanding</span>
+                          <span className={`font-bold ${totals.outstanding > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                            {totals.outstanding === 0
+                              ? '₦0.00 ✓'
+                              : totals.outstanding > 0
+                                ? fmt(totals.outstanding)
+                                : `+${fmt(Math.abs(totals.outstanding))}`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
-            {/* ── Daily Pump Sales Table ── */}
-            {activeView === 'sales_ledger' && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                {isLoading ? (
-                  <div className="p-6 space-y-3">
-                    {Array.from({ length: 8 }).map((_, i) => (
-                      <Skeleton key={i} className="h-10 w-full rounded" />
-                    ))}
-                  </div>
-                ) : filteredLedgerGroups.length === 0 ? (
-                  <div className="p-16 text-center">
-                    <Fuel className="mx-auto text-slate-300 mb-3" size={40} />
-                    <p className="text-slate-500 font-medium">No filling station allocations found</p>
-                    <p className="text-sm text-slate-400 mt-1">Assign filling stations in the inventory or Sales Ledger first.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table className="text-sm">
-                      <TableHeader>
-                        <TableRow className="bg-slate-50/80">
-                          <TableHead className="w-[40px]"></TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[48px] text-center">S/N</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[200px]">Station Name</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px]">Truck No.</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px]">Date Allocated</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[100px] text-center">Code</TableHead>
-                          <TableHead className="font-semibold text-slate-700 text-right w-[140px]">Allocated (Ltrs)</TableHead>
-                          <TableHead className="font-semibold text-slate-700 text-right w-[140px]">Sold So Far (Ltrs)</TableHead>
-                          <TableHead className="font-semibold text-slate-700 text-right w-[140px]">Expected Rev (₦)</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[150px] text-center">Progress</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[180px] text-center">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredLedgerGroups.map((group, idx) => {
-                          const isExpanded = !collapsedCards.has(group.key);
-                          const theme = getCodeTheme(group.code);
-                          const pctSold = group.quantity > 0 ? Math.min(100, Math.round((group.totalQtySold / group.quantity) * 100)) : 0;
-
-                          // Hide the setup/initial allocation record from the daily sales sub-table
-                          const dailySalesOnly = group.payments.filter(
-                            p => toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity
-                          );
-                          const expensesOnly = group.payments.filter(
-                            p => toNum(p.expenses_amount ?? 0) > 0
-                          );
-
-                          return (
-                            <React.Fragment key={group.key}>
-                              <TableRow className={`hover:bg-slate-50/60 border-b border-slate-100 transition-colors ${isExpanded ? 'bg-sky-50/10' : ''}`}>
-                                <TableCell className={`text-center p-0 w-[40px] transition-all ${isExpanded ? 'border-l-2 border-sky-500' : 'border-l-2 border-transparent'}`}>
-                                  <button
-                                    onClick={() => toggleCard(group.key)}
-                                    className="p-1 rounded hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition-all duration-200 focus:outline-none"
-                                    title={isExpanded ? "Collapse details" : "Expand details"}
-                                  >
-                                    <ChevronRight
-                                      size={16}
-                                      className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-90 text-slate-700 font-bold' : ''}`}
-                                    />
-                                  </button>
-                                </TableCell>
-                                <TableCell className="text-slate-400 text-center">{idx + 1}</TableCell>
-                                <TableCell className="font-bold text-slate-900 uppercase whitespace-nowrap">{group.customerName || '—'}</TableCell>
-                                <TableCell className="font-semibold text-slate-800 whitespace-nowrap">
-                                  <div className="flex items-center gap-1.5">
-                                    <Truck size={12} className="text-amber-600" />
-                                    {group.truckNumber || '—'}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-slate-600 whitespace-nowrap">
-                                  {group.dateLoaded
-                                    ? (() => { try { return format(parseISO(group.dateLoaded), 'dd MMM yyyy'); } catch { return group.dateLoaded; } })()
-                                    : '—'}
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  {group.code ? (
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                                      {group.code}
-                                    </span>
-                                  ) : '—'}
-                                </TableCell>
-                                <TableCell className="text-right text-slate-700 font-medium whitespace-nowrap">
-                                  {group.quantity > 0 ? `${fmtQty(group.quantity)} L` : '—'}
-                                </TableCell>
-                                <TableCell className="text-right text-slate-700 font-bold whitespace-nowrap">
-                                  {group.totalQtySold > 0 ? `${fmtQty(group.totalQtySold)} L` : <span className="text-slate-400 font-normal italic text-xs">No sales</span>}
-                                </TableCell>
-                                <TableCell className="text-right text-slate-700 font-semibold whitespace-nowrap">
-                                  {group.expected > 0 ? fmt(group.expected) : '₦0'}
-                                </TableCell>
-                                <TableCell className="align-middle">
-                                  <div className="flex flex-col gap-1 w-full max-w-[120px] mx-auto">
-                                    <div className="flex justify-between text-[10px] text-slate-400 font-semibold">
-                                      <span>{pctSold}% sold</span>
-                                    </div>
-                                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                                      <div className={`h-full rounded-full transition-all ${pctSold >= 100 ? 'bg-emerald-500' : pctSold >= 60 ? 'bg-amber-400' : 'bg-sky-400'
-                                        }`} style={{ width: `${pctSold}%` }} />
-                                    </div>
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-center whitespace-nowrap">
-                                  <div className="flex items-center justify-center gap-1.5">
-                                    {!readOnly && (
-                                      <>
-                                        <Button
-                                          size="sm"
-                                          className="h-8 text-xs gap-1 bg-sky-600 hover:bg-sky-700 text-white font-semibold"
-                                          onClick={() => openQuickPaymentDialog(group, 'sale')}
-                                        >
-                                          <Fuel size={12} /> Record Sale
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700"
-                                          onClick={() => openSetupDialog(group)}
-                                          title="Edit Setup"
-                                        >
-                                          <Pencil size={13} />
-                                        </Button>
-                                      </>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-
-                              {/* Expanded sub-table showing only daily sales pump readings */}
-                              {isExpanded && (
-                                <TableRow className="bg-slate-50/20 hover:bg-slate-50/20 border-none">
-                                  <TableCell colSpan={11} className="p-4 pl-12">
-                                    <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden max-w-4xl border-l-4 border-l-sky-500 transition-all">
-                                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                                        <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-                                          <Fuel size={13} className="text-sky-500" /> Daily Pump Sales Records
-                                        </h4>
-                                        <span className="text-[11px] text-slate-400 italic">Volume Setup / Allocation: {fmtQty(group.quantity)} Ltrs</span>
-                                      </div>
-                                      {dailySalesOnly.length === 0 ? (
-                                        <p className="p-6 text-sm text-slate-400 text-center italic bg-white">No daily pump sales recorded yet for this cycle.</p>
-                                      ) : (
-                                        <Table className="text-xs">
-                                          <TableHeader>
-                                            <TableRow className="bg-slate-50/40">
-                                              <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 w-[120px]">Date of Sale</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 text-right w-[140px]">Volume Sold (Ltrs)</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 text-right w-[120px]">Rate (₦/L)</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 text-right w-[150px]">Expected Value (₦)</TableHead>
-                                              <TableHead className="font-semibold text-slate-500">Remarks / Notes</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 w-[100px] text-center">Actions</TableHead>
-                                            </TableRow>
-                                          </TableHeader>
-                                          <TableBody>
-                                            {dailySalesOnly.map((payment, subIdx) => {
-                                              const dailyQty = toNum(payment.quantity);
-                                              const dailyRate = toNum(payment.rate);
-                                              const dailyExp = toNum(payment.sales_value);
-                                              return (
-                                                <TableRow key={payment.id} className="hover:bg-slate-50/50">
-                                                  <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
-                                                  <TableCell className="text-slate-600 font-medium">
-                                                    {payment.date_of_payment
-                                                      ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
-                                                      : '—'}
-                                                  </TableCell>
-                                                  <TableCell className="text-right text-slate-700 font-bold">{fmtQty(dailyQty)} Ltrs</TableCell>
-                                                  <TableCell className="text-right text-slate-600">₦{dailyRate.toLocaleString()}/L</TableCell>
-                                                  <TableCell className="text-right text-slate-800 font-semibold">{fmt(dailyExp)}</TableCell>
-                                                  <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
-                                                    {payment.remarks || '—'}
-                                                  </TableCell>
-                                                  <TableCell className="text-center">
-                                                    <div className="flex gap-1 items-center justify-center">
-                                                      {!readOnly && (
-                                                        <>
-                                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
-                                                            <Pencil size={11} />
-                                                          </Button>
-                                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
-                                                            onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmtQty(dailyQty)}L` })}>
-                                                            <Trash2 size={11} />
-                                                          </Button>
-                                                        </>
-                                                      )}
-                                                    </div>
-                                                  </TableCell>
-                                                </TableRow>
-                                              );
-                                            })}
-                                          </TableBody>
-                                        </Table>
-                                      )}
-
-                                      {expensesOnly.length > 0 && (
-                                        <div className="mt-6">
-                                          <div className="px-4 py-3 bg-orange-50 border border-orange-100 rounded-t-xl text-orange-700 font-semibold text-xs uppercase tracking-[0.12em] flex items-center gap-2">
-                                            <Receipt size={12} /> Expense Records
-                                          </div>
-                                          <Table className="text-xs border border-slate-200 rounded-b-xl overflow-hidden">
-                                            <TableHeader>
-                                              <TableRow className="bg-slate-50/40">
-                                                <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
-                                                <TableHead className="font-semibold text-slate-500 w-[120px]">Date of Expense</TableHead>
-                                                <TableHead className="font-semibold text-orange-600 text-right w-[150px]">Amount (₦)</TableHead>
-                                                <TableHead className="font-semibold text-slate-500">Description</TableHead>
-                                                <TableHead className="font-semibold text-slate-500 w-[100px] text-center">Actions</TableHead>
-                                              </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                              {expensesOnly.map((payment, expenseIdx) => {
-                                                const expenseAmt = toNum(payment.expenses_amount ?? 0);
-                                                return (
-                                                  <TableRow key={`expense-${payment.id}`} className="hover:bg-slate-50/50">
-                                                    <TableCell className="text-center text-slate-400">{expenseIdx + 1}</TableCell>
-                                                    <TableCell className="text-slate-600 font-medium">
-                                                      {payment.date_of_payment
-                                                        ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
-                                                        : '—'}
-                                                    </TableCell>
-                                                    <TableCell className="text-right text-orange-700 font-bold">{fmt(expenseAmt)}</TableCell>
-                                                    <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
-                                                      {payment.remarks || '—'}
-                                                    </TableCell>
-                                                    <TableCell className="text-center">
-                                                      <div className="flex gap-1 items-center justify-center">
-                                                        {!readOnly && (
-                                                          <>
-                                                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
-                                                              <Pencil size={11} />
-                                                            </Button>
-                                                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
-                                                              onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(expenseAmt)}` })}>
-                                                              <Trash2 size={11} />
-                                                            </Button>
-                                                          </>
-                                                        )}
-                                                      </div>
-                                                    </TableCell>
-                                                  </TableRow>
-                                                );
-                                              })}
-                                            </TableBody>
-                                          </Table>
-                                        </div>
-                                      )}
-
-                                      {!readOnly && (
-                                        <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/50 flex justify-end">
-                                          <Button size="sm" variant="ghost" className="h-7 text-[11px] text-red-500 hover:text-red-700 gap-1 animate-pulse"
-                                            onClick={() => setDeleteTarget({
-                                              ids: group.payments.map(p => p.id),
-                                              loadingId: group.loadingId,
-                                              mode: 'truck',
-                                              label: `entire cycle of ${group.customerName || 'row'} on ${group.truckNumber}`,
-                                            })}>
-                                            <Trash2 size={11} /> Delete allocation row & all entries
-                                          </Button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                        {/* Footer row displaying totals */}
-                        <TableRow className="bg-slate-100/90 font-bold border-t-2 border-slate-300 hover:bg-slate-100/90">
-                          <TableCell colSpan={2} className="text-center font-bold text-slate-800">Σ</TableCell>
-                          <TableCell colSpan={4} className="font-bold text-slate-800 uppercase tracking-wider text-left pl-4">
-                            TOTALS ({filteredLedgerGroups.length} Stations)
-                          </TableCell>
-                          <TableCell className="text-right font-extrabold text-slate-900 whitespace-nowrap">
-                            {totals.totalQtyAllocated > 0 ? `${fmtQty(totals.totalQtyAllocated)} Ltrs` : '—'}
-                          </TableCell>
-                          <TableCell className="text-right font-extrabold text-slate-900 whitespace-nowrap">
-                            {totals.totalQtySold > 0 ? `${fmtQty(totals.totalQtySold)} Ltrs` : '—'}
-                          </TableCell>
-                          <TableCell className="text-right font-extrabold text-slate-900 whitespace-nowrap">
-                            {totals.totalExpected > 0 ? fmt(totals.totalExpected) : '—'}
-                          </TableCell>
-                          <TableCell colSpan={2} className="text-slate-400 text-[10px] italic font-normal text-center">
-                            Daily Sales Summary
-                          </TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Deposits & Payments Ledger Table ── */}
-            {activeView === 'deposits_ledger' && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                {isLoading ? (
-                  <div className="p-6 space-y-3">
-                    {Array.from({ length: 8 }).map((_, i) => (
-                      <Skeleton key={i} className="h-10 w-full rounded" />
-                    ))}
-                  </div>
-                ) : filteredLedgerGroups.length === 0 ? (
-                  <div className="p-16 text-center">
-                    <Banknote className="mx-auto text-slate-300 mb-3" size={40} />
-                    <p className="text-slate-500 font-medium">No filling station allocations found</p>
-                    <p className="text-sm text-slate-400 mt-1">Assign filling stations in the inventory or Sales Ledger first.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table className="text-sm">
-                      <TableHeader>
-                        <TableRow className="bg-slate-50/80">
-                          <TableHead className="w-[40px]"></TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[48px] text-center">S/N</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[200px]">Station Name</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px]">Truck No.</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px]">Date Allocated</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[100px] text-center">Code</TableHead>
-                          <TableHead className="font-semibold text-slate-700 text-right w-[150px]">Expected Revenue (₦)</TableHead>
-                          <TableHead className="font-semibold text-emerald-700 text-right w-[150px]">Deposited (₦)</TableHead>
-                          <TableHead className="font-semibold text-slate-700 text-right w-[160px]">Outstanding Balance (₦)</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[180px] text-center">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredLedgerGroups.map((group, idx) => {
-                          const isExpanded = !collapsedCards.has(group.key);
-                          const theme = getCodeTheme(group.code);
-
-                          // Get only bank deposits entries (payment_amount > 0)
-                          const depositsOnly = group.payments.filter(
-                            p => toNum(p.payment_amount) > 0
-                          );
-                          const expensesOnly = group.payments.filter(
-                            p => toNum(p.expenses_amount ?? 0) > 0
-                          );
-
-                          return (
-                            <React.Fragment key={group.key}>
-                              <TableRow className={`hover:bg-slate-50/60 border-b border-slate-100 transition-colors ${isExpanded ? 'bg-emerald-50/10' : ''}`}>
-                                <TableCell className={`text-center p-0 w-[40px] transition-all ${isExpanded ? 'border-l-2 border-emerald-500' : 'border-l-2 border-transparent'}`}>
-                                  <button
-                                    onClick={() => toggleCard(group.key)}
-                                    className="p-1 rounded hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition-all duration-200 focus:outline-none"
-                                    title={isExpanded ? "Collapse details" : "Expand details"}
-                                  >
-                                    <ChevronRight
-                                      size={16}
-                                      className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-90 text-slate-700 font-bold' : ''}`}
-                                    />
-                                  </button>
-                                </TableCell>
-                                <TableCell className="text-slate-400 text-center">{idx + 1}</TableCell>
-                                <TableCell className="font-bold text-slate-900 uppercase whitespace-nowrap">{group.customerName || '—'}</TableCell>
-                                <TableCell className="font-semibold text-slate-800 whitespace-nowrap">
-                                  <div className="flex items-center gap-1.5">
-                                    <Truck size={12} className="text-amber-600" />
-                                    {group.truckNumber || '—'}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-slate-600 whitespace-nowrap">
-                                  {group.dateLoaded
-                                    ? (() => { try { return format(parseISO(group.dateLoaded), 'dd MMM yyyy'); } catch { return group.dateLoaded; } })()
-                                    : '—'}
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  {group.code ? (
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                                      {group.code}
-                                    </span>
-                                  ) : '—'}
-                                </TableCell>
-                                <TableCell className="text-right text-slate-700 font-semibold whitespace-nowrap">
-                                  {group.expected > 0 ? fmt(group.expected) : '₦0'}
-                                </TableCell>
-                                <TableCell className="text-right text-emerald-700 font-bold whitespace-nowrap">
-                                  {group.totalPaid > 0 ? fmt(group.totalPaid) : '—'}
-                                </TableCell>
-                                <TableCell className="text-right whitespace-nowrap">
-                                  <span className={`font-bold ${group.balance > 0
-                                    ? 'text-red-600'
-                                    : group.balance < 0
-                                      ? 'text-blue-600'
-                                      : 'text-emerald-600'
-                                    }`}>
-                                    {group.balance === 0
-                                      ? '₦0.00 ✓'
-                                      : group.balance > 0
-                                        ? fmt(group.balance)
-                                        : `+${fmt(Math.abs(group.balance))}`
-                                    }
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-center whitespace-nowrap">
-                                  <div className="flex items-center justify-center gap-1.5">
-                                    {!readOnly && (
-                                      <>
-                                        <Button
-                                          size="sm"
-                                          className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                                          onClick={() => openQuickPaymentDialog(group, 'deposit')}
-                                        >
-                                          <Banknote size={12} /> Record Deposit
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700"
-                                          onClick={() => openSetupDialog(group)}
-                                          title="Edit Setup"
-                                        >
-                                          <Pencil size={13} />
-                                        </Button>
-                                      </>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-
-                              {/* Expanded sub-table showing bank deposit entries */}
-                              {isExpanded && (
-                                <TableRow className="bg-slate-50/20 hover:bg-slate-50/20 border-none">
-                                  <TableCell colSpan={10} className="p-4 pl-12">
-                                    <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden max-w-4xl border-l-4 border-l-emerald-500 transition-all">
-                                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                                        <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-                                          <Banknote size={13} className="text-emerald-600" /> Bank Deposits & Collections
-                                        </h4>
-                                        <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                                          <span>Expected: {fmt(group.expected)}</span>
-                                          <span className="text-slate-300">|</span>
-                                          <span>Paid: {fmt(group.totalPaid)}</span>
-                                        </div>
-                                      </div>
-                                      {depositsOnly.length === 0 ? (
-                                        <p className="p-6 text-sm text-slate-400 text-center italic bg-white">No deposit records found for this cycle.</p>
-                                      ) : (
-                                        <Table className="text-xs">
-                                          <TableHeader>
-                                            <TableRow className="bg-slate-50/40">
-                                              <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 w-[120px]">Date of Payment</TableHead>
-                                              <TableHead className="font-semibold text-emerald-600 text-right w-[150px]">Amount Deposited</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 w-[180px]">Bank Account</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 w-[150px]">Payer Details</TableHead>
-                                              <TableHead className="font-semibold text-slate-500">Remarks / Notes</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 w-[100px] text-center">Actions</TableHead>
-                                            </TableRow>
-                                          </TableHeader>
-                                          <TableBody>
-                                            {depositsOnly.map((payment, subIdx) => {
-                                              const dailyPaid = toNum(payment.payment_amount);
-                                              const bankParts = payment.bank ? payment.bank.split(' · ') : null;
-                                              return (
-                                                <TableRow key={payment.id} className="hover:bg-slate-50/50">
-                                                  <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
-                                                  <TableCell className="text-slate-600 font-medium">
-                                                    {payment.date_of_payment
-                                                      ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
-                                                      : '—'}
-                                                  </TableCell>
-                                                  <TableCell className="text-right text-emerald-700 font-bold">{fmt(dailyPaid)}</TableCell>
-                                                  <TableCell className="text-slate-600 font-medium">
-                                                    {bankParts ? `${bankParts[0]} (${bankParts[1] || ''})` : 'Internal / Other'}
-                                                  </TableCell>
-                                                  <TableCell className="text-slate-600 font-medium">
-                                                    {payment.payer_name || '—'}
-                                                    {payment.phone_number && <span className="text-[10px] text-slate-400 block">{payment.phone_number}</span>}
-                                                  </TableCell>
-                                                  <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
-                                                    {payment.remarks || '—'}
-                                                  </TableCell>
-                                                  <TableCell className="text-center">
-                                                    <div className="flex gap-1 items-center justify-center">
-                                                      {!readOnly && (
-                                                        <>
-                                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
-                                                            <Pencil size={11} />
-                                                          </Button>
-                                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
-                                                            onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(dailyPaid)}` })}>
-                                                            <Trash2 size={11} />
-                                                          </Button>
-                                                        </>
-                                                      )}
-                                                    </div>
-                                                  </TableCell>
-                                                </TableRow>
-                                              );
-                                            })}
-                                          </TableBody>
-                                        </Table>
-                                      )}
-
-                                      {expensesOnly.length > 0 && (
-                                        <div className="mt-6">
-                                          <div className="px-4 py-3 bg-orange-50 border border-orange-100 rounded-t-xl text-orange-700 font-semibold text-xs uppercase tracking-[0.12em] flex items-center gap-2">
-                                            <Receipt size={12} /> Expense Records
-                                          </div>
-                                          <Table className="text-xs border border-slate-200 rounded-b-xl overflow-hidden">
-                                            <TableHeader>
-                                              <TableRow className="bg-slate-50/40">
-                                                <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
-                                                <TableHead className="font-semibold text-slate-500 w-[120px]">Date of Expense</TableHead>
-                                                <TableHead className="font-semibold text-orange-600 text-right w-[150px]">Amount (₦)</TableHead>
-                                                <TableHead className="font-semibold text-slate-500">Description</TableHead>
-                                                <TableHead className="font-semibold text-slate-500 w-[100px] text-center">Actions</TableHead>
-                                              </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                              {expensesOnly.map((payment, expenseIdx) => {
-                                                const expenseAmt = toNum(payment.expenses_amount ?? 0);
-                                                return (
-                                                  <TableRow key={`expense-${payment.id}`} className="hover:bg-slate-50/50">
-                                                    <TableCell className="text-center text-slate-400">{expenseIdx + 1}</TableCell>
-                                                    <TableCell className="text-slate-600 font-medium">
-                                                      {payment.date_of_payment
-                                                        ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
-                                                        : '—'}
-                                                    </TableCell>
-                                                    <TableCell className="text-right text-orange-700 font-bold">{fmt(expenseAmt)}</TableCell>
-                                                    <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
-                                                      {payment.remarks || '—'}
-                                                    </TableCell>
-                                                    <TableCell className="text-center">
-                                                      <div className="flex gap-1 items-center justify-center">
-                                                        {!readOnly && (
-                                                          <>
-                                                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
-                                                              <Pencil size={11} />
-                                                            </Button>
-                                                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
-                                                              onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(expenseAmt)}` })}>
-                                                              <Trash2 size={11} />
-                                                            </Button>
-                                                          </>
-                                                        )}
-                                                      </div>
-                                                    </TableCell>
-                                                  </TableRow>
-                                                );
-                                              })}
-                                            </TableBody>
-                                          </Table>
-                                        </div>
-                                      )}
-
-                                      {!readOnly && (
-                                        <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/50 flex justify-end">
-                                          <Button size="sm" variant="ghost" className="h-7 text-[11px] text-red-500 hover:text-red-700 gap-1 animate-pulse"
-                                            onClick={() => setDeleteTarget({
-                                              ids: group.payments.map(p => p.id),
-                                              loadingId: group.loadingId,
-                                              mode: 'truck',
-                                              label: `entire cycle of ${group.customerName || 'row'} on ${group.truckNumber}`,
-                                            })}>
-                                            <Trash2 size={11} /> Delete allocation row & all entries
-                                          </Button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                        {/* Footer row displaying totals */}
-                        <TableRow className="bg-slate-100/90 font-bold border-t-2 border-slate-300 hover:bg-slate-100/90">
-                          <TableCell colSpan={2} className="text-center font-bold text-slate-800">Σ</TableCell>
-                          <TableCell colSpan={4} className="text-left text-slate-500 text-xs font-semibold uppercase">
-                            Showing {filteredLedgerGroups.length} Station Cycles
-                          </TableCell>
-                          <TableCell className="text-right text-slate-900 font-bold whitespace-nowrap">
-                            {fmt(totals.totalExpected)}
-                          </TableCell>
-                          <TableCell className="text-right text-emerald-800 font-bold whitespace-nowrap">
-                            {fmt(totals.totalPaid)}
-                          </TableCell>
-                          <TableCell className="text-right whitespace-nowrap">
-                            <span className={`font-bold ${totals.outstanding > 0
-                              ? 'text-red-600'
-                              : totals.outstanding < 0
-                                ? 'text-blue-600'
-                                : 'text-emerald-600'
-                              }`}>
-                              {totals.outstanding === 0
-                                ? '₦0.00 ✓'
-                                : totals.outstanding > 0
-                                  ? fmt(totals.outstanding)
-                                  : `+${fmt(Math.abs(totals.outstanding))}`
-                              }
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-slate-400 text-[10px] italic font-normal text-center">
-                            Collections Summary
-                          </TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Daily Expenses Table ── */}
-            {activeView === 'expenses_ledger' && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                {isLoading ? (
-                  <div className="p-6 space-y-3">
-                    {Array.from({ length: 8 }).map((_, i) => (
-                      <Skeleton key={i} className="h-10 w-full rounded" />
-                    ))}
-                  </div>
-                ) : filteredLedgerGroups.length === 0 ? (
-                  <div className="p-16 text-center">
-                    <Receipt className="mx-auto text-slate-300 mb-3" size={40} />
-                    <p className="text-slate-500 font-medium">No filling station allocations found</p>
-                    <p className="text-sm text-slate-400 mt-1">Assign filling stations in the inventory or Sales Ledger first.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table className="text-sm">
-                      <TableHeader>
-                        <TableRow className="bg-slate-50/80">
-                          <TableHead className="w-[40px]"></TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[48px] text-center">S/N</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[200px]">Station Name</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px]">Truck No.</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[120px]">Date Allocated</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[100px] text-center">Code</TableHead>
-                          <TableHead className="font-semibold text-slate-700 text-right w-[150px]">Total Expenses (₦)</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[180px] text-center">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredLedgerGroups.map((group, idx) => {
-                          const isExpanded = !collapsedCards.has(group.key);
-                          const theme = getCodeTheme(group.code);
-
-                          // Get only expense entries (expenses_amount > 0)
-                          const expensesOnly = group.payments.filter(
-                            p => toNum(p.expenses_amount ?? 0) > 0
-                          );
-
-                          return (
-                            <React.Fragment key={group.key}>
-                              <TableRow className={`hover:bg-slate-50/60 border-b border-slate-100 transition-colors ${isExpanded ? 'bg-orange-50/10' : ''}`}>
-                                <TableCell className={`text-center p-0 w-[40px] transition-all ${isExpanded ? 'border-l-2 border-orange-500' : 'border-l-2 border-transparent'}`}>
-                                  <button
-                                    onClick={() => toggleCard(group.key)}
-                                    className="p-1 rounded hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition-all duration-200 focus:outline-none"
-                                    title={isExpanded ? "Collapse details" : "Expand details"}
-                                  >
-                                    <ChevronRight
-                                      size={16}
-                                      className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-90 text-slate-700 font-bold' : ''}`}
-                                    />
-                                  </button>
-                                </TableCell>
-                                <TableCell className="text-slate-400 text-center">{idx + 1}</TableCell>
-                                <TableCell className="font-bold text-slate-900 uppercase whitespace-nowrap">{group.customerName || '—'}</TableCell>
-                                <TableCell className="font-semibold text-slate-800 whitespace-nowrap">
-                                  <div className="flex items-center gap-1.5">
-                                    <Truck size={12} className="text-amber-600" />
-                                    {group.truckNumber || '—'}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-slate-600 whitespace-nowrap">
-                                  {group.dateLoaded
-                                    ? (() => { try { return format(parseISO(group.dateLoaded), 'dd MMM yyyy'); } catch { return group.dateLoaded; } })()
-                                    : '—'}
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  {group.code ? (
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                                      {group.code}
-                                    </span>
-                                  ) : '—'}
-                                </TableCell>
-                                <TableCell className="text-right text-orange-700 font-bold whitespace-nowrap">
-                                  {group.totalExpenses > 0 ? fmt(group.totalExpenses) : '—'}
-                                </TableCell>
-                                <TableCell className="text-center whitespace-nowrap">
-                                  <div className="flex items-center justify-center gap-1.5">
-                                    {!readOnly && (
-                                      <>
-                                        <Button
-                                          size="sm"
-                                          className="h-8 text-xs gap-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold"
-                                          onClick={() => openQuickPaymentDialog(group, 'expense')}
-                                        >
-                                          <Receipt size={12} /> Record Expense
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700"
-                                          onClick={() => openSetupDialog(group)}
-                                          title="Edit Setup"
-                                        >
-                                          <Pencil size={13} />
-                                        </Button>
-                                      </>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-
-                              {/* Expanded sub-table showing expense entries */}
-                              {isExpanded && (
-                                <TableRow className="bg-slate-50/20 hover:bg-slate-50/20 border-none">
-                                  <TableCell colSpan={8} className="p-4 pl-12">
-                                    <div className="bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden max-w-4xl border-l-4 border-l-orange-500 transition-all">
-                                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                                        <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-                                          <Receipt size={13} className="text-orange-500" /> Daily Expense Records
-                                        </h4>
-                                      </div>
-                                      {expensesOnly.length === 0 ? (
-                                        <p className="p-6 text-sm text-slate-400 text-center italic bg-white">No expense records found for this cycle.</p>
-                                      ) : (
-                                        <Table className="text-xs">
-                                          <TableHeader>
-                                            <TableRow className="bg-slate-50/40">
-                                              <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 w-[120px]">Date of Expense</TableHead>
-                                              <TableHead className="font-semibold text-orange-600 text-right w-[150px]">Amount (₦)</TableHead>
-                                              <TableHead className="font-semibold text-slate-500">Description</TableHead>
-                                              <TableHead className="font-semibold text-slate-500 w-[100px] text-center">Actions</TableHead>
-                                            </TableRow>
-                                          </TableHeader>
-                                          <TableBody>
-                                            {expensesOnly.map((payment, subIdx) => {
-                                              const expenseAmt = toNum(payment.expenses_amount ?? 0);
-                                              return (
-                                                <TableRow key={payment.id} className="hover:bg-slate-50/50">
-                                                  <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
-                                                  <TableCell className="text-slate-600 font-medium">
-                                                    {payment.date_of_payment
-                                                      ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
-                                                      : '—'}
-                                                  </TableCell>
-                                                  <TableCell className="text-right text-orange-700 font-bold">{fmt(expenseAmt)}</TableCell>
-                                                  <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
-                                                    {payment.remarks || '—'}
-                                                  </TableCell>
-                                                  <TableCell className="text-center">
-                                                    <div className="flex gap-1 items-center justify-center">
-                                                      {!readOnly && (
-                                                        <>
-                                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
-                                                            <Pencil size={11} />
-                                                          </Button>
-                                                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
-                                                            onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(expenseAmt)}` })}>
-                                                            <Trash2 size={11} />
-                                                          </Button>
-                                                        </>
-                                                      )}
-                                                    </div>
-                                                  </TableCell>
-                                                </TableRow>
-                                              );
-                                            })}
-                                          </TableBody>
-                                        </Table>
-                                      )}
-                                      {!readOnly && (
-                                        <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/50 flex justify-end">
-                                          <Button size="sm" variant="ghost" className="h-7 text-[11px] text-red-500 hover:text-red-700 gap-1 animate-pulse"
-                                            onClick={() => setDeleteTarget({
-                                              ids: group.payments.map(p => p.id),
-                                              loadingId: group.loadingId,
-                                              mode: 'truck',
-                                              label: `entire cycle of ${group.customerName || 'row'} on ${group.truckNumber}`,
-                                            })}>
-                                            <Trash2 size={11} /> Delete allocation row & all entries
-                                          </Button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </div>
-            )}
 
           </div>
         </div>
