@@ -1255,9 +1255,15 @@ export default function DeliverySalesLedger() {
 
       const bal = toNum(group.balance);
       const isExpectedPositive = toNum(group.expected) > 0;
+      // A group with a truck number represents a real loaded truck — count it
+      // in the paid/pending split even when no payment has been recorded yet
+      // (e.g. filling-station trucks awaiting reconciliation), so it doesn't
+      // silently disappear from the summary and confuse reconciliation.
+      const isLoadedTruck = !!group.truckNumber;
+      const isFullyPaid = isExpectedPositive && bal <= 0;
 
-      if (isExpectedPositive) {
-        if (bal <= 0) {
+      if (isLoadedTruck) {
+        if (isFullyPaid) {
           fullyPaidCount += 1;
         } else {
           pendingPaymentCount += 1;
@@ -1277,8 +1283,8 @@ export default function DeliverySalesLedger() {
         sumObj.balance += bal;
         if (group.truckNumber) sumObj.truckSet.add(group.truckNumber);
 
-        if (isExpectedPositive) {
-          if (bal <= 0) sumObj.fullyPaidCount += 1;
+        if (isLoadedTruck) {
+          if (isFullyPaid) sumObj.fullyPaidCount += 1;
           else sumObj.pendingCount += 1;
         }
       }
@@ -2293,7 +2299,7 @@ export default function DeliverySalesLedger() {
     aoa.push([]);
     aoa.push(['GRAND TOTAL SUMMARY']);
     // aoa.push(['TOTAL UNIQUE TRUCKS LOADED', totalTrucks]);
-    aoa.push(['TOTAL TRUCK LOADED', filteredLedgerGroups.filter(g => toNum(g.expected) > 0).length]);
+    aoa.push(['TOTAL TRUCK LOADED', filteredLedgerGroups.filter(g => !!g.truckNumber).length]);
     aoa.push(['TRUCKS FULLY PAID', totals.fullyPaidCount]);
     aoa.push(['TRUCKS YET TO COMPLETE PAYMENT', totals.pendingPaymentCount]);
     aoa.push([]);

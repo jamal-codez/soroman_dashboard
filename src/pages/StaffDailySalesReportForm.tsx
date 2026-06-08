@@ -510,9 +510,9 @@ export default function StaffDailySalesReportForm() {
                       <div className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                         <MapPin size={12} className="text-green-500" />
                         Location: <strong>{form.location}</strong>
-                        {existingQuery.data?.report && (
+                        {/* {existingQuery.data?.report && (
                           <span className="ml-auto text-amber-600 font-semibold">⚠ An entry for this date already exists — submitting will overwrite it</span>
-                        )}
+                        )} */}
                       </div>
                     )}
                   </div>
@@ -552,15 +552,15 @@ export default function StaffDailySalesReportForm() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <Field label="Amount Paid" value={form.amount_paid} onChange={set('amount_paid')} prefix="₦" />
                           <Field label="Total Sales Amount" value={form.total_sales_amount} onChange={set('total_sales_amount')} prefix="₦" highlight />
-                          <Field label="Differentials (Amount Paid − Expected Sales)" value={form.differentials} onChange={set('differentials')} prefix="₦" readOnly highlight />
+                          <Field label="Differentials" value={form.differentials} onChange={set('differentials')} prefix="₦" readOnly highlight />
                           <Field label="Loading Left Over" value={form.loading_left_over} onChange={set('loading_left_over')} suffix="Ltrs" />
                         </div>
                       </fieldset>
 
                       {/* Remarks */}
                       <fieldset className="rounded-xl border border-slate-200 p-4">
-                        <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Remarks</legend>
-                        <Field label="Remarks (optional)" value={form.remarks} onChange={set('remarks')} multiline />
+                        {/* <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Remarks</legend> */}
+                        <Field label="Remarks" value={form.remarks} onChange={set('remarks')} multiline />
                       </fieldset>
                     </div>
                   )}
