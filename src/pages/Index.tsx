@@ -21,7 +21,6 @@ import {
   FileText,
   UserCheck,
   Building2,
-  PieChartIcon
 } from 'lucide-react';
 import {
   BarChart,
@@ -33,10 +32,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell
+  ResponsiveContainer
 } from 'recharts';
 
 // ---------- Types ----------
@@ -115,10 +111,6 @@ const abbreviateNumber = (num?: number): string => {
   return value.toLocaleString();
 };
 
-const abbreviateCurrency = (num?: number): string => {
-  return `₦${abbreviateNumber(num)}`;
-};
-
 const normalizeDepot = (value?: string | null) => {
   let depot = String(value || '').trim();
   if (!depot) return 'Unknown Depot';
@@ -180,15 +172,29 @@ const Dashboard: React.FC = () => {
   }, [ordersAll]);
 
   const todayTotals = useMemo(() => {
-    const litres = todayOrders.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
-    const amount = todayOrders.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
-    const releasedOrLoaded = todayOrders.filter((o) => {
-      const st = norm(o.status);
-      return st === 'paid' || st === 'released' || st === 'loaded' || st === 'sold';
+    let litres = 0;
+    let amount = 0;
+    let confirmed = 0;
+
+    todayOrders.forEach((o) => {
+      const status = norm(o.status);
+      const qty = safeParseNumber(o.quantity);
+      const price = safeParseNumber(o.total_price);
+
+      // Exclude canceled orders from volume — mirrors the depot metrics logic below
+      if (status !== 'canceled') litres += qty;
+
+      // Revenue only counts orders that have actually progressed (paid/released/loaded/sold) —
+      // matches periodSummary.revenue so "Today" and "Period" figures are directly comparable
+      if (['paid', 'released', 'loaded', 'sold'].includes(status)) {
+        amount += price;
+        confirmed += 1;
+      }
     });
+
     return {
       orders: todayOrders.length,
-      releasedOrLoaded: releasedOrLoaded.length,
+      releasedOrLoaded: confirmed,
       litres,
       amount,
     };
@@ -196,6 +202,8 @@ const Dashboard: React.FC = () => {
 
   // ----- Audit Trend Settings & State -----
   const [depotTrendRange, setDepotTrendRange] = useState<'30d' | 'month' | '90d'>('30d');
+
+  const periodRangeLabel = depotTrendRange === '30d' ? 'Last 30 Days' : depotTrendRange === 'month' ? 'This Month' : 'Last 90 Days';
 
   const depotTrendStartDate = useMemo(() => {
     if (depotTrendRange === '30d') return subDays(new Date(), 29);
@@ -308,12 +316,6 @@ const Dashboard: React.FC = () => {
     return sorted[0];
   }, [depotMetrics]);
 
-  const topOrderDepot = useMemo(() => {
-    if (depotMetrics.length === 0) return { depot: 'N/A', ordersCount: 0 };
-    const sorted = [...depotMetrics].sort((a, b) => b.ordersCount - a.ordersCount);
-    return sorted[0];
-  }, [depotMetrics]);
-
   const periodSummary = useMemo(() => {
     let totalVolume = 0;
     let totalRevenue = 0;
@@ -419,26 +421,6 @@ const Dashboard: React.FC = () => {
     })).slice(0, 10);
   }, [depotMetrics]);
 
-  // ----- Pie/Donut Chart Data -----
-  const statusDistributionData = useMemo(() => {
-    const counts = periodSummary.statusCounts;
-    return [
-      { name: 'Pending', value: counts.pending, color: '#f59e0b' },
-      { name: 'Paid', value: counts.paid, color: '#6366f1' },
-      { name: 'Released', value: counts.released, color: '#3b82f6' },
-      { name: 'Loaded', value: counts.loaded, color: '#10b981' },
-      { name: 'Sold', value: counts.sold, color: '#047857' },
-      { name: 'Canceled', value: counts.canceled, color: '#ef4444' },
-    ].filter(item => item.value > 0);
-  }, [periodSummary.statusCounts]);
-
-  const logisticsSplitData = useMemo(() => {
-    return [
-      { name: 'Pickup', value: periodSummary.pickupCount, color: '#8b5cf6' },
-      { name: 'Delivery', value: periodSummary.deliveryCount, color: '#06b6d4' }
-    ].filter(item => item.value > 0);
-  }, [periodSummary.pickupCount, periodSummary.deliveryCount]);
-
   const isOrdersLoading = !allOrdersResp;
 
   return (
@@ -473,98 +455,84 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            {/* Today's Operational Pulse */}
-            {/* <div className="bg-white rounded-xl shadow-sm border border-slate-200/80 p-5 space-y-4">
+            {/* Today's Pulse — a compact, scannable strip so "today" doesn't compete visually with the period snapshot below */}
+            <div className="bg-slate-900 text-white rounded-xl shadow-sm px-5 sm:px-6 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-emerald-400" />
+                  <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                    Today's Pulse · {format(new Date(), 'dd MMM yyyy')}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
+                  <div>
+                    <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Revenue</span>
+                    <span className="font-bold text-emerald-400">₦{todayTotals.amount.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Volume</span>
+                    <span className="font-bold">{todayTotals.litres.toLocaleString()} L</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Orders</span>
+                    <span className="font-bold">{todayTotals.releasedOrLoaded}</span>
+                    <span className="text-slate-400 font-normal"> confirmed / {todayTotals.orders} placed</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Period Snapshot — the main "what's happening" summary, all in one scannable row */}
+            <div className="space-y-3">
               <div className="flex items-center gap-2 text-slate-800">
-                <Activity className="h-4 w-4 text-emerald-500 animate-pulse" />
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Today's Operations</h2>
+                <Building2 className="h-4 w-4 text-slate-500" />
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">{periodRangeLabel} Snapshot</h2>
               </div>
               <SummaryCards
+                gridClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
                 cards={[
-                  {
-                    title: "Today's Order Value",
-                    value: `₦${todayTotals.amount.toLocaleString()}`,
-                    icon: <BadgeDollarSign className="h-5 w-5" />,
-                    tone: 'neutral',
-                  },
-                  {
-                    title: "Today's Litres Ordered",
-                    value: `${todayTotals.litres.toLocaleString()} Litres`,
-                    icon: <FuelIcon className="h-5 w-5" />,
-                    tone: 'amber',
-                  },
-                  {
-                    title: "Trucks Actioned Today",
-                    value: `${todayTotals.releasedOrLoaded.toLocaleString()} Loaded/Paid`,
-                    icon: <TruckIcon className="h-5 w-5" />,
-                    tone: 'green',
-                  },
-                ]}
-              />
-            </div> */}
-
-            {/* Period Summary Cards */}
-            <div className="space-y-3">
-              {/* <div className="flex items-center gap-2 text-slate-800">
-                <Building2 className="h-4 w-4 text-indigo-500" />
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Period Audit Metrics ({depotTrendRange === '30d' ? '30 Days' : depotTrendRange === 'month' ? 'This Month' : '90 Days'})</h2>
-              </div> */}
-              <SummaryCards
-                gridClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
-                cards={[
-                  {
-                    title: "Today's Revenue",
-                    value: abbreviateCurrency(todayTotals.amount),
-                    icon: <BadgeDollarSign className="h-5 w-5" />,
-                    tone: 'neutral',
-                  },
-                  {
-                    title: "Today's Litres Ordered",
-                    value: `${abbreviateNumber(todayTotals.litres)} L`,
-                    icon: <FuelIcon className="h-5 w-5" />,
-                    tone: 'amber',
-                  },
                   {
                     title: "Total Revenue",
-                    value: abbreviateCurrency(periodSummary.revenue || 0),
+                    value: `₦${periodSummary.revenue.toLocaleString()}`,
+                    description: `${periodSummary.ordersCount} confirmed orders · avg ${periodSummary.averageSize.toLocaleString()} L/order`,
                     icon: <BadgeDollarSign className="h-5 w-5" />,
                     tone: 'green',
                   },
                   {
-                    title: "Top Depot Revenue",
-                    value: abbreviateCurrency(topRevenueDepot.revenue || 0),
+                    title: "Total Volume Sold",
+                    value: `${periodSummary.volume.toLocaleString()} L`,
+                    description: `${periodSummary.deliveryCount} delivery · ${periodSummary.pickupCount} pickup`,
+                    icon: <FuelIcon className="h-5 w-5" />,
+                    tone: 'amber',
+                  },
+                  {
+                    title: "Top Depot by Revenue",
+                    value: `₦${(topRevenueDepot.revenue || 0).toLocaleString()}`,
                     description: topRevenueDepot.depot,
                     icon: <TrendingUp className="h-5 w-5" />,
                     tone: 'green',
                   },
                   {
-                    title: "Top Depot Volume",
-                    value: `${abbreviateNumber(topVolumeDepot.volume || 0)} L`,
+                    title: "Top Depot by Volume",
+                    value: `${(topVolumeDepot.volume || 0).toLocaleString()} L`,
                     description: topVolumeDepot.depot,
                     icon: <TruckIcon className="h-5 w-5" />,
-                    tone: 'amber',
-                  },
-                  {
-                    title: "Depot with Most Orders",
-                    value: `${abbreviateNumber(topOrderDepot.ordersCount || 0)} Orders`,
-                    description: topOrderDepot.depot,
-                    icon: <ShoppingBag className="h-5 w-5" />,
-                    tone: 'blue',
+                    tone: 'neutral',
                   },
                 ]}
               />
             </div>
 
-            {/* Charts: Sales Trend & Revenue Ranking */}
-            <div className="grid gap-6 lg:grid-cols-1">
+            {/* Charts side by side — both visible at once instead of a long vertical stack */}
+            <div className="grid gap-6 lg:grid-cols-2">
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
                 <div>
-                  <h3 className="font-semibold text-slate-800">Depot Sales Volume Trend</h3>
-                  <p className="text-xs pt-2 text-slate-500">Daily customer order quantity in litres for the depots</p>
+                  <h3 className="font-semibold text-slate-800">Sales Volume Trend</h3>
+                  <p className="text-xs pt-2 text-slate-500">Daily order quantity (litres) for the top depots — {periodRangeLabel.toLowerCase()}</p>
                 </div>
                 <div className="h-72">
                   {isOrdersLoading ? (
-                    <div className="flex h-full items-center justify-center text-slate-400">Fetching....</div>
+                    <div className="flex h-full items-center justify-center text-slate-400">Fetching….</div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={depotTrendData}>
@@ -574,7 +542,7 @@ const Dashboard: React.FC = () => {
                         <Tooltip formatter={(value: number) => [`${value.toLocaleString()} L`, 'Volume']} />
                         <Legend wrapperStyle={{ fontSize: '11px' }} />
                         {topDepotNames.map((depot, idx) => {
-                          const strokes = ['#6366f1', '#10b981', '#f59e0b', '#8b5cf6'];
+                          const strokes = ['#059669', '#0f172a', '#f59e0b', '#10b981'];
                           return (
                             <Line
                               key={depot}
@@ -595,19 +563,19 @@ const Dashboard: React.FC = () => {
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
                 <div>
                   <h3 className="font-semibold text-slate-800">Revenue Ranking by Depot</h3>
-                  <p className="text-xs pt-2 text-slate-500">Total customer order revenue in Naira generated per depot</p>
+                  <p className="text-xs pt-2 text-slate-500">Total order revenue (₦) generated per depot — {periodRangeLabel.toLowerCase()}</p>
                 </div>
                 <div className="h-72">
                   {isOrdersLoading ? (
-                    <div className="flex h-full w-full items-center justify-center text-slate-400">Fetching...</div>
+                    <div className="flex h-full w-full items-center justify-center text-slate-400">Fetching…</div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={depotRankingData} layout="vertical" margin={{ left: 10, right: 30, top: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                         <XAxis type="number" tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(v) => abbreviateNumber(v)} />
-                        <YAxis dataKey="depot" type="category" width={155} tick={{ fontSize: 12, fill: '#64748b' }} />
+                        <YAxis dataKey="depot" type="category" width={150} tick={{ fontSize: 12, fill: '#64748b' }} />
                         <Tooltip formatter={(value: number) => `₦${value.toLocaleString()}`} />
-                        <Bar dataKey="revenue" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={16} />
+                        <Bar dataKey="revenue" fill="#059669" radius={[0, 4, 4, 0]} barSize={16} />
                       </BarChart>
                     </ResponsiveContainer>
                   )}
@@ -615,178 +583,45 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            {/* Donut Charts: Order Status & Fulfillment Split */}
-            {/* <div className="grid gap-6 md:grid-cols-2">
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-1.5 text-slate-800 mb-1">
-                    <PieChartIcon className="h-4 w-4 text-emerald-500" />
-                    <h3 className="font-semibold">Order Status Distribution</h3>
-                  </div>
-                  <p className="text-xs text-slate-500">Ratio of order execution states across the selected period.</p>
-                </div>
-                <div className="h-64 flex items-center justify-center relative">
-                  {isOrdersLoading ? (
-                    <div className="text-slate-400">Loading statuses...</div>
-                  ) : statusDistributionData.length === 0 ? (
-                    <div className="text-slate-400 text-sm">No orders recorded in this period.</div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={statusDistributionData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={65}
-                          outerRadius={85}
-                          paddingAngle={3}
-                          dataKey="value"
-                        >
-                          {statusDistributionData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value: number) => [`${value} Orders`, 'Volume']} />
-                        <Legend wrapperStyle={{ fontSize: '11px' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-1.5 text-slate-800 mb-1">
-                    <PieChartIcon className="h-4 w-4 text-violet-500" />
-                    <h3 className="font-semibold">Logistics Fulfillment Split</h3>
-                  </div>
-                  <p className="text-xs text-slate-500">Split between customer self-pickup and custom logistics delivery orders.</p>
-                </div>
-                <div className="h-64 flex items-center justify-center relative">
-                  {isOrdersLoading ? (
-                    <div className="text-slate-400">Loading logistics...</div>
-                  ) : logisticsSplitData.length === 0 ? (
-                    <div className="text-slate-400 text-sm">No orders recorded in this period.</div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={logisticsSplitData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={65}
-                          outerRadius={85}
-                          paddingAngle={3}
-                          dataKey="value"
-                        >
-                          {logisticsSplitData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value: number) => [`${value} Orders`, 'Volume']} />
-                        <Legend wrapperStyle={{ fontSize: '11px' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </div>
-            </div> */}
-
-            {/* Audit Table: Detailed Depot Metrics Snapshot */}
+            {/* Depot Leaderboard — clean ranked list instead of a dense audit table */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100 flex flex-col gap-1.5">
                 <div className="flex items-center gap-2 text-slate-800">
                   <FileText className="h-4 w-4 text-slate-500" />
-                  <h3 className="font-semibold">Depot Snapshot</h3>
+                  <h3 className="font-semibold">Depot Leaderboard</h3>
                 </div>
-                <p className="text-xs text-slate-500">Overview metrics per depot, sorted by total order revenue.</p>
+                <p className="text-xs text-slate-500">Ranked by total revenue — {periodRangeLabel.toLowerCase()}</p>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-slate-50/50 border-b border-slate-100 text-slate-500 font-medium">
-                      <th className="p-4 pl-6">Depot</th>
-                      <th className="p-4 text-center">Orders</th>
-                      <th className="p-4 text-right">Volume</th>
-                      <th className="p-4 text-right">Total Revenue</th>
-                      {/* <th className="p-4 text-right">Avg Order Size</th> */}
-                      {/* <th className="p-4 text-center">Pickup / Delivery</th> */}
-                      {/* <th className="p-4 pr-6">Status Breakdown (Count)</th> */}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {isOrdersLoading ? (
-                      <tr>
-                        <td colSpan={7} className="p-8 text-center text-slate-400">Loading audit ledger data...</td>
-                      </tr>
-                    ) : depotMetrics.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="p-8 text-center text-slate-400">No depot records found.</td>
-                      </tr>
-                    ) : (
-                      depotMetrics.map((row) => {
-                        const totalOps = row.pickupCount + row.deliveryCount;
-                        const pickupPct = totalOps > 0 ? Math.round((row.pickupCount / totalOps) * 100) : 0;
-                        const deliveryPct = totalOps > 0 ? Math.round((row.deliveryCount / totalOps) * 100) : 0;
-
-                        return (
-                          <tr key={row.depot} className="hover:bg-slate-50/40 transition-colors">
-                            <td className="p-4 pl-6 font-semibold text-slate-800">{row.depot}</td>
-                            <td className="p-4 text-center font-medium">{row.ordersCount}</td>
-                            <td className="p-4 text-right font-medium">{row.volume.toLocaleString()} Litres</td>
-                            <td className="p-4 text-right text-emerald-600 font-semibold">₦{row.revenue.toLocaleString()}</td>
-                            {/* <td className="p-4 text-right text-slate-500">{row.averageSize.toLocaleString()} L</td> */}
-                            {/* <td className="p-4">
-                              <div className="flex flex-col items-center gap-0.5">
-                                <div className="text-xs font-semibold text-slate-600">
-                                  {row.pickupCount}P / {row.deliveryCount}D
-                                </div>
-                                <div className="w-20 bg-slate-100 rounded-full h-1.5 overflow-hidden flex">
-                                  <div className="bg-violet-400 h-full" style={{ width: `${pickupPct}%` }} title={`Pickup: ${pickupPct}%`} />
-                                  <div className="bg-cyan-400 h-full" style={{ width: `${deliveryPct}%` }} title={`Delivery: ${deliveryPct}%`} />
-                                </div>
-                              </div>
-                            </td> */}
-                            {/* <td className="p-4 pr-6">
-                              <div className="flex flex-wrap gap-1.5">
-                                {row.statusCounts.pending > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
-                                    Pend: {row.statusCounts.pending}
-                                  </span>
-                                )}
-                                {row.statusCounts.paid > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                    Paid: {row.statusCounts.paid}
-                                  </span>
-                                )}
-                                {row.statusCounts.released > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                                    Rel: {row.statusCounts.released}
-                                  </span>
-                                )}
-                                {row.statusCounts.loaded > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                    Load: {row.statusCounts.loaded}
-                                  </span>
-                                )}
-                                {row.statusCounts.sold > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-50 text-green-700 border border-green-100">
-                                    Sold: {row.statusCounts.sold}
-                                  </span>
-                                )}
-                                {row.statusCounts.canceled > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-50 text-red-700 border border-red-100">
-                                    Can: {row.statusCounts.canceled}
-                                  </span>
-                                )}
-                              </div>
-                            </td> */}
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+              <div className="divide-y divide-slate-100">
+                {isOrdersLoading ? (
+                  <p className="p-8 text-center text-sm text-slate-400">Loading depot data…</p>
+                ) : depotMetrics.length === 0 ? (
+                  <p className="p-8 text-center text-sm text-slate-400">No depot records found for this period.</p>
+                ) : (
+                  depotMetrics.slice(0, 8).map((row, idx) => {
+                    const maxRevenue = depotMetrics[0]?.revenue || 1;
+                    const pct = Math.max(4, Math.round((row.revenue / maxRevenue) * 100));
+                    return (
+                      <div key={row.depot} className="px-5 py-3.5 flex items-center gap-4 hover:bg-slate-50/60 transition-colors">
+                        <div className={`h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {idx + 1}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <p className="font-semibold text-slate-800 truncate">{row.depot}</p>
+                            <p className="text-sm font-bold text-emerald-700 whitespace-nowrap">₦{row.revenue.toLocaleString()}</p>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-[11px] text-slate-400 whitespace-nowrap">{row.ordersCount} orders · {row.volume.toLocaleString()} L</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
 

@@ -1010,16 +1010,50 @@ export default function FillingStations() {
   }, [filteredLedgerGroups]);
 
   const summaryCards = useMemo((): SummaryCard[] => {
+    const pctSold = totals.totalQtyAllocated > 0
+      ? Math.round((totals.totalQtySold / totals.totalQtyAllocated) * 100)
+      : 0;
+
     const cards: SummaryCard[] = [
-      { title: 'Qty Allocated (Ltrs)', value: totals.totalQtyAllocated > 0 ? totals.totalQtyAllocated.toLocaleString() : '0', icon: <Truck size={20} />, tone: 'neutral' },
-      { title: 'Qty Sold (Ltrs)', value: totals.totalQtySold > 0 ? totals.totalQtySold.toLocaleString() : '0', icon: <Fuel size={20} />, tone: 'neutral' },
-      { title: 'Expected Revenue', value: fmt(totals.totalExpected), icon: <TrendingUp size={20} />, tone: 'neutral' },
-      { title: 'Total Deposited', value: fmt(totals.totalPaid), icon: <Banknote size={20} />, tone: 'green' },
-      { title: 'Total Expenses', value: fmt(totals.totalExpenses), icon: <Receipt size={20} />, tone: 'amber' },
-      { title: 'Net Collected', value: fmt(totals.totalNetPaid), icon: <Wallet size={20} />, tone: 'blue' },
       {
-        title: 'Outstanding',
-        value: totals.balance > 0 ? fmt(totals.balance) : '₦0',
+        title: 'Active Stations',
+        value: String(totals.truckCount),
+        description: `${totals.customerCount} customer${totals.customerCount === 1 ? '' : 's'} · ${totals.entries} entries logged`,
+        icon: <Truck size={20} />,
+        tone: 'neutral',
+      },
+      {
+        title: 'Volume Sold / Allocated',
+        value: totals.totalQtyAllocated > 0 ? `${totals.totalQtySold.toLocaleString()} / ${totals.totalQtyAllocated.toLocaleString()} L` : '0 L',
+        description: `${pctSold}% of allocated volume sold`,
+        icon: <Fuel size={20} />,
+        tone: 'neutral',
+      },
+      {
+        title: 'Expected Revenue',
+        value: fmt(totals.totalExpected),
+        description: 'Target value of all daily pump sales',
+        icon: <TrendingUp size={20} />,
+        tone: 'neutral',
+      },
+      {
+        title: 'Total Deposited',
+        value: fmt(totals.totalPaid),
+        description: 'Bank deposits & collections received',
+        icon: <Banknote size={20} />,
+        tone: 'green',
+      },
+      {
+        title: 'Total Expenses',
+        value: fmt(totals.totalExpenses),
+        description: 'Operating costs recorded against stations',
+        icon: <Receipt size={20} />,
+        tone: 'amber',
+      },
+      {
+        title: 'Outstanding Balance',
+        value: totals.balance > 0 ? fmt(totals.balance) : totals.balance < 0 ? `+${fmt(Math.abs(totals.balance))}` : '₦0.00 ✓',
+        description: totals.balance > 0 ? 'Yet to be collected from stations' : totals.balance < 0 ? 'Overpaid beyond expected revenue' : 'Fully reconciled — nothing outstanding',
         icon: <Wallet size={20} />,
         tone: totals.balance > 0 ? 'red' : 'green',
       },

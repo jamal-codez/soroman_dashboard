@@ -213,7 +213,7 @@ export default function DailySalesReport() {
   const { toast } = useToast();
 
   const today = useMemo(() => new Date(), []);
-  const todayKey = useMemo(() => format(today, 'dd-MM-yyyy'), [today]);
+  const todayKey = useMemo(() => format(today, 'yyyy-MM-dd'), [today]);
 
   const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey);
   const selectedDate = useMemo(() => parseISO(`${selectedDateKey}T00:00:00`), [selectedDateKey]);
