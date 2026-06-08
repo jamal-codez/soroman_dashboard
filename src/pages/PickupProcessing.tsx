@@ -494,25 +494,6 @@ export const PickupProcessing = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(100);
 
-  const pfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number: string }>; id?: number } & Record<string, unknown>>({
-    queryKey: ['pfis', 'active'],
-    queryFn: async () => {
-      // Note: backend can later support location/product filtering; for now load actives.
-      return apiClient.admin.getPfis({ status: 'active', page: 1, page_size: 500 });
-    },
-    retry: 1,
-    staleTime: 60_000,
-  });
-
-  const pfiOptions = useMemo(() => {
-    const rec = (pfiQuery.data && typeof pfiQuery.data === 'object') ? (pfiQuery.data as Record<string, unknown>) : null;
-    const raw = (rec?.results as unknown) ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
-    const list = (raw || []) as Array<{ id: number; pfi_number: string }>;
-    return list
-      .filter((p) => p && typeof p.id === 'number' && typeof p.pfi_number === 'string')
-      .map((p) => ({ id: p.id, label: p.pfi_number }));
-  }, [pfiQuery.data]);
-
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [ticketOpen, setTicketOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -790,8 +771,8 @@ export const PickupProcessing = () => {
               loaderName: '',
               loaderPhone: '',
               loadingDateTime: '',
-              pfi: '',
-              pfiId: undefined,
+              pfi: order.pfi_number ? String(order.pfi_number) : '',
+              pfiId: order.pfi_id ?? undefined,
             })
     );
 
@@ -829,8 +810,8 @@ export const PickupProcessing = () => {
 
     if (!releaseForm.pfiId) {
       toast({
-        title: 'PFI not selected',
-        description: 'Please select a PFI before generating tickets.',
+        title: 'No PFI assigned',
+        description: 'This order has no PFI assigned. Assign a PFI to it before generating tickets.',
         variant: 'destructive',
       });
       return;
@@ -1547,7 +1528,7 @@ export const PickupProcessing = () => {
                                       <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Loading Details</span>
                                       <div className="h-px flex-1 bg-slate-200" />
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 gap-4">
                                       <div className="space-y-1.5">
                                         <Label htmlFor="loadingDateTime" className="text-xs font-medium text-slate-600">Loading Date &amp; Time <span className="text-red-500">*</span></Label>
                                         <div className="flex gap-2">
@@ -1574,27 +1555,6 @@ export const PickupProcessing = () => {
                                             Now
                                           </Button>
                                         </div>
-                                      </div>
-                                      <div className="space-y-1.5">
-                                        <Label htmlFor="pfi" className="text-xs font-medium text-slate-600">PFI <span className="text-red-500">*</span></Label>
-                                        <select
-                                          id="pfi"
-                                          required
-                                          aria-label="PFI"
-                                          title="PFI"
-                                          value={releaseForm.pfiId ?? ''}
-                                          onChange={(e) => {
-                                            const selectedId = e.target.value ? Number(e.target.value) : undefined;
-                                            const selectedLabel = pfiOptions.find((p) => p.id === selectedId)?.label || '';
-                                            setReleaseForm({ ...releaseForm, pfiId: selectedId, pfi: selectedLabel });
-                                          }}
-                                          className="border border-slate-200 rounded-md px-3 py-2 h-10 w-full text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1"
-                                        >
-                                          <option value="">Select PFI</option>
-                                          {pfiOptions.map((pfi) => (
-                                            <option key={pfi.id} value={pfi.id}>{pfi.label}</option>
-                                          ))}
-                                        </select>
                                       </div>
                                     </div>
                                   </div>

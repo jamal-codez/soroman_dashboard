@@ -12,12 +12,13 @@ import { apiClient, resetSessionExpiredGuard } from '@/api/client';
 function landingPageForRole(role: number | string): string {
   switch (Number(role)) {
     case 0: // SUPERADMIN
+      return '/dashboard';
     case 1: // ADMIN
       return '/dashboard';
     case 2: // FINANCE / Accounts
       return '/payment-verify';
     case 3: // SALES / Marketing
-      return '/orders';
+      return '/delivery-sales-ledger';
     case 4: // RELEASE / Ticketing
       return '/pickup-processing';
     case 5: // SECURITY
@@ -28,6 +29,10 @@ function landingPageForRole(role: number | string): string {
       return '/confirm-release';
     case 8: // AUDITOR (read-only)
       return '/dashboard';
+    case 9: // MARKETING
+      return '/depot-view';
+    case 10: // LOCATION MANAGER
+      return '/staff-daily-report';
     default:
       return '/dashboard';
   }

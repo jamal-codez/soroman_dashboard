@@ -306,12 +306,12 @@ const Dashboard: React.FC = () => {
 
   // ----- Metric Summary Cards -----
   const topRevenueDepot = useMemo(() => {
-    if (depotMetrics.length === 0) return { depot: 'N/A', revenue: 0 };
+    if (depotMetrics.length === 0) return { depot: '-', revenue: 0 };
     return depotMetrics[0];
   }, [depotMetrics]);
 
   const topVolumeDepot = useMemo(() => {
-    if (depotMetrics.length === 0) return { depot: 'N/A', volume: 0 };
+    if (depotMetrics.length === 0) return { depot: '-', volume: 0 };
     const sorted = [...depotMetrics].sort((a, b) => b.volume - a.volume);
     return sorted[0];
   }, [depotMetrics]);
@@ -476,7 +476,7 @@ const Dashboard: React.FC = () => {
                   <div>
                     <span className="text-slate-400 text-[11px] uppercase tracking-wide mr-1.5">Orders</span>
                     <span className="font-bold">{todayTotals.releasedOrLoaded}</span>
-                    <span className="text-slate-400 font-normal"> confirmed / {todayTotals.orders} placed</span>
+                    {/* <span className="text-slate-400 font-normal"> confirmed / {todayTotals.orders} placed</span> */}
                   </div>
                 </div>
               </div>
@@ -486,34 +486,34 @@ const Dashboard: React.FC = () => {
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-slate-800">
                 <Building2 className="h-4 w-4 text-slate-500" />
-                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">{periodRangeLabel} Snapshot</h2>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{periodRangeLabel} Snapshot</h2>
               </div>
               <SummaryCards
-                gridClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+                gridClassName="grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-2"
                 cards={[
                   {
                     title: "Total Revenue",
                     value: `₦${periodSummary.revenue.toLocaleString()}`,
-                    description: `${periodSummary.ordersCount} confirmed orders · avg ${periodSummary.averageSize.toLocaleString()} L/order`,
+                    // description: `${periodSummary.ordersCount} confirmed orders · avg ${periodSummary.averageSize.toLocaleString()} L/order`,
                     icon: <BadgeDollarSign className="h-5 w-5" />,
                     tone: 'green',
                   },
                   {
                     title: "Total Volume Sold",
                     value: `${periodSummary.volume.toLocaleString()} L`,
-                    description: `${periodSummary.deliveryCount} delivery · ${periodSummary.pickupCount} pickup`,
+                    // description: `${periodSummary.deliveryCount} delivery · ${periodSummary.pickupCount} pickup`,
                     icon: <FuelIcon className="h-5 w-5" />,
                     tone: 'amber',
                   },
                   {
-                    title: "Top Depot by Revenue",
+                    title: "Top Location by Revenue",
                     value: `₦${(topRevenueDepot.revenue || 0).toLocaleString()}`,
                     description: topRevenueDepot.depot,
                     icon: <TrendingUp className="h-5 w-5" />,
                     tone: 'green',
                   },
                   {
-                    title: "Top Depot by Volume",
+                    title: "Top Location by Volume",
                     value: `${(topVolumeDepot.volume || 0).toLocaleString()} L`,
                     description: topVolumeDepot.depot,
                     icon: <TruckIcon className="h-5 w-5" />,
@@ -524,7 +524,7 @@ const Dashboard: React.FC = () => {
             </div>
 
             {/* Charts side by side — both visible at once instead of a long vertical stack */}
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-6 lg:grid-cols-1">
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
                 <div>
                   <h3 className="font-semibold text-slate-800">Sales Volume Trend</h3>
