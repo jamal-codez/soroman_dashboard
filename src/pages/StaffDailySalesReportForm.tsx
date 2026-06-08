@@ -265,15 +265,18 @@ export default function StaffDailySalesReportForm() {
     }));
   }, [form.pfi_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-calculate total_sales_amount and tank_balance ──────────────
+  // ── Auto-calculate total_sales_amount, tank_balance and differentials ──
   useEffect(() => {
     const litres = toNum(form.litres_sold_today);
     const price  = toNum(form.price);
     const opening = toNum(form.product_brought_forward);
     const carryover = toNum(form.yesterday_carried_over_loading);
+    const amountPaid = toNum(form.amount_paid);
 
     const totalSales = litres * price;
     const tankBalance = opening + carryover - litres;
+    // Differentials: gap (in Naira) between what was actually paid and the expected sales amount
+    const differentials = amountPaid - totalSales;
 
     setForm(prev => ({
       ...prev,
@@ -283,8 +286,11 @@ export default function StaffDailySalesReportForm() {
       tank_balance: tankBalance > 0
         ? tankBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })
         : '',
+      differentials: (amountPaid > 0 || totalSales > 0)
+        ? differentials.toLocaleString(undefined, { maximumFractionDigits: 0 })
+        : '',
     }));
-  }, [form.litres_sold_today, form.price, form.product_brought_forward, form.yesterday_carried_over_loading]);
+  }, [form.litres_sold_today, form.price, form.product_brought_forward, form.yesterday_carried_over_loading, form.amount_paid]);
 
   // ── Load existing entry when editing ───────────────────────────────
   const existingQuery = useQuery({
@@ -294,24 +300,9 @@ export default function StaffDailySalesReportForm() {
     staleTime: 10_000,
   });
 
-  useEffect(() => {
-    const rpt = existingQuery.data?.report;
-    if (!rpt) return;
-    setForm(prev => ({
-      ...prev,
-      yesterday_carried_over_loading: numVal(rpt.yesterday_carried_over_loading),
-      product_brought_forward: numVal(rpt.product_brought_forward),
-      litres_sold_today: numVal(rpt.litres_sold_today),
-      price: numVal(rpt.price),
-      tank_balance: numVal(rpt.tank_balance),
-      num_trucks_sold: numVal(rpt.num_trucks_sold),
-      amount_paid: numVal(rpt.amount_paid),
-      total_sales_amount: numVal(rpt.total_sales_amount),
-      differentials: numVal(rpt.differentials),
-      loading_left_over: numVal(rpt.loading_left_over),
-      remarks: String(rpt.remarks ?? ''),
-    }));
-  }, [existingQuery.data]);
+  // Note: deliberately NOT auto-filling the form from `existingQuery` —
+  // the new-report form should always start blank. We only surface a
+  // warning (below) so the user knows a resubmit will overwrite it.
 
   // ── Edit from history ───────────────────────────────────────────────
   const openEdit = (rpt: Record<string, unknown>) => {
@@ -520,7 +511,7 @@ export default function StaffDailySalesReportForm() {
                         <MapPin size={12} className="text-green-500" />
                         Location: <strong>{form.location}</strong>
                         {existingQuery.data?.report && (
-                          <span className="ml-auto text-amber-600 font-semibold">⚠ Existing entry found — editing it</span>
+                          <span className="ml-auto text-amber-600 font-semibold">⚠ An entry for this date already exists — submitting will overwrite it</span>
                         )}
                       </div>
                     )}
@@ -561,7 +552,7 @@ export default function StaffDailySalesReportForm() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <Field label="Amount Paid" value={form.amount_paid} onChange={set('amount_paid')} prefix="₦" />
                           <Field label="Total Sales Amount" value={form.total_sales_amount} onChange={set('total_sales_amount')} prefix="₦" highlight />
-                          <Field label="Differentials" value={form.differentials} onChange={set('differentials')} suffix="Ltrs" />
+                          <Field label="Differentials (Amount Paid − Expected Sales)" value={form.differentials} onChange={set('differentials')} prefix="₦" readOnly highlight />
                           <Field label="Loading Left Over" value={form.loading_left_over} onChange={set('loading_left_over')} suffix="Ltrs" />
                         </div>
                       </fieldset>

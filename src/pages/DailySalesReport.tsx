@@ -15,7 +15,7 @@ import {
 import { apiClient, fetchAllPages } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { CalendarDays, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert, Users, FileSpreadsheet, ClipboardCheck, ChevronLeft, ChevronRight, CalendarClock } from 'lucide-react';
+import { CalendarDays, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert, Users, FileSpreadsheet, FileText, ClipboardCheck, ChevronLeft, ChevronRight, CalendarClock } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -520,16 +520,27 @@ export default function DailySalesReport() {
     refetchOnWindowFocus: true,
   });
 
-  const [isStaffDownloading, setIsStaffDownloading] = useState(false);
+  const [isStaffDownloading, setIsStaffDownloading] = useState<'excel' | 'pdf' | null>(null);
 
   const handleDownloadStaffExcel = async () => {
-    setIsStaffDownloading(true);
+    setIsStaffDownloading('excel');
     try {
       await apiClient.admin.downloadStaffDailyExcel(selectedDateKey);
     } catch (err: any) {
       toast({ title: 'Download failed', description: err.message, variant: 'destructive' });
     } finally {
-      setIsStaffDownloading(false);
+      setIsStaffDownloading(null);
+    }
+  };
+
+  const handleDownloadStaffPdf = async () => {
+    setIsStaffDownloading('pdf');
+    try {
+      await apiClient.admin.downloadStaffDailyPdf(selectedDateKey);
+    } catch (err: any) {
+      toast({ title: 'Download failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setIsStaffDownloading(null);
     }
   };
 
@@ -917,18 +928,32 @@ export default function DailySalesReport() {
                         {isStaffLoading ? '…' : staffCount} location{staffCount !== 1 ? 's' : ''} submitted
                       </span> */}
                     </div>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      className="gap-1.5 h-8 text-xs text-white hover:bg-green-500"
-                      disabled={staffCount === 0 || isStaffDownloading}
-                      onClick={handleDownloadStaffExcel}
-                    >
-                      {isStaffDownloading
-                        ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
-                        : <><FileSpreadsheet size={13} /> Download Report</>
-                      }
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="gap-1.5 h-8 text-xs text-white hover:bg-green-500"
+                        disabled={staffCount === 0 || !!isStaffDownloading}
+                        onClick={handleDownloadStaffExcel}
+                      >
+                        {isStaffDownloading === 'excel'
+                          ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
+                          : <><FileSpreadsheet size={13} /> Excel</>
+                        }
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 h-8 text-xs"
+                        disabled={staffCount === 0 || !!isStaffDownloading}
+                        onClick={handleDownloadStaffPdf}
+                      >
+                        {isStaffDownloading === 'pdf'
+                          ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
+                          : <><FileText size={13} /> PDF</>
+                        }
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Content */}
@@ -1105,6 +1130,12 @@ export default function DailySalesReport() {
                                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
                                     >
                                       <FileSpreadsheet size={11} /> Excel
+                                    </button>
+                                    <button
+                                      onClick={() => apiClient.admin.downloadStaffDailyPdf(row.date).catch(e => alert('Download failed: ' + e.message))}
+                                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors"
+                                    >
+                                      <FileText size={11} /> PDF
                                     </button>
                                   </div>
                                 </td>

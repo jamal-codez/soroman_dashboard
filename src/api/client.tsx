@@ -1161,6 +1161,22 @@ export const apiClient = {
       URL.revokeObjectURL(blobUrl);
     },
 
+    downloadStaffDailyPdf: async (date: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/staff/download-pdf/?date=${date}`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `Daily-Sales-Report-${date}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    },
+
 
 
     updateUser: async (userId: number, data: Record<string, unknown>) => {
