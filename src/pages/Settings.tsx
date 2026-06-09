@@ -47,6 +47,8 @@ import {
   Phone,
   MapPin,
   Globe,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
@@ -66,6 +68,7 @@ type UserType = {
   location?: string;
   locations?: number[];       // scoped state IDs sent in PATCH
   location_names?: string[];  // resolved names returned by GET — use these for display
+  plain_password?: string | null;
 };
 
 const roleMap: Record<number, string> = {
@@ -102,6 +105,7 @@ const Settings = () => {
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
+  const [revealedPasswords, setRevealedPasswords] = useState<Set<number>>(new Set());
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -201,7 +205,7 @@ const Settings = () => {
       setFormData({
         full_name: user.full_name,
         email: user.email,
-        password: '********',
+        password: user.plain_password || '',
         phone_number: user.phone_number,
         role: String(user.role),
         suspended: user.suspended,
@@ -265,7 +269,7 @@ const Settings = () => {
             : {}),
         };
 
-        if (formData.password && formData.password !== "********") {
+        if (formData.password) {
           updatedUser.password = formData.password;
         }
 
@@ -515,6 +519,7 @@ const Settings = () => {
                     <TableHead className="min-w-[220px]">Location</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="min-w-[160px]">Password</TableHead>
                     {/* <TableHead className="min-w-[160px]">Last Login</TableHead> */}
                     <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
@@ -561,6 +566,30 @@ const Settings = () => {
                         }`}>
                           {!user.suspended ? 'Active' : 'Suspended'}
                         </span>
+                      </TableCell>
+                      <TableCell className="px-4">
+                        {user.plain_password ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-mono text-slate-700 tracking-wide">
+                              {revealedPasswords.has(user.id) ? user.plain_password : '••••••••'}
+                            </span>
+                            <button
+                              type="button"
+                              className="text-slate-400 hover:text-slate-700 transition-colors"
+                              onClick={() => setRevealedPasswords(prev => {
+                                const next = new Set(prev);
+                                next.has(user.id) ? next.delete(user.id) : next.add(user.id);
+                                return next;
+                              })}
+                            >
+                              {revealedPasswords.has(user.id)
+                                ? <EyeOff size={13} />
+                                : <Eye size={13} />}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
                       </TableCell>
                       {/* <TableCell className="px-4 text-sm text-slate-500 whitespace-nowrap">{formatLastLogin(user.last_login)}</TableCell> */}
                       <TableCell className="text-right">
@@ -644,7 +673,9 @@ const Settings = () => {
 
               {/* Password */}
               <div className="space-y-1.5">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">
+                  Password{editingUser ? ' (leave blank to keep current)' : ''}
+                </Label>
                 <div className="flex items-center gap-2">
                   <Input
                     id="password"
@@ -652,9 +683,13 @@ const Settings = () => {
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className={errors.password ? 'border-red-500' : ''}
+                    placeholder={editingUser ? 'Enter new password to change' : ''}
                   />
                   <Button type="button" variant="outline" size="sm" onClick={() => setShowPassword(!showPassword)}>
                     {showPassword ? 'Hide' : 'Show'}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={generatePassword}>
+                    Generate
                   </Button>
                 </div>
                 <p className="text-xs text-slate-500">Alphanumeric, at least 8 characters</p>

@@ -7,6 +7,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { apiClient, resetSessionExpiredGuard } from '@/api/client';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 
 /** Map user role to their default landing page after login. */
 function landingPageForRole(role: number | string): string {
@@ -47,6 +50,24 @@ const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [fullName, setFullName] = useState('');
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail.trim()) return;
+    setForgotLoading(true);
+    try {
+      await apiClient.admin.forgotPassword(forgotEmail.trim());
+      setForgotSent(true);
+    } catch {
+      toast({ title: 'Error', description: 'Something went wrong. Please try again.', variant: 'destructive' });
+    } finally {
+      setForgotLoading(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,9 +188,13 @@ const Login = () => {
                   Remember me
                 </label>
               </div>
-              <a href="#" className="text-sm text-soroman-blue hover:text-soroman-orange">
+              <button
+                type="button"
+                className="text-sm text-soroman-blue hover:text-soroman-orange"
+                onClick={() => { setForgotOpen(true); setForgotSent(false); setForgotEmail(''); }}
+              >
                 Forgot password?
-              </a>
+              </button>
             </div>
 
             <Button 
@@ -182,6 +207,48 @@ const Login = () => {
           </form>
         </div>
       </div>
+
+      {/* Forgot password dialog */}
+      <Dialog open={forgotOpen} onOpenChange={(open) => { setForgotOpen(open); if (!open) setForgotSent(false); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Enter your email address and we'll send you a new temporary password.
+            </DialogDescription>
+          </DialogHeader>
+          {forgotSent ? (
+            <div className="py-4 text-center space-y-2">
+              <p className="text-green-700 font-semibold">Password reset sent!</p>
+              <p className="text-sm text-slate-500">
+                If that email is registered, a new password has been emailed to it. Check your inbox and use it to log in.
+              </p>
+            </div>
+          ) : (
+            <form onSubmit={handleForgotPassword} className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="forgot-email">Email address</Label>
+                <Input
+                  id="forgot-email"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setForgotOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={forgotLoading}>
+                  {forgotLoading ? 'Sending…' : 'Send New Password'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -1189,6 +1189,16 @@ export const apiClient = {
       return response.json();
     },
 
+    forgotPassword: async (email: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/users/forgot-password/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!response.ok) throw new Error((await response.json()).error || 'Request failed');
+      return response.json();
+    },
+
     adminUpdateProduct: async (productId: number, data: Record<string, unknown>) => {
       const response = await safeFetch(`${ADMIN_BASE}/products/${productId}/`, {
         method: 'PATCH',
