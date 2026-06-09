@@ -16,12 +16,15 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Plus, Search, Download, Loader2, Trash2, Pencil,
   Truck, Wallet, FileText,
   TrendingUp, Banknote, Building2,
   Calendar as CalendarIcon, UserPlus, X, Fuel,
   MapPin, Users, LayoutGrid, Filter, AlertTriangle, Tag,
-  Clock, Link2, ArrowRightLeft, ChevronRight, Receipt,
+  Clock, Link2, ArrowRightLeft, ChevronRight, ChevronDown, Receipt,
 } from 'lucide-react';
 import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
@@ -303,6 +306,7 @@ export default function FillingStations() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [truckFilter, setTruckFilter] = useState<string>('all');
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [customerFilter, setCustomerFilter] = useState<string>('all');
@@ -1956,125 +1960,135 @@ export default function FillingStations() {
 
             {/* ── Filter Panel ── */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-5 space-y-4">
-
+              <div className="px-4 py-3 flex flex-wrap items-center gap-3">
                 {/* Search */}
-                <div className="relative w-full">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                   <Input
-                    placeholder="Search by station, truck, payer, code…"
-                    className="pl-9 h-9 text-sm"
+                    placeholder="Search station, truck, code…"
+                    className="pl-8 h-9 text-sm"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                   />
                   {searchQuery && (
-                    <button title="Clear search" onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
-                      <X size={14} />
+                    <button title="Clear" onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
+                      <X size={13} />
                     </button>
                   )}
                 </div>
 
-                {/* Time Presets */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <CalendarIcon size={12} /> Time Period
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {(['today', 'yesterday', 'week', 'month', 'year', 'all', 'custom'] as TimePreset[]).map(tp => (
-                      <button
-                        key={tp}
-                        type="button"
-                        onClick={() => handlePresetChange(tp)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${timePreset === tp
-                          ? 'bg-slate-900 text-white border-slate-900'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:bg-slate-50'
-                          }`}
-                      >
-                        {tp === 'all' ? 'All Time' : tp === 'custom' ? 'Custom Range' : tp.charAt(0).toUpperCase() + tp.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                  {timePreset === 'custom' && (
-                    <div className="flex flex-wrap gap-3 mt-2 items-end">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-500">From date</Label>
-                        <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="h-9 w-[160px]" />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-500">To date</Label>
-                        <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="h-9 w-[160px]" />
-                      </div>
-                    </div>
-                  )}
+                {/* Time Presets — inline pills */}
+                <div className="flex flex-wrap gap-1.5">
+                  {(['today', 'yesterday', 'week', 'month', 'year', 'all'] as TimePreset[]).map(tp => (
+                    <button
+                      key={tp}
+                      type="button"
+                      onClick={() => handlePresetChange(tp)}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${timePreset === tp
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                      }`}
+                    >
+                      {tp === 'all' ? 'All' : tp.charAt(0).toUpperCase() + tp.slice(1)}
+                    </button>
+                  ))}
                 </div>
 
-                <div className="border-t border-slate-100" />
+                {/* Advanced filters toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedFilters(f => !f)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                    showAdvancedFilters || [truckFilter, locationFilter, customerFilter, allocationCodeFilter, rateFilter].some(f => f !== 'all')
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                  }`}
+                >
+                  <Filter size={11} />
+                  Filters
+                  {[truckFilter, locationFilter, customerFilter, allocationCodeFilter, rateFilter].filter(f => f !== 'all').length > 0 && (
+                    <span className="ml-0.5 bg-white text-slate-900 rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">
+                      {[truckFilter, locationFilter, customerFilter, allocationCodeFilter, rateFilter].filter(f => f !== 'all').length}
+                    </span>
+                  )}
+                  <ChevronDown size={11} className={`transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
 
-                {/* Dropdown Filters */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-                  {/* Truck */}
-                  <div className="space-y-1.5">
-                    <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><Truck size={12} className="text-slate-400" /> Truck</label>
-                    <select aria-label="Filter by truck" value={truckFilter} onChange={e => setTruckFilter(e.target.value)}
-                      className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${truckFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'}`}>
-                      <option value="all">All Trucks</option>
+              {/* Custom date range */}
+              {timePreset === 'custom' && (
+                <div className="px-4 pb-3 flex flex-wrap gap-3 items-end border-t border-slate-100 pt-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-500">From</Label>
+                    <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="h-9 w-[150px]" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-500">To</Label>
+                    <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="h-9 w-[150px]" />
+                  </div>
+                </div>
+              )}
+
+              {/* Advanced dropdown filters — collapsible */}
+              {showAdvancedFilters && (
+                <div className="border-t border-slate-100 px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><Truck size={10} /> Truck</label>
+                    <select aria-label="Truck" value={truckFilter} onChange={e => setTruckFilter(e.target.value)}
+                      className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${truckFilter !== 'all' ? 'border-slate-700 font-semibold' : 'border-slate-200 text-slate-600'}`}>
+                      <option value="all">All</option>
                       {uniqueTruckNumbers.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
-                  {/* Destination */}
-                  <div className="space-y-1.5">
-                    <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><MapPin size={12} className="text-slate-400" /> Destination</label>
-                    <select aria-label="Filter by destination" value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
-                      className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${locationFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'}`}>
-                      <option value="all">All Destinations</option>
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><MapPin size={10} /> Destination</label>
+                    <select aria-label="Destination" value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
+                      className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${locationFilter !== 'all' ? 'border-slate-700 font-semibold' : 'border-slate-200 text-slate-600'}`}>
+                      <option value="all">All</option>
                       {uniqueLocations.map(l => <option key={l} value={l}>{l}</option>)}
                     </select>
                   </div>
-                  {/* Station */}
-                  <div className="space-y-1.5">
-                    <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><Users size={12} className="text-slate-400" /> Station</label>
-                    <select aria-label="Filter by station" value={customerFilter} onChange={e => setCustomerFilter(e.target.value)}
-                      className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${customerFilter !== 'all' ? 'border-slate-700 font-semibold text-slate-900' : 'border-slate-200 text-slate-700'}`}>
-                      <option value="all">All Stations</option>
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><Users size={10} /> Station</label>
+                    <select aria-label="Station" value={customerFilter} onChange={e => setCustomerFilter(e.target.value)}
+                      className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${customerFilter !== 'all' ? 'border-slate-700 font-semibold' : 'border-slate-200 text-slate-600'}`}>
+                      <option value="all">All</option>
                       {uniqueCustomerOptions.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
                     </select>
                   </div>
-                  {/* Allocation Code */}
                   {uniqueAllocationCodes.length > 0 && (
-                    <div className="space-y-1.5">
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><Tag size={12} className="text-purple-400" /> Code</label>
-                      <select aria-label="Filter by allocation code" value={allocationCodeFilter} onChange={e => setAllocationCodeFilter(e.target.value)}
-                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${allocationCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-700'}`}>
-                        <option value="all">All Codes</option>
+                    <div className="space-y-1">
+                      <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><Tag size={10} /> Code</label>
+                      <select aria-label="Code" value={allocationCodeFilter} onChange={e => setAllocationCodeFilter(e.target.value)}
+                        className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${allocationCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-600'}`}>
+                        <option value="all">All</option>
                         {uniqueAllocationCodes.map(code => <option key={code} value={code}>{code}</option>)}
                       </select>
                     </div>
                   )}
-                  {/* Rate */}
                   {uniqueRates.length > 0 && (
-                    <div className="space-y-1.5">
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600"><TrendingUp size={12} className="text-indigo-400" /> Rate (₦/L)</label>
-                      <select aria-label="Filter by rate" value={rateFilter} onChange={e => setRateFilter(e.target.value)}
-                        className={`h-9 w-full rounded-md border bg-white px-3 py-2 text-sm ${rateFilter !== 'all' ? 'border-indigo-600 font-semibold text-indigo-900 bg-indigo-50' : 'border-slate-200 text-slate-700'}`}>
-                        <option value="all">All Rates</option>
+                    <div className="space-y-1">
+                      <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><TrendingUp size={10} /> Rate</label>
+                      <select aria-label="Rate" value={rateFilter} onChange={e => setRateFilter(e.target.value)}
+                        className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${rateFilter !== 'all' ? 'border-indigo-600 font-semibold text-indigo-900 bg-indigo-50' : 'border-slate-200 text-slate-600'}`}>
+                        <option value="all">All</option>
                         {uniqueRates.map(r => <option key={r} value={String(r)}>₦{r.toLocaleString()}/L</option>)}
                       </select>
                     </div>
                   )}
                 </div>
+              )}
 
-                {/* Active filter chips */}
-                {(truckFilter !== 'all' || locationFilter !== 'all' || customerFilter !== 'all' || allocationCodeFilter !== 'all' || rateFilter !== 'all') && (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <span className="text-xs text-slate-500 flex items-center gap-1"><Filter size={11} /> Filtering:</span>
-                    {truckFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium"><Truck size={10} />{truckFilter}<button onClick={() => setTruckFilter('all')}><X size={10} /></button></span>}
-                    {locationFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium"><MapPin size={10} />{locationFilter}<button onClick={() => setLocationFilter('all')}><X size={10} /></button></span>}
-                    {customerFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium"><Users size={10} />{uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}<button onClick={() => setCustomerFilter('all')}><X size={10} /></button></span>}
-                    {allocationCodeFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-medium"><Tag size={10} />{allocationCodeFilter}<button onClick={() => setAllocationCodeFilter('all')}><X size={10} /></button></span>}
-                    {rateFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-xs font-medium"><TrendingUp size={10} />₦{Number(rateFilter).toLocaleString()}/L<button onClick={() => setRateFilter('all')}><X size={10} /></button></span>}
-                  </div>
-                )}
-              </div>
+              {/* Active filter chips */}
+              {(truckFilter !== 'all' || locationFilter !== 'all' || customerFilter !== 'all' || allocationCodeFilter !== 'all' || rateFilter !== 'all') && (
+                <div className="px-4 pb-3 flex flex-wrap gap-1.5">
+                  {truckFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium"><Truck size={9} />{truckFilter}<button type="button" title="Remove truck filter" onClick={() => setTruckFilter('all')}><X size={9} /></button></span>}
+                  {locationFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium"><MapPin size={9} />{locationFilter}<button type="button" title="Remove destination filter" onClick={() => setLocationFilter('all')}><X size={9} /></button></span>}
+                  {customerFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium"><Users size={9} />{uniqueCustomerOptions.find(c => String(c.id) === customerFilter)?.name || customerFilter}<button type="button" title="Remove station filter" onClick={() => setCustomerFilter('all')}><X size={9} /></button></span>}
+                  {allocationCodeFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-medium"><Tag size={9} />{allocationCodeFilter}<button type="button" title="Remove code filter" onClick={() => setAllocationCodeFilter('all')}><X size={9} /></button></span>}
+                  {rateFilter !== 'all' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-xs font-medium">₦{Number(rateFilter).toLocaleString()}/L<button type="button" title="Remove rate filter" onClick={() => setRateFilter('all')}><X size={9} /></button></span>}
+                </div>
+              )}
             </div>
 
             {/* ── Unified Station Ledger: sales, deposits & expenses in one place ── */}
@@ -2112,330 +2126,198 @@ export default function FillingStations() {
                           isExpanded ? 'border-emerald-200 ring-1 ring-emerald-100' : 'border-slate-200'
                         )}
                       >
-                        {/* Card header: identity, key metrics & actions */}
+                        {/* Card header */}
                         <div className="p-4 sm:p-5">
-                          <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div className="flex items-start gap-3">
+                          <div className="flex items-start justify-between gap-3">
+
+                            {/* Left: expand toggle + identity */}
+                            <div className="flex items-start gap-2.5 min-w-0">
                               <button
+                                type="button"
                                 onClick={() => toggleCard(group.key)}
-                                className="mt-1 p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-all duration-200 focus:outline-none"
-                                title={isExpanded ? 'Collapse details' : 'Expand details'}
+                                className="mt-0.5 shrink-0 p-1 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
+                                title={isExpanded ? 'Collapse' : 'Expand'}
                               >
-                                <ChevronRight
-                                  size={18}
-                                  className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-90 text-emerald-600' : ''}`}
-                                />
+                                <ChevronRight size={16} className={`transition-transform duration-200 ${isExpanded ? 'rotate-90 text-emerald-600' : ''}`} />
                               </button>
-                              <div>
+                              <div className="min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <h3 className="font-bold text-slate-900 uppercase tracking-tight">{group.customerName || 'Unnamed Station'}</h3>
+                                  <h3 className="font-bold text-slate-900 text-sm uppercase tracking-tight truncate">
+                                    {group.customerName || 'Unnamed Station'}
+                                  </h3>
                                   {group.code && (
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${theme ? theme.badge : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                                    <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold border ${theme ? theme.badge : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                                       {group.code}
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
-                                  <span className="flex items-center gap-1"><Truck size={12} className="text-amber-600" /> {group.truckNumber || '—'}</span>
-                                  <span className="text-slate-300">•</span>
-                                  <span>
-                                    {group.dateLoaded
-                                      ? (() => { try { return format(parseISO(group.dateLoaded), 'dd MMM yyyy'); } catch { return group.dateLoaded; } })()
-                                      : '—'}
+                                <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 flex-wrap">
+                                  <span className="flex items-center gap-1"><Truck size={11} className="text-amber-500" />{group.truckNumber || '—'}</span>
+                                  <span className="text-slate-300">·</span>
+                                  <span className="flex items-center gap-1">
+                                    <CalendarIcon size={11} className="text-slate-400" />
+                                    {group.dateLoaded ? (() => { try { return format(parseISO(group.dateLoaded), 'dd MMM yyyy'); } catch { return group.dateLoaded; } })() : '—'}
                                   </span>
+                                  {group.location && (
+                                    <>
+                                      <span className="text-slate-300">·</span>
+                                      <span className="flex items-center gap-1"><MapPin size={11} className="text-slate-400" />{group.location}</span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </div>
 
+                            {/* Right: actions */}
                             {!readOnly && (
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <Button
-                                  size="sm"
-                                  className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                                  onClick={() => openQuickPaymentDialog(group, 'sale')}
-                                >
-                                  <Fuel size={12} /> Record Sale
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  className="h-8 text-xs gap-1 bg-slate-900 hover:bg-slate-800 text-white font-semibold"
-                                  onClick={() => openQuickPaymentDialog(group, 'deposit')}
-                                >
-                                  <Banknote size={12} /> Record Deposit
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50 font-semibold"
-                                  onClick={() => openQuickPaymentDialog(group, 'expense')}
-                                >
-                                  <Receipt size={12} /> Record Expense
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700"
-                                  onClick={() => openSetupDialog(group)}
-                                  title="Edit Setup"
-                                >
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">
+                                      <Plus size={13} /> Record <ChevronDown size={11} />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-44">
+                                    <DropdownMenuItem onClick={() => openQuickPaymentDialog(group, 'sale')} className="gap-2 text-xs cursor-pointer">
+                                      <Fuel size={13} className="text-emerald-600" /> Daily Sale
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => openQuickPaymentDialog(group, 'deposit')} className="gap-2 text-xs cursor-pointer">
+                                      <Banknote size={13} className="text-blue-600" /> Bank Deposit
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => openQuickPaymentDialog(group, 'expense')} className="gap-2 text-xs cursor-pointer">
+                                      <Receipt size={13} className="text-amber-600" /> Expense
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                                <Button type="button" size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700" onClick={() => openSetupDialog(group)} title="Edit setup">
                                   <Pencil size={13} />
                                 </Button>
                               </div>
                             )}
                           </div>
 
-                          {/* Metrics row: everything visible at a glance */}
-                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mt-4 pt-4 border-t border-slate-100">
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Allocated / Sold</p>
-                              <p className="text-sm font-bold text-slate-800 mt-0.5">
-                                {group.quantity > 0 ? `${fmtQty(group.quantity)} L` : '—'}
-                                <span className="text-slate-300 mx-1">/</span>
-                                {group.totalQtySold > 0 ? `${fmtQty(group.totalQtySold)} L` : <span className="text-slate-400 font-normal italic text-xs">none</span>}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Expected Revenue</p>
-                              <p className="text-sm font-bold text-slate-800 mt-0.5">{group.expected > 0 ? fmt(group.expected) : '₦0'}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Deposited</p>
-                              <p className="text-sm font-bold text-emerald-700 mt-0.5">{group.totalPaid > 0 ? fmt(group.totalPaid) : '—'}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Expenses</p>
-                              <p className="text-sm font-bold text-amber-700 mt-0.5">{group.totalExpenses > 0 ? fmt(group.totalExpenses) : '—'}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Balance</p>
-                              <p className={`text-sm font-bold mt-0.5 ${group.balance > 0 ? 'text-red-600' : group.balance < 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
-                                {group.balance === 0
-                                  ? '₦0.00 ✓'
-                                  : group.balance > 0
-                                    ? fmt(group.balance)
-                                    : `+${fmt(Math.abs(group.balance))}`}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Sales Progress</p>
-                              <div className="flex items-center gap-2 mt-1.5">
-                                <div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full transition-all ${pctSold >= 100 ? 'bg-emerald-500' : pctSold >= 60 ? 'bg-amber-400' : 'bg-slate-400'}`}
-                                    style={{ width: `${pctSold}%` }}
-                                  />
+                          {/* Metrics strip — 4 key numbers */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Allocated</p>
+                              <p className="text-sm font-bold text-slate-800">{group.quantity > 0 ? `${fmtQty(group.quantity)} L` : '—'}</p>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <div className="h-1 flex-1 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full ${pctSold >= 100 ? 'bg-emerald-500' : pctSold >= 60 ? 'bg-amber-400' : 'bg-slate-300'}`} style={{ width: `${pctSold}%` }} />
                                 </div>
-                                <span className="text-[11px] font-semibold text-slate-500">{pctSold}%</span>
+                                <span className="text-[10px] text-slate-400 font-semibold shrink-0">{pctSold}% sold</span>
                               </div>
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Expected</p>
+                              <p className="text-sm font-bold text-slate-800">{group.expected > 0 ? fmt(group.expected) : '—'}</p>
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Deposited</p>
+                              <p className="text-sm font-bold text-emerald-700">{group.totalPaid > 0 ? fmt(group.totalPaid) : '—'}</p>
+                              {group.totalExpenses > 0 && (
+                                <p className="text-[10px] text-amber-600">Expenses: {fmt(group.totalExpenses)}</p>
+                              )}
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Balance</p>
+                              <p className={`text-sm font-bold ${group.balance === 0 ? 'text-emerald-600' : group.balance > 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                                {group.balance === 0 ? '✓ Settled' : group.balance > 0 ? fmt(group.balance) : `+${fmt(Math.abs(group.balance))}`}
+                              </p>
                             </div>
                           </div>
                         </div>
 
-                        {/* Expanded: daily sales, deposits & expenses — all stacked together */}
+                        {/* Expanded: unified activity table */}
                         {isExpanded && (
-                          <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5 space-y-4">
-                            {/* Daily Sales */}
-                            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                                <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-                                  <Fuel size={13} className="text-emerald-600" /> Daily Pump Sales
-                                </h4>
-                                <span className="text-[11px] text-slate-400 italic">Allocation: {fmtQty(group.quantity)} Ltrs</span>
-                              </div>
-                              {dailySalesOnly.length === 0 ? (
-                                <p className="p-5 text-sm text-slate-400 text-center italic">No daily pump sales recorded yet for this cycle.</p>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <Table className="text-xs">
-                                    <TableHeader>
-                                      <TableRow className="bg-slate-50/40">
-                                        <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 w-[120px]">Date</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 text-right w-[130px]">Volume (Ltrs)</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 text-right w-[110px]">Rate (₦/L)</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 text-right w-[140px]">Value (₦)</TableHead>
-                                        <TableHead className="font-semibold text-slate-500">Remarks</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 w-[90px] text-center">Actions</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {dailySalesOnly.map((payment, subIdx) => {
-                                        const dailyQty = toNum(payment.quantity);
-                                        const dailyRate = toNum(payment.rate);
-                                        const dailyExp = toNum(payment.sales_value);
-                                        return (
-                                          <TableRow key={payment.id} className="hover:bg-slate-50/50">
-                                            <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
-                                            <TableCell className="text-slate-600 font-medium">
-                                              {payment.date_of_payment
-                                                ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
-                                                : '—'}
-                                            </TableCell>
-                                            <TableCell className="text-right text-slate-700 font-bold">{fmtQty(dailyQty)} Ltrs</TableCell>
-                                            <TableCell className="text-right text-slate-600">₦{dailyRate.toLocaleString()}/L</TableCell>
-                                            <TableCell className="text-right text-slate-800 font-semibold">{fmt(dailyExp)}</TableCell>
-                                            <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
-                                              {payment.remarks || '—'}
-                                            </TableCell>
-                                            <TableCell className="text-center">
-                                              <div className="flex gap-1 items-center justify-center">
-                                                {!readOnly && (
-                                                  <>
-                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
-                                                      <Pencil size={11} />
-                                                    </Button>
-                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
-                                                      onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmtQty(dailyQty)}L` })}>
-                                                      <Trash2 size={11} />
-                                                    </Button>
-                                                  </>
-                                                )}
-                                              </div>
-                                            </TableCell>
-                                          </TableRow>
-                                        );
-                                      })}
-                                    </TableBody>
-                                  </Table>
-                                </div>
-                              )}
-                            </div>
+                          <div className="border-t border-slate-100">
+                            {group.payments.length === 0 ? (
+                              <p className="py-8 text-sm text-slate-400 text-center">No activity recorded for this cycle yet.</p>
+                            ) : (
+                              <div className="overflow-x-auto">
+                                <Table className="text-xs">
+                                  <TableHeader>
+                                    <TableRow className="bg-slate-50 border-b border-slate-100">
+                                      <TableHead className="font-semibold text-slate-500 w-[90px] px-4">Type</TableHead>
+                                      <TableHead className="font-semibold text-slate-500 w-[110px]">Date</TableHead>
+                                      <TableHead className="font-semibold text-slate-500 text-right w-[120px]">Amount / Vol.</TableHead>
+                                      <TableHead className="font-semibold text-slate-500">Details</TableHead>
+                                      {!readOnly && <TableHead className="font-semibold text-slate-500 w-[72px] text-center">Actions</TableHead>}
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {[...group.payments]
+                                      .sort((a, b) => (a.date_of_payment || '').localeCompare(b.date_of_payment || '') || a.id - b.id)
+                                      .map((payment) => {
+                                        const isSale = toNum(payment.quantity) > 0 && toNum(payment.quantity) < group.quantity;
+                                        const isExpense = toNum(payment.expenses_amount ?? 0) > 0;
+                                        const isDeposit = !isSale && !isExpense && toNum(payment.payment_amount) > 0;
 
-                            {/* Deposits */}
-                            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                                <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-                                  <Banknote size={13} className="text-emerald-600" /> Bank Deposits & Collections
-                                </h4>
-                                <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                                  <span>Expected: {fmt(group.expected)}</span>
-                                  <span className="text-slate-300">|</span>
-                                  <span>Paid: {fmt(group.totalPaid)}</span>
-                                </div>
-                              </div>
-                              {depositsOnly.length === 0 ? (
-                                <p className="p-5 text-sm text-slate-400 text-center italic">No deposit records found for this cycle.</p>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <Table className="text-xs">
-                                    <TableHeader>
-                                      <TableRow className="bg-slate-50/40">
-                                        <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 w-[120px]">Date</TableHead>
-                                        <TableHead className="font-semibold text-emerald-600 text-right w-[130px]">Amount</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 w-[170px]">Bank Account</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 w-[140px]">Payer</TableHead>
-                                        <TableHead className="font-semibold text-slate-500">Remarks</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 w-[90px] text-center">Actions</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {depositsOnly.map((payment, subIdx) => {
-                                        const dailyPaid = toNum(payment.payment_amount);
-                                        const bankParts = payment.bank ? payment.bank.split(' · ') : null;
-                                        return (
-                                          <TableRow key={payment.id} className="hover:bg-slate-50/50">
-                                            <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
-                                            <TableCell className="text-slate-600 font-medium">
-                                              {payment.date_of_payment
-                                                ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
-                                                : '—'}
-                                            </TableCell>
-                                            <TableCell className="text-right text-emerald-700 font-bold">{fmt(dailyPaid)}</TableCell>
-                                            <TableCell className="text-slate-600 font-medium">
-                                              {bankParts ? `${bankParts[0]} (${bankParts[1] || ''})` : 'Internal / Other'}
-                                            </TableCell>
-                                            <TableCell className="text-slate-600 font-medium">
-                                              {payment.payer_name || '—'}
-                                              {payment.phone_number && <span className="text-[10px] text-slate-400 block">{payment.phone_number}</span>}
-                                            </TableCell>
-                                            <TableCell className="text-slate-500 italic truncate max-w-[200px]" title={payment.remarks || ''}>
-                                              {payment.remarks || '—'}
-                                            </TableCell>
-                                            <TableCell className="text-center">
-                                              <div className="flex gap-1 items-center justify-center">
-                                                {!readOnly && (
-                                                  <>
-                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
-                                                      <Pencil size={11} />
-                                                    </Button>
-                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
-                                                      onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(dailyPaid)}` })}>
-                                                      <Trash2 size={11} />
-                                                    </Button>
-                                                  </>
-                                                )}
-                                              </div>
-                                            </TableCell>
-                                          </TableRow>
-                                        );
-                                      })}
-                                    </TableBody>
-                                  </Table>
-                                </div>
-                              )}
-                            </div>
+                                        const dateStr = payment.date_of_payment
+                                          ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yy'); } catch { return payment.date_of_payment; } })()
+                                          : '—';
 
-                            {/* Expenses */}
-                            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                                <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-                                  <Receipt size={13} className="text-amber-600" /> Daily Expenses
-                                </h4>
-                                <span className="text-[11px] text-slate-400 italic">Total: {fmt(group.totalExpenses)}</span>
-                              </div>
-                              {expensesOnly.length === 0 ? (
-                                <p className="p-5 text-sm text-slate-400 text-center italic">No expense records found for this cycle.</p>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <Table className="text-xs">
-                                    <TableHeader>
-                                      <TableRow className="bg-slate-50/40">
-                                        <TableHead className="font-semibold text-slate-500 w-[50px] text-center">S/N</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 w-[120px]">Date</TableHead>
-                                        <TableHead className="font-semibold text-amber-600 text-right w-[130px]">Amount</TableHead>
-                                        <TableHead className="font-semibold text-slate-500">Description</TableHead>
-                                        <TableHead className="font-semibold text-slate-500 w-[90px] text-center">Actions</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {expensesOnly.map((payment, subIdx) => {
-                                        const expenseAmt = toNum(payment.expenses_amount ?? 0);
+                                        let typeBadge: React.ReactNode;
+                                        let amountCell: React.ReactNode;
+                                        let detailCell: React.ReactNode;
+
+                                        if (isSale) {
+                                          const qty = toNum(payment.quantity);
+                                          const rate = toNum(payment.rate);
+                                          const val = toNum(payment.sales_value);
+                                          typeBadge = <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"><Fuel size={9} /> Sale</span>;
+                                          amountCell = <span className="font-bold text-slate-800">{fmtQty(qty)} L</span>;
+                                          detailCell = (
+                                            <span className="text-slate-600">
+                                              ₦{rate.toLocaleString()}/L · <span className="text-slate-800 font-semibold">{fmt(val)}</span>
+                                              {payment.remarks && <span className="text-slate-400 ml-1.5 italic">· {payment.remarks}</span>}
+                                            </span>
+                                          );
+                                        } else if (isExpense) {
+                                          const amt = toNum(payment.expenses_amount ?? 0);
+                                          typeBadge = <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"><Receipt size={9} /> Expense</span>;
+                                          amountCell = <span className="font-bold text-amber-700">{fmt(amt)}</span>;
+                                          detailCell = <span className="text-slate-500 italic">{payment.remarks || '—'}</span>;
+                                        } else {
+                                          const amt = toNum(payment.payment_amount);
+                                          const bankParts = payment.bank ? payment.bank.split(' · ') : null;
+                                          typeBadge = <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200"><Banknote size={9} /> Deposit</span>;
+                                          amountCell = <span className="font-bold text-emerald-700">{fmt(amt)}</span>;
+                                          detailCell = (
+                                            <span className="text-slate-600">
+                                              {payment.payer_name && <><span className="font-medium">{payment.payer_name}</span> · </>}
+                                              {bankParts ? `${bankParts[0]}` : 'Internal'}
+                                              {payment.remarks && <span className="text-slate-400 ml-1.5 italic">· {payment.remarks}</span>}
+                                            </span>
+                                          );
+                                        }
+
                                         return (
-                                          <TableRow key={`expense-${payment.id}`} className="hover:bg-slate-50/50">
-                                            <TableCell className="text-center text-slate-400">{subIdx + 1}</TableCell>
-                                            <TableCell className="text-slate-600 font-medium">
-                                              {payment.date_of_payment
-                                                ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yyyy'); } catch { return payment.date_of_payment; } })()
-                                                : '—'}
-                                            </TableCell>
-                                            <TableCell className="text-right text-amber-700 font-bold">{fmt(expenseAmt)}</TableCell>
-                                            <TableCell className="text-slate-500 italic truncate max-w-[260px]" title={payment.remarks || ''}>
-                                              {payment.remarks || '—'}
-                                            </TableCell>
-                                            <TableCell className="text-center">
-                                              <div className="flex gap-1 items-center justify-center">
-                                                {!readOnly && (
-                                                  <>
-                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit entry">
-                                                      <Pencil size={11} />
-                                                    </Button>
-                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete entry"
-                                                      onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `${group.truckNumber} · ${payment.date_of_payment || ''} · ${fmt(expenseAmt)}` })}>
-                                                      <Trash2 size={11} />
-                                                    </Button>
-                                                  </>
-                                                )}
-                                              </div>
-                                            </TableCell>
+                                          <TableRow key={payment.id} className="hover:bg-slate-50/60 border-b border-slate-50">
+                                            <TableCell className="px-4">{typeBadge}</TableCell>
+                                            <TableCell className="text-slate-500 whitespace-nowrap">{dateStr}</TableCell>
+                                            <TableCell className="text-right">{amountCell}</TableCell>
+                                            <TableCell className="max-w-[280px] truncate">{detailCell}</TableCell>
+                                            {!readOnly && (
+                                              <TableCell className="text-center">
+                                                <div className="flex gap-0.5 items-center justify-center">
+                                                  <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit">
+                                                    <Pencil size={11} />
+                                                  </Button>
+                                                  <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete"
+                                                    onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `entry on ${payment.date_of_payment || ''}` })}>
+                                                    <Trash2 size={11} />
+                                                  </Button>
+                                                </div>
+                                              </TableCell>
+                                            )}
                                           </TableRow>
                                         );
                                       })}
-                                    </TableBody>
-                                  </Table>
-                                </div>
-                              )}
-                            </div>
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            )}
 
                             {!readOnly && (
                               <div className="flex justify-end pt-1">
