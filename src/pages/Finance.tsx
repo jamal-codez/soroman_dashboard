@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
@@ -84,6 +84,8 @@ interface BankAccount {
   is_active?: boolean;
   is_primary?: boolean;
   location?: number | { id: number; name: string } | null;
+  pfi_id?: number | null;
+  pfi_number?: string | null;
 }
 
 export default function Finance() {
@@ -94,7 +96,7 @@ export default function Finance() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: '', acct_no: '', bank_name: '', location_id: '' });
+  const [formData, setFormData] = useState({ name: '', acct_no: '', bank_name: '', location_id: '', pfi_id: '' });
   const [submissionStatus, setSubmissionStatus] = useState<'success' | 'error' | null>(null);
   const [localState, setLocalState] = useState<{ [key: number]: StatePrice }>({});
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; productId: number | null; abbrev:string| null; updatedPrice: number | null }>({
@@ -114,6 +116,7 @@ export default function Finance() {
     acct_no: '',
     bank_name: '',
     location_id: '',
+    pfi_id: '',
   });
 
   const [selectedBankLocationId, setSelectedBankLocationId] = useState<string>('');
@@ -135,6 +138,7 @@ export default function Finance() {
         acct_no: String(rec.acct_no ?? ''),
         bank_name: String(rec.bank_name ?? ''),
         location_id: locId ? String(locId) : '',
+        pfi_id: rec.pfi_id ? String(rec.pfi_id) : '',
       });
     }
   }, [editingBank]);
@@ -150,6 +154,7 @@ export default function Finance() {
     await apiClient.admin.editBankAccount(editingBank.id, {
       ...editFormData,
       location_id: editFormData.location_id ? Number(editFormData.location_id) : null,
+      pfi_id: editFormData.pfi_id ? Number(editFormData.pfi_id) : null,
     });
 
     setShowEditModal(false);
@@ -199,6 +204,36 @@ export default function Finance() {
     retry: 2,
   });
 
+  const pfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number?: string | number }> } & Record<string, unknown>>({
+    queryKey: ['pfis', 'active', formData.location_id],
+    queryFn: () => apiClient.admin.getPfis({ status: 'active', location: formData.location_id || undefined, page_size: 500 }),
+    enabled: !!formData.location_id,
+  });
+
+  const editPfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number?: string | number }> } & Record<string, unknown>>({
+    queryKey: ['pfis', 'active', editFormData.location_id],
+    queryFn: () => apiClient.admin.getPfis({ status: 'active', location: editFormData.location_id || undefined, page_size: 500 }),
+    enabled: !!editFormData.location_id,
+  });
+
+  const pfiOptions = useMemo(() => {
+    const rec = (pfiQuery.data && typeof pfiQuery.data === 'object') ? (pfiQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
+    const list = (raw || []) as Array<{ id: number; pfi_number?: string | number }>;
+    return list
+      .filter((p) => p && typeof p.id === 'number')
+      .map((p) => ({ id: p.id, label: String(p.pfi_number ?? `PFI-${p.id}`) }));
+  }, [pfiQuery.data]);
+
+  const editPfiOptions = useMemo(() => {
+    const rec = (editPfiQuery.data && typeof editPfiQuery.data === 'object') ? (editPfiQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(editPfiQuery.data) ? editPfiQuery.data : []);
+    const list = (raw || []) as Array<{ id: number; pfi_number?: string | number }>;
+    return list
+      .filter((p) => p && typeof p.id === 'number')
+      .map((p) => ({ id: p.id, label: String(p.pfi_number ?? `PFI-${p.id}`) }));
+  }, [editPfiQuery.data]);
+
   const stateQuery = useQuery<StatePrice[]>({
     queryKey: ['states'],
     queryFn: () => apiClient.admin.getStates(),
@@ -243,7 +278,7 @@ export default function Finance() {
   });
 
   const addBankAccountMutation = useMutation({
-    mutationFn: (data: { name: string; acct_no: string; bank_name: string; location_id?: number | null }) =>
+    mutationFn: (data: { name: string; acct_no: string; bank_name: string; location_id?: number | null; pfi_id?: number | null }) =>
       apiClient.admin.postBankAccount(data),
     onSuccess: () => {
       setSubmissionStatus('success');
@@ -285,6 +320,7 @@ export default function Finance() {
         acct_no: formData.acct_no,
         bank_name: formData.bank_name,
         location_id: formData.location_id ? Number(formData.location_id) : null,
+        pfi_id: formData.pfi_id ? Number(formData.pfi_id) : null,
       },
       {
         onSuccess: () => setSubmissionStatus('success'),
@@ -435,6 +471,7 @@ export default function Finance() {
                   <TableHeader>
                     <TableRow className="bg-slate-50/80 [&>th]:whitespace-nowrap [&>th]:px-4 [&>th]:py-3 [&>th]:text-xs [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:uppercase [&>th]:tracking-wider">
                       <TableHead>Location</TableHead>
+                      <TableHead>PFI</TableHead>
                       <TableHead>Bank Name</TableHead>
                       <TableHead>Account Name</TableHead>
                       <TableHead>Account Number</TableHead>
@@ -458,7 +495,7 @@ export default function Finance() {
                       if (sorted.length === 0) {
                         return (
                           <TableRow>
-                            <TableCell colSpan={6} className="text-center text-slate-500 py-10">
+                            <TableCell colSpan={7} className="text-center text-slate-500 py-10">
                               No bank accounts found.
                             </TableCell>
                           </TableRow>
@@ -481,6 +518,7 @@ export default function Finance() {
                         return (
                           <TableRow key={bank.id} className={`transition-colors ${isActive ? '' : 'opacity-60'} ${isEven ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/40`}>
                             <TableCell className="px-4 font-medium text-slate-800">{locName || '—'}</TableCell>
+                            <TableCell className="px-4 text-sm text-slate-700">{bank.pfi_number || '—'}</TableCell>
                             <TableCell className="px-4 text-sm text-slate-700">{bank.bank_name}</TableCell>
                             <TableCell className="px-4 text-sm text-slate-700">{bank.name}</TableCell>
                             <TableCell className="px-4 text-sm font-mono text-slate-800">{bank.acct_no}</TableCell>
@@ -560,6 +598,20 @@ export default function Finance() {
                 </option>
               ))}
             </select>
+            <select
+              aria-label="Linked PFI"
+              className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
+              value={formData.pfi_id}
+              onChange={(e) => setFormData((p) => ({ ...p, pfi_id: e.target.value }))}
+              disabled={!formData.location_id}
+            >
+              <option value="">No PFI (default account for location)</option>
+              {pfiOptions.map((p) => (
+                <option key={p.id} value={String(p.id)}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
             <Input
               name="name"
               placeholder="Account Name"
@@ -631,6 +683,20 @@ export default function Finance() {
               {stateQuery.data?.map((s) => (
                 <option key={s.id} value={String(s.id)}>
                   {s.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Linked PFI"
+              className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
+              value={editFormData.pfi_id}
+              onChange={(e) => setEditFormData((p) => ({ ...p, pfi_id: e.target.value }))}
+              disabled={!editFormData.location_id}
+            >
+              <option value="">No PFI (default account for location)</option>
+              {editPfiOptions.map((p) => (
+                <option key={p.id} value={String(p.id)}>
+                  {p.label}
                 </option>
               ))}
             </select>

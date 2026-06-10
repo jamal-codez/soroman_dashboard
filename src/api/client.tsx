@@ -261,7 +261,7 @@ export const apiClient = {
       return response.json();
     },
 
-    postBankAccount: async (data: { name: string; acct_no: string; bank_name: string }) => {
+    postBankAccount: async (data: { name: string; acct_no: string; bank_name: string; location_id?: number | null; pfi_id?: number | null }) => {
       const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/`, {
         method: 'POST',
         headers: getHeaders(),
@@ -293,7 +293,7 @@ export const apiClient = {
 
     editBankAccount: async (
       id: number,
-      data: Partial<{ name: string; acct_no: string; bank_name: string; location_id?: number | null; is_active?: boolean; suspended?: boolean }>
+      data: Partial<{ name: string; acct_no: string; bank_name: string; location_id?: number | null; pfi_id?: number | null; is_active?: boolean; suspended?: boolean }>
     ) => {
       const response = await safeFetch(`${ADMIN_BASE}/banks/${id}/edit/`, {
         method: 'PATCH',
