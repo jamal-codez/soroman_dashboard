@@ -1,6 +1,6 @@
 import React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { format, parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 
 import { SidebarNav } from '@/components/SidebarNav';
@@ -15,7 +15,7 @@ import {
 import { apiClient, fetchAllPages } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { CalendarDays, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert, Users, FileSpreadsheet, FileText, ClipboardCheck, ChevronLeft, ChevronRight, CalendarClock } from 'lucide-react';
+import { CalendarDays, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert, Users, FileSpreadsheet, FileText, ClipboardCheck, ChevronLeft, ChevronRight, CalendarClock, Trash2 } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -520,6 +520,22 @@ export default function DailySalesReport() {
     refetchOnWindowFocus: true,
   });
 
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  const deleteStaffReportMutation = useMutation({
+    mutationFn: (id: number) => apiClient.admin.deleteStaffDailyReport(id),
+    onSuccess: () => {
+      toast({ title: 'Report deleted', description: 'The entry has been removed.' });
+      setConfirmDeleteId(null);
+      staffDailyListQuery.refetch();
+      datesQuery.refetch();
+    },
+    onError: (err: any) => {
+      toast({ title: 'Delete failed', description: err.message, variant: 'destructive' });
+      setConfirmDeleteId(null);
+    },
+  });
+
   const [isStaffDownloading, setIsStaffDownloading] = useState<'excel' | 'pdf' | null>(null);
 
   const handleDownloadStaffExcel = async () => {
@@ -974,6 +990,7 @@ export default function DailySalesReport() {
                           <tr className="border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                             <th className="px-4 py-2.5 text-left">S/N</th>
                             <th className="px-4 py-2.5 text-left">Location</th>
+                            <th className="px-4 py-2.5 text-left">PFI</th>
                             <th className="px-4 py-2.5 text-right">Carried Over</th>
                             <th className="px-4 py-2.5 text-right">Opening Ltrs</th>
                             <th className="px-4 py-2.5 text-right">Litres Sold</th>
@@ -985,6 +1002,7 @@ export default function DailySalesReport() {
                             <th className="px-4 py-2.5 text-right">Differentials</th>
                             <th className="px-4 py-2.5 text-right">Leftover</th>
                             <th className="px-4 py-2.5 text-left">Submitted By</th>
+                            <th className="px-4 py-2.5 text-right">Action</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
@@ -1003,6 +1021,7 @@ export default function DailySalesReport() {
                               <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                                 <td className="px-4 py-2.5 text-slate-400 text-xs">{idx + 1}</td>
                                 <td className="px-4 py-2.5 font-semibold text-slate-800">{String(rpt.location || '—')}</td>
+                                <td className="px-4 py-2.5 text-slate-600">{String(rpt.pfi_number || '—')}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.yesterday_carried_over_loading)}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.product_brought_forward)}</td>
                                 <td className="px-4 py-2.5 text-right font-medium text-slate-700">{fmtN(rpt.litres_sold_today)}</td>
@@ -1014,6 +1033,36 @@ export default function DailySalesReport() {
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.differentials)}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.loading_left_over)}</td>
                                 <td className="px-4 py-2.5 text-xs text-slate-500">{String(rpt.submitted_by_name || '—')}</td>
+                                <td className="px-4 py-2.5 text-right">
+                                  {confirmDeleteId === Number(rpt.id) ? (
+                                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                      <span className="text-xs text-red-600 font-medium">Delete?</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => deleteStaffReportMutation.mutate(Number(rpt.id))}
+                                        className="text-xs font-semibold text-red-600 hover:text-red-800"
+                                      >
+                                        Yes
+                                      </button>
+                                      <span className="text-slate-300">|</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteId(null)}
+                                        className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                                      >
+                                        No
+                                      </button>
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteId(Number(rpt.id))}
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600"
+                                    >
+                                      <Trash2 size={12} /> Delete
+                                    </button>
+                                  )}
+                                </td>
                               </tr>
                             );
                           })}
@@ -1024,7 +1073,7 @@ export default function DailySalesReport() {
                           return (
                             <tfoot>
                               <tr className="border-t-2 border-slate-200 bg-blue-50/60 font-bold text-slate-800 text-xs">
-                                <td className="px-4 py-3 uppercase" colSpan={2}>Total</td>
+                                <td className="px-4 py-3 uppercase" colSpan={3}>Total</td>
                                 <td className="px-4 py-3 text-right">{sum('yesterday_carried_over_loading').toLocaleString()}</td>
                                 <td className="px-4 py-3 text-right">{sum('product_brought_forward').toLocaleString()}</td>
                                 <td className="px-4 py-3 text-right">{sum('litres_sold_today').toLocaleString()}</td>
@@ -1035,6 +1084,7 @@ export default function DailySalesReport() {
                                 <td className="px-4 py-3 text-right text-emerald-700">₦{sum('total_sales_amount').toLocaleString()}</td>
                                 <td className="px-4 py-3 text-right">{sum('differentials').toLocaleString()}</td>
                                 <td className="px-4 py-3 text-right">{sum('loading_left_over').toLocaleString()}</td>
+                                <td className="px-4 py-3"></td>
                                 <td className="px-4 py-3"></td>
                               </tr>
                             </tfoot>

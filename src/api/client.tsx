@@ -1032,6 +1032,7 @@ export const apiClient = {
     submitStaffDailyReport: async (data: {
       date: string;
       location: string;
+      pfi_number?: string;
       submitted_by_name?: string;
       yesterday_carried_over_loading?: string | number;
       product_brought_forward?: string | number;

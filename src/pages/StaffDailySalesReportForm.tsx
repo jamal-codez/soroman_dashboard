@@ -307,8 +307,11 @@ export default function StaffDailySalesReportForm() {
   // ── Edit from history ───────────────────────────────────────────────
   const openEdit = (rpt: Record<string, unknown>) => {
     setEditDate(String(rpt.date ?? today));
+    // Pre-select the PFI that was used for this entry (pfi_number is globally
+    // unique) so resubmitting updates the same row instead of creating a new one.
+    const matchedPfi = pfis.find(p => p.pfi_number === String(rpt.pfi_number ?? ''));
     setForm({
-      pfi_id: '',
+      pfi_id: matchedPfi ? String(matchedPfi.pfi_id) : '',
       location: String(rpt.location ?? ''),
       yesterday_carried_over_loading: numVal(rpt.yesterday_carried_over_loading),
       product_brought_forward: numVal(rpt.product_brought_forward),
@@ -331,6 +334,7 @@ export default function StaffDailySalesReportForm() {
     mutationFn: () => apiClient.admin.submitStaffDailyReport({
       date: editDate,
       location: form.location,
+      pfi_number: pfis.find(p => String(p.pfi_id) === form.pfi_id)?.pfi_number || '',
       submitted_by_name: staffName,
       yesterday_carried_over_loading: rawNum(form.yesterday_carried_over_loading) || '0',
       product_brought_forward: rawNum(form.product_brought_forward) || '0',
