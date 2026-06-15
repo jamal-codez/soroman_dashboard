@@ -239,7 +239,13 @@ export default function FleetLedger() {
         (e.truck_plate || truckMap.get(e.truck)?.plate_number || '').toLowerCase().includes(q)
       );
     }
-    return result.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return result.sort((a, b) => {
+      const plateA = a.truck_plate || truckMap.get(a.truck)?.plate_number || '';
+      const plateB = b.truck_plate || truckMap.get(b.truck)?.plate_number || '';
+      const plateDiff = plateA.localeCompare(plateB);
+      if (plateDiff !== 0) return plateDiff;
+      return (b.date || '').localeCompare(a.date || '');
+    });
   }, [timeFilteredEntries, ledgerTruckFilter, ledgerTypeFilter, ledgerCategoryFilter, ledgerSearch, truckMap]);
 
   // ═══════════════════════════════════════════════════════════════════
