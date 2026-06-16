@@ -716,7 +716,7 @@ export default function DepotView() {
       }
 
       return true;
-    }).sort((a, b) => a.created_at.localeCompare(b.created_at));
+    }).sort((a, b) => b.created_at.localeCompare(a.created_at));
   }, [allOrders, timePreset, customFrom, customTo, statusFilter, locationFilter, productFilter, pfiFilter, releaseTypeFilter, searchQuery]);
 
   // ── Summary cards ─────────────────────────────────────────────────
@@ -725,20 +725,22 @@ export default function DepotView() {
     const paid = filteredOrders.filter(o => ['paid', 'released', 'loaded', 'sold'].includes(o.status?.toLowerCase())).length;
     const pending = filteredOrders.filter(o => o.status?.toLowerCase() === 'pending').length;
     const totalQty = filteredOrders.reduce((s, o) => s + toNum(o.quantity), 0);
+    const totalAmount = filteredOrders.reduce((s, o) => s + toNum(o.total_price), 0);
 
     const releasedOrders = filteredOrders.filter(o => o.status?.toLowerCase() === 'released');
     const loadedOrders = filteredOrders.filter(o => o.status?.toLowerCase() === 'loaded');
     const releasedQty = releasedOrders.reduce((s, o) => s + toNum(o.quantity), 0);
+    const releasedAmount = releasedOrders.reduce((s, o) => s + toNum(o.total_price), 0);
     const loadedQty = loadedOrders.reduce((s, o) => s + toNum(o.quantity), 0);
+    const loadedAmount = loadedOrders.reduce((s, o) => s + toNum(o.total_price), 0);
 
     return [
-      { title: 'Total Orders', value: String(total), icon: <FileText size={20} />, tone: 'neutral' },
-      { title: 'Paid & Released', value: String(paid), icon: <CheckCircle2 size={20} />, tone: 'green' },
+      { title: 'Total Orders', value: String(total), icon: <FileText size={20} />, tone: 'neutral', description: `${paid} paid & released` },
+      { title: 'Total Amount', value: totalAmount > 0 ? fmt(totalAmount) : '₦0.00', icon: <DollarSign size={20} />, tone: 'green' },
       { title: 'Payment Not Confirmed', value: String(pending), icon: <Clock size={20} />, tone: pending > 0 ? 'amber' : 'neutral' },
-      { title: 'Total Qty (L)', value: totalQty > 0 ? fmtQty(totalQty) : '0', icon: <Fuel size={20} />, tone: 'neutral' },
-      { title: 'Released Qty (L)', value: releasedQty > 0 ? fmtQty(releasedQty) : '0', icon: <ShieldCheck size={20} />, tone: 'neutral' },
-      { title: 'Loaded Qty (L)', value: loadedQty > 0 ? fmtQty(loadedQty) : '0', icon: <Truck size={20} />, tone: 'neutral' },
-
+      { title: 'Total Qty (L)', value: totalQty > 0 ? fmtQty(totalQty) : '0', icon: <Fuel size={20} />, tone: 'neutral', description: totalAmount > 0 ? fmt(totalAmount) : undefined },
+      { title: 'Released Qty (L)', value: releasedQty > 0 ? fmtQty(releasedQty) : '0', icon: <ShieldCheck size={20} />, tone: 'neutral', description: releasedAmount > 0 ? fmt(releasedAmount) : undefined },
+      { title: 'Loaded Qty (L)', value: loadedQty > 0 ? fmtQty(loadedQty) : '0', icon: <Truck size={20} />, tone: 'neutral', description: loadedAmount > 0 ? fmt(loadedAmount) : undefined },
     ];
   }, [filteredOrders]);
 
@@ -779,7 +781,7 @@ export default function DepotView() {
       ['SALES ORDERS REPORT'],
       [''],
       ['REFERENCE', 'DATE', 'CUSTOMER', 'COMPANY', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS', 'PHONE'],
-      ...filteredOrders.map(order => {
+      ...[...filteredOrders].sort((a, b) => a.created_at.localeCompare(b.created_at)).map(order => {
         const qty = toNum(order.quantity);
         const unitPrice = getUnitPrice(order);
         const amount = toNum(order.total_price);
