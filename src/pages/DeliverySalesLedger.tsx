@@ -341,7 +341,9 @@ export default function DeliverySalesLedger() {
   const [customerFilter, setCustomerFilter] = useState<string>('all');
   const [depotFilter, setDepotFilter] = useState<string>('all');
   const [cycleFilter, setCycleFilter] = useState<string>('all'); // 'all' | '1' | '2' | ...
-  const [customerTypeFilter, setCustomerTypeFilter] = useState<'all' | 'filling_station' | 'normal'>('all');
+  // Default to hiding filling-station entries — those belong on the Filling Stations page,
+  // not the Sales Ledger. Users can still switch to "All" or "Filling Stations Only" via the filter.
+  const [customerTypeFilter, setCustomerTypeFilter] = useState<'all' | 'filling_station' | 'normal'>('normal');
 
   // ── Allocation & Trip Codes (now loaded from localStorage, shared with Inventory) ──
   const [tripCodes, setTripCodes] = useState<string[]>(() => {

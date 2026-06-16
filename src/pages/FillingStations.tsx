@@ -831,7 +831,7 @@ export default function FillingStations() {
         expected,
         totalPaid,
         totalExpenses,
-        balance: expected - (totalPaid - totalExpenses),
+        balance: expected - (totalPaid + totalExpenses),
         pfiNumber,
         code: derivedCode,
         payments,
@@ -884,7 +884,7 @@ export default function FillingStations() {
         expected,
         totalPaid,
         totalExpenses,
-        balance: expected - (totalPaid - totalExpenses),
+        balance: expected - (totalPaid + totalExpenses),
         pfiNumber: '',
         code: firstPayment.allocation_code || sorted.map(sale => sale.allocation_code).find(Boolean) || '',
         payments: sorted,
@@ -987,7 +987,7 @@ export default function FillingStations() {
       totalExpected += Math.max(0, toNum(group.expected));
       totalPaid += toNum(group.totalPaid);
       totalExpenses += toNum(group.totalExpenses);
-      totalNetPaid += toNum(group.totalPaid) - toNum(group.totalExpenses);
+      totalNetPaid += toNum(group.totalPaid) + toNum(group.totalExpenses);
       totalBalance += toNum(group.balance);
       entries += group.payments.length;
 
