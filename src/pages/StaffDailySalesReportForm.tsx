@@ -88,11 +88,11 @@ const toNum = (s: string) => {
 // Field Component
 // ─────────────────────────────────────────────────────────────────────────────
 function Field({
-  label, value, onChange, prefix, suffix, multiline, readOnly = false, highlight = false,
+  label, value, onChange, prefix, suffix, multiline, readOnly = false, highlight = false, decimal = false,
 }: {
   label: string; value: string; onChange: (v: string) => void;
   prefix?: string; suffix?: string; multiline?: boolean;
-  readOnly?: boolean; highlight?: boolean;
+  readOnly?: boolean; highlight?: boolean; decimal?: boolean;
 }) {
   return (
     <div>
@@ -122,7 +122,7 @@ function Field({
             onChange={(e) => onChange(rawNum(e.target.value))}
             onBlur={(e) => {
               const n = Number(rawNum(e.target.value));
-              if (n > 0) onChange(n.toLocaleString(undefined, { maximumFractionDigits: 0 }));
+              if (n > 0) onChange(n.toLocaleString(undefined, { maximumFractionDigits: decimal ? 2 : 0 }));
             }}
             onFocus={(e) => onChange(rawNum(e.target.value))}
             disabled={readOnly}
@@ -544,7 +544,7 @@ export default function StaffDailySalesReportForm() {
                         <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Sales Figures</legend>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <Field label="Litres Sold Today" value={form.litres_sold_today} onChange={set('litres_sold_today')} suffix="Ltrs" highlight />
-                          <Field label="Price per Litre" value={form.price} onChange={set('price')} prefix="₦" highlight />
+                          <Field label="Price per Litre" value={form.price} onChange={set('price')} prefix="₦" highlight decimal />
                           <Field label="Tank Balance" value={form.tank_balance} onChange={set('tank_balance')} suffix="Ltrs" highlight />
                           <Field label="No. of Trucks Sold" value={form.num_trucks_sold} onChange={set('num_trucks_sold')} />
                         </div>
