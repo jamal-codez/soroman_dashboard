@@ -1135,6 +1135,30 @@ export const apiClient = {
     },
 
     /** DELETE /api/admin/reports/staff/<id>/delete/ — permanently remove a report entry */
+    updateStaffDailyReport: async (id: number, data: {
+      date?: string;
+      yesterday_carried_over_loading?: string | number;
+      product_brought_forward?: string | number;
+      litres_sold_today?: string | number;
+      price?: string | number;
+      tank_balance?: string | number;
+      num_trucks_sold?: string | number;
+      amount_paid?: string | number;
+      total_sales_amount?: string | number;
+      differentials?: string | number;
+      loading_left_over?: string | number;
+      remarks?: string;
+      submitted_by_name?: string;
+    }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/staff/${id}/update/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
     deleteStaffDailyReport: async (id: number) => {
       const response = await safeFetch(`${ADMIN_BASE}/reports/staff/${id}/delete/`, {
         method: 'DELETE',

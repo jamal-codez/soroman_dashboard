@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { format, parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 
@@ -15,7 +15,7 @@ import {
 import { apiClient, fetchAllPages } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { CalendarDays, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert, Users, FileSpreadsheet, FileText, ClipboardCheck, ChevronLeft, ChevronRight, CalendarClock, Trash2 } from 'lucide-react';
+import { CalendarDays, CheckCircle2, AlertCircle, Send, Loader2, Info, Mail, ShieldAlert, Users, FileSpreadsheet, FileText, ClipboardCheck, ChevronLeft, ChevronRight, CalendarClock, Trash2, Pencil, X } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -522,6 +522,65 @@ export default function DailySalesReport() {
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
+  type EditingReport = Record<string, unknown> & { id: number };
+  const [editingReport, setEditingReport] = useState<EditingReport | null>(null);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
+
+  const openEditDialog = (rpt: Record<string, unknown>) => {
+    const r = rpt as EditingReport;
+    setEditingReport(r);
+    setEditForm({
+      date:                           String(r.date ?? ''),
+      yesterday_carried_over_loading: String(r.yesterday_carried_over_loading ?? ''),
+      product_brought_forward:        String(r.product_brought_forward ?? ''),
+      litres_sold_today:              String(r.litres_sold_today ?? ''),
+      price:                          String(r.price ?? ''),
+      tank_balance:                   String(r.tank_balance ?? ''),
+      num_trucks_sold:                String(r.num_trucks_sold ?? ''),
+      amount_paid:                    String(r.amount_paid ?? ''),
+      total_sales_amount:             String(r.total_sales_amount ?? ''),
+      differentials:                  String(r.differentials ?? ''),
+      loading_left_over:              String(r.loading_left_over ?? ''),
+      remarks:                        String(r.remarks ?? ''),
+      submitted_by_name:              String(r.submitted_by_name ?? ''),
+    });
+  };
+
+  // Recompute derived fields whenever source values change in the edit form
+  const isFirstEditRender = useRef(true);
+  useEffect(() => {
+    if (!editingReport) { isFirstEditRender.current = true; return; }
+    if (isFirstEditRender.current) { isFirstEditRender.current = false; return; }
+    const litres     = Number(editForm.litres_sold_today)              || 0;
+    const price      = Number(editForm.price)                          || 0;
+    const opening    = Number(editForm.product_brought_forward)        || 0;
+    const carryover  = Number(editForm.yesterday_carried_over_loading) || 0;
+    const amtPaid    = Number(editForm.amount_paid)                    || 0;
+    const totalSales = litres * price;
+    const tankBal    = opening + carryover - litres;
+    const diff       = amtPaid - totalSales;
+    setEditForm(f => ({
+      ...f,
+      total_sales_amount: totalSales > 0 ? String(Math.round(totalSales)) : '0',
+      tank_balance:       tankBal > 0    ? String(Math.round(tankBal))    : '0',
+      differentials:      (amtPaid > 0 || totalSales > 0) ? String(Math.round(diff)) : '0',
+    }));
+  }, [editForm.litres_sold_today, editForm.price, editForm.product_brought_forward,
+      editForm.yesterday_carried_over_loading, editForm.amount_paid]);
+
+  const updateStaffReportMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Record<string, string> }) =>
+      apiClient.admin.updateStaffDailyReport(id, data),
+    onSuccess: () => {
+      toast({ title: 'Report updated', description: 'The entry has been saved.' });
+      setEditingReport(null);
+      staffDailyListQuery.refetch();
+    },
+    onError: (err: unknown) => {
+      toast({ title: 'Update failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    },
+  });
+
   const deleteStaffReportMutation = useMutation({
     mutationFn: (id: number) => apiClient.admin.deleteStaffDailyReport(id),
     onSuccess: () => {
@@ -672,6 +731,7 @@ export default function DailySalesReport() {
   };
 
   return (
+    <>
     <div className="flex h-screen bg-slate-50">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -1054,13 +1114,23 @@ export default function DailySalesReport() {
                                       </button>
                                     </span>
                                   ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmDeleteId(Number(rpt.id))}
-                                      className="inline-flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600"
-                                    >
-                                      <Trash2 size={12} /> Delete
-                                    </button>
+                                    <span className="inline-flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => openEditDialog(rpt)}
+                                        className="inline-flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-600"
+                                      >
+                                        <Pencil size={12} /> Edit
+                                      </button>
+                                      <span className="text-slate-200">|</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteId(Number(rpt.id))}
+                                        className="inline-flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600"
+                                      >
+                                        <Trash2 size={12} /> Delete
+                                      </button>
+                                    </span>
                                   )}
                                 </td>
                               </tr>
@@ -1240,5 +1310,152 @@ export default function DailySalesReport() {
         </div>
       </div>
     </div>
+
+    {/* ── Edit Staff Report Dialog ─────────────────────────────── */}
+    {editingReport && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-blue-600 to-blue-700 rounded-t-2xl">
+            <div>
+              <h2 className="text-base font-bold text-white">Edit Report Entry</h2>
+              <p className="text-xs text-blue-200 mt-0.5">
+                {String(editingReport.location || '')} · {String(editingReport.pfi_number || '')} · {String(editingReport.date || '')}
+              </p>
+            </div>
+            <button type="button" title="Close" onClick={() => setEditingReport(null)} className="text-white/70 hover:text-white">
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Date */}
+            <div className="flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/40 px-4 py-3">
+              <CalendarDays size={14} className="text-blue-500 shrink-0" />
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">Report Date</label>
+              <input
+                type="date"
+                title="Report Date"
+                value={editForm.date ?? ''}
+                onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))}
+                className="ml-auto rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all"
+              />
+            </div>
+
+            {/* Loading & Opening */}
+            <fieldset className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Loading &amp; Opening</legend>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { key: 'yesterday_carried_over_loading', label: 'Carried Over Loading', suffix: 'L' },
+                  { key: 'product_brought_forward',        label: 'Opening Litres',        suffix: 'L' },
+                ].map(({ key, label, suffix }) => (
+                  <label key={key} className="block">
+                    <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</span>
+                    <div className="relative">
+                      <input type="number" step="any" value={editForm[key] ?? ''} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none">{suffix}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {/* Sales */}
+            <fieldset className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Sales Figures</legend>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { key: 'litres_sold_today', label: 'Litres Sold',   suffix: 'L', prefix: '',  auto: false },
+                  { key: 'price',             label: 'Price / Litre', suffix: '',  prefix: '₦', auto: false },
+                  { key: 'num_trucks_sold',   label: 'Trucks Sold',   suffix: '',  prefix: '',  auto: false },
+                  { key: 'tank_balance',      label: 'Tank Balance',  suffix: 'L', prefix: '',  auto: true  },
+                ].map(({ key, label, suffix, prefix, auto }) => (
+                  <label key={key} className="block">
+                    <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      {label}{auto && <span className="normal-case font-normal text-emerald-600 ml-1">(auto)</span>}
+                    </span>
+                    <div className="relative">
+                      {prefix && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">{prefix}</span>}
+                      <input type="number" step="any" value={editForm[key] ?? ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        className={`w-full rounded-lg border py-2 text-sm focus:outline-none ${auto ? 'border-emerald-200 bg-emerald-50/50 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400' : 'border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400'} ${prefix ? 'pl-7 pr-3' : suffix ? 'pl-3 pr-8' : 'px-3'}`} />
+                      {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none">{suffix}</span>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {/* Payments */}
+            <fieldset className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Payments &amp; Totals</legend>
+              <div className="grid grid-cols-2 gap-3">
+                {/* Editable */}
+                {[
+                  { key: 'amount_paid',       label: 'Amount Paid' },
+                  { key: 'loading_left_over', label: 'Loading Leftover' },
+                ].map(({ key, label }) => (
+                  <label key={key} className="block">
+                    <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</span>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">₦</span>
+                      <input type="number" step="any" value={editForm[key] ?? ''} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        className="w-full rounded-lg border border-slate-200 bg-white pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                    </div>
+                  </label>
+                ))}
+                {/* Auto-calculated (but still editable) */}
+                {[
+                  { key: 'total_sales_amount', label: 'Total Sales' },
+                  { key: 'differentials',      label: 'Differentials' },
+                ].map(({ key, label }) => (
+                  <label key={key} className="block">
+                    <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      {label} <span className="normal-case font-normal text-emerald-600">(auto)</span>
+                    </span>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">₦</span>
+                      <input type="number" step="any" value={editForm[key] ?? ''} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        className="w-full rounded-lg border border-emerald-200 bg-emerald-50/50 pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400" />
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {/* Meta */}
+            <div className="grid grid-cols-1 gap-3">
+              <label className="block">
+                <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Submitted By</span>
+                <input type="text" value={editForm.submitted_by_name ?? ''} onChange={e => setEditForm(f => ({ ...f, submitted_by_name: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Remarks</span>
+                <textarea rows={2} value={editForm.remarks ?? ''} onChange={e => setEditForm(f => ({ ...f, remarks: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 resize-none" />
+              </label>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100">
+            <button type="button" onClick={() => setEditingReport(null)}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={updateStaffReportMutation.isPending}
+              onClick={() => updateStaffReportMutation.mutate({ id: editingReport.id, data: editForm })}
+              className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-60"
+            >
+              {updateStaffReportMutation.isPending ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
