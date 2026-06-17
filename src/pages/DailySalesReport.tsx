@@ -1,6 +1,6 @@
 import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 
 import { SidebarNav } from '@/components/SidebarNav';
@@ -211,6 +211,7 @@ const SECTION_STARTS = new Set<RowKind>(['auto-sold-all', 'manual-amount-paid'])
 
 export default function DailySalesReport() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const today = useMemo(() => new Date(), []);
   const todayKey = useMemo(() => format(today, 'yyyy-MM-dd'), [today]);
@@ -571,10 +572,22 @@ export default function DailySalesReport() {
   const updateStaffReportMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Record<string, string> }) =>
       apiClient.admin.updateStaffDailyReport(id, data),
-    onSuccess: () => {
+    onSuccess: (updatedReport: Record<string, unknown>) => {
+      // Immediately patch the cache so the table re-renders without waiting for a round-trip
+      queryClient.setQueryData(
+        ['staff-daily-list', selectedDateKey],
+        (old: { date: string; count: number; reports: Record<string, unknown>[] } | undefined) => {
+          if (!old?.reports) return old;
+          return {
+            ...old,
+            reports: old.reports.map((r) => (r.id === updatedReport.id ? updatedReport : r)),
+          };
+        },
+      );
+      // Also invalidate so a background refetch picks up any server-side side effects
+      queryClient.invalidateQueries({ queryKey: ['staff-daily-list'] });
       toast({ title: 'Report updated', description: 'The entry has been saved.' });
       setEditingReport(null);
-      staffDailyListQuery.refetch();
     },
     onError: (err: unknown) => {
       toast({ title: 'Update failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
@@ -1072,10 +1085,10 @@ export default function DailySalesReport() {
                               if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
                               return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
                             };
-                            const fmtM = (v: unknown) => {
+                            const fmtM = (v: unknown, decimal = false) => {
                               const n = Number(v);
                               if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
-                              return `₦${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+                              return `₦${n.toLocaleString(undefined, { maximumFractionDigits: decimal ? 4 : 0 })}`;
                             };
                             return (
                               <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
@@ -1085,7 +1098,7 @@ export default function DailySalesReport() {
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.yesterday_carried_over_loading)}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.product_brought_forward)}</td>
                                 <td className="px-4 py-2.5 text-right font-medium text-slate-700">{fmtN(rpt.litres_sold_today)}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtM(rpt.price)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtM(rpt.price, true)}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.tank_balance)}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.num_trucks_sold)}</td>
                                 <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.amount_paid)}</td>

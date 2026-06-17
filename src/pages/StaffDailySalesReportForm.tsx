@@ -62,11 +62,11 @@ const EMPTY: FormFields = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-const numVal = (v: unknown): string => {
+const numVal = (v: unknown, decimal = false): string => {
   if (v === null || v === undefined || v === '') return '';
   const n = Number(String(v).replace(/,/g, ''));
   if (!Number.isFinite(n) || n === 0) return '';
-  return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return n.toLocaleString(undefined, { maximumFractionDigits: decimal ? 4 : 0 });
 };
 
 const display = (v: unknown, money = false): string => {
@@ -261,7 +261,7 @@ export default function StaffDailySalesReportForm() {
       location: pfi.location_name,
       product_brought_forward: numVal(pfi.remaining_balance),
       litres_sold_today: numVal(pfi.sold_today),
-      price: numVal(pfi.price),
+      price: numVal(pfi.price, true),
     }));
   }, [form.pfi_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -316,7 +316,7 @@ export default function StaffDailySalesReportForm() {
       yesterday_carried_over_loading: numVal(rpt.yesterday_carried_over_loading),
       product_brought_forward: numVal(rpt.product_brought_forward),
       litres_sold_today: numVal(rpt.litres_sold_today),
-      price: numVal(rpt.price),
+      price: numVal(rpt.price, true),
       tank_balance: numVal(rpt.tank_balance),
       num_trucks_sold: numVal(rpt.num_trucks_sold),
       amount_paid: numVal(rpt.amount_paid),
