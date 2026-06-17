@@ -572,7 +572,7 @@ export default function StaffDailySalesReportForm() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <Field label="Amount Paid" value={form.amount_paid} onChange={set('amount_paid')} prefix="₦" />
                           <Field label="Total Sales Amount" value={form.total_sales_amount} onChange={set('total_sales_amount')} prefix="₦" highlight />
-                          <Field label="Differentials" value={form.differentials} onChange={set('differentials')} prefix="₦" readOnly highlight />
+                          <Field label="Differentials" value={form.differentials} onChange={set('differentials')} prefix="₦" highlight />
                           <Field label="Loading Left Over" value={form.loading_left_over} onChange={set('loading_left_over')} suffix="Ltrs" />
                         </div>
                       </fieldset>
