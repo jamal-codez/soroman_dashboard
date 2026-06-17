@@ -754,101 +754,102 @@ export default function DepotView() {
         : format(calRange.from, 'dd MMM yyyy')
       : PRESETS.find(p => p.key === timePreset)?.label || 'All Time';
 
-    const summaryWs = XLSX.utils.aoa_to_sheet([
+    const sortedOrders = [...filteredOrders].sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+    const reportLabel = [
+      pfiFilter !== 'all' ? pfiFilter : '',
+      locationFilter !== 'all' ? locationFilter : '',
+    ].filter(Boolean).join(' · ') || 'ALL';
+    const sheetName = `${reportLabel} SALES REPORT`.slice(0, 31); // Excel sheet name max 31 chars
+    const fileName = `Sales Report - ${reportLabel} - ${format(new Date(), 'ddMMyyyy')}.xlsx`;
+
+    // Row index constants (0-based) so formatting offsets stay consistent
+    // Rows 0-17: summary block
+    // Row 18: blank separator
+    // Row 19: "SALES ORDERS" heading
+    // Row 20: blank
+    // Row 21: column headers
+    // Row 22+: order data
+    const ORDERS_DATA_START = 22;
+
+    const ws = XLSX.utils.aoa_to_sheet([
+      // ── Summary block ──────────────────────────────────────────── row 0
       ['SALES REPORT'],
       [''],
-      ['GENERATED AT', generatedAt.toUpperCase()],
+      // ['GENERATED AT', generatedAt.toUpperCase()],
       ['DATE PERIOD', String(dateRangeLabel).toUpperCase()],
-      ['STATUS', statusFilter === 'all' ? 'ALL ORDERS' : (STATUS_MAP[statusFilter]?.label ?? statusFilter).toUpperCase()],
+      // ['STATUS', statusFilter === 'all' ? 'ALL ORDERS' : (STATUS_MAP[statusFilter]?.label ?? statusFilter).toUpperCase()],
       ['LOCATION', locationFilter === 'all' ? 'ALL LOCATIONS' : String(locationFilter).toUpperCase()],
-      ['PRODUCT', productFilter === 'all' ? 'ALL PRODUCTS' : String(productFilter).toUpperCase()],
+      // ['PRODUCT', productFilter === 'all' ? 'ALL PRODUCTS' : String(productFilter).toUpperCase()],
       ['PFI', pfiFilter === 'all' ? 'ALL PFIS' : String(pfiFilter).toUpperCase()],
-      // ['RELEASE TYPE', releaseTypeFilter === 'all' ? 'ALL TYPES' : String(releaseTypeFilter).toUpperCase()],
-      // ['SEARCH', searchQuery ? String(searchQuery).toUpperCase() : '—'],
       [''],
-      ['SUMMARY'],
+      ['SUMMARY'],                                                          // row 9
       ['METRIC', 'VALUE'],
       ['TOTAL ORDERS', filteredOrders.length],
-      ['TOTAL QTY (L)', filteredOrders.reduce((sum, order) => sum + toNum(order.quantity), 0)],
-      ['TOTAL AMOUNT (₦)', filteredOrders.reduce((sum, order) => sum + toNum(order.total_price), 0)],
-      ['PAID & RELEASED', filteredOrders.filter(order => ['paid', 'released', 'loaded', 'sold'].includes(order.status?.toLowerCase())).length],
-      ['PAYMENT NOT CONFIRMED', filteredOrders.filter(order => order.status?.toLowerCase() === 'pending').length],
-      ['RELEASED QTY (L)', filteredOrders.filter(order => order.status?.toLowerCase() === 'released').reduce((sum, order) => sum + toNum(order.quantity), 0)],
-      ['LOADED QTY (L)', filteredOrders.filter(order => order.status?.toLowerCase() === 'loaded').reduce((sum, order) => sum + toNum(order.quantity), 0)],
-    ]);
-
-    const ordersWs = XLSX.utils.aoa_to_sheet([
-      ['SALES ORDERS REPORT'],
+      ['TOTAL QTY (L)', filteredOrders.reduce((sum, o) => sum + toNum(o.quantity), 0)],
+      ['TOTAL AMOUNT (₦)', filteredOrders.reduce((sum, o) => sum + toNum(o.total_price), 0)],
+      // ['PAID & RELEASED', filteredOrders.filter(o => ['paid', 'released', 'loaded', 'sold'].includes(o.status?.toLowerCase())).length],
+      // ['PAYMENT NOT CONFIRMED', filteredOrders.filter(o => o.status?.toLowerCase() === 'pending').length],
+      ['RELEASED QTY (L)', filteredOrders.filter(o => o.status?.toLowerCase() === 'released').reduce((sum, o) => sum + toNum(o.quantity), 0)],
+      // ['LOADED QTY (L)', filteredOrders.filter(o => o.status?.toLowerCase() === 'loaded').reduce((sum, o) => sum + toNum(o.quantity), 0)],
+      // ── Separator + orders block ────────────────────────────────── row 18
       [''],
-      ['REFERENCE', 'DATE', 'CUSTOMER', 'COMPANY', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS', 'PHONE'],
-      ...[...filteredOrders].sort((a, b) => a.created_at.localeCompare(b.created_at)).map(order => {
+      ['SALES ORDERS'],                                                     // row 19
+      [''],
+      ['REFERENCE', 'DATE', 'CUSTOMER', 'COMPANY', 'CONTACT', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS'],
+      ...sortedOrders.map(order => {
         const qty = toNum(order.quantity);
         const unitPrice = getUnitPrice(order);
         const amount = toNum(order.total_price);
-        const customer = getCustomerName(order).toUpperCase();
-        const company = getCompanyName(order).toUpperCase();
-        const location = getLocation(order).toUpperCase();
-        const pfi = getPfiNumber(order).toUpperCase();
-        const truck = getTruckNumber(order).toUpperCase();
-        const product = getProductName(order).toUpperCase();
-        const status = String(order.status || '').toUpperCase();
-        // const releaseType = String(order.release_type || '—').toUpperCase();
-        // const driver = getDriverName(order).toUpperCase();
-        const phone = getPhone(order).toUpperCase();
-
         return [
           String(getOrderReference(order) || order.id).toUpperCase(),
           fmtDateTime(order.created_at).toUpperCase(),
-          customer,
-          company,
-          location,
-          pfi,
-          truck,
-          product,
+          getCustomerName(order).toUpperCase(),
+          getCompanyName(order).toUpperCase(),
+          getPhone(order).toUpperCase(),
+          getLocation(order).toUpperCase(),
+          getPfiNumber(order).toUpperCase(),
+          getTruckNumber(order).toUpperCase(),
+          getProductName(order).toUpperCase(),
           qty,
           unitPrice,
           amount,
-          status,
-          phone,
+          String(order.status || '').toUpperCase(),
         ];
       }),
     ]);
 
-    summaryWs['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
-      { s: { r: 11, c: 0 }, e: { r: 11, c: 1 } },
-    ];
-    ordersWs['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 12 } },
+    ws['!merges'] = [
+      { s: { r: 0,  c: 0 }, e: { r: 0,  c: 12 } }, // SALES REPORT title
+      { s: { r: 9,  c: 0 }, e: { r: 9,  c: 12 } }, // SUMMARY label
+      { s: { r: 19, c: 0 }, e: { r: 19, c: 12 } }, // SALES ORDERS label
     ];
 
-    summaryWs['!cols'] = [{ wch: 24 }, { wch: 28 }];
-    ordersWs['!cols'] = [
-      { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 18 }, { wch: 16 },
+    ws['!cols'] = [
+      { wch: 24 }, { wch: 20 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 18 }, { wch: 16 },
       { wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 16 },
     ];
 
-    [14, 15, 16, 17, 18, 19].forEach((rowNumber) => {
-      const cell = summaryWs[`B${rowNumber}`];
-      if (cell && typeof cell.v === 'number') {
-        cell.z = '#,##0.00';
-      }
+    // Number formats for summary B-column values (Excel rows = 0-index + 1)
+    (['B13', 'B14', 'B17', 'B18'] as const).forEach(addr => {
+      const cell = ws[addr];
+      if (cell && typeof cell.v === 'number') cell.z = '#,##0.00';
     });
 
-    for (let rowIndex = 3; rowIndex < (ordersWs['!ref'] ? filteredOrders.length + 3 : 0); rowIndex += 1) {
-      const row = rowIndex + 1;
-      const qtyCell = ordersWs[`I${row}`];
-      const unitPriceCell = ordersWs[`J${row}`];
-      const amountCell = ordersWs[`K${row}`];
+    // Number formats for order data rows
+    for (let i = 0; i < sortedOrders.length; i++) {
+      const excelRow = ORDERS_DATA_START + i + 1; // 1-based
+      const qtyCell = ws[`I${excelRow}`];
+      const unitPriceCell = ws[`J${excelRow}`];
+      const amountCell = ws[`K${excelRow}`];
       if (qtyCell) qtyCell.z = '#,##0';
       if (unitPriceCell) unitPriceCell.z = '#,##0.00';
       if (amountCell) amountCell.z = '#,##0.00';
     }
 
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, summaryWs, 'SUMMARY');
-    XLSX.utils.book_append_sheet(workbook, ordersWs, 'ORDERS');
-    XLSX.writeFile(workbook, `Sales Report - ${format(new Date(), 'ddMMyyyy')}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, ws, sheetName);
+    XLSX.writeFile(workbook, fileName);
   };
 
   const hasFilters = searchQuery || statusFilter !== 'all' || locationFilter !== 'all' ||
