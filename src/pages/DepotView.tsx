@@ -763,38 +763,41 @@ export default function DepotView() {
     const sheetName = `${reportLabel} SALES REPORT`.slice(0, 31); // Excel sheet name max 31 chars
     const fileName = `Sales Report - ${reportLabel} - ${format(new Date(), 'ddMMyyyy')}.xlsx`;
 
-    // Row index constants (0-based) so formatting offsets stay consistent
-    // Rows 0-17: summary block
-    // Row 18: blank separator
-    // Row 19: "SALES ORDERS" heading
-    // Row 20: blank
-    // Row 21: column headers
-    // Row 22+: order data
-    const ORDERS_DATA_START = 22;
+    // AOA layout (0-based row indices):
+    //  0: SALES REPORT title
+    //  1: blank
+    //  2: DATE PERIOD
+    //  3: LOCATION
+    //  4: PFI
+    //  5: blank
+    //  6: SUMMARY label
+    //  7: METRIC / VALUE header
+    //  8: TOTAL ORDERS
+    //  9: TOTAL QTY (L)
+    // 10: TOTAL AMOUNT (₦)
+    // 11: RELEASED QTY (L)
+    // 12: blank separator
+    // 13: SALES ORDERS label
+    // 14: blank
+    // 15: column headers
+    // 16+: order data rows
+    const ORDERS_DATA_START = 16;
 
     const ws = XLSX.utils.aoa_to_sheet([
-      // ── Summary block ──────────────────────────────────────────── row 0
       ['SALES REPORT'],
       [''],
-      // ['GENERATED AT', generatedAt.toUpperCase()],
       ['DATE PERIOD', String(dateRangeLabel).toUpperCase()],
-      // ['STATUS', statusFilter === 'all' ? 'ALL ORDERS' : (STATUS_MAP[statusFilter]?.label ?? statusFilter).toUpperCase()],
       ['LOCATION', locationFilter === 'all' ? 'ALL LOCATIONS' : String(locationFilter).toUpperCase()],
-      // ['PRODUCT', productFilter === 'all' ? 'ALL PRODUCTS' : String(productFilter).toUpperCase()],
       ['PFI', pfiFilter === 'all' ? 'ALL PFIS' : String(pfiFilter).toUpperCase()],
       [''],
-      ['SUMMARY'],                                                          // row 9
+      ['SUMMARY'],
       ['METRIC', 'VALUE'],
       ['TOTAL ORDERS', filteredOrders.length],
       ['TOTAL QTY (L)', filteredOrders.reduce((sum, o) => sum + toNum(o.quantity), 0)],
       ['TOTAL AMOUNT (₦)', filteredOrders.reduce((sum, o) => sum + toNum(o.total_price), 0)],
-      // ['PAID & RELEASED', filteredOrders.filter(o => ['paid', 'released', 'loaded', 'sold'].includes(o.status?.toLowerCase())).length],
-      // ['PAYMENT NOT CONFIRMED', filteredOrders.filter(o => o.status?.toLowerCase() === 'pending').length],
       ['RELEASED QTY (L)', filteredOrders.filter(o => o.status?.toLowerCase() === 'released').reduce((sum, o) => sum + toNum(o.quantity), 0)],
-      // ['LOADED QTY (L)', filteredOrders.filter(o => o.status?.toLowerCase() === 'loaded').reduce((sum, o) => sum + toNum(o.quantity), 0)],
-      // ── Separator + orders block ────────────────────────────────── row 18
       [''],
-      ['SALES ORDERS'],                                                     // row 19
+      ['SALES ORDERS'],
       [''],
       ['REFERENCE', 'DATE', 'CUSTOMER', 'COMPANY', 'CONTACT', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS'],
       ...sortedOrders.map(order => {
@@ -821,27 +824,29 @@ export default function DepotView() {
 
     ws['!merges'] = [
       { s: { r: 0,  c: 0 }, e: { r: 0,  c: 12 } }, // SALES REPORT title
-      { s: { r: 9,  c: 0 }, e: { r: 9,  c: 12 } }, // SUMMARY label
-      { s: { r: 19, c: 0 }, e: { r: 19, c: 12 } }, // SALES ORDERS label
+      { s: { r: 6,  c: 0 }, e: { r: 6,  c: 12 } }, // SUMMARY label
+      { s: { r: 13, c: 0 }, e: { r: 13, c: 12 } }, // SALES ORDERS label
     ];
 
     ws['!cols'] = [
       { wch: 24 }, { wch: 20 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 18 }, { wch: 16 },
-      { wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 16 },
+      { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 },
     ];
 
-    // Number formats for summary B-column values (Excel rows = 0-index + 1)
-    (['B13', 'B14', 'B17', 'B18'] as const).forEach(addr => {
+    // Number formats for summary B-column (Excel row = 0-index + 1)
+    // Row 9 → B10 (TOTAL QTY), Row 10 → B11 (TOTAL AMOUNT), Row 11 → B12 (RELEASED QTY)
+    (['B10', 'B11', 'B12'] as const).forEach(addr => {
       const cell = ws[addr];
       if (cell && typeof cell.v === 'number') cell.z = '#,##0.00';
     });
 
-    // Number formats for order data rows
+    // Number formats for order data columns:
+    // J=QTY (index 9), K=UNIT PRICE (index 10), L=AMOUNT (index 11)
     for (let i = 0; i < sortedOrders.length; i++) {
       const excelRow = ORDERS_DATA_START + i + 1; // 1-based
-      const qtyCell = ws[`I${excelRow}`];
-      const unitPriceCell = ws[`J${excelRow}`];
-      const amountCell = ws[`K${excelRow}`];
+      const qtyCell = ws[`J${excelRow}`];
+      const unitPriceCell = ws[`K${excelRow}`];
+      const amountCell = ws[`L${excelRow}`];
       if (qtyCell) qtyCell.z = '#,##0';
       if (unitPriceCell) unitPriceCell.z = '#,##0.00';
       if (amountCell) amountCell.z = '#,##0.00';
