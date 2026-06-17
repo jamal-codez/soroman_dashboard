@@ -745,7 +745,8 @@ export default function DepotView() {
   }, [filteredOrders]);
 
   const handleExportExcel = () => {
-    if (filteredOrders.length === 0) return;
+    try {
+    if (filteredOrders.length === 0) { console.warn('[Export] filteredOrders is empty — button should be disabled'); return; }
 
     const generatedAt = format(new Date(), 'dd MMM yyyy, HH:mm');
     const dateRangeLabel = timePreset === 'custom' && calRange.from
@@ -759,9 +760,11 @@ export default function DepotView() {
     const reportLabel = [
       pfiFilter !== 'all' ? pfiFilter : '',
       locationFilter !== 'all' ? locationFilter : '',
-    ].filter(Boolean).join(' · ') || 'ALL';
-    const sheetName = `${reportLabel} SALES REPORT`.slice(0, 31); // Excel sheet name max 31 chars
-    const fileName = `Sales Report - ${reportLabel} - ${format(new Date(), 'ddMMyyyy')}.xlsx`;
+    ].filter(Boolean).join(' - ') || 'ALL';
+    // Excel sheet names cannot contain / \ * ? : [ ] and are max 31 chars
+    const safeLabel = reportLabel.replace(/[/\\*?:[\]]/g, '-');
+    const sheetName = `${safeLabel} SALES REPORT`.slice(0, 31);
+    const fileName = `SALES REPORT ${safeLabel} - ${format(new Date(), 'ddMMyy')}.xlsx`;
 
     // AOA layout (0-based row indices):
     //  0: SALES REPORT title
@@ -855,6 +858,10 @@ export default function DepotView() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, ws, sheetName);
     XLSX.writeFile(workbook, fileName);
+    } catch (err) {
+      console.error('[Export] Excel export failed:', err);
+      alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const hasFilters = searchQuery || statusFilter !== 'all' || locationFilter !== 'all' ||
