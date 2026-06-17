@@ -450,6 +450,22 @@ export default function StaffDailySalesReportForm() {
 
                 <form onSubmit={handleSubmit} className="p-5 space-y-5">
 
+                  {/* ── Report Date ─── */}
+                  <div className="flex items-center gap-3">
+                    <Calendar size={15} className="text-green-600 shrink-0" />
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">
+                      Report Date
+                    </label>
+                    <input
+                      type="date"
+                      title="Report Date"
+                      value={editDate}
+                      max={today}
+                      onChange={(e) => setEditDate(e.target.value || today)}
+                      className="ml-auto rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                    />
+                  </div>
+
                   {/* ── Step 1: PFI Selection ─── */}
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
