@@ -40,6 +40,12 @@ import { cn } from '@/lib/utils';
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
 
+interface AccountEntry {
+  name: string;
+  bank: string;
+  number: string;
+}
+
 interface TruckLoading {
   id: number;
   truck: number | null;
@@ -57,6 +63,8 @@ interface TruckLoading {
   location?: string;
   pfi_location?: string;
   allocation_code?: string | null;
+  collection_accounts?: AccountEntry[] | null;
+  remittance_accounts?: AccountEntry[] | null;
 }
 
 interface DeliveryCustomer {
@@ -103,12 +111,15 @@ interface DeliverySale {
   payer_name: string;
   bank: string;
   date_of_payment: string | null;
+  deposit_status?: 'pending' | 'confirmed' | string;
   phone_number: string;
   remarks: string;
   entered_by?: string;
   created_at?: string;
   updated_at?: string;
   allocation_code?: string | null;
+  collection_accounts?: AccountEntry[] | null;
+  remittance_accounts?: AccountEntry[] | null;
 }
 
 type PagedResponse<T> = { count: number; results: T[] };
@@ -152,6 +163,8 @@ interface LedgerGroup {
   code: string;
   payments: DeliverySale[];
   isFillingStation: boolean;
+  collectionAccounts: AccountEntry[];
+  remittanceAccounts: AccountEntry[];
 }
 
 interface QuickPaymentForm {
@@ -162,6 +175,7 @@ interface QuickPaymentForm {
   payer_name: string;
   phone_number: string;
   bank_account_id: string;
+  deposit_status: 'pending' | 'confirmed';
   remarks: string;
 }
 
@@ -339,10 +353,10 @@ export default function FillingStations() {
   });
   const [quickPaymentSaving, setQuickPaymentSaving] = useState(false);
 
-  // ── Card expand/collapse ───────────────────────────────────────────
-  const [collapsedCards, setCollapsedCards] = useState<Set<string>>(new Set());
+  // ── Card expand/collapse — closed by default, only open when the user clicks ──
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const toggleCard = (key: string) =>
-    setCollapsedCards(prev => {
+    setExpandedCards(prev => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
@@ -351,6 +365,8 @@ export default function FillingStations() {
   const [setupCustomer, setSetupCustomer] = useState('');
   const [setupDestination, setSetupDestination] = useState('');
   const [setupCode, setSetupCode] = useState('');
+  const [setupCollectionAccounts, setSetupCollectionAccounts] = useState<AccountEntry[]>([]);
+  const [setupRemittanceAccounts, setSetupRemittanceAccounts] = useState<AccountEntry[]>([]);
   const [setupSaving, setSetupSaving] = useState(false);
   const [setupTransferTargetKey, setSetupTransferTargetKey] = useState('');
   const [setupTransferAmount, setSetupTransferAmount] = useState('');
@@ -366,12 +382,22 @@ export default function FillingStations() {
   const [deleting, setDeleting] = useState(false);
 
   // ── Edit ───────────────────────────────────────────────────────────
-  const [editTarget, setEditTarget] = useState<DeliverySale | null>(null);
+  // A "row" can carry up to 3 underlying records (sale / deposit / expense) that
+  // share the same date — the unified edit dialog edits all of them at once.
+  const [editTarget, setEditTarget] = useState<{
+    group: LedgerGroup;
+    dateKey: string;
+    sale: DeliverySale | null;
+    deposit: DeliverySale | null;
+    expense: DeliverySale | null;
+  } | null>(null);
   const [editForm, setEditForm] = useState<{
-    rate: string; sales_value: string; payment_amount: string;
-    payer_name: string; bank_account_id: string; date_of_payment: string;
-    remarks: string; phone_number: string; location: string; quantity: string;
-    date_loaded: string;
+    date: string;
+    quantity: string; rate: string; sales_value: string;
+    payment_amount: string; payer_name: string; bank_account_id: string;
+    deposit_status: 'pending' | 'confirmed'; phone_number: string;
+    expenses_amount: string;
+    remarks: string; location: string; date_loaded: string;
   } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
@@ -836,6 +862,8 @@ export default function FillingStations() {
         code: derivedCode,
         payments,
         isFillingStation: isFillingStation(customerObj),
+        collectionAccounts: (loading.collection_accounts?.length ? loading.collection_accounts : firstPayment?.collection_accounts) || [],
+        remittanceAccounts: (loading.remittance_accounts?.length ? loading.remittance_accounts : firstPayment?.remittance_accounts) || [],
       });
     });
 
@@ -889,6 +917,8 @@ export default function FillingStations() {
         code: firstPayment.allocation_code || sorted.map(sale => sale.allocation_code).find(Boolean) || '',
         payments: sorted,
         isFillingStation: isFillingStation(customerObj),
+        collectionAccounts: sorted.map(s => s.collection_accounts).find(a => a && a.length) || [],
+        remittanceAccounts: sorted.map(s => s.remittance_accounts).find(a => a && a.length) || [],
       });
     });
 
@@ -1086,14 +1116,6 @@ export default function FillingStations() {
       .map(g => ({ ...g, balance: g.expected - g.paid }));
   }, [filteredSales]);
 
-  const saleToLoadingMap = useMemo(() => {
-    const map = new Map<number, number>();
-    ledgerGroups.forEach(group => {
-      if (!group.loadingId) return;
-      group.payments.forEach(payment => map.set(payment.id, group.loadingId as number));
-    });
-    return map;
-  }, [ledgerGroups]);
 
   // Loaded trucks for the dialog — show trucks that:
   // 1. Have a truck_number or truck ID, AND
@@ -1249,6 +1271,7 @@ export default function FillingStations() {
       payer_name: '',
       phone_number: customer?.contact_person_phone || customer?.phone_number || '',
       bank_account_id: '',
+      deposit_status: 'pending',
       remarks: '',
     });
   };
@@ -1258,8 +1281,24 @@ export default function FillingStations() {
     setSetupCustomer(group.customerId ? String(group.customerId) : '');
     setSetupDestination(group.location || '');
     setSetupCode(group.code || '');
+    setSetupCollectionAccounts(group.collectionAccounts.length ? group.collectionAccounts.map(a => ({ ...a })) : []);
+    setSetupRemittanceAccounts(group.remittanceAccounts.length ? group.remittanceAccounts.map(a => ({ ...a })) : []);
     setSetupTransferTargetKey('');
     setSetupTransferAmount(group.balance < 0 ? formatWithCommas(String(Math.abs(group.balance))) : '');
+  };
+
+  const addAccount = (kind: 'collection' | 'remittance') => {
+    const empty: AccountEntry = { name: '', bank: '', number: '' };
+    if (kind === 'collection') setSetupCollectionAccounts(prev => [...prev, empty]);
+    else setSetupRemittanceAccounts(prev => [...prev, empty]);
+  };
+  const updateAccount = (kind: 'collection' | 'remittance', index: number, field: keyof AccountEntry, value: string) => {
+    const setter = kind === 'collection' ? setSetupCollectionAccounts : setSetupRemittanceAccounts;
+    setter(prev => prev.map((acc, i) => i === index ? { ...acc, [field]: value } : acc));
+  };
+  const removeAccount = (kind: 'collection' | 'remittance', index: number) => {
+    const setter = kind === 'collection' ? setSetupCollectionAccounts : setSetupRemittanceAccounts;
+    setter(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSaveSetup = async () => {
@@ -1282,6 +1321,14 @@ export default function FillingStations() {
     try {
       const customerId = Number(setupCustomer);
       const customerName = customerMap.get(customerId)?.customer_name || '';
+      const cleanAccounts = (accounts: AccountEntry[]) =>
+        accounts
+          .map(a => ({ name: a.name.trim(), bank: a.bank.trim(), number: a.number.trim() }))
+          .filter(a => a.name || a.bank || a.number);
+      const accountFields = {
+        collection_accounts: cleanAccounts(setupCollectionAccounts),
+        remittance_accounts: cleanAccounts(setupRemittanceAccounts),
+      };
 
       if (setupTarget.loadingId) {
         await apiClient.admin.updateDeliveryInventory(setupTarget.loadingId, {
@@ -1289,6 +1336,7 @@ export default function FillingStations() {
           customer_name: customerName,
           location: setupDestination.trim(),
           allocation_code: normalized || null,
+          ...accountFields,
         });
 
         // Sync linked sales to match
@@ -1299,17 +1347,22 @@ export default function FillingStations() {
                 customer: customerId,
                 location: setupDestination.trim(),
                 allocation_code: normalized || null,
+                ...accountFields,
               }),
             ),
           );
         }
       } else if (setupTarget.payments.length > 0) {
+        // No backing DeliveryInventory row (e.g. a split-truck row that wasn't the
+        // first customer matched to the loading) — persist account details on the
+        // sale records themselves instead.
         await Promise.all(
           setupTarget.payments.map(payment =>
             apiClient.admin.updateDeliverySale(payment.id, {
               customer: customerId,
               location: setupDestination.trim(),
               allocation_code: normalized || null,
+              ...accountFields,
             }),
           ),
         );
@@ -1369,7 +1422,7 @@ export default function FillingStations() {
           description: `${quickPaymentTarget.truckNumber} · ${enteredQty.toLocaleString()} Ltrs @ ₦${enteredRate.toLocaleString()}/L`,
         });
         setQuickPaymentTarget(null);
-        setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', remarks: '' });
+        setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', deposit_status: 'pending', remarks: '' });
         invalidateAll();
       } catch (err: unknown) {
         toast({
@@ -1418,6 +1471,7 @@ export default function FillingStations() {
           payer_name: payerName || undefined,
           bank: bankStr,
           date_of_payment: quickPaymentForm.date_of_payment || format(new Date(), 'yyyy-MM-dd'),
+          deposit_status: quickPaymentForm.deposit_status,
           phone_number: quickPaymentForm.phone_number.trim() || undefined,
           remarks: quickPaymentForm.remarks.trim() || `Bank Deposit: ₦${paymentAmount.toLocaleString()}`,
           entered_by: currentUser,
@@ -1429,7 +1483,7 @@ export default function FillingStations() {
           description: `${quickPaymentTarget.truckNumber} · ₦${paymentAmount.toLocaleString()}`,
         });
         setQuickPaymentTarget(null);
-        setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', remarks: '' });
+        setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', deposit_status: 'pending', remarks: '' });
         invalidateAll();
       } catch (err: unknown) {
         toast({
@@ -1481,13 +1535,13 @@ export default function FillingStations() {
           title: 'Expense recorded',
           description: `${quickPaymentTarget.truckNumber} · ₦${expenseAmount.toLocaleString()}`,
         });
-        setCollapsedCards(prev => {
+        setExpandedCards(prev => {
           const next = new Set(prev);
-          next.delete(quickPaymentTarget.key);
+          next.add(quickPaymentTarget.key);
           return next;
         });
         setQuickPaymentTarget(null);
-        setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', remarks: '' });
+        setQuickPaymentForm({ payment_amount: '', rate: '', quantity: '', date_of_payment: '', payer_name: '', phone_number: '', bank_account_id: '', deposit_status: 'pending', remarks: '' });
         invalidateAll();
       } catch (err: unknown) {
         toast({
@@ -1598,25 +1652,30 @@ export default function FillingStations() {
     }
   };
 
-  const openEditDialog = (sale: DeliverySale) => {
-    setEditTarget(sale);
-    setEditAllocationCode(sale.allocation_code || '');
-    const rate = toNum(sale.rate);
-    const sv = toNum(sale.sales_value);
-    const pa = toNum(sale.payment_amount);
-    const qty = toNum(sale.quantity);
+  const openEditDialog = (
+    group: LedgerGroup,
+    row: { dateKey: string; sale: DeliverySale | null; deposit: DeliverySale | null; expense: DeliverySale | null },
+  ) => {
+    const { sale, deposit, expense } = row;
+    const any = sale || deposit || expense;
+    if (!any) return;
+
+    setEditTarget({ group, dateKey: row.dateKey, sale, deposit, expense });
+    setEditAllocationCode(any.allocation_code || '');
     setEditForm({
-      quantity: qty > 0 ? formatWithCommas(String(qty)) : '',
-      rate: rate > 0 ? formatWithCommas(String(rate)) : '',
-      sales_value: sv > 0 ? formatWithCommas(String(sv)) : '',
-      payment_amount: pa > 0 ? formatWithCommas(String(pa)) : '',
-      payer_name: sale.payer_name || '',
-      bank_account_id: bankStringToId(sale.bank || ''),
-      date_of_payment: sale.date_of_payment || '',
-      remarks: sale.remarks || '',
-      phone_number: sale.phone_number || '',
-      location: sale.location || '',
-      date_loaded: sale.date_loaded || '',
+      date: row.dateKey || any.date_of_payment || format(new Date(), 'yyyy-MM-dd'),
+      quantity: sale && toNum(sale.quantity) > 0 ? formatWithCommas(String(toNum(sale.quantity))) : '',
+      rate: sale && toNum(sale.rate) > 0 ? formatWithCommas(String(toNum(sale.rate))) : '',
+      sales_value: sale && toNum(sale.sales_value) > 0 ? formatWithCommas(String(toNum(sale.sales_value))) : '',
+      payment_amount: deposit && toNum(deposit.payment_amount) > 0 ? formatWithCommas(String(toNum(deposit.payment_amount))) : '',
+      payer_name: deposit?.payer_name || '',
+      bank_account_id: bankStringToId(deposit?.bank || ''),
+      deposit_status: deposit?.deposit_status === 'confirmed' ? 'confirmed' : 'pending',
+      phone_number: deposit?.phone_number || '',
+      expenses_amount: expense && toNum(expense.expenses_amount ?? 0) > 0 ? formatWithCommas(String(toNum(expense.expenses_amount ?? 0))) : '',
+      remarks: sale?.remarks || deposit?.remarks || expense?.remarks || '',
+      location: any.location || '',
+      date_loaded: any.date_loaded || '',
     });
   };
 
@@ -1624,63 +1683,121 @@ export default function FillingStations() {
     if (!editTarget || !editForm) return;
     setEditSaving(true);
 
-    const isSale = toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0);
+    const { group, sale, deposit, expense } = editTarget;
+    const date = editForm.date || format(new Date(), 'yyyy-MM-dd');
+    const currentUser = localStorage.getItem('fullname') || 'Unknown';
+    const dateLoadedOverride = (existing?: DeliverySale | null) =>
+      editForm.date_loaded && editForm.date_loaded !== existing?.date_loaded
+        ? { date_loaded: editForm.date_loaded }
+        : {};
 
     try {
-      if (isSale) {
-        const qty = Number(stripCommas(editForm.quantity)) || 0;
-        const rate = Number(stripCommas(editForm.rate)) || 0;
-        const computedSv = qty * rate;
-
-        await apiClient.admin.updateDeliverySale(editTarget.id, {
+      // ── Sale portion ──
+      const qty = Number(stripCommas(editForm.quantity)) || 0;
+      const rate = Number(stripCommas(editForm.rate)) || 0;
+      if (sale) {
+        await apiClient.admin.updateDeliverySale(sale.id, {
           quantity: qty,
-          rate: rate,
-          sales_value: computedSv,
-          payment_amount: 0,
-          payer_name: null as any, // Clear payer details for sale
-          bank: null as any,       // Clear bank details for sale
-          date_of_payment: editForm.date_of_payment || undefined,
+          rate,
+          sales_value: qty * rate,
+          date_of_payment: date,
           remarks: editForm.remarks.trim() || undefined,
-          phone_number: undefined,
           location: editForm.location.trim() || undefined,
           allocation_code: editAllocationCode || null,
-          ...(editForm.date_loaded && editForm.date_loaded !== editTarget.date_loaded
-            ? { date_loaded: editForm.date_loaded }
-            : {}),
+          ...dateLoadedOverride(sale),
         });
-      } else {
-        // deposit edit
-        const bankAcct = editForm.bank_account_id
-          ? BANK_ACCOUNTS.find(b => String(b.id) === editForm.bank_account_id)
-          : null;
-        const bankStr = bankAcct
-          ? `${bankAcct.account_number} · ${bankAcct.bank_name}`
-          : editTarget.bank || undefined;
-        const pa = Number(stripCommas(editForm.payment_amount)) || 0;
+      } else if (qty > 0 && rate > 0) {
+        await apiClient.admin.createDeliverySale({
+          truck_number: group.truckNumber,
+          date_loaded: editForm.date_loaded || group.dateLoaded || date,
+          depot_loaded: group.depot || undefined,
+          customer: group.customerId || 0,
+          location: editForm.location.trim() || group.location || undefined,
+          quantity: qty,
+          rate,
+          sales_value: qty * rate,
+          date_of_payment: date,
+          remarks: editForm.remarks.trim() || undefined,
+          entered_by: currentUser,
+          allocation_code: editAllocationCode || group.code || undefined,
+        });
+      }
 
-        await apiClient.admin.updateDeliverySale(editTarget.id, {
+      // ── Deposit portion ──
+      const pa = Number(stripCommas(editForm.payment_amount)) || 0;
+      const bankAcct = editForm.bank_account_id
+        ? BANK_ACCOUNTS.find(b => String(b.id) === editForm.bank_account_id)
+        : null;
+      const bankStr = bankAcct ? `${bankAcct.account_number} · ${bankAcct.bank_name}` : (deposit?.bank || undefined);
+      if (deposit) {
+        await apiClient.admin.updateDeliverySale(deposit.id, {
+          payment_amount: pa,
+          payer_name: editForm.payer_name.trim() || undefined,
+          bank: bankStr,
+          date_of_payment: date,
+          deposit_status: editForm.deposit_status,
+          phone_number: editForm.phone_number.trim() || undefined,
+          remarks: editForm.remarks.trim() || undefined,
+          location: editForm.location.trim() || undefined,
+          allocation_code: editAllocationCode || null,
+          ...dateLoadedOverride(deposit),
+        });
+      } else if (pa > 0) {
+        await apiClient.admin.createDeliverySale({
+          truck_number: group.truckNumber,
+          date_loaded: editForm.date_loaded || group.dateLoaded || date,
+          depot_loaded: group.depot || undefined,
+          customer: group.customerId || 0,
+          location: editForm.location.trim() || group.location || undefined,
           quantity: 0,
           rate: 0,
           sales_value: 0,
           payment_amount: pa,
           payer_name: editForm.payer_name.trim() || undefined,
           bank: bankStr,
-          date_of_payment: editForm.date_of_payment || undefined,
-          remarks: editForm.remarks.trim() || undefined,
+          date_of_payment: date,
+          deposit_status: editForm.deposit_status,
           phone_number: editForm.phone_number.trim() || undefined,
-          location: editForm.location.trim() || undefined,
+          remarks: editForm.remarks.trim() || undefined,
+          entered_by: currentUser,
+          allocation_code: editAllocationCode || group.code || undefined,
+        });
+      }
+
+      // ── Expense portion ──
+      const ea = Number(stripCommas(editForm.expenses_amount)) || 0;
+      if (expense) {
+        await apiClient.admin.updateDeliverySale(expense.id, {
+          expenses_amount: ea,
+          date_of_payment: date,
+          remarks: editForm.remarks.trim() || undefined,
           allocation_code: editAllocationCode || null,
-          ...(editForm.date_loaded && editForm.date_loaded !== editTarget.date_loaded
-            ? { date_loaded: editForm.date_loaded }
-            : {}),
+          ...dateLoadedOverride(expense),
+        });
+      } else if (ea > 0) {
+        await apiClient.admin.createDeliverySale({
+          truck_number: group.truckNumber,
+          date_loaded: editForm.date_loaded || group.dateLoaded || date,
+          depot_loaded: group.depot || undefined,
+          customer: group.customerId || 0,
+          location: editForm.location.trim() || group.location || undefined,
+          quantity: 0,
+          rate: 0,
+          sales_value: 0,
+          expenses_amount: ea,
+          payer_name: 'EXPENSE',
+          bank: 'EXPENSE',
+          date_of_payment: date,
+          remarks: editForm.remarks.trim() || 'Expense',
+          entered_by: currentUser,
+          allocation_code: editAllocationCode || group.code || undefined,
         });
       }
 
       // Synchronize linked loading allocation code back to DB
-      const linkedLoadingId = saleToLoadingMap.get(editTarget.id);
-      if (linkedLoadingId) {
+      if (group.loadingId) {
         try {
-          await apiClient.admin.updateDeliveryInventory(linkedLoadingId, {
+          await apiClient.admin.updateDeliveryInventory(group.loadingId, {
             allocation_code: editAllocationCode || null,
           });
         } catch {
@@ -1701,7 +1818,7 @@ export default function FillingStations() {
     } finally {
       setEditSaving(false);
     }
-  }, [editTarget, editForm, editAllocationCode, toast, saleToLoadingMap]);
+  }, [editTarget, editForm, editAllocationCode, toast]);
 
   const exportExcel = useCallback(() => {
     if (!filteredLedgerGroups.length) return;
@@ -2108,15 +2225,9 @@ export default function FillingStations() {
               ) : (
                 <>
                   {filteredLedgerGroups.map((group, idx) => {
-                    const isExpanded = !collapsedCards.has(group.key);
+                    const isExpanded = expandedCards.has(group.key);
                     const theme = getCodeTheme(group.code);
                     const pctSold = group.quantity > 0 ? Math.min(100, Math.round((group.totalQtySold / group.quantity) * 100)) : 0;
-
-                    const dailySalesOnly = group.payments.filter(
-                      p => toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity
-                    );
-                    const depositsOnly = group.payments.filter(p => toNum(p.payment_amount) > 0);
-                    const expensesOnly = group.payments.filter(p => toNum(p.expenses_amount ?? 0) > 0);
 
                     return (
                       <div
@@ -2164,6 +2275,12 @@ export default function FillingStations() {
                                       <span className="flex items-center gap-1"><MapPin size={11} className="text-slate-400" />{group.location}</span>
                                     </>
                                   )}
+                                  {group.pfiNumber && (
+                                    <>
+                                      <span className="text-slate-300">·</span>
+                                      <span className="flex items-center gap-1"><Tag size={11} className="text-slate-400" />{group.pfiNumber}</span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -2196,128 +2313,236 @@ export default function FillingStations() {
                             )}
                           </div>
 
-                          {/* Metrics strip — 4 key numbers */}
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
-                            <div className="space-y-0.5">
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Allocated</p>
-                              <p className="text-sm font-bold text-slate-800">{group.quantity > 0 ? `${fmtQty(group.quantity)} L` : '—'}</p>
-                              <div className="flex items-center gap-1.5 mt-1">
-                                <div className="h-1 flex-1 bg-slate-100 rounded-full overflow-hidden">
-                                  <div className={`h-full rounded-full ${pctSold >= 100 ? 'bg-emerald-500' : pctSold >= 60 ? 'bg-amber-400' : 'bg-slate-300'}`} style={{ width: `${pctSold}%` }} />
+                          {/* Summary — full card breakdown: quantities, value, rate breakdown, accounts */}
+                          {(() => {
+                            const remaining = group.quantity - group.totalQtySold;
+                            const dailySalesForRate = group.payments.filter(p => toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity);
+                            const rateMap = new Map<number, { qty: number; value: number }>();
+                            dailySalesForRate.forEach(p => {
+                              const r = toNum(p.rate);
+                              if (!r) return;
+                              const cur = rateMap.get(r) || { qty: 0, value: 0 };
+                              cur.qty += toNum(p.quantity);
+                              cur.value += toNum(p.sales_value);
+                              rateMap.set(r, cur);
+                            });
+                            const rateBreakdown = Array.from(rateMap.entries())
+                              .map(([rate, v]) => ({ rate, ...v }))
+                              .sort((a, b) => a.rate - b.rate);
+
+                            return (
+                              <>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
+                                  <div className="space-y-0.5">
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Allocated</p>
+                                    <p className="text-sm font-bold text-slate-800">{group.quantity > 0 ? `${fmtQty(group.quantity)} L` : '—'}</p>
+                                    <div className="flex items-center gap-1.5 mt-1">
+                                      <div className="h-1 flex-1 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className={`h-full rounded-full ${pctSold >= 100 ? 'bg-emerald-500' : pctSold >= 60 ? 'bg-amber-400' : 'bg-slate-300'}`} style={{ width: `${pctSold}%` }} />
+                                      </div>
+                                      <span className="text-[10px] text-slate-400 font-semibold shrink-0">{pctSold}% sold</span>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Sold</p>
+                                    <p className="text-sm font-bold text-slate-800">{group.totalQtySold > 0 ? `${fmtQty(group.totalQtySold)} L` : '—'}</p>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Remaining</p>
+                                    <p className={`text-sm font-bold ${remaining < 0 ? 'text-red-600' : 'text-slate-800'}`}>{remaining !== 0 ? `${fmtQty(Math.abs(remaining))} L${remaining < 0 ? ' over' : ''}` : '✓ 0 L'}</p>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Sales Value</p>
+                                    <p className="text-sm font-bold text-slate-800">{group.expected > 0 ? fmt(group.expected) : '—'}</p>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Deposited</p>
+                                    <p className="text-sm font-bold text-emerald-700">{group.totalPaid > 0 ? fmt(group.totalPaid) : '—'}</p>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Expenses</p>
+                                    <p className="text-sm font-bold text-amber-700">{group.totalExpenses > 0 ? fmt(group.totalExpenses) : '—'}</p>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Balance</p>
+                                    <p className={`text-sm font-bold ${group.balance === 0 ? 'text-emerald-600' : group.balance > 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                                      {group.balance === 0 ? '✓ Settled' : group.balance > 0 ? fmt(group.balance) : `+${fmt(Math.abs(group.balance))}`}
+                                    </p>
+                                  </div>
                                 </div>
-                                <span className="text-[10px] text-slate-400 font-semibold shrink-0">{pctSold}% sold</span>
-                              </div>
-                            </div>
-                            <div className="space-y-0.5">
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Expected</p>
-                              <p className="text-sm font-bold text-slate-800">{group.expected > 0 ? fmt(group.expected) : '—'}</p>
-                            </div>
-                            <div className="space-y-0.5">
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Deposited</p>
-                              <p className="text-sm font-bold text-emerald-700">{group.totalPaid > 0 ? fmt(group.totalPaid) : '—'}</p>
-                              {group.totalExpenses > 0 && (
-                                <p className="text-[10px] text-amber-600">Expenses: {fmt(group.totalExpenses)}</p>
-                              )}
-                            </div>
-                            <div className="space-y-0.5">
-                              <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Balance</p>
-                              <p className={`text-sm font-bold ${group.balance === 0 ? 'text-emerald-600' : group.balance > 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                                {group.balance === 0 ? '✓ Settled' : group.balance > 0 ? fmt(group.balance) : `+${fmt(Math.abs(group.balance))}`}
-                              </p>
-                            </div>
-                          </div>
+
+                                {rateBreakdown.length > 0 && (
+                                  <div className="mt-3 pt-3 border-t border-slate-100">
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Rate Breakdown</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {rateBreakdown.map(rb => (
+                                        <span key={rb.rate} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-50 border border-slate-200 text-[11px]">
+                                          <span className="font-semibold text-slate-700">{fmtQty(rb.qty)} L</span>
+                                          <span className="text-slate-400">@</span>
+                                          <span className="font-semibold text-slate-700">₦{rb.rate.toLocaleString()}/L</span>
+                                          <span className="text-slate-400">=</span>
+                                          <span className="font-semibold text-emerald-700">{fmt(rb.value)}</span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {(group.collectionAccounts.length > 0 || group.remittanceAccounts.length > 0) && (
+                                  <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {group.collectionAccounts.length > 0 && (
+                                      <div className="rounded-lg bg-indigo-50/60 border border-indigo-100 px-3 py-2 space-y-2">
+                                        <p className="text-[10px] uppercase tracking-wider text-indigo-500 font-semibold flex items-center gap-1">
+                                          <Wallet size={10} /> Collection Account{group.collectionAccounts.length > 1 ? 's' : ''}
+                                        </p>
+                                        {group.collectionAccounts.map((acc, i) => (
+                                          <div key={i}>
+                                            <p className="text-xs font-semibold text-slate-800">{acc.name || '—'}</p>
+                                            <p className="text-[11px] text-slate-500">{acc.bank}{acc.bank && acc.number ? ' · ' : ''}{acc.number}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {group.remittanceAccounts.length > 0 && (
+                                      <div className="rounded-lg bg-violet-50/60 border border-violet-100 px-3 py-2 space-y-2">
+                                        <p className="text-[10px] uppercase tracking-wider text-violet-500 font-semibold flex items-center gap-1">
+                                          <ArrowRightLeft size={10} /> Remittance Account{group.remittanceAccounts.length > 1 ? 's' : ''}
+                                        </p>
+                                        {group.remittanceAccounts.map((acc, i) => (
+                                          <div key={i}>
+                                            <p className="text-xs font-semibold text-slate-800">{acc.name || '—'}</p>
+                                            <p className="text-[11px] text-slate-500">{acc.bank}{acc.bank && acc.number ? ' · ' : ''}{acc.number}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
 
-                        {/* Expanded: unified activity table */}
+                        {/* Expanded: per-date ledger table — a sale and a deposit on the same date pair onto one row,
+                            but separate deposit entries (or sale entries) on the same date never merge together —
+                            each gets its own row. */}
                         {isExpanded && (
                           <div className="border-t border-slate-100">
                             {group.payments.length === 0 ? (
                               <p className="py-8 text-sm text-slate-400 text-center">No activity recorded for this cycle yet.</p>
-                            ) : (
+                            ) : (() => {
+                              const fmtDateStr = (d: string | null | undefined) => {
+                                if (!d) return '—';
+                                try { return format(parseISO(d), 'dd MMM yy'); } catch { return d; }
+                              };
+
+                              type DateRow = { dateKey: string; sale: DeliverySale | null; deposit: DeliverySale | null; expense: DeliverySale | null };
+                              const byDate = new Map<string, { dateKey: string; sales: DeliverySale[]; deposits: DeliverySale[]; expenses: DeliverySale[] }>();
+                              group.payments.forEach(p => {
+                                const isSale = toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity;
+                                const isExpense = toNum(p.expenses_amount ?? 0) > 0;
+                                const isDeposit = !isSale && !isExpense && toNum(p.payment_amount) > 0;
+                                if (!isSale && !isExpense && !isDeposit) return;
+                                const key = p.date_of_payment || `__nodate_${p.id}`;
+                                const bucket = byDate.get(key) || { dateKey: key.startsWith('__nodate_') ? '' : key, sales: [], deposits: [], expenses: [] };
+                                if (isSale) bucket.sales.push(p);
+                                else if (isExpense) bucket.expenses.push(p);
+                                else bucket.deposits.push(p);
+                                byDate.set(key, bucket);
+                              });
+
+                              // Pair sale/deposit/expense by position within the same date — never sum
+                              // multiple same-type entries into one row, so separate deposits stay separate rows.
+                              const dateRows: DateRow[] = [];
+                              Array.from(byDate.values())
+                                .sort((a, b) => a.dateKey.localeCompare(b.dateKey))
+                                .forEach(bucket => {
+                                  const count = Math.max(bucket.sales.length, bucket.deposits.length, bucket.expenses.length, 1);
+                                  for (let i = 0; i < count; i += 1) {
+                                    dateRows.push({
+                                      dateKey: bucket.dateKey,
+                                      sale: bucket.sales[i] || null,
+                                      deposit: bucket.deposits[i] || null,
+                                      expense: bucket.expenses[i] || null,
+                                    });
+                                  }
+                                });
+
+                              return (
                               <div className="overflow-x-auto">
                                 <Table className="text-xs">
                                   <TableHeader>
                                     <TableRow className="bg-slate-50 border-b border-slate-100">
-                                      <TableHead className="font-semibold text-slate-500 w-[90px] px-4">Type</TableHead>
-                                      <TableHead className="font-semibold text-slate-500 w-[110px]">Date</TableHead>
-                                      <TableHead className="font-semibold text-slate-500 text-right w-[120px]">Amount / Vol.</TableHead>
-                                      <TableHead className="font-semibold text-slate-500">Details</TableHead>
-                                      {!readOnly && <TableHead className="font-semibold text-slate-500 w-[72px] text-center">Actions</TableHead>}
+                                      <TableHead className="font-semibold text-slate-500 w-[36px] px-4">S/N</TableHead>
+                                      <TableHead className="font-semibold text-slate-500 w-[90px]">Date</TableHead>
+                                      <TableHead className="font-semibold text-slate-500 text-right">Volume Sold</TableHead>
+                                      <TableHead className="font-semibold text-slate-500 text-right">Rate</TableHead>
+                                      <TableHead className="font-semibold text-slate-500 text-right">Sales Value</TableHead>
+                                      <TableHead className="font-semibold text-slate-500 text-right">Deposits</TableHead>
+                                      <TableHead className="font-semibold text-slate-500">Name of Depositor</TableHead>
+                                      <TableHead className="font-semibold text-slate-500">Bank</TableHead>
+                                      <TableHead className="font-semibold text-slate-500 w-[90px]">Date</TableHead>
+                                      <TableHead className="font-semibold text-slate-500">Status</TableHead>
+                                      <TableHead className="font-semibold text-slate-500 text-right">Expenses</TableHead>
+                                      {!readOnly && <TableHead className="font-semibold text-slate-500 w-[90px] text-center">Actions</TableHead>}
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
-                                    {[...group.payments]
-                                      .sort((a, b) => (a.date_of_payment || '').localeCompare(b.date_of_payment || '') || a.id - b.id)
-                                      .map((payment) => {
-                                        const isSale = toNum(payment.quantity) > 0 && toNum(payment.quantity) < group.quantity;
-                                        const isExpense = toNum(payment.expenses_amount ?? 0) > 0;
-                                        const isDeposit = !isSale && !isExpense && toNum(payment.payment_amount) > 0;
+                                    {dateRows.map((row, idx) => {
+                                      const saleQty = row.sale ? toNum(row.sale.quantity) : 0;
+                                      const saleVal = row.sale ? toNum(row.sale.sales_value) : 0;
+                                      const saleRate = row.sale ? toNum(row.sale.rate) : 0;
+                                      const depositAmt = row.deposit ? toNum(row.deposit.payment_amount) : 0;
+                                      const depositor = row.deposit?.payer_name || '';
+                                      const bankName = row.deposit?.bank ? row.deposit.bank.split(' · ')[1] || row.deposit.bank : '';
+                                      const isConfirmed = row.deposit?.deposit_status === 'confirmed';
+                                      const expenseAmt = row.expense ? toNum(row.expense.expenses_amount ?? 0) : 0;
 
-                                        const dateStr = payment.date_of_payment
-                                          ? (() => { try { return format(parseISO(payment.date_of_payment), 'dd MMM yy'); } catch { return payment.date_of_payment; } })()
-                                          : '—';
-
-                                        let typeBadge: React.ReactNode;
-                                        let amountCell: React.ReactNode;
-                                        let detailCell: React.ReactNode;
-
-                                        if (isSale) {
-                                          const qty = toNum(payment.quantity);
-                                          const rate = toNum(payment.rate);
-                                          const val = toNum(payment.sales_value);
-                                          typeBadge = <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"><Fuel size={9} /> Sale</span>;
-                                          amountCell = <span className="font-bold text-slate-800">{fmtQty(qty)} L</span>;
-                                          detailCell = (
-                                            <span className="text-slate-600">
-                                              ₦{rate.toLocaleString()}/L · <span className="text-slate-800 font-semibold">{fmt(val)}</span>
-                                              {payment.remarks && <span className="text-slate-400 ml-1.5 italic">· {payment.remarks}</span>}
-                                            </span>
-                                          );
-                                        } else if (isExpense) {
-                                          const amt = toNum(payment.expenses_amount ?? 0);
-                                          typeBadge = <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"><Receipt size={9} /> Expense</span>;
-                                          amountCell = <span className="font-bold text-amber-700">{fmt(amt)}</span>;
-                                          detailCell = <span className="text-slate-500 italic">{payment.remarks || '—'}</span>;
-                                        } else {
-                                          const amt = toNum(payment.payment_amount);
-                                          const bankParts = payment.bank ? payment.bank.split(' · ') : null;
-                                          typeBadge = <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200"><Banknote size={9} /> Deposit</span>;
-                                          amountCell = <span className="font-bold text-emerald-700">{fmt(amt)}</span>;
-                                          detailCell = (
-                                            <span className="text-slate-600">
-                                              {payment.payer_name && <><span className="font-medium">{payment.payer_name}</span> · </>}
-                                              {bankParts ? `${bankParts[0]}` : 'Internal'}
-                                              {payment.remarks && <span className="text-slate-400 ml-1.5 italic">· {payment.remarks}</span>}
-                                            </span>
-                                          );
-                                        }
-
-                                        return (
-                                          <TableRow key={payment.id} className="hover:bg-slate-50/60 border-b border-slate-50">
-                                            <TableCell className="px-4">{typeBadge}</TableCell>
-                                            <TableCell className="text-slate-500 whitespace-nowrap">{dateStr}</TableCell>
-                                            <TableCell className="text-right">{amountCell}</TableCell>
-                                            <TableCell className="max-w-[280px] truncate">{detailCell}</TableCell>
-                                            {!readOnly && (
-                                              <TableCell className="text-center">
-                                                <div className="flex gap-0.5 items-center justify-center">
-                                                  <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEditDialog(payment)} title="Edit">
-                                                    <Pencil size={11} />
-                                                  </Button>
-                                                  <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete"
-                                                    onClick={() => setDeleteTarget({ ids: [payment.id], mode: 'entry', label: `entry on ${payment.date_of_payment || ''}` })}>
-                                                    <Trash2 size={11} />
-                                                  </Button>
-                                                </div>
-                                              </TableCell>
-                                            )}
-                                          </TableRow>
-                                        );
-                                      })}
+                                      return (
+                                        <TableRow key={[row.sale?.id, row.deposit?.id, row.expense?.id, idx].filter(Boolean).join('-') || idx} className="hover:bg-slate-50/60 border-b border-slate-50">
+                                          <TableCell className="px-4 text-slate-400">{idx + 1}</TableCell>
+                                          <TableCell className="text-slate-600 whitespace-nowrap font-medium">{row.sale ? fmtDateStr(row.dateKey) : '—'}</TableCell>
+                                          <TableCell className="text-right font-semibold text-slate-800">{saleQty > 0 ? `${fmtQty(saleQty)} L` : '—'}</TableCell>
+                                          <TableCell className="text-right text-slate-600">{saleRate > 0 ? `₦${saleRate.toLocaleString()}` : '—'}</TableCell>
+                                          <TableCell className="text-right text-slate-800 font-medium">{saleVal > 0 ? fmt(saleVal) : '—'}</TableCell>
+                                          <TableCell className="text-right font-semibold text-emerald-700">{depositAmt > 0 ? fmt(depositAmt) : '—'}</TableCell>
+                                          <TableCell className="text-slate-600">{depositor || '—'}</TableCell>
+                                          <TableCell className="text-slate-600">{bankName || '—'}</TableCell>
+                                          <TableCell className="text-slate-600 whitespace-nowrap">{row.deposit ? fmtDateStr(row.dateKey) : '—'}</TableCell>
+                                          <TableCell>
+                                            {row.deposit ? (
+                                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${isConfirmed ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                                {isConfirmed ? 'Confirmed' : 'Pending'}
+                                              </span>
+                                            ) : '—'}
+                                          </TableCell>
+                                          <TableCell className="text-right text-amber-700">{expenseAmt > 0 ? fmt(expenseAmt) : '—'}</TableCell>
+                                          {!readOnly && (
+                                            <TableCell className="text-center">
+                                              <div className="flex gap-0.5 items-center justify-center">
+                                                <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-slate-700" title="Edit"
+                                                  onClick={() => openEditDialog(group, row)}>
+                                                  <Pencil size={11} />
+                                                </Button>
+                                                <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-400 hover:text-red-600" title="Delete"
+                                                  onClick={() => setDeleteTarget({
+                                                    ids: [row.sale, row.deposit, row.expense].filter((p): p is DeliverySale => !!p).map(p => p.id),
+                                                    mode: 'entry',
+                                                    label: `entry on ${row.dateKey || ''}`,
+                                                  })}>
+                                                  <Trash2 size={11} />
+                                                </Button>
+                                              </div>
+                                            </TableCell>
+                                          )}
+                                        </TableRow>
+                                      );
+                                    })}
                                   </TableBody>
                                 </Table>
                               </div>
-                            )}
+                              );
+                            })()}
 
                             {!readOnly && (
                               <div className="flex justify-end pt-1">
@@ -2563,16 +2788,27 @@ export default function FillingStations() {
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <Label className="text-xs text-slate-600">Bank Account <span className="text-red-500">*</span></Label>
-                  <select aria-label="Select bank account" value={quickPaymentForm.bank_account_id}
-                    onChange={e => setQuickPaymentForm(prev => ({ ...prev, bank_account_id: e.target.value }))}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                    <option value="">Select account…</option>
-                    {activeBankAccounts.map(b => (
-                      <option key={b.id} value={String(b.id)}>{b.account_number} · {b.bank_name}</option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Bank Account <span className="text-red-500">*</span></Label>
+                    <select aria-label="Select bank account" value={quickPaymentForm.bank_account_id}
+                      onChange={e => setQuickPaymentForm(prev => ({ ...prev, bank_account_id: e.target.value }))}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="">Select account…</option>
+                      {activeBankAccounts.map(b => (
+                        <option key={b.id} value={String(b.id)}>{b.account_number} · {b.bank_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Status</Label>
+                    <select aria-label="Deposit status" value={quickPaymentForm.deposit_status}
+                      onChange={e => setQuickPaymentForm(prev => ({ ...prev, deposit_status: e.target.value as 'pending' | 'confirmed' }))}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="pending">Pending</option>
+                      <option value="confirmed">Confirmed</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2658,7 +2894,7 @@ export default function FillingStations() {
       {/* Set Up Dialog                                                      */}
       {/* ══════════════════════════════════════════════════════════════════ */}
       <Dialog open={!!setupTarget} onOpenChange={open => { if (!open) setSetupTarget(null); }}>
-        <DialogContent className="sm:max-w-[480px]">
+        <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-100"><UserPlus className="w-5 h-5 text-blue-600" /></div>
@@ -2687,6 +2923,54 @@ export default function FillingStations() {
               <Label>Allocation Code <span className="text-xs text-slate-400">(optional)</span></Label>
               <Input placeholder="e.g. SOR-001" value={setupCode} onChange={e => setSetupCode(e.target.value.toUpperCase())} />
             </div>
+
+            {([
+              { kind: 'collection' as const, label: 'Collection Account', icon: Wallet, accounts: setupCollectionAccounts, border: 'border-indigo-200/75', bg: 'bg-indigo-50', text: 'text-indigo-600', textDark: 'text-indigo-800' },
+              { kind: 'remittance' as const, label: 'Remittance Account', icon: ArrowRightLeft, accounts: setupRemittanceAccounts, border: 'border-violet-200/75', bg: 'bg-violet-50', text: 'text-violet-600', textDark: 'text-violet-800' },
+            ]).map(section => (
+              <div key={section.kind} className={`rounded-lg border ${section.border} overflow-hidden`}>
+                <div className={`${section.bg} px-3 py-2 flex items-center justify-between gap-2`}>
+                  <div className="flex items-center gap-2">
+                    <section.icon size={14} className={section.text} />
+                    <p className={`text-xs font-semibold ${section.textDark}`}>{section.label}{section.accounts.length > 1 ? `s (${section.accounts.length})` : ''}</p>
+                  </div>
+                  <Button type="button" size="sm" variant="ghost" className={`h-6 gap-1 px-2 text-xs ${section.text} hover:bg-white/60`} onClick={() => addAccount(section.kind)}>
+                    <Plus size={11} /> Add
+                  </Button>
+                </div>
+                <div className="p-3 space-y-3">
+                  {section.accounts.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">No {section.label.toLowerCase()} added yet.</p>
+                  ) : (
+                    section.accounts.map((acc, i) => (
+                      <div key={i} className="rounded-md border border-slate-100 bg-slate-50/50 p-2.5 space-y-2 relative">
+                        {section.accounts.length > 1 && (
+                          <span className="absolute -top-2 -left-2 h-5 w-5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+                        )}
+                        <button type="button" title="Remove account" onClick={() => removeAccount(section.kind, i)}
+                          className="absolute top-1.5 right-1.5 text-slate-300 hover:text-red-500">
+                          <X size={13} />
+                        </button>
+                        <div className="space-y-1 pr-5">
+                          <Label className="text-xs text-slate-600">Account Name</Label>
+                          <Input className="h-9 text-sm" placeholder="e.g. Station Holdings Ltd" value={acc.name} onChange={e => updateAccount(section.kind, i, 'name', e.target.value)} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs text-slate-600">Bank Name</Label>
+                            <Input className="h-9 text-sm" placeholder="e.g. Zenith Bank" value={acc.bank} onChange={e => updateAccount(section.kind, i, 'bank', e.target.value)} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-slate-600">Account Number</Label>
+                            <Input className="h-9 text-sm" placeholder="e.g. 1234567890" value={acc.number} onChange={e => updateAccount(section.kind, i, 'number', e.target.value.replace(/\D/g, ''))} />
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ))}
 
             {/* Overpayment transfer */}
             {setupTarget && setupTarget.balance < 0 && (
@@ -2731,112 +3015,84 @@ export default function FillingStations() {
       {/* Edit Entry Dialog                                                  */}
       {/* ══════════════════════════════════════════════════════════════════ */}
       <Dialog open={!!editTarget} onOpenChange={open => { if (!open) { setEditTarget(null); setEditForm(null); } }}>
-        <DialogContent className="sm:max-w-[560px]">
+        <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
           {editTarget && (
             <DialogHeader>
               <DialogTitle className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${(toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0))
-                  ? 'bg-sky-100'
-                  : 'bg-emerald-100'
-                  }`}>
-                  {(toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0)) ? (
-                    <Fuel className="w-5 h-5 text-sky-600" />
-                  ) : (
-                    <Banknote className="w-5 h-5 text-emerald-600" />
-                  )}
+                <div className="p-2 rounded-lg bg-slate-100">
+                  <Pencil className="w-5 h-5 text-slate-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold">
-                    {(toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0))
-                      ? 'Edit Daily Sale Entry'
-                      : 'Edit Bank Deposit Entry'}
-                  </h2>
+                  <h2 className="text-lg font-bold">Edit Entry</h2>
                   <p className="text-sm font-normal text-slate-500 mt-0.5">
-                    {editTarget.truck_number} · {editTarget.customer_name || 'Filling Station'}
+                    {editTarget.group.truckNumber} · {editTarget.group.customerName || 'Filling Station'}
                   </p>
                 </div>
               </DialogTitle>
-              <DialogDescription className="sr-only">Edit daily fuel sale records or bank payments</DialogDescription>
+              <DialogDescription className="sr-only">Edit the sale, deposit and expense details recorded for this date</DialogDescription>
             </DialogHeader>
           )}
 
           {editForm && editTarget && (
             <div className="space-y-4 py-2">
-              {/* Conditional Form Render */}
-              {(toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0)) ? (
-                /* Daily Sale Form Fields */
-                <>
-                  <div className="bg-sky-50 border border-sky-200/75 rounded-lg p-3 flex gap-2">
-                    <Fuel size={16} className="text-sky-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-semibold text-sky-800">Editing Pump Sale Record</p>
-                      <p className="text-[10px] text-sky-600 mt-0.5">Update the volume sold and rate. Expected value is auto-calculated.</p>
-                    </div>
-                  </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600">Date</Label>
+                <Input type="date" className="h-9 text-sm w-[200px]" value={editForm.date}
+                  onChange={e => setEditForm(prev => prev ? { ...prev, date: e.target.value } : null)}
+                />
+              </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Volume (Ltrs)</Label>
-                      <Input className="h-9 text-sm" value={editForm.quantity}
-                        onChange={e => {
-                          const qty = formatWithCommas(e.target.value);
-                          const q = Number(stripCommas(qty)) || 0;
-                          const r = Number(stripCommas(editForm.rate)) || 0;
-                          const sv = q && r ? formatWithCommas(String(q * r)) : editForm.sales_value;
-                          setEditForm(prev => prev ? { ...prev, quantity: qty, sales_value: sv } : null);
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Rate (₦/L)</Label>
-                      <Input className="h-9 text-sm" value={editForm.rate}
-                        onChange={e => {
-                          const rate = formatWithCommas(e.target.value);
-                          const r = Number(stripCommas(rate)) || 0;
-                          const q = Number(stripCommas(editForm.quantity)) || 0;
-                          const sv = q && r ? formatWithCommas(String(q * r)) : editForm.sales_value;
-                          setEditForm(prev => prev ? { ...prev, rate, sales_value: sv } : null);
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Expected Value (₦)</Label>
-                      <Input className="h-9 text-sm bg-slate-50 font-bold text-slate-700" readOnly
-                        value={(() => {
-                          const r = Number(stripCommas(editForm.rate)) || 0;
-                          const q = Number(stripCommas(editForm.quantity)) || 0;
-                          return r && q ? `₦${formatWithCommas(String(r * q))}` : editForm.sales_value;
-                        })()}
-                      />
-                    </div>
+              {/* Sale section */}
+              <div className="rounded-lg border border-sky-200/75 overflow-hidden">
+                <div className="bg-sky-50 px-3 py-2 flex items-center gap-2">
+                  <Fuel size={14} className="text-sky-600" />
+                  <p className="text-xs font-semibold text-sky-800">Daily Sale</p>
+                </div>
+                <div className="p-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Volume (Ltrs)</Label>
+                    <Input className="h-9 text-sm" value={editForm.quantity}
+                      onChange={e => {
+                        const qty = formatWithCommas(e.target.value);
+                        const q = Number(stripCommas(qty)) || 0;
+                        const r = Number(stripCommas(editForm.rate)) || 0;
+                        const sv = q && r ? formatWithCommas(String(q * r)) : editForm.sales_value;
+                        setEditForm(prev => prev ? { ...prev, quantity: qty, sales_value: sv } : null);
+                      }}
+                    />
                   </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Rate (₦/L)</Label>
+                    <Input className="h-9 text-sm" value={editForm.rate}
+                      onChange={e => {
+                        const rate = formatWithCommas(e.target.value);
+                        const r = Number(stripCommas(rate)) || 0;
+                        const q = Number(stripCommas(editForm.quantity)) || 0;
+                        const sv = q && r ? formatWithCommas(String(q * r)) : editForm.sales_value;
+                        setEditForm(prev => prev ? { ...prev, rate, sales_value: sv } : null);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-600">Sales Value (₦)</Label>
+                    <Input className="h-9 text-sm bg-slate-50 font-bold text-slate-700" readOnly
+                      value={(() => {
+                        const r = Number(stripCommas(editForm.rate)) || 0;
+                        const q = Number(stripCommas(editForm.quantity)) || 0;
+                        return r && q ? `₦${formatWithCommas(String(r * q))}` : editForm.sales_value;
+                      })()}
+                    />
+                  </div>
+                </div>
+              </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Date of Sale</Label>
-                      <Input type="date" className="h-9 text-sm" value={editForm.date_of_payment}
-                        onChange={e => setEditForm(prev => prev ? { ...prev, date_of_payment: e.target.value } : null)}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Remarks / Notes</Label>
-                      <Input className="h-9 text-sm" value={editForm.remarks}
-                        onChange={e => setEditForm(prev => prev ? { ...prev, remarks: e.target.value } : null)}
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* Bank Deposit Form Fields */
-                <>
-                  <div className="bg-emerald-50 border border-emerald-200/75 rounded-lg p-3 flex gap-2">
-                    <Banknote size={16} className="text-emerald-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-semibold text-emerald-800">Editing Bank Deposit Record</p>
-                      <p className="text-[10px] text-emerald-600 mt-0.5">Update the payment deposit amount, date, bank destination and remarks.</p>
-                    </div>
-                  </div>
-
+              {/* Deposit section */}
+              <div className="rounded-lg border border-emerald-200/75 overflow-hidden">
+                <div className="bg-emerald-50 px-3 py-2 flex items-center gap-2">
+                  <Banknote size={14} className="text-emerald-600" />
+                  <p className="text-xs font-semibold text-emerald-800">Bank Deposit</p>
+                </div>
+                <div className="p-3 space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs text-slate-600">Amount Deposited (₦)</Label>
@@ -2845,10 +3101,13 @@ export default function FillingStations() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Date of Deposit</Label>
-                      <Input type="date" className="h-9 text-sm" value={editForm.date_of_payment}
-                        onChange={e => setEditForm(prev => prev ? { ...prev, date_of_payment: e.target.value } : null)}
-                      />
+                      <Label className="text-xs text-slate-600">Status</Label>
+                      <select aria-label="Edit deposit status" value={editForm.deposit_status}
+                        onChange={e => setEditForm(prev => prev ? { ...prev, deposit_status: e.target.value as 'pending' | 'confirmed' } : null)}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                        <option value="pending">Pending</option>
+                        <option value="confirmed">Confirmed</option>
+                      </select>
                     </div>
                   </div>
 
@@ -2864,7 +3123,7 @@ export default function FillingStations() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label className="text-xs text-slate-600">Payer's Name</Label>
+                      <Label className="text-xs text-slate-600">Name of Depositor</Label>
                       <Input className="h-9 text-sm" value={editForm.payer_name}
                         onChange={e => setEditForm(prev => prev ? { ...prev, payer_name: e.target.value.replace(/[0-9]/g, '') } : null)}
                       />
@@ -2876,24 +3135,37 @@ export default function FillingStations() {
                       />
                     </div>
                   </div>
+                </div>
+              </div>
 
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Remarks / Notes</Label>
-                    <Input className="h-9 text-sm" value={editForm.remarks}
-                      onChange={e => setEditForm(prev => prev ? { ...prev, remarks: e.target.value } : null)}
+              {/* Expense section */}
+              <div className="rounded-lg border border-amber-200/75 overflow-hidden">
+                <div className="bg-amber-50 px-3 py-2 flex items-center gap-2">
+                  <Receipt size={14} className="text-amber-600" />
+                  <p className="text-xs font-semibold text-amber-800">Expense</p>
+                </div>
+                <div className="p-3">
+                  <div className="space-y-1 sm:w-1/2">
+                    <Label className="text-xs text-slate-600">Amount (₦)</Label>
+                    <Input className="h-9 text-sm" value={editForm.expenses_amount}
+                      onChange={e => setEditForm(prev => prev ? { ...prev, expenses_amount: formatWithCommas(e.target.value) } : null)}
                     />
                   </div>
-                </>
-              )}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-600">Remarks / Notes</Label>
+                <Input className="h-9 text-sm" value={editForm.remarks}
+                  onChange={e => setEditForm(prev => prev ? { ...prev, remarks: e.target.value } : null)}
+                />
+              </div>
             </div>
           )}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => { setEditTarget(null); setEditForm(null); }} disabled={editSaving}>Cancel</Button>
-            <Button onClick={handleEditSave} disabled={editSaving} className={`gap-2 ${editTarget && (toNum(editTarget.quantity) > 0 || toNum(editTarget.rate) > 0 || (toNum(editTarget.sales_value) > 0 && toNum(editTarget.payment_amount) === 0))
-              ? 'bg-sky-600 hover:bg-sky-700'
-              : 'bg-emerald-600 hover:bg-emerald-700'
-              }`}>
+            <Button onClick={handleEditSave} disabled={editSaving} className="gap-2 bg-slate-900 hover:bg-slate-800">
               {editSaving ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
               {editSaving ? 'Saving…' : 'Save Changes'}
             </Button>

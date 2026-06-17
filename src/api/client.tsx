@@ -18,6 +18,9 @@ const getHeadersfree = (additionalHeaders = {}) => ({
   ...additionalHeaders,
 });
 
+/** A single named bank account — used for the (possibly multiple) collection/remittance accounts on delivery inventory/sales rows. */
+export type DeliveryAccountEntry = { name: string; bank: string; number: string };
+
 /** Auth-only headers — no Content-Type (let the browser set multipart boundary) */
 const getMultipartHeaders = (additionalHeaders = {}) => {
   const token = localStorage.getItem('token');
@@ -1845,6 +1848,8 @@ export const apiClient = {
         loading_status: string;
         date_offloaded: string;
         offloaded_by: string;
+        collection_accounts: DeliveryAccountEntry[];
+        remittance_accounts: DeliveryAccountEntry[];
       }>
     ) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/inventory/${id}/`, {
@@ -2059,9 +2064,12 @@ export const apiClient = {
       payer_name?: string;
       bank?: string;
       date_of_payment?: string;
+      deposit_status?: 'pending' | 'confirmed';
       phone_number?: string;
       remarks?: string;
       entered_by?: string;
+      collection_accounts?: DeliveryAccountEntry[];
+      remittance_accounts?: DeliveryAccountEntry[];
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/sales/`, {
         method: 'POST',
@@ -2090,8 +2098,11 @@ export const apiClient = {
         payer_name: string;
         bank: string;
         date_of_payment: string;
+        deposit_status: 'pending' | 'confirmed';
         phone_number: string;
         remarks: string;
+        collection_accounts: DeliveryAccountEntry[];
+        remittance_accounts: DeliveryAccountEntry[];
       }>
     ) => {
       const response = await safeFetch(`${ADMIN_BASE}/delivery/sales/${id}/`, {
