@@ -44,8 +44,20 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
     });
 
     return (
-      <div ref={ref} className="bg-white text-slate-900 p-8">
-        <div className="flex items-start justify-between gap-4">
+      <div ref={ref} className="relative bg-white text-slate-900 p-8 overflow-hidden">
+        <img
+          src="/logo.png"
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none select-none absolute left-1/2 top-1/2 w-[70%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.06]"
+        />
+        <div className="relative text-center">
+          <div className="inline-block border-2 border-green-900 px-4 py-1 text-sm font-bold uppercase tracking-wide text-green-900">
+            Waybill &amp; Receipt of Payment
+          </div>
+        </div>
+
+        <div className="relative mt-4 flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Soroman" className="h-12 w-12" />
             <div>
@@ -59,7 +71,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           </div>
         </div>
 
-        <div className="mt-6 border border-slate-300 overflow-hidden">
+        <div className="relative mt-6 border border-slate-300 overflow-hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2">
             <TicketRow label="Customer's Name" value={data.customerName} />
             <TicketRow label="Company's Name" value={data.companyName} />
@@ -67,9 +79,9 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
             <TicketRow label="Product" value={`${data.product} x ${data.qty}`} />
             {/* <TicketRow label="Product" value={data.product} />
             <TicketRow label="Quantity" value={data.qty} /> */}
-            {/* <TicketRow label="Unit Price" value={`₦${data.unitPrice}`} /> */}
+            <TicketRow label="Unit Price" value={`₦${data.unitPrice}`} />
             <TicketRow label="Truck Number" value={data.truckNumber} />
-            <TicketRow label="Change of Truck" value=" " />
+            {/* <TicketRow label="Change of Truck" value=" " /> */}
             <TicketRow label="Driver's Name & Phone" value={`${data.driverName} - ${data.driverPhone}`} />
             <TicketRow label="NMDPRA Number" value={data.nmdrpaNumber} />
             {/* <TicketRow label="Driver's Phone" value={data.driverPhone || " "} /> */}
@@ -100,7 +112,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           </div>
         </div>
 
-        <div className="mt-6 space-y-5 text-sm">
+        <div className="relative mt-6 space-y-5 text-sm">
           <SignatureLine label="Loader's Name & Phone No." />
           <SignatureLine label="Finance Clearance" placeholders />
           <SignatureLine label="Commercial Manager" placeholders />
@@ -109,8 +121,18 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           <SignatureLine label="Security" placeholders />
         </div>
 
+        <div className="relative mt-6 border border-amber-400 bg-amber-50 px-4 py-3 text-center">
+          <div className="text-xs font-bold uppercase tracking-wide text-amber-800">
+            This document is original and confirms payment for your truck
+          </div>
+          <div className="mt-1 text-[11px] text-amber-700">
+            This ticket is an official receipt issued by Soroman Nigeria Limited. Please keep it safe and
+            present it as confirmation of payment when required &mdash; Soroman is not liable for loss of this document.
+          </div>
+        </div>
+
         {/* Minimal footer CTA */}
-        <div className="mt-10 bg-green-900 px-4 py-3 text-white">
+        <div className="relative mt-10 bg-green-900 px-4 py-3 text-white">
           <div className="flex items-center justify-center gap-2 text-xs">
             <Globe className="h-3 w-3" />
             <span>

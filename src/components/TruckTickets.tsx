@@ -511,11 +511,24 @@ const EMPTY_COMPARTMENTS = Array.from({ length: 5 }, (_, i) => ({
 function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean }) {
   return (
     <div
-      className="bg-white text-slate-900 p-8"
+      className="relative bg-white text-slate-900 p-8 overflow-hidden"
       style={{ pageBreakAfter: isLast ? 'auto' : 'always' }}
     >
+      <img
+        src="/logo.png"
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none select-none absolute left-1/2 top-1/2 w-[70%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.06]"
+      />
+      {/* Waybill / Receipt banner */}
+      <div className="relative text-center">
+        <div className="inline-block border-2 border-green-900 px-4 py-1 text-sm font-bold uppercase tracking-wide text-green-900">
+          Waybill &amp; Receipt of Payment
+        </div>
+      </div>
+
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="relative mt-4 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <img src="/logo.png" alt="Soroman" className="h-12 w-12" />
           <div>
@@ -537,7 +550,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
       </div>
 
       {/* Details grid */}
-      <div className="mt-6 border border-slate-300 overflow-hidden">
+      <div className="relative mt-6 border border-slate-300 overflow-hidden">
         <div className="grid grid-cols-1 sm:grid-cols-2">
           <TicketRow label="Company's Name" value={d.company_name} />
           <TicketRow label="NMDPRA Number" value=" " />
@@ -584,7 +597,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
       </div>
 
       {/* Signature lines */}
-      <div className="mt-6 space-y-5 text-sm">
+      <div className="relative mt-6 space-y-5 text-sm">
         <SignatureLine label="Loader's Name & Phone No." />
         <SignatureLine label="Finance Clearance" placeholders />
         <SignatureLine label="Commercial Manager" placeholders />
@@ -593,8 +606,19 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
         <SignatureLine label="Security" placeholders />
       </div>
 
+      {/* Payment confirmation notice */}
+      <div className="relative mt-6 border border-amber-400 bg-amber-50 px-4 py-3 text-center">
+        <div className="text-xs font-bold uppercase tracking-wide text-amber-800">
+          This document is original and confirms payment for your truck
+        </div>
+        <div className="mt-1 text-[11px] text-amber-700">
+          This ticket is an official receipt issued by Soroman Nigeria Limited. Please keep it safe and
+          present it as confirmation of payment when required &mdash; Soroman is not liable for loss of this document.
+        </div>
+      </div>
+
       {/* Footer */}
-      <div className="mt-10 bg-green-900 px-4 py-3 text-white">
+      <div className="relative mt-10 bg-green-900 px-4 py-3 text-white">
         <div className="flex items-center justify-center gap-2 text-xs">
           <Globe className="h-3 w-3" />
           <span>
