@@ -44,7 +44,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
     });
 
     return (
-      <div ref={ref} className="relative flex min-h-[1056px] flex-col bg-white p-8 text-slate-900 overflow-hidden">
+      <div ref={ref} className="relative flex min-h-[1056px] flex-col bg-white px-8 pt-8 text-slate-900 overflow-hidden">
         <img
           src="/logo.png"
           alt=""
@@ -52,7 +52,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           className="pointer-events-none select-none absolute left-1/2 top-1/2 w-[70%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.06]"
         />
 
-        <div className="relative mt-4 flex items-start justify-between gap-4">
+        <div className="relative flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Soroman" className="h-12 w-12" />
             <div>
@@ -62,11 +62,11 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           </div>
           <div className="text-right">
             <div className="text-xs text-slate-500">Order Reference</div>
-            <div className="text-sm font-semibold">{data.orderReference}</div>
+            <div className="text-sm font-mono">{data.orderReference}</div>
           </div>
         </div>
 
-        <div className="relative bg-green-700 px-6 py-1 text-center text-sm font-semibold uppercase tracking-wide text-white">
+        <div className="relative mt-4 bg-green-700 px-6 py-1 text-center text-sm font-bold uppercase text-white">
           Waybill &amp; Payment Receipt
         </div>
 
@@ -123,20 +123,20 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
         {/* Contact info + payment notice — pinned to the bottom of the sheet */}
         <div className="relative mt-6 flex flex-1 flex-col justify-end">
           <div className="grid grid-cols-2 gap-6 border-t border-slate-200 pt-4 text-xs text-slate-700">
-            <div className="flex flex-col items-center justify-center gap-2 text-center">
-              <div className="flex items-center justify-center gap-2">
+            <div className="flex flex-col items-start gap-2 text-left">
+              <div className="flex items-center gap-2">
                 <Globe className="h-3 w-3" />
                 <span>
                   Visit <span className="underline underline-offset-2 font-bold">ordersoroman.com</span> to order fuel online without stress!
                 </span>
               </div>
-              <div className="flex items-center justify-center gap-2">
+              <div className="flex items-center gap-2">
                 <PhoneCall className="h-3 w-3" />
                 <span className="font-bold">07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324</span>
               </div>
             </div>
 
-            <div className="flex items-center justify-center border-l border-slate-200 pl-6 text-center text-slate-600">
+            <div className="flex items-center border-l border-slate-200 pl-6 text-left text-slate-600">
               This waybill and receipt confirm successful payment and authorization for the
               associated truck transaction. For enquiries, verification or support, kindly contact
               Soroman Energy.

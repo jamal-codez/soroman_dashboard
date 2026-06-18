@@ -511,7 +511,7 @@ const EMPTY_COMPARTMENTS = Array.from({ length: 5 }, (_, i) => ({
 function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean }) {
   return (
     <div
-      className="relative flex min-h-[1056px] flex-col bg-white p-8 text-slate-900 overflow-hidden"
+      className="relative flex min-h-[1056px] flex-col bg-white px-8 pt-8 text-slate-900 overflow-hidden"
       style={{ pageBreakAfter: isLast ? 'auto' : 'always' }}
     >
       <img
@@ -542,7 +542,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
       </div>
 
       {/* Waybill / Receipt banner */}
-      <div className="relative bg-green-700 px-6 py-1 text-center text-sm font-semibold uppercase tracking-wide text-white">
+      <div className="relative mt-4 bg-green-700 px-6 py-1 text-center text-sm font-semibold uppercase tracking-wide text-white">
         Waybill &amp; Payment Receipt
       </div>
 
@@ -606,8 +606,8 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
       {/* Contact info + payment notice — pinned to the bottom of the sheet */}
       <div className="relative mt-6 flex flex-1 flex-col justify-end">
         <div className="grid grid-cols-2 gap-6 border-t border-slate-200 pt-4 text-xs text-slate-700">
-          <div className="flex flex-col items-center justify-center gap-2 text-center">
-            <div className="flex items-center justify-center gap-2">
+          <div className="flex flex-col items-start gap-2 text-left">
+            <div className="flex items-center gap-2">
               <Globe className="h-3 w-3" />
               <span>
                 Visit{' '}
@@ -615,7 +615,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
                 order fuel online without stress!
               </span>
             </div>
-            <div className="flex items-center justify-center gap-2">
+            <div className="flex items-center gap-2">
               <PhoneCall className="h-3 w-3" />
               <span className="font-bold">
                 07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324
@@ -623,7 +623,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
             </div>
           </div>
 
-          <div className="flex items-center justify-center border-l border-slate-200 pl-6 text-center text-slate-600">
+          <div className="flex items-center border-l border-slate-200 pl-6 text-left text-slate-600">
             This waybill and receipt confirm successful payment and authorization for the
             associated truck transaction. For enquiries, verification or support, kindly contact
             Soroman Energy.
