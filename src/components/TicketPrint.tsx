@@ -44,7 +44,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
     });
 
     return (
-      <div ref={ref} className="relative bg-white text-slate-900 p-8 overflow-hidden">
+      <div ref={ref} className="relative flex min-h-[1056px] flex-col bg-white p-8 text-slate-900 overflow-hidden">
         <img
           src="/logo.png"
           alt=""
@@ -66,10 +66,8 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           </div>
         </div>
 
-        <div className="relative text-center">
-          <div className="inline-block bg-green-700 px-6 py-1 text-sm font-semibold uppercase tracking-wide text-white">
-            Waybill &amp; Payment Receipt
-          </div>
+        <div className="relative bg-green-700 px-6 py-1 text-center text-sm font-semibold uppercase tracking-wide text-white">
+          Waybill &amp; Payment Receipt
         </div>
 
         <div className="relative mt-6 border border-slate-300 overflow-hidden">
@@ -122,32 +120,31 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           <SignatureLine label="Security" placeholders />
         </div>
 
-        <div className="relative mt-6 border border-amber-400 bg-amber-50 px-4 py-3 text-center">
-          <div className="text-xs font-bold uppercase tracking-wide text-amber-800">
-            This document is original and confirms payment for your truck
-          </div>
-          <div className="mt-1 text-[11px] text-amber-700">
-            This ticket is an official receipt issued by Soroman Energy. Please keep it safe and
-            present it as confirmation of payment when required. For any inquiries or issues regarding this ticket, contact our support team immediately.
-          </div>
-        </div>
-
-        {/* Minimal footer CTA */}
-        <div className="relative mt-10 bg-green-900 px-4 py-3 text-white">
-          <div className="flex items-center justify-center gap-2 text-xs">
-            <Globe className="h-3 w-3" />
-            <span>
-              Visit <span className="underline underline-offset-2 font-bold">ordersoroman.com</span> to order fuel online without stress! 
-            </span>
+        {/* Payment confirmation notice + footer — pinned to the bottom of the sheet */}
+        <div className="relative mt-6 flex flex-1 flex-col justify-end">
+          <div className="bg-green-800 px-4 py-3 text-center text-white">
+            <div className="text-xs font-bold uppercase tracking-wide">
+              This document is original and confirms payment for your truck
+            </div>
+            <div className="mt-1 text-[11px] text-green-100">
+              This ticket is an official receipt issued by Soroman Energy. Please keep it safe and
+              present it as confirmation of payment when required. For any inquiries or issues regarding this ticket, contact our support team immediately.
+            </div>
           </div>
 
-          <div className="mt-2 flex items-center justify-center gap-2 text-xs">
-            <PhoneCall className="h-3 w-3" />
-            <span>
+          <div className="px-4 py-3 text-center text-slate-700">
+            <div className="flex items-center justify-center gap-2 text-xs">
+              <Globe className="h-3 w-3" />
+              <span>
+                Visit <span className="underline underline-offset-2 font-bold">ordersoroman.com</span> to order fuel online without stress!
+              </span>
+            </div>
+
+            <div className="mt-2 flex items-center justify-center gap-2 border-t border-slate-200 pt-2 text-xs">
+              <PhoneCall className="h-3 w-3" />
               <span className="font-bold">07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324</span>
-            </span>
+            </div>
           </div>
-
         </div>
 
       </div>
