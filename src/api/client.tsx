@@ -1498,6 +1498,8 @@ export const apiClient = {
         product_name: string;
         truck_number: number;
         quantity_litres: string;
+        unit_price: string | null;
+        amount: string | null;
         driver_name: string | null;
         driver_phone: string | null;
         plate_number: string | null;

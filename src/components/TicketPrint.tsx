@@ -52,7 +52,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           className="pointer-events-none select-none absolute left-1/2 top-1/2 w-[70%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.06]"
         />
 
-        <div className="relative flex items-start justify-between gap-4">
+        <div className="relative mt-4 flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Soroman" className="h-12 w-12" />
             <div>
@@ -62,11 +62,11 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           </div>
           <div className="text-right">
             <div className="text-xs text-slate-500">Order Reference</div>
-            <div className="text-sm font-mono">{data.orderReference}</div>
+            <div className="text-sm font-semibold">{data.orderReference}</div>
           </div>
         </div>
 
-        <div className="relative mt-4 bg-green-700 px-6 py-1 text-center text-sm font-bold uppercase text-white">
+        <div className="relative mt-4 bg-green-700 px-6 py-1 text-center text-sm font-semibold uppercase tracking-wide text-white">
           Waybill &amp; Payment Receipt
         </div>
 
@@ -79,6 +79,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
             {/* <TicketRow label="Product" value={data.product} />
             <TicketRow label="Quantity" value={data.qty} /> */}
             <TicketRow label="Unit Price" value={`₦${data.unitPrice}`} />
+            <TicketRow label="Amount" value={formatAmount(data.qty, data.unitPrice)} />
             <TicketRow label="Truck Number" value={data.truckNumber} />
             {/* <TicketRow label="Change of Truck" value=" " /> */}
             <TicketRow label="Driver's Name & Phone" value={`${data.driverName} - ${data.driverPhone}`} />
@@ -170,6 +171,13 @@ function SignatureLine({
       </div>
     </div>
   );
+}
+
+/** Compute qty × unitPrice and format as Naira currency */
+function formatAmount(qty: string, unitPrice: string): string {
+  const n = Number(qty) * Number(unitPrice);
+  if (!qty || !unitPrice || Number.isNaN(n)) return "";
+  return `₦${n.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function TicketRow({ label, value }: { label: string; value: string }) {

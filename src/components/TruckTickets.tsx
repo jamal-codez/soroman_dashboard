@@ -58,6 +58,8 @@ type PrintData = {
   product_name: string;
   truck_number: number;
   quantity_litres: string;
+  unit_price: string | null;
+  amount: string | null;
   driver_name: string | null;
   driver_phone: string | null;
   plate_number: string | null;
@@ -116,6 +118,13 @@ const formatLoadingDateTime = (raw: string | null): string => {
   } catch {
     return v;
   }
+};
+
+/** Format a numeric string as Naira currency for display on the printed ticket */
+const formatAmount = (raw: string | null): string => {
+  const n = Number(raw);
+  if (!raw || Number.isNaN(n)) return '';
+  return `₦${n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 /** Convert a 1-based truck number to a letter suffix: 1→A, 2→B, … 26→Z, 27→AA */
@@ -555,6 +564,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
           <TicketRow label="Phone Number" value={d.customer_phone} />
           <TicketRow label="Product Bought" value={d.product_name} />
           <TicketRow label="Quantity" value={`${Number(d.quantity_litres).toLocaleString()} Litres`} />
+          <TicketRow label="Amount" value={formatAmount(d.amount)} />
           <TicketRow label="Truck Number" value={d.plate_number || ''} />
           <TicketRow
             label="Driver's Name & Phone Number"
