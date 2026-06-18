@@ -542,7 +542,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
         </div>
         <div className="text-right">
           <div className="text-xs text-slate-500">Order Reference</div>
-          <div className="text-sm font-semibold">
+          <div className="text-sm font-mono font-semibold">
             {d.total_trucks > 1
               ? `${d.order_reference} (Truck ${truckSuffix(d.truck_number)})`
               : d.order_reference}
@@ -551,23 +551,23 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
       </div>
 
       {/* Waybill / Receipt banner */}
-      <div className="relative mt-4 bg-green-700 px-6 py-1 text-center text-sm font-semibold uppercase tracking-wide text-white">
+      <div className="relative mt-6 bg-green-700 px-6 py-2 text-center text-sm font-bold uppercase tracking-wide text-white">
         Waybill &amp; Payment Receipt
       </div>
 
       {/* Details grid */}
-      <div className="relative mt-6 border border-slate-300 overflow-hidden">
+      <div className="relative border border-slate-300 overflow-hidden">
         <div className="grid grid-cols-1 sm:grid-cols-2">
           <TicketRow label="Company's Name" value={d.company_name} />
           <TicketRow label="NMDPRA Number" value=" " />
           <TicketRow label="Contact Person" value={d.customer_name} />
           <TicketRow label="Phone Number" value={d.customer_phone} />
-          <TicketRow label="Product Bought" value={d.product_name} />
-          <TicketRow label="Quantity" value={`${Number(d.quantity_litres).toLocaleString()} Litres`} />
+          {/* <TicketRow label="Product Bought" value={d.product_name} /> */}
+          <TicketRow label="Product" value={`${d.product_name} x ${Number(d.quantity_litres).toLocaleString()} Litres`} />
           <TicketRow label="Amount" value={formatAmount(d.amount)} />
           <TicketRow label="Truck Number" value={d.plate_number || ''} />
           <TicketRow
-            label="Driver's Name & Phone Number"
+            label="Truck Driver"
             value={
               [d.driver_name, d.driver_phone].filter(Boolean).join(' - ') || ' '
             }
@@ -604,7 +604,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
       </div>
 
       {/* Signature lines */}
-      <div className="relative mt-6 grid grid-cols-2 gap-x-6 gap-y-5 text-sm">
+      <div className="relative mt-8 grid grid-cols-2 gap-x-6 gap-y-5 text-sm">
         <SignatureLine label="Loader's Name" />
         <SignatureLine label="Accounts" placeholders />
         <SignatureLine label="Commercial Manager" placeholders />
@@ -615,7 +615,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
 
       {/* Contact info + payment notice — pinned to the bottom of the sheet */}
       <div className="relative mt-6 flex flex-1 flex-col justify-end">
-        <div className="grid grid-cols-2 gap-6 border-t border-slate-200 pt-4 text-xs text-slate-700">
+        <div className="grid grid-cols-2 gap-6 border-t border-slate-200 pt-6 text-xs text-slate-700">
           <div className="flex flex-col items-start gap-2 text-left">
             <div className="flex items-center gap-2">
               <Globe className="h-3 w-3" />
@@ -626,7 +626,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <PhoneCall className="h-3 w-3" />
+              <PhoneCall className="h-4 w-4" />
               <span className="font-bold">
                 07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324
               </span>
@@ -635,8 +635,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
 
           <div className="flex items-center border-l border-slate-200 pl-6 text-left text-slate-600">
             This waybill and receipt confirm successful payment and authorization for the
-            associated truck transaction. For enquiries, verification or support, kindly contact
-            Soroman Energy.
+            associated truck transaction. For enquiries or verification, kindly contact Soroman Energy.
           </div>
         </div>
       </div>
