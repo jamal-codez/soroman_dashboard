@@ -51,23 +51,24 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           aria-hidden="true"
           className="pointer-events-none select-none absolute left-1/2 top-1/2 w-[70%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.06]"
         />
-        <div className="relative text-center">
-          <div className="inline-block border-2 border-green-900 px-4 py-1 text-sm font-bold uppercase tracking-wide text-green-900">
-            Waybill &amp; Receipt of Payment
-          </div>
-        </div>
 
         <div className="relative mt-4 flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Soroman" className="h-12 w-12" />
             <div>
-              <div className="text-lg font-bold">Soroman Nigeria Limited</div>
-              <div className="text-sm">Loading Ticket for <span className="font-semibold text-green-700">{data.location || ""}</span></div>
+              <div className="text-lg font-bold">Soroman Energy</div>
+              <div className="text-sm"><span className="font-semibold text-green-700">{data.location || ""}</span></div>
             </div>
           </div>
           <div className="text-right">
             <div className="text-xs text-slate-500">Order Reference</div>
             <div className="text-sm font-semibold">{data.orderReference}</div>
+          </div>
+        </div>
+
+        <div className="relative text-center">
+          <div className="inline-block bg-green-700 px-6 py-1 text-sm font-semibold uppercase tracking-wide text-white">
+            Waybill &amp; Payment Receipt
           </div>
         </div>
 
@@ -112,9 +113,9 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           </div>
         </div>
 
-        <div className="relative mt-6 space-y-5 text-sm">
-          <SignatureLine label="Loader's Name & Phone No." />
-          <SignatureLine label="Finance Clearance" placeholders />
+        <div className="relative mt-6 grid grid-cols-2 gap-x-6 gap-y-5 text-sm">
+          <SignatureLine label="Loader's Name" />
+          <SignatureLine label="Accounts" placeholders />
           <SignatureLine label="Commercial Manager" placeholders />
           <SignatureLine label="Depot Manager" placeholders />
           <SignatureLine label="Dispatch Officer" placeholders />
@@ -126,8 +127,8 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
             This document is original and confirms payment for your truck
           </div>
           <div className="mt-1 text-[11px] text-amber-700">
-            This ticket is an official receipt issued by Soroman Nigeria Limited. Please keep it safe and
-            present it as confirmation of payment when required &mdash; Soroman is not liable for loss of this document.
+            This ticket is an official receipt issued by Soroman Energy. Please keep it safe and
+            present it as confirmation of payment when required. For any inquiries or issues regarding this ticket, contact our support team immediately.
           </div>
         </div>
 

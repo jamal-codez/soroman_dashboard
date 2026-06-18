@@ -597,7 +597,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
       </div>
 
       {/* Signature lines */}
-      <div className="relative mt-6 space-y-5 text-sm">
+      <div className="relative mt-6 grid grid-cols-2 gap-x-6 gap-y-5 text-sm">
         <SignatureLine label="Loader's Name & Phone No." />
         <SignatureLine label="Finance Clearance" placeholders />
         <SignatureLine label="Commercial Manager" placeholders />
