@@ -603,32 +603,30 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
         <SignatureLine label="Security" placeholders />
       </div>
 
-      {/* Payment confirmation notice + footer — pinned to the bottom of the sheet */}
+      {/* Contact info + payment notice — pinned to the bottom of the sheet */}
       <div className="relative mt-6 flex flex-1 flex-col justify-end">
-        <div className="bg-green-800 px-4 py-3 text-center text-white">
-          <div className="text-xs font-bold uppercase tracking-wide">
-            This document is original and confirms payment for your truck
+        <div className="grid grid-cols-2 gap-6 border-t border-slate-200 pt-4 text-xs text-slate-700">
+          <div className="flex flex-col items-center justify-center gap-2 text-center">
+            <div className="flex items-center justify-center gap-2">
+              <Globe className="h-3 w-3" />
+              <span>
+                Visit{' '}
+                <span className="underline underline-offset-2 font-bold">ordersoroman.com</span> to
+                order fuel online without stress!
+              </span>
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <PhoneCall className="h-3 w-3" />
+              <span className="font-bold">
+                07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324
+              </span>
+            </div>
           </div>
-          <div className="mt-1 text-[11px] text-green-100">
-            This ticket is an official receipt issued by Soroman Energy. Please keep it safe and
-            present it as confirmation of payment when required. For any inquiries or issues regarding this ticket, contact our support team immediately.
-          </div>
-        </div>
 
-        <div className="px-4 py-3 text-center text-slate-700">
-          <div className="flex items-center justify-center gap-2 text-xs">
-            <Globe className="h-3 w-3" />
-            <span>
-              Visit{' '}
-              <span className="underline underline-offset-2 font-bold">ordersoroman.com</span> to
-              order fuel online without stress!
-            </span>
-          </div>
-          <div className="mt-2 flex items-center justify-center gap-2 border-t border-slate-200 pt-2 text-xs">
-            <PhoneCall className="h-3 w-3" />
-            <span className="font-bold">
-              07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324
-            </span>
+          <div className="flex items-center justify-center border-l border-slate-200 pl-6 text-center text-slate-600">
+            This waybill and receipt confirm successful payment and authorization for the
+            associated truck transaction. For enquiries, verification or support, kindly contact
+            Soroman Energy.
           </div>
         </div>
       </div>
