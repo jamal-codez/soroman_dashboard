@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { CommaInput } from "@/components/ui/comma-input";
 import { useToast } from '@/hooks/use-toast';
 import { isCurrentUserReadOnly } from '@/roles';
 import {
@@ -1598,15 +1599,11 @@ export const PickupProcessing = () => {
                                             {/* Quantity — full width, prominent */}
                                             <div className="space-y-1.5">
                                               <Label className="text-xs font-medium text-slate-600">Quantity (Litres) <span className="text-red-500">*</span></Label>
-                                              <Input
-                                                type="number"
-                                                min="1"
-                                                max="60000"
-                                                // placeholder="e.g. 33,000"
+                                              <CommaInput
+                                                placeholder="e.g. 33,000"
                                                 className="h-11 text-base font-semibold"
                                                 value={row.quantity_litres}
-                                                onChange={(e) => {
-                                                  const val = e.target.value;
+                                                onValueChange={(val) => {
                                                   if (val === '' || Number(val) <= 60000) {
                                                     updateTruckRow(row.key, 'quantity_litres', val);
                                                   }

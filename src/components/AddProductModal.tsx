@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { apiClient } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import Modal from '@/components/ui/modal';
 import { useToast } from '@/hooks/use-toast';
 
@@ -81,12 +82,10 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
           value={formData.unit_price}
           onChange={handleChange}
         /> */}
-        <Input
-          name="stock_quantity"
+        <CommaInput
           placeholder="Stock Quantity"
-          type="number"
           value={formData.stock_quantity}
-          onChange={handleChange}
+          onValueChange={(v) => setFormData(prev => ({ ...prev, stock_quantity: v }))}
         />
         <Input
           name="abbreviation"

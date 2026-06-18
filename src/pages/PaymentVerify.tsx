@@ -142,15 +142,19 @@ function VerifyConfirmModal({
   pfiOptions,
   selectedPfiId,
   onChangePfiId,
+  selectedBankAccountId,
+  onChangeBankAccountId,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (narration: string, files: File[], pfiId?: number) => void;
+  onConfirm: (narration: string, files: File[], pfiId?: number, bankAccountId?: number) => void;
   payment: PaymentOrder | null;
   bankAccounts: BankAccount[];
   pfiOptions: Array<{ id: number; label: string }>;
   selectedPfiId: number | '';
   onChangePfiId: (value: number | '') => void;
+  selectedBankAccountId: number | '';
+  onChangeBankAccountId: (value: number | '') => void;
 }) {
   if (!payment) return null;
 
@@ -164,6 +168,8 @@ function VerifyConfirmModal({
       pfiOptions={pfiOptions}
       selectedPfiId={selectedPfiId}
       onChangePfiId={onChangePfiId}
+      selectedBankAccountId={selectedBankAccountId}
+      onChangeBankAccountId={onChangeBankAccountId}
     />
   );
 }
@@ -177,15 +183,19 @@ function VerifyConfirmModalBody({
   pfiOptions,
   selectedPfiId,
   onChangePfiId,
+  selectedBankAccountId,
+  onChangeBankAccountId,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (narration: string, files: File[], pfiId?: number) => void;
+  onConfirm: (narration: string, files: File[], pfiId?: number, bankAccountId?: number) => void;
   payment: PaymentOrder;
   bankAccounts: BankAccount[];
   pfiOptions: Array<{ id: number; label: string }>;
   selectedPfiId: number | '';
   onChangePfiId: (value: number | '') => void;
+  selectedBankAccountId: number | '';
+  onChangeBankAccountId: (value: number | '') => void;
 }) {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
@@ -216,11 +226,11 @@ function VerifyConfirmModalBody({
   return (
     <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
       <DialogContent className="sm:max-w-[620px] max-h-[90vh] overflow-y-auto p-0 border border-slate-300 shadow-xl">
-        <div className="border-b border-slate-800 bg-slate-900 px-6 pt-6 pb-4">
+        <div className="border-b border-slate-800 bg-black px-6 pt-6 pb-4">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-lg text-white">Confirm Payment</DialogTitle>
             <DialogDescription className="text-sm text-slate-200">
-              Review the order details below and upload proof if available.
+              Review the order details below and confirm payment.
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -239,7 +249,7 @@ function VerifyConfirmModalBody({
               <Search size={15} className="mt-0.5 shrink-0 text-slate-700" />
               <div className="min-w-0">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Order Ref</div>
-                <div className="truncate font-bold text-slate-950">{orderRef}</div>
+                <div className="truncate font-bold font-mono text-slate-950">{orderRef}</div>
               </div>
             </div>
           </div>
@@ -276,7 +286,7 @@ function VerifyConfirmModalBody({
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Facilitator</div>
                 <div className="font-semibold uppercase text-slate-900">{customerName || '—'}</div>
-                {customerPhone ? <div className="text-sm text-slate-700">{customerPhone}</div> : null}
+                {/* {customerPhone ? <div className="text-sm text-slate-700">{customerPhone}</div> : null} */}
               </div>
             </div>
           </div>
@@ -287,19 +297,45 @@ function VerifyConfirmModalBody({
               <Banknote size={14} />
               Paid Into
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <div className="text-[11px] text-slate-600">Account No.</div>
-                <div className="font-semibold text-slate-900">{paidInto.account_number || '—'}</div>
-              </div>
-              <div>
-                <div className="text-[11px] text-slate-600">Bank</div>
-                <div className="font-medium uppercase text-slate-900">{paidInto.bank_name || '—'}</div>
-              </div>
-              <div>
-                <div className="text-[11px] text-slate-600">Account Name</div>
-                <div className="font-medium uppercase text-slate-900">{paidInto.account_name || '—'}</div>
-              </div>
+
+            <select
+              aria-label="Paid into bank account"
+              className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              value={selectedBankAccountId === '' ? '' : String(selectedBankAccountId)}
+              onChange={(e) => onChangeBankAccountId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">{paidInto.account_number ? 'Use detected account below' : 'Select bank account'}</option>
+              {bankAccounts.map((b) => (
+                <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-slate-600">
+              If the customer paid into a different one of our other accounts, pick the correct one here.
+            </p>
+
+            <div className="mt-2 grid grid-cols-3 gap-3">
+              {(() => {
+                const selected = bankAccounts.find((b) => b.id === selectedBankAccountId);
+                const display = selected
+                  ? { account_number: selected.acct_no, bank_name: selected.bank_name, account_name: selected.name }
+                  : paidInto;
+                return (
+                  <>
+                    <div>
+                      <div className="text-[11px] text-slate-600">Account No.</div>
+                      <div className="font-bold text-slate-900">{display.account_number || '—'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-slate-600">Bank</div>
+                      <div className="font-bold uppercase text-slate-900">{display.bank_name || '—'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-slate-600">Account Name</div>
+                      <div className="font-bold uppercase text-slate-900">{display.account_name || '—'}</div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -334,7 +370,7 @@ function VerifyConfirmModalBody({
           {/* Amount entry intentionally removed to keep this dialog simple and focused. */}
 
           {/* File attachments */}
-          <div>
+          {/* <div>
             <label className="mb-1.5 block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
               <Paperclip size={12} /> Payment Proof
             </label>
@@ -370,22 +406,28 @@ function VerifyConfirmModalBody({
                 })}
               </ul>
             )}
-          </div>
+          </div> */}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-300 bg-slate-100 px-6 py-4">
-          <p className="text-xs text-slate-700 font-medium">This action triggers the order for release.</p>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => {
+        <div className="flex items-center justify-end gap-3 border-t border-slate-300 bg-slate-100 px-6 py-4">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            className="gap-1.5 bg-green-700 hover:bg-green-900"
+            disabled={!canConfirm}
+            onClick={() => {
               const prefix = Number.isFinite(expectedAmountValue) && expectedAmountValue > 0 ? `[PAID:${expectedAmountValue}] ` : '';
-              onConfirm(prefix.trim(), attachedFiles, typeof selectedPfiId === 'number' ? selectedPfiId : undefined);
-            }} disabled={!canConfirm} className="gap-1.5">
+              onConfirm(
+                prefix.trim(),
+                attachedFiles,
+                typeof selectedPfiId === 'number' ? selectedPfiId : undefined,
+                typeof selectedBankAccountId === 'number' ? selectedBankAccountId : undefined,
+              );
+            }}
+          >
             <CheckCheck size={16} />
-            Confirm & Release
+            Confirm Payment
           </Button>
-          {!isPending ? (
-            <div className="w-full text-xs text-amber-700">This order is no longer pending.</div>
-          ) : null}
         </div>
       </DialogContent>
     </Dialog>
@@ -608,6 +650,7 @@ export default function PaymentVerification() {
   const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentOrder | null>(null);
   const [selectedPfiId, setSelectedPfiId] = useState<number | ''>('');
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<number | ''>('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const { toast } = useToast();
 
@@ -794,13 +837,21 @@ export default function PaymentVerification() {
   }, [allPayments, searchQuery, filterType, locationFilter, productFilter, dateRange]);
 
   const updatePaymentMutation = useMutation({
-    mutationFn: async (args: { orderId: number; narration: string; files: File[]; pfiId?: number }) => {
+    mutationFn: async (args: { orderId: number; narration: string; files: File[]; pfiId?: number; bankAccount?: BankAccount }) => {
       setUpdatingPaymentId(args.orderId);
       try {
         await apiClient.admin.confirmPayment(args.orderId, {
           narration: args.narration?.trim() || undefined,
           pfi_id: args.pfiId,
         });
+        // If the admin picked a different (correct) bank account, save it on the order.
+        if (args.bankAccount) {
+          await apiClient.admin.patchAdminOrder(args.orderId, {
+            paid_to_bank_name: args.bankAccount.bank_name,
+            paid_to_account_number: args.bankAccount.acct_no,
+            paid_to_account_name: args.bankAccount.name,
+          });
+        }
         // Upload files after confirming — fire-and-forget if there are any
         if (args.files.length > 0) {
           await apiClient.admin.uploadPaymentFiles(args.orderId, args.files);
@@ -889,6 +940,13 @@ export default function PaymentVerification() {
 
     setSelectedPayment(payment);
     setSelectedPfiId(payment.pfi_id && Number.isFinite(Number(payment.pfi_id)) ? Number(payment.pfi_id) : '');
+
+    const paidInto = extractPaidInto(payment);
+    const matchedAccount = bankAccounts.find(
+      (b) => b.acct_no && paidInto.account_number && b.acct_no === paidInto.account_number
+    );
+    setSelectedBankAccountId(matchedAccount ? matchedAccount.id : '');
+
     setIsConfirmModalOpen(true);
   };
 
@@ -897,7 +955,7 @@ export default function PaymentVerification() {
     setIsCancelModalOpen(true);
   };
 
-  const handleConfirm = async (narration: string, files: File[], pfiId?: number) => {
+  const handleConfirm = async (narration: string, files: File[], pfiId?: number, bankAccountId?: number) => {
     if (!selectedPayment?.order_id) return;
 
     if (!Number.isFinite(Number(pfiId))) {
@@ -937,8 +995,10 @@ export default function PaymentVerification() {
       return;
     }
 
+    const bankAccount = typeof bankAccountId === 'number' ? bankAccounts.find((b) => b.id === bankAccountId) : undefined;
+
     try {
-      await updatePaymentMutation.mutateAsync({ orderId, narration, files, pfiId: Number(pfiId) });
+      await updatePaymentMutation.mutateAsync({ orderId, narration, files, pfiId: Number(pfiId), bankAccount });
     } finally {
       setIsConfirmModalOpen(false);
       setSelectedPayment(null);
@@ -1365,6 +1425,7 @@ export default function PaymentVerification() {
                 setIsConfirmModalOpen(false);
                 setSelectedPayment(null);
                 setSelectedPfiId('');
+                setSelectedBankAccountId('');
               }}
               onConfirm={handleConfirm}
               payment={selectedPayment}
@@ -1372,6 +1433,8 @@ export default function PaymentVerification() {
               pfiOptions={pfiOptions}
               selectedPfiId={selectedPfiId}
               onChangePfiId={setSelectedPfiId}
+              selectedBankAccountId={selectedBankAccountId}
+              onChangeBankAccountId={setSelectedBankAccountId}
             />
 
             {/* Cancel/Delete confirmation modal */}

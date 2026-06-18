@@ -6,6 +6,7 @@ import { MobileNav } from '@/components/MobileNav';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -256,12 +257,11 @@ const Pricing = () => {
                   <Label className="flex-1 text-sm font-medium text-slate-700">{product.name}</Label>
                   <div className="relative w-36">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">₦</span>
-                    <Input
-                      type="number"
+                    <CommaInput
                       className="pl-7 h-10 text-right font-semibold tabular-nums"
-                      value={tempPrices[product.id] ?? product.price}
-                      onChange={(e) =>
-                        setTempPrices(prev => ({ ...prev, [product.id]: parseFloat(e.target.value) || 0 }))
+                      value={String(tempPrices[product.id] ?? product.price)}
+                      onValueChange={(v) =>
+                        setTempPrices(prev => ({ ...prev, [product.id]: parseFloat(v) || 0 }))
                       }
                     />
                   </div>

@@ -620,11 +620,15 @@ export const apiClient = {
       data: {
         created_at?: string;    // ISO 8601 datetime e.g. "2024-01-15T10:30:00"
         quantity?: number;
+        unit_price?: number;
         total_price?: number;
         truck_number?: string;
         driver_name?: string;
         driver_phone?: string;
         narration?: string;
+        paid_to_bank_name?: string;
+        paid_to_account_number?: string;
+        paid_to_account_name?: string;
       }
     ) => {
       const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/`, {

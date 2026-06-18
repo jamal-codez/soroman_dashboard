@@ -119,12 +119,21 @@ function Field({
             type="text"
             inputMode="numeric"
             value={value}
-            onChange={(e) => onChange(rawNum(e.target.value))}
-            onBlur={(e) => {
-              const n = Number(rawNum(e.target.value));
-              if (n > 0) onChange(n.toLocaleString(undefined, { maximumFractionDigits: decimal ? 2 : 0 }));
+            onChange={(e) => {
+              const raw = rawNum(e.target.value);
+              if (!raw) { onChange(''); return; }
+              const dotIdx = decimal ? raw.indexOf('.') : -1;
+              if (dotIdx === -1) {
+                const n = Number(raw);
+                onChange(Number.isFinite(n) ? n.toLocaleString() : raw);
+                return;
+              }
+              const intPart = raw.slice(0, dotIdx);
+              const decPart = raw.slice(dotIdx + 1).replace(/\./g, '');
+              const n = Number(intPart || '0');
+              const formattedInt = Number.isFinite(n) ? n.toLocaleString() : intPart;
+              onChange(`${formattedInt}.${decPart}`);
             }}
-            onFocus={(e) => onChange(rawNum(e.target.value))}
             disabled={readOnly}
             placeholder="0"
             className={`w-full rounded-lg border py-2 text-sm text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:border-green-400 disabled:bg-slate-50 transition-all ${prefix ? 'pl-8 pr-3' : suffix ? 'pl-3 pr-10' : 'px-3'} ${highlight ? 'border-green-300 bg-green-50/40 focus:ring-green-500/30' : 'border-slate-200 bg-white focus:ring-green-500/30'}`}

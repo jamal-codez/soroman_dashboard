@@ -6,15 +6,19 @@ import { MobileNav } from '@/components/MobileNav';
 import { PageHeader } from '@/components/PageHeader';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Download, Search, ShoppingCart, Droplets, Banknote, Coins, Pencil, CalendarDays, X, Truck, Users, TrendingUp, Paperclip, FileText, ImageIcon, ExternalLink, Trash2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Users, Paperclip, FileText, ImageIcon, ExternalLink, Trash2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient, fetchAllPages } from '@/api/client';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -257,6 +261,28 @@ const extractTruckNumber = (p: PaymentOrder): string => {
   ).trim();
 };
 
+const extractDriverName = (p: PaymentOrder): string => {
+  const rec = p as unknown as Record<string, unknown>;
+  const cd = (p.customer_details || {}) as Record<string, unknown>;
+  return String(
+    (rec.driver_name as string | undefined) ||
+      (cd.driverName as string | undefined) ||
+      (cd.driver_name as string | undefined) ||
+      ''
+  ).trim();
+};
+
+const extractDriverPhone = (p: PaymentOrder): string => {
+  const rec = p as unknown as Record<string, unknown>;
+  const cd = (p.customer_details || {}) as Record<string, unknown>;
+  return String(
+    (rec.driver_phone as string | undefined) ||
+      (cd.driverPhone as string | undefined) ||
+      (cd.driver_phone as string | undefined) ||
+      ''
+  ).trim();
+};
+
 const getPaymentDate = (p: PaymentOrder): Date => {
   const raw = p.payment_confirmed_at || p.created_at;
   return new Date(raw);
@@ -276,6 +302,13 @@ export default function ConfirmedPayments() {
   const [editAmountPaid, setEditAmountPaid] = useState('');
   const [editStatus, setEditStatus] = useState('');
   const [editAttachedFiles, setEditAttachedFiles] = useState<File[]>([]);
+  const [editQuantity, setEditQuantity] = useState('');
+  const [editUnitPrice, setEditUnitPrice] = useState('');
+  const [editTotalPrice, setEditTotalPrice] = useState('');
+  const [editTruckNumber, setEditTruckNumber] = useState('');
+  const [editDriverName, setEditDriverName] = useState('');
+  const [editDriverPhone, setEditDriverPhone] = useState('');
+  const [editBankAccountId, setEditBankAccountId] = useState('');
 
   // File viewer state
   const [filesOrder, setFilesOrder] = useState<PaymentOrder | null>(null);
@@ -312,8 +345,25 @@ export default function ConfirmedPayments() {
     }
   };
 
+  // Delete order state
+  const [orderToDelete, setOrderToDelete] = useState<PaymentOrder | null>(null);
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const deleteOrderMutation = useMutation({
+    mutationFn: async (orderId: number) => {
+      await apiClient.admin.deleteOrder(orderId);
+    },
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
+      toast({ title: 'Order deleted', description: 'The order has been removed.' });
+      setOrderToDelete(null);
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    },
+  });
 
   const PAYMENT_STATUSES = ['Fully Paid', 'Partially Paid', 'Unpaid', 'Overpaid'] as const;
 
@@ -328,10 +378,37 @@ export default function ConfirmedPayments() {
     setEditAmountPaid(amountPaid !== null ? String(amountPaid) : String(salesValue));
     setEditStatus(status.label === '\u2014' ? 'Fully Paid' : status.label);
     setEditAttachedFiles([]);
+
+    const { qty, unitPrice } = extractProductInfo(p);
+    setEditQuantity(qty ? String(qty) : '');
+    setEditUnitPrice(unitPrice ? String(unitPrice) : '');
+    setEditTotalPrice(salesValue ? String(salesValue) : '');
+    setEditTruckNumber(extractTruckNumber(p));
+    setEditDriverName(extractDriverName(p));
+    setEditDriverPhone(extractDriverPhone(p));
+
+    const { bankName, acctNo } = extractBankInfo(p, bankAccounts);
+    const match = bankAccounts.find(
+      (b) => b.bank_name === bankName && b.acct_no === acctNo
+    );
+    setEditBankAccountId(match ? String(match.id) : '');
   };
 
   const updateNarrationMutation = useMutation({
-    mutationFn: async ({ orderId, narration, files }: { orderId: number; narration: string; files: File[] }) => {
+    mutationFn: async ({
+      orderId,
+      narration,
+      files,
+      patch,
+    }: {
+      orderId: number;
+      narration: string;
+      files: File[];
+      patch: Parameters<typeof apiClient.admin.patchAdminOrder>[1];
+    }) => {
+      if (Object.keys(patch).length > 0) {
+        await apiClient.admin.patchAdminOrder(orderId, patch);
+      }
       await apiClient.admin.updateNarration(orderId, narration);
       // Upload files after updating narration — fire-and-forget if there are any
       if (files.length > 0) {
@@ -355,7 +432,49 @@ export default function ConfirmedPayments() {
     const prefix = Number.isFinite(paidNum) && paidNum > 0 ? `[PAID:${paidNum}] ` : '';
     const statusTag = editStatus ? `[STATUS:${editStatus}] ` : '';
     const fullNarration = `${prefix}${statusTag}${editRemarks}`.trim();
-    updateNarrationMutation.mutate({ orderId: editOrder.id, narration: fullNarration, files: editAttachedFiles });
+
+    const patch: Parameters<typeof apiClient.admin.patchAdminOrder>[1] = {};
+
+    const { qty: origQty, unitPrice: origUnitPrice } = extractProductInfo(editOrder);
+    const newQty = parseFloat(editQuantity || '0');
+    if (editQuantity.trim() && Number.isFinite(newQty) && newQty !== origQty) {
+      patch.quantity = newQty;
+    }
+
+    const newUnitPrice = parseFloat(editUnitPrice || '0');
+    if (editUnitPrice.trim() && Number.isFinite(newUnitPrice) && newUnitPrice !== origUnitPrice) {
+      patch.unit_price = newUnitPrice;
+    }
+
+    const origPrice = safeToNumber(editOrder.total_price ?? editOrder.amount);
+    const newPrice = parseFloat(editTotalPrice || '0');
+    if (editTotalPrice.trim() && Number.isFinite(newPrice) && newPrice !== origPrice) {
+      patch.total_price = newPrice;
+    }
+
+    if (editTruckNumber.trim() !== extractTruckNumber(editOrder)) {
+      patch.truck_number = editTruckNumber.trim();
+    }
+    if (editDriverName.trim() !== extractDriverName(editOrder)) {
+      patch.driver_name = editDriverName.trim();
+    }
+    if (editDriverPhone.trim() !== extractDriverPhone(editOrder)) {
+      patch.driver_phone = editDriverPhone.trim();
+    }
+
+    const { bankName: origBankName, acctNo: origAcctNo } = extractBankInfo(editOrder, bankAccounts);
+    const origMatch = bankAccounts.find((b) => b.bank_name === origBankName && b.acct_no === origAcctNo);
+    const origBankId = origMatch ? String(origMatch.id) : '';
+    if (editBankAccountId !== origBankId) {
+      const selected = bankAccounts.find((b) => String(b.id) === editBankAccountId);
+      if (selected) {
+        patch.paid_to_bank_name = selected.bank_name;
+        patch.paid_to_account_number = selected.acct_no;
+        patch.paid_to_account_name = selected.name;
+      }
+    }
+
+    updateNarrationMutation.mutate({ orderId: editOrder.id, narration: fullNarration, files: editAttachedFiles, patch });
   };
 
   const listQuery = useQuery<OrderResponse>({
@@ -478,48 +597,33 @@ export default function ConfirmedPayments() {
     const totalOrders = filtered.length;
     const totalAmount = filtered.reduce((sum, p) => sum + safeToNumber(p.total_price ?? p.amount), 0);
     const totalQty = filtered.reduce((sum, p) => sum + extractProductInfo(p).qty, 0);
-    let totalUnderpaid = 0;
-    let totalOverpaid = 0;
-    let totalPaid = 0;
-    filtered.forEach((p) => {
-      const salesValue = safeToNumber(p.total_price ?? p.amount);
-      const paid = parseAmountPaid(p.payment_narration ?? p.narration) ?? salesValue;
-      totalPaid += paid;
-      const diff = salesValue - paid;
-      if (diff > 0) totalUnderpaid += diff;
-      else if (diff < 0) totalOverpaid += Math.abs(diff);
-    });
     const avgOrderValue = totalOrders > 0 ? Math.round(totalAmount / totalOrders) : 0;
     const uniqueCustomers = new Set(filtered.map((p) => extractCustomerCompany(p) || extractCustomerName(p)).filter(Boolean)).size;
 
-    return { totalOrders, totalAmount, totalQty, totalUnderpaid, totalOverpaid, totalPaid, avgOrderValue, uniqueCustomers };
+    return { totalOrders, totalAmount, totalQty, avgOrderValue, uniqueCustomers };
   }, [filtered]);
 
-  const exportToXLS = () => {
+  const buildReportData = () => {
     const generatedAt = new Date().toLocaleString('en-GB');
 
     const locationLabel = locationFilter ? locationFilter : 'All Locations';
     const productLabel = productFilter ? productFilter : 'All Products';
 
     const totalQtyAll = filtered.reduce((sum, p) => sum + extractProductInfo(p).qty, 0);
-
     const ordersCountAll = filtered.length;
-
     const totalAmountAll = filtered.reduce((sum, p) => sum + safeToNumber(p.total_price ?? p.amount), 0);
-
     const exportUnitLabel = filtered.length > 0 ? extractProductInfo(filtered[0]).unitLabel : 'Litres';
 
-    const headingBlock: Array<Array<string>> = [
+    const headingBlock: Array<[string, string]> = [
       ['Date', generatedAt],
       ['Location', locationLabel],
       ['Product', productLabel],
       ['Quantity Sold', `${totalQtyAll.toLocaleString()} ${exportUnitLabel}`],
       ['Number of Orders', String(ordersCountAll)],
       ['Total Amount', `N ${totalAmountAll.toLocaleString()}`],
-      [],
     ];
 
-    const headers = ['S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', `Quantity (${exportUnitLabel})`, 'Unit Price', 'Sales Value', 'Paying Company', 'Bank', 'Remarks', 'Balance', 'Status'];
+    const headers = ['S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', `Quantity (${exportUnitLabel})`, 'Unit Price', 'Sales Value', 'Paying Company', 'Bank Account'];
     // Sort oldest to newest for the exported file
     const exportSorted = [...filtered].sort((a, b) => getPaymentDate(a).getTime() - getPaymentDate(b).getTime());
     const rows = exportSorted.map((p, idx) => {
@@ -532,25 +636,49 @@ export default function ConfirmedPayments() {
       const salesValue = safeToNumber(p.total_price ?? p.amount);
       const company = extractCustomerCompany(p);
       const { bankName: bank, acctNo: bankAcctNo } = extractBankInfo(p, bankAccounts);
-      const rawNarration = p.payment_narration ?? p.narration ?? '';
-      const remarks = cleanNarration(rawNarration);
-      const amountPaid = parseAmountPaid(rawNarration);
-      const balance = amountPaid !== null ? salesValue - amountPaid : 0;
-      const status = getPaymentStatus(salesValue, amountPaid, rawNarration);
       return [
         String(idx + 1), date, String(ref ?? ''), truckNo, customer,
         `${qty.toLocaleString()} ${product}`, unitPrice ? `N${unitPrice.toLocaleString()}` : '',
         `N${salesValue.toLocaleString()}`, company, bankAcctNo ? `${bank} (${bankAcctNo})` : bank,
-        amountPaid !== null ? `${remarks} (Paid: N${amountPaid.toLocaleString()})` : remarks,
-        amountPaid !== null ? `N${balance.toLocaleString()}` : '', status.label,
       ];
     });
 
-    const sheetData = [...headingBlock, headers, ...rows];
+    return { generatedAt, headingBlock, headers, rows, totalQtyAll, ordersCountAll, totalAmountAll, exportUnitLabel };
+  };
+
+  const exportToXLS = () => {
+    const { headingBlock, headers, rows } = buildReportData();
+    const sheetData = [...headingBlock, [], headers, ...rows];
     const ws = XLSX.utils.aoa_to_sheet(sheetData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Report');
     XLSX.writeFile(wb, `Payment Report ${format(new Date(), 'dd-MM-yy')}.xlsx`);
+  };
+
+  const exportToPDF = () => {
+    const { headingBlock, headers, rows } = buildReportData();
+    const doc = new jsPDF({ orientation: 'landscape' });
+
+    doc.setFontSize(14);
+    doc.text('Payments Report', 14, 14);
+
+    autoTable(doc, {
+      startY: 20,
+      body: headingBlock,
+      theme: 'plain',
+      styles: { fontSize: 9, cellPadding: 1 },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } },
+    });
+
+    autoTable(doc, {
+      startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6,
+      head: [headers],
+      body: rows,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [30, 41, 59] },
+    });
+
+    doc.save(`Payment Report ${format(new Date(), 'dd-MM-yy')}.pdf`);
   };
 
   return (
@@ -565,10 +693,18 @@ export default function ConfirmedPayments() {
               title="Payments Report"
               description="View all paid and released orders, with filters, totals, and export."
               actions={
-                <Button variant="default" className="gap-2" onClick={exportToXLS}>
-                  <Download className="h-4 w-4" />
-                  Download Report
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="default" className="gap-2">
+                      <Download className="h-4 w-4" />
+                      Download Report
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={exportToXLS}>Export as Excel (.xlsx)</DropdownMenuItem>
+                    <DropdownMenuItem onClick={exportToPDF}>Export as PDF</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               }
             />
 
@@ -589,147 +725,129 @@ export default function ConfirmedPayments() {
                 {
                   title: 'Total Sales Value',
                   value: isLoading ? '\u2026' : `\u20A6${summary.totalAmount.toLocaleString()}`,
-                  icon: <Banknote className="h-4 w-4" />,
-                  tone: 'neutral',
-                },
-                {
-                  title: 'Total Amount Paid',
-                  value: isLoading ? '\u2026' : `\u20A6${summary.totalPaid.toLocaleString()}`,
                   className: "text-emerald-700",
-                  icon: <TrendingUp className="h-4 w-4" />,
+                  icon: <Banknote className="h-4 w-4" />,
                   tone: 'green',
-                },
-                {
-                  title: 'Outstanding Balance',
-                  value: isLoading ? '\u2026' : `\u20A6${summary.totalUnderpaid.toLocaleString()}`,
-                  className: "text-red-600",
-                  icon: <Coins className="h-4 w-4" />,
-                  tone: summary.totalUnderpaid > 0 ? 'red' : 'neutral',
-                },
-                {
-                  title: 'Overpaid',
-                  value: isLoading ? '\u2026' : `\u20A6${summary.totalOverpaid.toLocaleString()}`,
-                  className: "text-amber-600",
-                  icon: <Coins className="h-4 w-4" />,
-                  tone: summary.totalOverpaid > 0 ? 'amber' : 'neutral',
                 },
               ]}
             />
 
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-              <div className="flex flex-col gap-3">
-                {/* Row 1: Search + quick timeframe buttons */}
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="relative flex-1">
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
+              {/* Row 1: Search + Timeframe + Date Range + Clear */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_180px_220px_auto] gap-3 items-end">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 mb-1 block">Search</label>
+                  <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <Input
-                      placeholder="Search reference, customer, company, truck…"
-                      className="pl-10"
+                      placeholder="Reference, customer, company, truck…"
+                      className="pl-10 h-9"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                     />
                   </div>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {(['all', 'today', 'yesterday', 'week', 'month', 'year'] as const).map((tf) => (
-                      <Button
-                        key={tf}
-                        size="sm"
-                        variant={filterType === tf ? 'default' : 'outline'}
-                        className="h-9 text-xs capitalize"
-                        onClick={() => {
-                          setFilterType(tf);
-                          setDateRange({ from: null, to: null });
-                        }}
-                      >
-                        {tf === 'all' ? 'All Time' : tf}
-                      </Button>
-                    ))}
-                  </div>
                 </div>
 
-                {/* Row 2: Location, Product, Date Range, Clear */}
-                <div className="flex flex-col sm:flex-row gap-3 items-end">
-                  <div className="flex-1 min-w-[160px]">
-                    <label className="text-xs font-medium text-slate-500 mb-1 block">Location</label>
-                    <select
-                      aria-label="Filter by location"
-                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      value={locationFilter ?? ''}
-                      onChange={(e) => setLocationFilter(e.target.value || null)}
-                    >
-                      <option value="">All Locations</option>
-                      {uniqueLocations.map((loc) => (
-                        <option key={loc} value={loc}>{loc}</option>
-                      ))}
-                    </select>
-                  </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 mb-1 block">Timeframe</label>
+                  <select
+                    aria-label="Filter by timeframe"
+                    className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={filterType ?? ''}
+                    onChange={(e) => {
+                      setFilterType(e.target.value as typeof filterType);
+                      setDateRange({ from: null, to: null });
+                    }}
+                  >
+                    {(['today', 'yesterday', 'week', 'month', 'year', 'all'] as const).map((tf) => (
+                      <option key={tf} value={tf}>{tf === 'all' ? 'All Time' : tf.charAt(0).toUpperCase() + tf.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
 
-                  <div className="flex-1 min-w-[160px]">
-                    <label className="text-xs font-medium text-slate-500 mb-1 block">Product</label>
-                    <select
-                      aria-label="Filter by product"
-                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      value={productFilter ?? ''}
-                      onChange={(e) => setProductFilter(e.target.value || null)}
-                    >
-                      <option value="">All Products</option>
-                      {uniqueProducts.map((p) => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                  </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 mb-1 block">Date Range</label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full h-9 justify-start text-left font-normal text-sm">
+                        <CalendarDays className="mr-2 h-4 w-4 text-slate-400" />
+                        {dateRange.from && dateRange.to
+                          ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+                          : 'Pick date range'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="range"
+                        selected={dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined}
+                        onSelect={(range) => {
+                          setDateRange({ from: range?.from ?? null, to: range?.to ?? null });
+                          if (range?.from) setFilterType(null);
+                        }}
+                        numberOfMonths={2}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
 
-                  <div className="flex-1 min-w-[140px]">
-                    <label className="text-xs font-medium text-slate-500 mb-1 block">PFI</label>
-                    <select
-                      aria-label="Filter by PFI"
-                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      value={pfiFilter ?? ''}
-                      onChange={(e) => setPfiFilter(e.target.value || null)}
-                    >
-                      <option value="">All PFIs</option>
-                      {uniquePfis.map((pfi) => (
-                        <option key={pfi} value={pfi}>{pfi}</option>
-                      ))}
-                    </select>
-                  </div>
+                {hasActiveFilters && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-9 gap-1 text-slate-500 hover:text-red-600"
+                    onClick={clearAllFilters}
+                  >
+                    <X size={14} />
+                    Clear
+                  </Button>
+                )}
+              </div>
 
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="text-xs font-medium text-slate-500 mb-1 block">Date Range</label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full h-9 justify-start text-left font-normal text-sm">
-                          <CalendarDays className="mr-2 h-4 w-4 text-slate-400" />
-                          {dateRange.from && dateRange.to
-                            ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
-                            : 'Pick date range'}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="range"
-                          selected={dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined}
-                          onSelect={(range) => {
-                            setDateRange({ from: range?.from ?? null, to: range?.to ?? null });
-                            if (range?.from) setFilterType(null);
-                          }}
-                          numberOfMonths={2}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+              {/* Row 2: Location, Product, PFI */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 mb-1 block">Location</label>
+                  <select
+                    aria-label="Filter by location"
+                    className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={locationFilter ?? ''}
+                    onChange={(e) => setLocationFilter(e.target.value || null)}
+                  >
+                    <option value="">All Locations</option>
+                    {uniqueLocations.map((loc) => (
+                      <option key={loc} value={loc}>{loc}</option>
+                    ))}
+                  </select>
+                </div>
 
-                  {hasActiveFilters && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-9 gap-1 text-slate-500 hover:text-red-600 shrink-0"
-                      onClick={clearAllFilters}
-                    >
-                      <X size={14} />
-                      Clear
-                    </Button>
-                  )}
+                <div>
+                  <label className="text-xs font-medium text-slate-500 mb-1 block">Product</label>
+                  <select
+                    aria-label="Filter by product"
+                    className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={productFilter ?? ''}
+                    onChange={(e) => setProductFilter(e.target.value || null)}
+                  >
+                    <option value="">All Products</option>
+                    {uniqueProducts.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-slate-500 mb-1 block">PFI</label>
+                  <select
+                    aria-label="Filter by PFI"
+                    className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={pfiFilter ?? ''}
+                    onChange={(e) => setPfiFilter(e.target.value || null)}
+                  >
+                    <option value="">All PFIs</option>
+                    {uniquePfis.map((pfi) => (
+                      <option key={pfi} value={pfi}>{pfi}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
@@ -749,8 +867,6 @@ export default function ConfirmedPayments() {
                     <TableHead className="min-w-[140px]">Paying Company</TableHead>
                     <TableHead className="min-w-[110px]">Location</TableHead>
                     <TableHead className="min-w-[100px]">Bank</TableHead>
-                    <TableHead className="min-w-[110px] text-right">Balance</TableHead>
-                    <TableHead className="min-w-[110px]">Status</TableHead>
                     <TableHead className="w-[160px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -758,14 +874,14 @@ export default function ConfirmedPayments() {
                   {isLoading ? (
                     [...Array(6)].map((_, idx) => (
                       <TableRow key={idx}>
-                        {[...Array(14)].map((_, ci) => (
+                        {[...Array(12)].map((_, ci) => (
                           <TableCell key={ci}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={14} className="text-center h-24 text-slate-500">
+                      <TableCell colSpan={12} className="text-center h-24 text-slate-500">
                         No confirmed payments found
                       </TableCell>
                     </TableRow>
@@ -782,12 +898,6 @@ export default function ConfirmedPayments() {
                       const company = extractCustomerCompany(p);
                       const location = extractLocation(p);
                       const { bankName: bank, acctNo: bankAcctNo } = extractBankInfo(p, bankAccounts);
-                      const rawNarration = String(p.payment_narration ?? p.narration ?? '');
-                      const amountPaid = parseAmountPaid(rawNarration);
-                      const balance = amountPaid !== null ? salesValue - amountPaid : 0;
-                      const status = getPaymentStatus(salesValue, amountPaid, rawNarration);
-                      const proofCount = Array.isArray(p.payment_files) ? p.payment_files.length : 0;
-
                       return (
                         <TableRow key={p.id} className="hover:bg-slate-50/60">
                           <TableCell className="text-slate-500">{filtered.length - idx}</TableCell>
@@ -820,33 +930,15 @@ export default function ConfirmedPayments() {
                             {bankAcctNo && <div className="text-sm font-semibold text-slate-700">{bankAcctNo}</div>}
                             <div className="font-normal text-xs" title={bank || undefined}>{bank || '\u2014'}</div>
                           </TableCell>
-                          <TableCell className="text-right font-semibold">
-                            {amountPaid !== null ? (
-                              <span className={balance > 0 ? 'text-red-600' : 'text-emerald-600'}>
-                                {'\u20A6'}{balance.toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-slate-300">{'\u2014'}</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {amountPaid !== null ? (
-                              <Badge variant="outline" className={`text-xs whitespace-nowrap ${status.color}`}>
-                                {status.label}
-                              </Badge>
-                            ) : (
-                              <span className="text-slate-300 text-xs">{'\u2014'}</span>
-                            )}
-                          </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Button className="h-8 gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white" size="sm" onClick={() => openEditModal(p)}>
                                 <Pencil size={12} />
                                 Edit
                               </Button>
-                              <Button className={`h-8 gap-1.5 text-xs font-semibold text-white ${proofCount > 0 ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'}`} size="sm" onClick={() => openFilesModal(p)}>
-                                <Paperclip size={12} />
-                                View Receipt
+                              <Button className="h-8 gap-1.5 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white" size="sm" onClick={() => setOrderToDelete(p)}>
+                                <Trash2 size={12} />
+                                Delete
                               </Button>
                             </div>
                           </TableCell>
@@ -860,29 +952,159 @@ export default function ConfirmedPayments() {
 
             {/* Edit Payment Details Dialog */}
             <Dialog open={!!editOrder} onOpenChange={(v) => { if (!v) setEditOrder(null); }}>
-              <DialogContent className="sm:max-w-[520px] border border-slate-300 shadow-xl p-0">
-                <div className="border-b border-slate-800 bg-slate-900 px-6 py-4">
+              <DialogContent className="w-[92vw] sm:w-full sm:max-w-[440px] max-h-[90vh] border border-slate-300 shadow-xl p-0 flex flex-col gap-0">
+                <div className="border-b border-slate-800 bg-black px-4 sm:px-6 py-3 sm:py-4 shrink-0">
                   <DialogHeader className="space-y-1">
-                    <DialogTitle className="text-white">Edit Payment Details</DialogTitle>
-                    <DialogDescription className="text-slate-200">
-                      {editOrder ? `Order ${getOrderReference(editOrder) || editOrder.id}` : ''}
-                      {editOrder ? ` \u2014 Sales Value: \u20A6${safeToNumber(editOrder.total_price ?? editOrder.amount).toLocaleString()}` : ''}
+                    <DialogTitle className="text-white text-base">Edit Order</DialogTitle>
+                    <DialogDescription className="text-slate-200 text-xs sm:text-sm">
+                      {editOrder && (
+                        <>
+                          Order <span className="font-mono font-bold">{getOrderReference(editOrder) || editOrder.id}</span>
+                          {(extractCustomerCompany(editOrder) || extractCustomerName(editOrder))
+                            ? ` — ${extractCustomerCompany(editOrder) || extractCustomerName(editOrder)}`
+                            : ''}
+                        </>
+                      )}
                     </DialogDescription>
                   </DialogHeader>
                 </div>
 
-                <div className="space-y-4 bg-white px-6 py-5">
-                  {/* Amount Paid */}
+                <div className="space-y-3.5 bg-white px-4 sm:px-6 py-4 sm:py-5 flex-1 overflow-y-auto min-h-0">
+                  {editOrder && (
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                      <div>
+                        <div className="text-slate-400 uppercase tracking-wider text-[10px]">Customer</div>
+                        <div className="font-semibold text-slate-800 truncate">{extractCustomerName(editOrder) || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-400 uppercase tracking-wider text-[10px]">Company</div>
+                        <div className="font-semibold text-slate-800 truncate">{extractCustomerCompany(editOrder) || '—'}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Truck Number</label>
+                    <Input
+                      value={editTruckNumber}
+                      onChange={(e) => setEditTruckNumber(e.target.value)}
+                      placeholder="e.g. ABC-123-XY"
+                      className="h-10 border-slate-300 text-slate-900 font-medium"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1.5 block text-sm font-semibold text-slate-800">Quantity</label>
+                      <div className="relative">
+                        <CommaInput
+                          value={editQuantity}
+                          onValueChange={(v) => {
+                            setEditQuantity(v);
+                            const qty = parseFloat(v || '0');
+                            const price = parseFloat(editUnitPrice || '0');
+                            if (qty > 0 && price > 0) setEditTotalPrice(String(Math.round(qty * price * 100) / 100));
+                          }}
+                          placeholder="e.g. 33,000"
+                          className="h-10 border-slate-300 text-slate-900 font-medium pr-14"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">
+                          {editOrder ? extractProductInfo(editOrder).unitLabel : 'Litres'}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-semibold text-slate-800">Unit Price (₦)</label>
+                      <CommaInput
+                        value={editUnitPrice}
+                        onValueChange={(v) => {
+                          setEditUnitPrice(v);
+                          const qty = parseFloat(editQuantity || '0');
+                          const price = parseFloat(v || '0');
+                          if (qty > 0 && price > 0) setEditTotalPrice(String(Math.round(qty * price * 100) / 100));
+                        }}
+                        placeholder="e.g. 1,000"
+                        className="h-10 border-slate-300 text-slate-900 font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">
+                      Sales Value (₦) <span className="text-[10px] font-normal text-emerald-600 normal-case">(auto-calculated)</span>
+                    </label>
+                    <CommaInput
+                      value={editTotalPrice}
+                      onValueChange={setEditTotalPrice}
+                      placeholder="e.g. 33,000,000"
+                      className="h-11 border-emerald-200 bg-emerald-50/50 text-slate-900 font-bold text-base"
+                    />
+                  </div>
+
+                  <div className="h-px bg-slate-200" />
+
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Bank Account</label>
+                    <select
+                      aria-label="Bank account"
+                      className="h-10 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-slate-400"
+                      value={editBankAccountId}
+                      onChange={(e) => setEditBankAccountId(e.target.value)}
+                    >
+                      <option value="">{'— Select bank account —'}</option>
+                      {bankAccounts.map((b) => (
+                        <option key={b.id} value={b.id}>{b.bank_name} | {b.acct_no} | {b.name}</option>
+                      ))}
+                    </select>
+                    {(() => {
+                      const selected = bankAccounts.find((b) => String(b.id) === editBankAccountId);
+                      if (!selected) return null;
+                      return (
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-x-3 gap-y-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                          <div>
+                            <div className="text-slate-400 uppercase tracking-wider text-[10px]">Bank</div>
+                            <div className="font-semibold text-slate-800 truncate">{selected.bank_name}</div>
+                          </div>
+                          <div>
+                            <div className="text-slate-400 uppercase tracking-wider text-[10px]">Account Number</div>
+                            <div className="font-semibold text-slate-800 truncate">{selected.acct_no}</div>
+                          </div>
+                          <div>
+                            <div className="text-slate-400 uppercase tracking-wider text-[10px]">Account Name</div>
+                            <div className="font-semibold text-slate-800 truncate">{selected.name}</div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Driver Name/Phone, Amount Paid, Status, Remarks, Payment Proof Files — commented out per request
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1.5 block text-sm font-semibold text-slate-800">Driver Name</label>
+                      <Input
+                        value={editDriverName}
+                        onChange={(e) => setEditDriverName(e.target.value)}
+                        placeholder="Driver full name"
+                        className="h-10 border-slate-300 text-slate-900 font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-semibold text-slate-800">Driver Phone</label>
+                      <Input
+                        value={editDriverPhone}
+                        onChange={(e) => setEditDriverPhone(e.target.value)}
+                        placeholder="e.g. 0801 234 5678"
+                        className="h-10 border-slate-300 text-slate-900 font-medium"
+                      />
+                    </div>
+                  </div>
+
                   <div>
                     <label className="mb-1.5 block text-sm font-semibold text-slate-800">Amount Paid (₦)</label>
-                    <Input
-                      type="text"
-                      inputMode="numeric"
-                      value={editAmountPaid ? Number(editAmountPaid).toLocaleString() : ''}
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(/[^0-9.]/g, '');
-                        setEditAmountPaid(raw);
-                      }}
+                    <CommaInput
+                      value={editAmountPaid}
+                      onValueChange={setEditAmountPaid}
                       placeholder="Enter amount paid"
                       className="h-10 border-slate-300 text-slate-900 font-medium"
                     />
@@ -909,8 +1131,9 @@ export default function ConfirmedPayments() {
                       );
                     })()}
                   </div>
+                  */}
 
-                  {/* Status */}
+                  {/* Status, Remarks, Payment Proof Files — commented out per request
                   <div>
                     <label className="mb-1.5 block text-sm font-semibold text-slate-800">Payment Status</label>
                     <select
@@ -925,7 +1148,6 @@ export default function ConfirmedPayments() {
                     </select>
                   </div>
 
-                  {/* Remarks */}
                   <div>
                     <label className="mb-1.5 block text-sm font-semibold text-slate-800">Remarks</label>
                     <Textarea
@@ -936,7 +1158,6 @@ export default function ConfirmedPayments() {
                     />
                   </div>
 
-                  {/* Payment Proof Files */}
                   <div>
                     <label className="mb-1.5 block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                       <Paperclip size={12} /> Payment Proof
@@ -974,14 +1195,52 @@ export default function ConfirmedPayments() {
                       </ul>
                     )}
                   </div>
+                  */}
                 </div>
 
-                <div className="flex items-center justify-end gap-3 border-t border-slate-300 bg-slate-100 px-6 py-4">
-                  <Button variant="outline" onClick={() => setEditOrder(null)}>Cancel</Button>
-                  <Button onClick={handleSaveEdit} disabled={updateNarrationMutation.isPending} className="gap-1.5">
+                <div className="flex items-center justify-end gap-3 border-t border-slate-300 bg-slate-100 px-4 sm:px-6 py-3 sm:py-4 shrink-0">
+                  <Button variant="outline" size="sm" onClick={() => setEditOrder(null)}>Cancel</Button>
+                  <Button size="sm" onClick={handleSaveEdit} disabled={updateNarrationMutation.isPending} className="gap-1.5">
                     {updateNarrationMutation.isPending ? 'Saving...' : 'Save Changes'}
                   </Button>
                 </div>
+              </DialogContent>
+            </Dialog>
+
+            {/* Delete Order Confirmation Dialog */}
+            <Dialog open={!!orderToDelete} onOpenChange={(v) => { if (!v) setOrderToDelete(null); }}>
+              <DialogContent className="sm:max-w-[460px]">
+                <DialogHeader>
+                  <DialogTitle className="text-slate-950">Delete order</DialogTitle>
+                  <DialogDescription className="text-slate-600">
+                    This will permanently delete the order from the system. This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                  <div className="font-medium">You are about to delete:</div>
+                  <div className="mt-1">
+                    <span className="text-red-900/80">Order Ref:</span>{' '}
+                    <span className="font-semibold">{orderToDelete ? (getOrderReference(orderToDelete) || orderToDelete.id) : '—'}</span>
+                  </div>
+                  <div className="mt-1">
+                    <span className="text-red-900/80">Sales Value:</span>{' '}
+                    <span className="font-semibold">
+                      {orderToDelete ? `₦${safeToNumber(orderToDelete.total_price ?? orderToDelete.amount).toLocaleString()}` : '—'}
+                    </span>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setOrderToDelete(null)}>Close</Button>
+                  <Button
+                    variant="destructive"
+                    disabled={deleteOrderMutation.isPending}
+                    onClick={() => orderToDelete && deleteOrderMutation.mutate(Number(orderToDelete.id))}
+                  >
+                    {deleteOrderMutation.isPending ? 'Deleting...' : 'Delete'}
+                  </Button>
+                </DialogFooter>
               </DialogContent>
             </Dialog>
 

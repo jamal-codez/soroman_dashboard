@@ -111,6 +111,14 @@ const toNum = (v: unknown): number => {
 const fmtQty = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 const fmtMoney = (n: number) => `₦${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
+// Comma-formats a raw numeric string for display while the underlying
+// state stays comma-free (callers do plain Number(...) on it).
+const displayNum = (raw: string | undefined): string => {
+  if (!raw) return '';
+  const n = Number(raw);
+  return Number.isFinite(n) ? n.toLocaleString() : raw;
+};
+
 const safeJsonParse = <T,>(raw: string | null, fallback: T): T => {
   if (!raw) return fallback;
   try { return JSON.parse(raw) as T; } catch { return fallback; }
@@ -647,12 +655,10 @@ export default function DailySalesReport() {
           <input
             value={manualByDepot[depot]?.carriedOverLoading ?? ''}
             disabled={isReadOnly}
-            onChange={(e) => updateManual(depot, { carriedOverLoading: e.target.value.replace(/,/g, '') })}
-            onBlur={(e) => {
-              const n = toNum(e.target.value);
-              if (n > 0) updateManual(depot, { carriedOverLoading: n.toLocaleString() });
+            onChange={(e) => {
+              const digits = e.target.value.replace(/[^0-9]/g, '');
+              updateManual(depot, { carriedOverLoading: digits ? Number(digits).toLocaleString() : '' });
             }}
-            onFocus={(e) => updateManual(depot, { carriedOverLoading: e.target.value.replace(/,/g, '') })}
             inputMode="numeric"
             placeholder="0"
             className="h-8 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-slate-50 disabled:text-slate-500"
@@ -663,12 +669,10 @@ export default function DailySalesReport() {
           <input
             value={manualByDepot[depot]?.openingLitres ?? ''}
             disabled={isReadOnly}
-            onChange={(e) => updateManual(depot, { openingLitres: e.target.value.replace(/,/g, '') })}
-            onBlur={(e) => {
-              const n = toNum(e.target.value);
-              if (n > 0) updateManual(depot, { openingLitres: n.toLocaleString() });
+            onChange={(e) => {
+              const digits = e.target.value.replace(/[^0-9]/g, '');
+              updateManual(depot, { openingLitres: digits ? Number(digits).toLocaleString() : '' });
             }}
-            onFocus={(e) => updateManual(depot, { openingLitres: e.target.value.replace(/,/g, '') })}
             inputMode="numeric"
             placeholder="0"
             className="h-8 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-slate-50 disabled:text-slate-500"
@@ -679,12 +683,10 @@ export default function DailySalesReport() {
           <input
             value={manualByDepot[depot]?.amountPaid ?? ''}
             disabled={isReadOnly}
-            onChange={(e) => updateManual(depot, { amountPaid: e.target.value.replace(/,/g, '') })}
-            onBlur={(e) => {
-              const n = toNum(e.target.value);
-              if (n > 0) updateManual(depot, { amountPaid: n.toLocaleString() });
+            onChange={(e) => {
+              const digits = e.target.value.replace(/[^0-9]/g, '');
+              updateManual(depot, { amountPaid: digits ? Number(digits).toLocaleString() : '' });
             }}
-            onFocus={(e) => updateManual(depot, { amountPaid: e.target.value.replace(/,/g, '') })}
             inputMode="numeric"
             placeholder="0"
             className="h-8 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-slate-50 disabled:text-slate-500"
@@ -1365,7 +1367,8 @@ export default function DailySalesReport() {
                   <label key={key} className="block">
                     <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</span>
                     <div className="relative">
-                      <input type="number" step="any" value={editForm[key] ?? ''} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                      <input type="text" inputMode="decimal" value={displayNum(editForm[key])}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value.replace(/[^0-9.]/g, '') }))}
                         className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none">{suffix}</span>
                     </div>
@@ -1390,8 +1393,8 @@ export default function DailySalesReport() {
                     </span>
                     <div className="relative">
                       {prefix && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">{prefix}</span>}
-                      <input type="number" step="any" value={editForm[key] ?? ''}
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                      <input type="text" inputMode="decimal" value={displayNum(editForm[key])}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value.replace(/[^0-9.]/g, '') }))}
                         className={`w-full rounded-lg border py-2 text-sm focus:outline-none ${auto ? 'border-emerald-200 bg-emerald-50/50 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400' : 'border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400'} ${prefix ? 'pl-7 pr-3' : suffix ? 'pl-3 pr-8' : 'px-3'}`} />
                       {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none">{suffix}</span>}
                     </div>
@@ -1413,7 +1416,8 @@ export default function DailySalesReport() {
                     <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</span>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">₦</span>
-                      <input type="number" step="any" value={editForm[key] ?? ''} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                      <input type="text" inputMode="decimal" value={displayNum(editForm[key])}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value.replace(/[^0-9.]/g, '') }))}
                         className="w-full rounded-lg border border-slate-200 bg-white pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
                     </div>
                   </label>
@@ -1429,7 +1433,8 @@ export default function DailySalesReport() {
                     </span>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">₦</span>
-                      <input type="number" step="any" value={editForm[key] ?? ''} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                      <input type="text" inputMode="decimal" value={displayNum(editForm[key])}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value.replace(/[^0-9.]/g, '') }))}
                         className="w-full rounded-lg border border-emerald-200 bg-emerald-50/50 pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400" />
                     </div>
                   </label>

@@ -5,6 +5,7 @@ import { MobileNav } from "@/components/MobileNav";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CommaInput } from "@/components/ui/comma-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -606,43 +607,43 @@ export default function SubmitRecord() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs text-slate-600">Opening Volume (ltr)</Label>
-                <Input placeholder="e.g. 50000" value={dailySales.openingVolume}
-                  onChange={(e) => updateDailySales("openingVolume", e.target.value.replace(/[^0-9.]/g, ""))}
-                  inputMode="decimal" className="h-10" />
+                <CommaInput placeholder="e.g. 50,000" value={dailySales.openingVolume}
+                  onValueChange={(v) => updateDailySales("openingVolume", v)}
+                  className="h-10" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-slate-600">Closing Volume (ltr)</Label>
-                <Input placeholder="e.g. 42000" value={dailySales.closingVolume}
-                  onChange={(e) => updateDailySales("closingVolume", e.target.value.replace(/[^0-9.]/g, ""))}
-                  inputMode="decimal" className="h-10" />
+                <CommaInput placeholder="e.g. 42,000" value={dailySales.closingVolume}
+                  onValueChange={(v) => updateDailySales("closingVolume", v)}
+                  className="h-10" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs text-slate-600">Volume Sold (ltr)</Label>
-                <Input placeholder="e.g. 8000" value={dailySales.volumeSold}
-                  onChange={(e) => updateDailySales("volumeSold", e.target.value.replace(/[^0-9.]/g, ""))}
-                  inputMode="decimal" className="h-10" />
+                <CommaInput placeholder="e.g. 8,000" value={dailySales.volumeSold}
+                  onValueChange={(v) => updateDailySales("volumeSold", v)}
+                  className="h-10" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-slate-600">Amount Collected</Label>
-                <Input placeholder="e.g. 4936000" value={dailySales.amountCollected}
-                  onChange={(e) => updateDailySales("amountCollected", e.target.value.replace(/[^0-9.]/g, ""))}
-                  inputMode="decimal" className="h-10" />
+                <CommaInput placeholder="e.g. 4,936,000" value={dailySales.amountCollected}
+                  onValueChange={(v) => updateDailySales("amountCollected", v)}
+                  className="h-10" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs text-slate-600">Tickets Collected</Label>
-                <Input placeholder="e.g. 12" value={dailySales.ticketsCollected}
-                  onChange={(e) => updateDailySales("ticketsCollected", e.target.value.replace(/[^0-9]/g, ""))}
-                  inputMode="numeric" className="h-10" />
+                <CommaInput placeholder="e.g. 12" value={dailySales.ticketsCollected}
+                  onValueChange={(v) => updateDailySales("ticketsCollected", v)}
+                  className="h-10" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-slate-600">Tickets Remaining</Label>
-                <Input placeholder="e.g. 38" value={dailySales.ticketsRemaining}
-                  onChange={(e) => updateDailySales("ticketsRemaining", e.target.value.replace(/[^0-9]/g, ""))}
-                  inputMode="numeric" className="h-10" />
+                <CommaInput placeholder="e.g. 38" value={dailySales.ticketsRemaining}
+                  onValueChange={(v) => updateDailySales("ticketsRemaining", v)}
+                  className="h-10" />
               </div>
             </div>
             <div className="space-y-1">
@@ -675,9 +676,9 @@ export default function SubmitRecord() {
                     <tr key={row.size} className="border-t border-slate-100">
                       <td className="px-4 py-2.5 font-medium text-slate-700">{row.label}</td>
                       <td className="px-4 py-2">
-                        <Input placeholder="0" value={row.quantity}
-                          onChange={(e) => updateTicketRow(idx, e.target.value.replace(/[^0-9]/g, ""))}
-                          inputMode="numeric" className="h-9 w-32" />
+                        <CommaInput placeholder="0" value={row.quantity}
+                          onValueChange={(v) => updateTicketRow(idx, v)}
+                          className="h-9 w-32" />
                       </td>
                     </tr>
                   ))}

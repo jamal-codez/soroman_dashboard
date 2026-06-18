@@ -4,6 +4,7 @@ import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import {
@@ -366,7 +367,7 @@ const Inventory = () => {
                   <h2 className="text-2xl font-bold mb-4">Edit Product</h2>
                   <div className="space-y-4">
                     <Input name="name" placeholder="Product Name" value={editFormData.name} onChange={handleEditChange} />
-                    <Input name="stock_quantity" placeholder="Stock Quantity" type="number" value={editFormData.stock_quantity} onChange={handleEditChange} />
+                    <CommaInput placeholder="Stock Quantity" value={editFormData.stock_quantity} onValueChange={(v) => setEditFormData(prev => ({ ...prev, stock_quantity: v }))} />
                     <Input name="abbreviation" placeholder="Abbreviation" value={editFormData.abbreviation} onChange={handleEditChange} />
                     <Input name="description" placeholder="Description" value={editFormData.description} onChange={handleEditChange} />
                   </div>

@@ -5,6 +5,7 @@ import { MobileNav } from '@/components/MobileNav';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import {
   Table,
   TableBody,
@@ -389,13 +390,12 @@ export default function OfflineSales() {
                                           </option>
                                         ))}
                                       </select>
-                                      <Input
-                                        type="number"
+                                      <CommaInput
                                         placeholder="Quantity (Liters)"
-                                        value={item.quantity}
-                                        onChange={e => {
+                                        value={String(item.quantity)}
+                                        onValueChange={v => {
                                           const newItems = [...formData.items];
-                                          newItems[index].quantity = e.target.value;
+                                          newItems[index].quantity = v;
                                           setFormData({...formData, items: newItems});
                                         }}
                                         className="h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500"

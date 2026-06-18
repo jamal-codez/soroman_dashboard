@@ -11,6 +11,7 @@ import { MobileNav } from '@/components/MobileNav';
 import { PageHeader } from '@/components/PageHeader';
 import { SummaryCards, type SummaryCard } from '@/components/SummaryCards';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -377,12 +378,11 @@ const EditOrderDialog = ({
               <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                 <Fuel size={12} /> Quantity (L)
               </Label>
-              <Input
-                type="number"
-                min="1"
+              <CommaInput
                 className="h-9 text-sm"
-                placeholder="e.g. 45000"
-                {...field('quantity')}
+                placeholder="e.g. 45,000"
+                value={form.quantity}
+                onValueChange={(v) => setForm(prev => ({ ...prev, quantity: v }))}
               />
             </div>
 
@@ -391,12 +391,11 @@ const EditOrderDialog = ({
               <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                 <DollarSign size={12} /> Total Amount (₦)
               </Label>
-              <Input
-                type="number"
-                min="0"
+              <CommaInput
                 className="h-9 text-sm"
-                placeholder="e.g. 4500000"
-                {...field('total_price')}
+                placeholder="e.g. 4,500,000"
+                value={form.total_price}
+                onValueChange={(v) => setForm(prev => ({ ...prev, total_price: v }))}
               />
             </div>
           </div>
