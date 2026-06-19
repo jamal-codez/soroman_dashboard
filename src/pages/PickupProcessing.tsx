@@ -94,7 +94,7 @@ interface Order {
   total_price: string;
   status: 'pending' | 'paid' | 'canceled' | 'released' | 'loaded';
   created_at: string;
-  products: Array<{ name: string; unit_price?: number | string; unitPrice?: number | string; price?: number | string }>;
+  products: Array<{ name: string; unit_price?: number | string; unitPrice?: number | string; price?: number | string; unit?: string; unit_label?: string }>;
   quantity: number;
   release_type: 'pickup' | 'delivery';
   reference: string; 
@@ -119,6 +119,12 @@ interface OrderResponse {
   count: number;
   results: Order[];
 }
+
+const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
+const getOrderUnitLabel = (order?: Order | null): string => {
+  const p = order?.products?.[0];
+  return p?.unit_label || UNIT_LABELS[(p?.unit || 'litres').toLowerCase()] || 'Litres';
+};
 
 interface ReleaseDetails {
   truckNumber: string;
@@ -828,7 +834,8 @@ export const PickupProcessing = () => {
         toast({ title: `${label}: Missing Quantity`, description: `Please enter the quantity for ${label}.`, variant: 'destructive' });
         return;
       }
-      if (qty > 60000) {
+      const isLitres = getOrderUnitLabel(selectedOrder) === 'Litres';
+      if (isLitres && qty > 60000) {
         toast({ title: `${label}: Quantity too high`, description: `Each truck can carry a maximum of 60,000 litres.`, variant: 'destructive' });
         return;
       }
@@ -857,9 +864,10 @@ export const PickupProcessing = () => {
     const alreadyAllocated = ticketAllocated[selectedOrder.id] || 0;
     const grandTotal = totalAllocated + alreadyAllocated;
     if (orderQty > 0 && grandTotal > orderQty) {
+      const u = getOrderUnitLabel(selectedOrder);
       toast({
         title: 'Quantity exceeded',
-        description: `Total (${grandTotal.toLocaleString()} L) exceeds the order quantity (${orderQty.toLocaleString()} L). Previously allocated: ${alreadyAllocated.toLocaleString()} L.`,
+        description: `Total (${grandTotal.toLocaleString()} ${u}) exceeds the order quantity (${orderQty.toLocaleString()} ${u}). Previously allocated: ${alreadyAllocated.toLocaleString()} ${u}.`,
         variant: 'destructive',
       });
       return;
@@ -1055,8 +1063,10 @@ export const PickupProcessing = () => {
       const v = String(o.total_price ?? '0').replace(/,/g, '');
       return sum + (Number(v) || 0);
     }, 0);
+    const uniqueUnits = new Set(list.map((o) => getOrderUnitLabel(o)));
+    const qtyUnitLabel = uniqueUnits.size === 1 ? [...uniqueUnits][0] : 'units';
 
-    return { total, released, loaded, totalQty, totalAmount };
+    return { total, released, loaded, totalQty, totalAmount, qtyUnitLabel };
   }, [filteredOrders]);
 
   // Auto-fetch ticket counts only for currently visible orders to prevent 429 throttling
@@ -1113,7 +1123,7 @@ export const PickupProcessing = () => {
                 // },
                 {
                   title: 'Quantity Loaded',
-                  value: isLoading ? '…' : `${summary.totalQty.toLocaleString()} L`,
+                  value: isLoading ? '…' : `${summary.totalQty.toLocaleString()} ${summary.qtyUnitLabel}`,
                   icon: <Droplets className="h-4 w-4" />,
                   tone: 'neutral',
                 },
@@ -1355,7 +1365,7 @@ export const PickupProcessing = () => {
                           <div className="text-black">{extractLocation(order) || '-'}</div>
                         </TableCell>
                         <TableCell>{order.products.map(p => p.name).join(', ')}</TableCell>
-                        <TableCell>{order.quantity.toLocaleString()} Litres</TableCell>
+                        <TableCell>{order.quantity.toLocaleString()} {getOrderUnitLabel(order)}</TableCell>
                         {/* <TableCell className="max-w-[120px] truncate" title={truckNumber}>
                           {truckNumber || '-'}
                         </TableCell> */}
@@ -1450,6 +1460,7 @@ export const PickupProcessing = () => {
                                     const pct = orderQty > 0 ? Math.min(100, Math.round((totalAlloc / orderQty) * 100)) : 0;
                                     const isComplete = rem === 0;
                                     const isOver = rem < 0;
+                                    const u = getOrderUnitLabel(selectedOrder);
 
                                     return (
                                       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
@@ -1460,24 +1471,24 @@ export const PickupProcessing = () => {
                                         <div className={`grid gap-3 ${prevAllocated > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
                                           <div>
                                             <div className="text-[11px] text-slate-400 uppercase tracking-wide">Total Volume</div>
-                                            <div className="text-base font-bold text-slate-900">{orderQty.toLocaleString()} L</div>
+                                            <div className="text-base font-bold text-slate-900">{orderQty.toLocaleString()} {u}</div>
                                           </div>
                                           {prevAllocated > 0 && (
                                             <div>
                                               <div className="text-[11px] text-slate-400 uppercase tracking-wide">Previous</div>
-                                              <div className="text-base font-bold text-blue-600">{prevAllocated.toLocaleString()} L</div>
+                                              <div className="text-base font-bold text-blue-600">{prevAllocated.toLocaleString()} {u}</div>
                                             </div>
                                           )}
                                           <div>
                                             <div className="text-[11px] text-slate-400 uppercase tracking-wide">{prevAllocated > 0 ? 'New' : 'Allocated'}</div>
                                             <div className={`text-base font-bold ${isOver ? 'text-red-600' : isComplete ? 'text-green-600' : 'text-slate-900'}`}>
-                                              {newAlloc.toLocaleString()} L
+                                              {newAlloc.toLocaleString()} {u}
                                             </div>
                                           </div>
                                           <div>
                                             <div className="text-[11px] text-slate-400 uppercase tracking-wide">Remaining</div>
                                             <div className={`text-base font-bold ${isOver ? 'text-red-600' : isComplete ? 'text-green-600' : 'text-amber-600'}`}>
-                                              {rem.toLocaleString()} L
+                                              {rem.toLocaleString()} {u}
                                             </div>
                                           </div>
                                         </div>
@@ -1492,7 +1503,7 @@ export const PickupProcessing = () => {
                                             </div>
                                             <div className="flex items-center justify-between">
                                               <span className={`text-[11px] font-medium ${isOver ? 'text-red-600' : isComplete ? 'text-green-600' : 'text-amber-600'}`}>
-                                                {isOver ? `Over-allocated by ${Math.abs(rem).toLocaleString()} L` : isComplete ? 'Fully allocated' : `${rem.toLocaleString()} L remaining`}
+                                                {isOver ? `Over-allocated by ${Math.abs(rem).toLocaleString()} ${u}` : isComplete ? 'Fully allocated' : `${rem.toLocaleString()} ${u} remaining`}
                                               </span>
                                               {/* {rem > 0 && (
                                                 // <button
@@ -1598,13 +1609,14 @@ export const PickupProcessing = () => {
                                           <div className="p-4 space-y-3">
                                             {/* Quantity — full width, prominent */}
                                             <div className="space-y-1.5">
-                                              <Label className="text-xs font-medium text-slate-600">Quantity (Litres) <span className="text-red-500">*</span></Label>
+                                              <Label className="text-xs font-medium text-slate-600">Quantity ({getOrderUnitLabel(selectedOrder)}) <span className="text-red-500">*</span></Label>
                                               <CommaInput
                                                 placeholder="e.g. 33,000"
                                                 className="h-11 text-base font-semibold"
                                                 value={row.quantity_litres}
                                                 onValueChange={(val) => {
-                                                  if (val === '' || Number(val) <= 60000) {
+                                                  const isLitres = getOrderUnitLabel(selectedOrder) === 'Litres';
+                                                  if (val === '' || !isLitres || Number(val) <= 60000) {
                                                     updateTruckRow(row.key, 'quantity_litres', val);
                                                   }
                                                 }}

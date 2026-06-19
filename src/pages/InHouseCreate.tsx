@@ -29,7 +29,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getOrderReference } from '@/lib/orderReference';
 import {
   type InHouseOrder, type InHouseOrderResponse, type State, type Product,
-  getStatusText, getStatusClass,
+  getStatusText, getStatusClass, getUnitLabel,
   formatQuantity, formatWithCommas, stripCommas,
 } from '@/lib/inHouseHelpers';
 
@@ -122,6 +122,11 @@ export default function InHouseCreate() {
     retry: 1,
   });
   const products = useMemo(() => (productsRaw || []) as Product[], [productsRaw]);
+
+  const selectedProductUnitLabel = useMemo(() => {
+    const selected = products.find((p) => String(p.id) === String(form.product_id));
+    return getUnitLabel(selected?.unit);
+  }, [products, form.product_id]);
 
   // ── Orders list ────────────────────────────────────────────────────
   const {
@@ -219,7 +224,7 @@ export default function InHouseCreate() {
     const rows = filteredOrders.map((o) => ({
       Reference: getOrderReference(o) || String(o.id),
       Product: o.products?.[0]?.name || '',
-      'Quantity (L)': Number(o.quantity || 0),
+      [`Quantity (${getUnitLabel(o.products?.[0]?.unit_label || o.products?.[0]?.unit)})`]: Number(o.quantity || 0),
       'Loading Depot': o.state || '',
       Status: getStatusText(o.status),
       Date: o.created_at ? format(new Date(o.created_at), 'yyyy-MM-dd HH:mm') : '',
@@ -334,6 +339,7 @@ export default function InHouseCreate() {
                       {filteredOrders.map((order) => {
                         const ref = getOrderReference(order) || `#${order.id}`;
                         const productName = order.products?.[0]?.name || '—';
+                        const unitLabel = getUnitLabel(order.products?.[0]?.unit_label || order.products?.[0]?.unit);
                         const qty = formatQuantity(order.quantity);
                         const state = order.state || '—';
                         const dateStr = order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy') : '—';
@@ -342,7 +348,7 @@ export default function InHouseCreate() {
                           <TableRow key={order.id} className="hover:bg-slate-50/60 transition-colors">
                             <TableCell className="text-sm font-semibold text-slate-800">{ref}</TableCell>
                             <TableCell className="text-sm">{productName}</TableCell>
-                            <TableCell className="text-sm font-semibold">{qty} Litres</TableCell>
+                            <TableCell className="text-sm font-semibold">{qty} {unitLabel}</TableCell>
                             <TableCell className="text-sm">{state}</TableCell>
                             <TableCell>
                               <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${getStatusClass(order.status)}`}>
@@ -422,7 +428,7 @@ export default function InHouseCreate() {
             <div className="space-y-2">
               <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                 <Package size={15} className="text-slate-500" />
-                Quantity (Litres) <span className="text-red-500">*</span>
+                Quantity ({selectedProductUnitLabel}) <span className="text-red-500">*</span>
               </Label>
               <Input
                 type="text"

@@ -13,7 +13,8 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
     unit_price: '',
     stock_quantity: '',
     abbreviation: '',
-    description: ''
+    description: '',
+    unit: 'litres',
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -25,23 +26,25 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
         unit_price: parseFloat(formData.unit_price),
         stock_quantity: parseInt(formData.stock_quantity, 10),
         abbreviation: formData.abbreviation,
-        description: formData.description
+        description: formData.description,
+        unit: formData.unit,
       };
-      
+
       await apiClient.admin.createProduct(newProduct);
       toast({
         title: "Success!",
         description: "Product created successfully",
         duration: 1000 // Toast will disappear after 3 seconds
       });
-      
+
       // Reset form and close modal
       setFormData({
         name: '',
         unit_price: '',
         stock_quantity: '',
         abbreviation: '',
-        description: ''
+        description: '',
+        unit: 'litres',
       });
       onProductAdded();
       onClose();
@@ -87,6 +90,21 @@ const AddProductModal = ({ isOpen, onClose, onProductAdded }) => {
           value={formData.stock_quantity}
           onValueChange={(v) => setFormData(prev => ({ ...prev, stock_quantity: v }))}
         />
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">Unit</label>
+          <select
+            name="unit"
+            aria-label="Unit"
+            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+            value={formData.unit}
+            onChange={handleChange}
+          >
+            <option value="litres">Litres</option>
+            <option value="kg">Kilograms (kg)</option>
+            <option value="ton">Tonnes (ton)</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-500">Use kg or ton for gas products like LPG, not litres.</p>
+        </div>
         <Input
           name="abbreviation"
           placeholder="Abbreviation"

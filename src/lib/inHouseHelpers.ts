@@ -17,7 +17,7 @@ export interface InHouseOrder {
     company_name?: string;
     companyName?: string;
   };
-  products?: Array<{ name?: string; unit_price?: number | string }>;
+  products?: Array<{ name?: string; unit_price?: number | string; unit?: string; unit_label?: string }>;
   quantity?: number | string;
   total_price?: string | number;
   status: string;
@@ -58,7 +58,14 @@ export interface Product {
   name: string;
   abbreviation?: string;
   unit_price?: number;
+  unit?: string;
 }
+
+const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
+
+/** Maps a raw product unit code ('litres' | 'kg' | 'ton') to its display label. */
+export const getUnitLabel = (unit?: string | null): string =>
+  UNIT_LABELS[(unit || 'litres').toLowerCase()] || 'Litres';
 
 // ---------------------------------------------------------------------------
 // Constants

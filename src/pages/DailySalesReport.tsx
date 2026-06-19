@@ -51,13 +51,21 @@ type OrderLike = {
 
 type BackendPfi = {
   id: number;
+  pfi_number?: string | null;
   status?: 'active' | 'finished' | string;
   location_name?: string | null;
+  product_name?: string | null;
+  product_unit?: string | null;
+  product_unit_label?: string | null;
   starting_qty_litres?: number | null;
   sold_qty_litres?: number | null;
   sold_qty?: number | null;
   total_quantity_litres?: number | string | null;
 };
+
+const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
+const getPfiUnitLabel = (pfi?: BackendPfi | null): string =>
+  pfi?.product_unit_label || UNIT_LABELS[(pfi?.product_unit || 'litres').toLowerCase()] || 'Litres';
 
 type StaffUser = {
   id: number;
@@ -339,6 +347,14 @@ export default function DailySalesReport() {
     const raw = (rec?.results as unknown) ?? (Array.isArray(pfisQuery.data) ? pfisQuery.data : []);
     return (Array.isArray(raw) ? (raw as BackendPfi[]) : []).filter(p => p && typeof p.id === 'number');
   }, [pfisQuery.data]);
+
+  const pfiUnitByNumber = useMemo(() => {
+    const m = new Map<string, string>();
+    allPfis.forEach(p => {
+      if (p.pfi_number) m.set(String(p.pfi_number), getPfiUnitLabel(p));
+    });
+    return m;
+  }, [allPfis]);
 
   const staffList: StaffUser[] = useMemo(() => {
     const raw = usersQuery.data;
@@ -1067,8 +1083,8 @@ export default function DailySalesReport() {
                             <th className="px-4 py-2.5 text-left">Location</th>
                             <th className="px-4 py-2.5 text-left">PFI</th>
                             <th className="px-4 py-2.5 text-right">Carried Over</th>
-                            <th className="px-4 py-2.5 text-right">Opening Ltrs</th>
-                            <th className="px-4 py-2.5 text-right">Litres Sold</th>
+                            <th className="px-4 py-2.5 text-right">Opening Qty</th>
+                            <th className="px-4 py-2.5 text-right">Qty Sold</th>
                             <th className="px-4 py-2.5 text-right">Price</th>
                             <th className="px-4 py-2.5 text-right">Tank Balance</th>
                             <th className="px-4 py-2.5 text-right">Trucks</th>
@@ -1092,16 +1108,22 @@ export default function DailySalesReport() {
                               if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
                               return `₦${n.toLocaleString(undefined, { maximumFractionDigits: decimal ? 4 : 0 })}`;
                             };
+                            const rowUnit = pfiUnitByNumber.get(String(rpt.pfi_number || '')) || 'Litres';
+                            const fmtQ = (v: unknown) => {
+                              const n = Number(v);
+                              if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
+                              return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${rowUnit}`;
+                            };
                             return (
                               <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                                 <td className="px-4 py-2.5 text-slate-400 text-xs">{idx + 1}</td>
                                 <td className="px-4 py-2.5 font-semibold text-slate-800">{String(rpt.location || '—')}</td>
                                 <td className="px-4 py-2.5 text-slate-600">{String(rpt.pfi_number || '—')}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.yesterday_carried_over_loading)}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.product_brought_forward)}</td>
-                                <td className="px-4 py-2.5 text-right font-medium text-slate-700">{fmtN(rpt.litres_sold_today)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtQ(rpt.yesterday_carried_over_loading)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtQ(rpt.product_brought_forward)}</td>
+                                <td className="px-4 py-2.5 text-right font-medium text-slate-700">{fmtQ(rpt.litres_sold_today)}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtM(rpt.price, true)}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.tank_balance)}</td>
+                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtQ(rpt.tank_balance)}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.num_trucks_sold)}</td>
                                 <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.amount_paid)}</td>
                                 <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.total_sales_amount)}</td>

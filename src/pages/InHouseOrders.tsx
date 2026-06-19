@@ -73,7 +73,7 @@ interface InHouseOrder {
     company_name?: string;
     companyName?: string;
   };
-  products?: Array<{ name?: string; unit_price?: number | string }>;
+  products?: Array<{ name?: string; unit_price?: number | string; unit?: string; unit_label?: string }>;
   quantity?: number | string;
   total_price?: string | number;
   status: string;
@@ -116,7 +116,12 @@ interface Product {
   name: string;
   abbreviation?: string;
   unit_price?: number;
+  unit?: string;
 }
+
+const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
+const getUnitLabel = (unit?: string | null): string =>
+  UNIT_LABELS[(unit || 'litres').toLowerCase()] || 'Litres';
 
 // 36 Nigerian states + FCT — fixed list, separate from depot/pricing states
 const NIGERIAN_STATES = [
@@ -305,6 +310,11 @@ export default function InHouseOrders() {
   });
   const products = useMemo(() => (productsRaw || []) as Product[], [productsRaw]);
 
+  const selectedProductUnitLabel = useMemo(() => {
+    const selected = products.find((p) => String(p.id) === String(form.product_id));
+    return getUnitLabel(selected?.unit);
+  }, [products, form.product_id]);
+
   // ── In-House Orders list ───────────────────────────────────────────
   const {
     data: apiResponse,
@@ -441,10 +451,14 @@ export default function InHouseOrders() {
     }
     const rawQty = Number(stripCommas(form.quantity));
     if (!rawQty || rawQty <= 0) {
-      toast({ title: 'Quantity is required', description: 'Enter the volume in litres.', variant: 'destructive' });
+      toast({ title: 'Quantity is required', description: 'Enter the quantity to dispatch.', variant: 'destructive' });
       return;
     }
-    if (rawQty > MAX_TRUCK_CAPACITY) {
+    // The 60,000 truck-capacity cap only makes sense for litres-measured products
+    // (e.g. petrol/diesel tankers). Gas products like LPG are measured in kg/ton
+    // and have a completely different truck capacity, so skip the cap for those.
+    const selectedProductUnit = products.find((p) => String(p.id) === String(form.product_id))?.unit;
+    if ((selectedProductUnit || 'litres').toLowerCase() === 'litres' && rawQty > MAX_TRUCK_CAPACITY) {
       toast({
         title: 'Quantity too large',
         description: `Maximum single order is ${MAX_TRUCK_CAPACITY.toLocaleString()} litres. For larger volumes, create multiple orders.`,
@@ -497,7 +511,7 @@ export default function InHouseOrders() {
     } finally {
       setCreating(false);
     }
-  }, [form, toast, queryClient]);
+  }, [form, toast, queryClient, products]);
 
   // ── Record Sale handler ─────────────────────────────────────────
   const openRecordSale = useCallback((order: InHouseOrder) => {
@@ -564,7 +578,7 @@ export default function InHouseOrders() {
     const rows = filteredOrders.map((o) => ({
       Reference: getOrderReference(o) || String(o.id),
       Product: o.products?.[0]?.name || '',
-      'Quantity (L)': Number(o.quantity || 0),
+      [`Quantity (${getUnitLabel(o.products?.[0]?.unit_label || o.products?.[0]?.unit)})`]: Number(o.quantity || 0),
       'Loading Depot': o.state || '',
       'Destination State': o.destination_state || '',
       'Destination Town': o.destination_town || '',
@@ -697,7 +711,7 @@ export default function InHouseOrders() {
                       <TableRow className="bg-slate-50/80">
                         <TableHead className="font-semibold text-slate-700">Reference</TableHead>
                         <TableHead className="font-semibold text-slate-700">Product</TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-right">Qty (L)</TableHead>
+                        <TableHead className="font-semibold text-slate-700 text-right">Qty</TableHead>
                         <TableHead className="font-semibold text-slate-700">Depot</TableHead>
                         <TableHead className="font-semibold text-slate-700">Destination</TableHead>
                         <TableHead className="font-semibold text-slate-700">Truck No.</TableHead>
@@ -714,6 +728,7 @@ export default function InHouseOrders() {
                       {filteredOrders.map((order) => {
                         const ref = getOrderReference(order) || `#${order.id}`;
                         const productName = order.products?.[0]?.name || '—';
+                        const unitLabel = getUnitLabel(order.products?.[0]?.unit_label || order.products?.[0]?.unit);
                         const qty = formatQuantity(order.quantity);
                         const state = order.state || '—';
                         const totalPrice = formatCurrency(order.total_price);
@@ -729,7 +744,7 @@ export default function InHouseOrders() {
                               {ref}
                             </TableCell>
                             <TableCell className="text-sm">{productName}</TableCell>
-                            <TableCell className="text-sm text-right font-semibold">{qty}</TableCell>
+                            <TableCell className="text-sm text-right font-semibold">{qty} {unitLabel}</TableCell>
                             <TableCell className="text-sm">{state}</TableCell>
                             <TableCell className="text-sm">
                               {order.destination_state
@@ -861,7 +876,7 @@ export default function InHouseOrders() {
             <div className="space-y-2">
               <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                 <Package size={15} className="text-slate-500" />
-                Quantity (Litres) <span className="text-red-500">*</span>
+                Quantity ({selectedProductUnitLabel}) <span className="text-red-500">*</span>
               </Label>
               <Input
                 type="text"
@@ -871,16 +886,19 @@ export default function InHouseOrders() {
                 onChange={(e) => {
                   const formatted = formatWithCommas(e.target.value);
                   const raw = Number(stripCommas(formatted));
-                  if (raw > MAX_TRUCK_CAPACITY) {
+                  const isLitres = selectedProductUnitLabel === 'Litres';
+                  if (isLitres && raw > MAX_TRUCK_CAPACITY) {
                     setForm((f) => ({ ...f, quantity: formatWithCommas(String(MAX_TRUCK_CAPACITY)) }));
                   } else {
                     setForm((f) => ({ ...f, quantity: formatted }));
                   }
                 }}
               />
-              <p className="text-xs text-slate-400">
-                Max {MAX_TRUCK_CAPACITY.toLocaleString()} litres per order (one truck capacity)
-              </p>
+              {selectedProductUnitLabel === 'Litres' && (
+                <p className="text-xs text-slate-400">
+                  Max {MAX_TRUCK_CAPACITY.toLocaleString()} litres per order (one truck capacity)
+                </p>
+              )}
             </div>
 
             {/* Loading Depot */}
@@ -1099,7 +1117,7 @@ export default function InHouseOrders() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Quantity</span>
-                  <span className="font-medium">{formatQuantity(saleOrder.quantity)} L</span>
+                  <span className="font-medium">{formatQuantity(saleOrder.quantity)} {getUnitLabel(saleOrder.products?.[0]?.unit_label || saleOrder.products?.[0]?.unit)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Agent</span>

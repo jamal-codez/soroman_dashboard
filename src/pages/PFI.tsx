@@ -38,6 +38,8 @@ type BackendPfi = {
   product?: string | number;
   location_name?: string;
   product_name?: string;
+  product_unit?: string;
+  product_unit_label?: string;
   starting_qty_litres?: number;
   sold_qty_litres?: number;
   sold_qty?: number;
@@ -58,7 +60,10 @@ type BackendPfi = {
   delivery_allocated_qty?: number | string;
 };
 
-type BackendProduct = { id: number; name: string };
+type BackendProduct = { id: number; name: string; unit?: string };
+
+const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
+const getUnitLabel = (unit?: string): string => UNIT_LABELS[(unit || 'litres').toLowerCase()] || 'Litres';
 type BackendLocation = { id: number; name?: string; state_name?: string; state?: string };
 
 type SortKey =
@@ -194,8 +199,13 @@ export default function PFIPage() {
     const raw = (rec?.results as unknown) ?? (Array.isArray(productsQuery.data) ? productsQuery.data : []);
     return ((raw || []) as BackendProduct[])
       .filter(p => p && typeof p.id === 'number' && typeof p.name === 'string')
-      .map(p => ({ id: p.id, label: p.name }));
+      .map(p => ({ id: p.id, label: p.name, unit: p.unit }));
   }, [productsQuery.data]);
+
+  const selectedCreateProductUnitLabel = useMemo(() => {
+    const selected = productOptions.find(p => String(p.id) === String(createForm.product));
+    return getUnitLabel(selected?.unit);
+  }, [productOptions, createForm.product]);
 
   const locationsQuery = useQuery<{ results?: BackendLocation[] } & Record<string, unknown>>({
     queryKey: ['locations'],
@@ -241,11 +251,12 @@ export default function PFIPage() {
       const orders = coerceNumber(p.orders_count);
       const locationLabel = String(p.location_name ?? p.location ?? '');
       const productLabel = String(p.product_name ?? p.product ?? '');
+      const unitLabel = p.product_unit_label || (p.product_unit ? p.product_unit : 'Litres');
       const createdAtStr = String(p.created_at ?? p.createdAt ?? '');
       const finishedAtStr = String(p.finished_at ?? p.finishedAt ?? '');
       return {
         ...p, starting, sold, remaining, pct, totalAmount, orders,
-        locationLabel, productLabel, createdAtStr, finishedAtStr,
+        locationLabel, productLabel, unitLabel, createdAtStr, finishedAtStr,
       };
     });
   }, [pfis, pfiSoldQtyMap]);
@@ -513,9 +524,9 @@ export default function PFIPage() {
       'PFI Number': p.pfi_number,
       'Product': p.productLabel,
       'Location': p.locationLabel,
-      'Starting Qty (L)': p.starting,
-      'Sold Qty (L)': p.sold,
-      'Remaining (L)': p.remaining,
+      [`Starting Qty (${p.unitLabel})`]: p.starting,
+      [`Sold Qty (${p.unitLabel})`]: p.sold,
+      [`Remaining (${p.unitLabel})`]: p.remaining,
       '% Sold': `${p.pct.toFixed(1)}%`,
       'Orders': p.orders,
       'Total Amount (₦)': p.totalAmount,
@@ -697,15 +708,15 @@ export default function PFIPage() {
                               {p.locationLabel || '—'}
                             </TableCell>
                             <TableCell className={`text-left font-medium ${isActive ? 'text-slate-800' : 'text-red-700'}`}>
-                              {fmtQty(p.starting)} Litres
+                              {fmtQty(p.starting)} {p.unitLabel}
                             </TableCell>
                             <TableCell className={`text font-medium ${isActive ? 'text-emerald-700' : 'text-red-600'}`}>
-                              {p.sold > 0 ? fmtQty(p.sold) : '—'} Litres
+                              {p.sold > 0 ? fmtQty(p.sold) : '—'} {p.unitLabel}
                             </TableCell>
                             <TableCell className={`text-left font-bold ${
                               !isActive ? 'text-red-500' : p.remaining > 0 ? 'text-amber-600' : 'text-slate-400'
                             }`}>
-                              {fmtQty(p.remaining)} Litres
+                              {fmtQty(p.remaining)} {p.unitLabel}
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
@@ -890,7 +901,7 @@ export default function PFIPage() {
 
             <div className="space-y-2">
               <Label htmlFor="startingQty" className="text-sm font-medium text-slate-700">
-                Starting Quantity (Litres) <span className="text-red-500">*</span>
+                Starting Quantity ({selectedCreateProductUnitLabel}) <span className="text-red-500">*</span>
               </Label>
               <Input
                 id="startingQty"

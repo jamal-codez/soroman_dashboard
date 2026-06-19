@@ -784,6 +784,7 @@ export const apiClient = {
       description: string;
       unit_price: number;
       stock_quantity: number;
+      unit?: 'litres' | 'kg' | 'ton';
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/products/`, {
         method: 'POST',

@@ -75,6 +75,8 @@ interface ReleasedOrder {
     unit_price?: string | number;
     unitPrice?: string | number;
     price?: string | number;
+    unit?: string;
+    unit_label?: string;
   }>;
 
   quantity?: number | string;
@@ -161,6 +163,12 @@ const getQty = (o: ReleasedOrder): number => {
   const v = o.quantity ?? o.qty ?? o.litres ??
     o.products?.[0]?.quantity ?? o.products?.[0]?.qty ?? o.products?.[0]?.litres;
   return toNum(v);
+};
+
+const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
+const getProductUnit = (o: ReleasedOrder): string => {
+  const p = o.products?.[0];
+  return p?.unit_label || UNIT_LABELS[(p?.unit || 'litres').toLowerCase()] || 'Litres';
 };
 
 const getAmount = (o: ReleasedOrder) => toNum(o.total_price ?? o.amount);
@@ -339,7 +347,7 @@ export default function ReleasedOrders() {
       'Customer': getCustomerName(o),
       'Company': getCompany(o),
       'Product': getProduct(o),
-      'Quantity (L)': getQty(o),
+      [`Quantity (${getProductUnit(o)})`]: getQty(o),
       'Amount (₦)': getAmount(o),
       'Location': getLocation(o),
     //   'PFI': getPfi(o),
@@ -589,7 +597,7 @@ export default function ReleasedOrders() {
 
                             <TableCell className="whitespace-nowrap">
                               {qty > 0 && (
-                                <div className="text-sm font-semibold text-black">{fmtQty(qty)} Litres</div>
+                                <div className="text-sm font-semibold text-black">{fmtQty(qty)} {getProductUnit(o)}</div>
                               )}
                               <div className="text-xs text-slate-500">{getProduct(o)}</div>
                             </TableCell>

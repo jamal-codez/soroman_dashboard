@@ -41,7 +41,16 @@ interface Product {
   location: string;
   updated_at: string;
   description: string;
+  unit?: string;
 }
+
+const UNIT_LABELS: Record<string, string> = {
+  litres: 'Litres',
+  kg: 'kg',
+  ton: 'ton',
+};
+
+const getUnitLabel = (unit?: string): string => UNIT_LABELS[(unit || 'litres').toLowerCase()] || 'Litres';
 
 type UpdateProductPayload = {
   name: string;
@@ -330,7 +339,7 @@ const Inventory = () => {
                           <div>
                             <div className="flex justify-between mb-1">
                               <span className="text-xs font-medium">
-                                {item.stock_quantity.toLocaleString()} Litres
+                                {item.stock_quantity.toLocaleString()} {getUnitLabel(item.unit)}
                               </span>
                             </div>
                             <div className="w-full bg-slate-200 rounded-full h-2">

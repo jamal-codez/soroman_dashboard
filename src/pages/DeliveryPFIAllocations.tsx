@@ -34,11 +34,17 @@ interface BackendPfi {
   status: 'active' | 'finished';
   location_name?: string;
   product_name?: string;
+  product_unit?: string;
+  product_unit_label?: string;
   starting_qty_litres?: number;
   sold_qty_litres?: number;
   orders_count?: number;
   total_amount?: number | string;
 }
+
+const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
+const getUnitLabel = (p?: BackendPfi | null): string =>
+  p?.product_unit_label || UNIT_LABELS[(p?.product_unit || 'litres').toLowerCase()] || 'Litres';
 
 interface DeliveryAllocation {
   id: number;
@@ -186,8 +192,9 @@ export default function DeliveryPFIAllocations() {
       const product = alloc.pfi_product || pfi?.product_name || '—';
       const depot = alloc.depot || alloc.pfi_location || pfi?.location_name || '—';
       const allocated = toNum(alloc.quantity_allocated);
+      const unitLabel = getUnitLabel(pfi);
 
-      return { ...alloc, pfiNumber, product, depotDisplay: depot, allocated };
+      return { ...alloc, pfiNumber, product, depotDisplay: depot, allocated, unitLabel };
     });
   }, [allAllocations, pfiMap]);
 
@@ -223,26 +230,30 @@ export default function DeliveryPFIAllocations() {
 
     const totalRemaining = Math.max(0, totalAllocated - truckLoadingQty);
 
+    const uniqueUnits = new Set(enriched.map(a => a.unitLabel));
+    const unitLabel = uniqueUnits.size === 1 ? [...uniqueUnits][0] : 'units';
+
     return {
       totalAllocated,
       totalLoaded: truckLoadingQty,
       totalRemaining,
       pfiCount: uniquePfis.size,
       entryCount: enriched.length,
+      unitLabel,
     };
   }, [enriched, truckLoadingQty]);
 
   const summaryCards = useMemo((): SummaryCard[] => [
     {
       title: 'Total Allocated',
-      value: `${fmtQty(totals.totalAllocated)} L`,
+      value: `${fmtQty(totals.totalAllocated)} ${totals.unitLabel}`,
     //   description: `${totals.pfiCount} PFI${totals.pfiCount !== 1 ? 's' : ''} · ${totals.entryCount} entr${totals.entryCount !== 1 ? 'ies' : 'y'}`,
       icon: <Package size={20} />,
       tone: 'neutral',
     },
     {
       title: 'Loaded onto Trucks',
-      value: `${fmtQty(totals.totalLoaded)} L`,
+      value: `${fmtQty(totals.totalLoaded)} ${totals.unitLabel}`,
     //   description: totals.totalAllocated > 0
     //     ? `${((totals.totalLoaded / totals.totalAllocated) * 100).toFixed(1)}% of allocated stock`
     //     : undefined,
@@ -251,7 +262,7 @@ export default function DeliveryPFIAllocations() {
     },
     {
       title: 'Remaining in Depot',
-      value: `${fmtQty(totals.totalRemaining)} L`,
+      value: `${fmtQty(totals.totalRemaining)} ${totals.unitLabel}`,
     //   description: 'Allocated − Loaded',
       icon: <Package size={20} />,
       tone: totals.totalRemaining > 0 ? 'amber' : 'green',
@@ -374,7 +385,7 @@ export default function DeliveryPFIAllocations() {
       'PFI': a.pfiNumber,
       'Depot': a.depotDisplay,
       'Product': a.product,
-      'Quantity Added (L)': a.allocated,
+      [`Quantity Added (${a.unitLabel})`]: a.allocated,
       'Date Added': a.date_allocated ? format(parseISO(a.date_allocated), 'dd/MM/yyyy') : '',
       'Added By': a.created_by || '—',
     }));
@@ -465,7 +476,7 @@ export default function DeliveryPFIAllocations() {
                         <TableHead className="font-semibold text-slate-700">PFI</TableHead>
                         <TableHead className="font-semibold text-slate-700">Depot</TableHead>
                         <TableHead className="font-semibold text-slate-700">Product</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Quantity (L)</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Quantity</TableHead>
                         <TableHead className="font-semibold text-slate-700">Date Added</TableHead>
                         {/* <TableHead className="font-semibold text-slate-700">Added By</TableHead> */}
                         <TableHead className="font-semibold text-slate-700 w-[100px]">Actions</TableHead>
@@ -487,7 +498,7 @@ export default function DeliveryPFIAllocations() {
                           </TableCell>
 
                           <TableCell className="font-bold text-slate-800">
-                            {fmtQty(a.allocated)}
+                            {fmtQty(a.allocated)} {a.unitLabel}
                           </TableCell>
 
                           <TableCell className="whitespace-nowrap text-slate-600">
@@ -513,7 +524,7 @@ export default function DeliveryPFIAllocations() {
                                 onClick={() =>
                                   setDeleteTarget({
                                     id: a.id,
-                                    label: `${a.pfiNumber} — ${a.product} — ${fmtQty(a.allocated)} L`,
+                                    label: `${a.pfiNumber} — ${a.product} — ${fmtQty(a.allocated)} ${a.unitLabel}`,
                                   })
                                 }
                               >
@@ -629,7 +640,7 @@ export default function DeliveryPFIAllocations() {
             <div className="space-y-2">
               <Label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
                 <DropletIcon size={15} className="text-slate-500" />
-                Quantity (Litres) <span className="text-red-500">*</span>
+                Quantity ({getUnitLabel(selectedPfi)}) <span className="text-red-500">*</span>
               </Label>
               <Input
                 type="text"
@@ -664,7 +675,7 @@ export default function DeliveryPFIAllocations() {
               <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
                 <p className="text-xs text-emerald-700 font-semibold mb-1">Summary</p>
                 <p className="text-lg font-bold text-slate-800">
-                  {formatWithCommas(stripCommas(form.quantity_allocated))} L
+                  {formatWithCommas(stripCommas(form.quantity_allocated))} {getUnitLabel(selectedPfi)}
                 </p>
                 <p className="text-xs text-slate-500">
                   {selectedPfi.product_name || '—'} · {selectedPfi.location_name || '—'} · {selectedPfi.pfi_number}
