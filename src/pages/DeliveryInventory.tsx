@@ -73,9 +73,15 @@ interface BackendPfi {
   status: 'active' | 'finished';
   location_name?: string;
   product_name?: string;
+  product_unit?: string;
+  product_unit_label?: string;
   starting_qty_litres?: number;
   sold_qty_litres?: number;
 }
+
+const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
+const getPfiUnitLabel = (pfi?: BackendPfi | null): string =>
+  pfi?.product_unit_label || UNIT_LABELS[(pfi?.product_unit || 'litres').toLowerCase()] || 'Litres';
 
 interface InventoryEntry {
   id: number;
@@ -131,6 +137,7 @@ type TruckRecord = InventoryEntry & {
   custName: string;
   pfiLabel: string;
   product: string;
+  unitLabel: string;
   qty: number;
   code: string;
   isFillingStation: boolean;
@@ -597,6 +604,7 @@ export default function DeliveryInventory() {
           custName: entry.customer_name || customer?.customer_name || '',
           pfiLabel: entry.pfi_number || pfi?.pfi_number || '',
           product: entry.pfi_product || pfi?.product_name || '',
+          unitLabel: getPfiUnitLabel(pfi),
           qty: toNum(entry.quantity_allocated),
           code: entry.allocation_code || '',
           isFillingStation: isFillingStation(customer),
@@ -937,7 +945,7 @@ export default function DeliveryInventory() {
       toast({
         title: `${truckCount} truck${truckCount > 1 ? 's' : ''} allocated${normalizedCode ? ` under ${normalizedCode}` : ''}`,
         description: autoSumCapacity > 0
-          ? `${fmtQty(autoSumCapacity)} L total · PFI ${selectedPfi?.pfi_number || ''}`
+          ? `${fmtQty(autoSumCapacity)} ${getPfiUnitLabel(selectedPfi)} total · PFI ${selectedPfi?.pfi_number || ''}`
           : `PFI ${selectedPfi?.pfi_number || ''}`,
       });
       setLoadDialogOpen(false);
@@ -1216,7 +1224,7 @@ export default function DeliveryInventory() {
       'Product': r.product || '—',
       'Depot': r.depotDisplay || '—',
       'Destination': r.destination || '—',
-      'Quantity (L)': r.qty,
+      [`Quantity (${r.unitLabel})`]: r.qty,
       'Status': statusBadge[r.status]?.label || r.status,
       'Date Loaded': r.date_allocated ? format(parseISO(r.date_allocated), 'dd/MM/yyyy') : '',
       'Date Offloaded': r.date_offloaded ? format(parseISO(r.date_offloaded), 'dd/MM/yyyy') : '',
@@ -1589,7 +1597,7 @@ export default function DeliveryInventory() {
                                   </span>
                                   <span className="text-xs text-slate-400">·</span>
                                   <span className="text-xs font-semibold text-slate-700">
-                                    {fmtQty(totalQty)} L
+                                    {fmtQty(totalQty)} {records[0]?.unitLabel || 'Litres'}
                                   </span>
 
                                   {loadedCount > 0 && (
@@ -1660,7 +1668,7 @@ export default function DeliveryInventory() {
                                   </TableCell>
 
                                   <TableCell className="text-sm font-semibold text-slate-800">
-                                    {r.qty > 0 ? `${fmtQty(r.qty)} Litres` : '—'}
+                                    {r.qty > 0 ? `${fmtQty(r.qty)} ${r.unitLabel}` : '—'}
                                   </TableCell>
 
                                   <TableCell className="text-slate-800 text-sm">{r.depotDisplay || '—'}</TableCell>
@@ -2059,10 +2067,10 @@ export default function DeliveryInventory() {
                     <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider mb-1">
                       Total Allocation (Auto-calculated from capacity)
                     </p>
-                    <p className="text-3xl font-black text-blue-900">{fmtQty(autoSumCapacity)} L</p>
+                    <p className="text-3xl font-black text-blue-900">{fmtQty(autoSumCapacity)} {getPfiUnitLabel(selectedPfi)}</p>
                     <p className="text-xs text-slate-600 mt-1">
                       {selectedTruckIds.size} truck{selectedTruckIds.size !== 1 ? 's' : ''}
-                      {selectedTruckIds.size > 1 && ` · ≈ ${fmtQty(Math.round(autoSumCapacity / selectedTruckIds.size))} L each`}
+                      {selectedTruckIds.size > 1 && ` · ≈ ${fmtQty(Math.round(autoSumCapacity / selectedTruckIds.size))} ${getPfiUnitLabel(selectedPfi)} each`}
                       {selectedPfi && ` · ${selectedPfi.pfi_number}`}
                     </p>
                     {trucksWithNoCapacity.length > 0 && (
@@ -2128,7 +2136,7 @@ export default function DeliveryInventory() {
               <span>Offload Truck</span>
             </DialogTitle>
             <DialogDescription className="pt-1 text-slate-600">
-              Mark <strong>{offloadTarget?.truckPlate}</strong> ({fmtQty(offloadTarget?.qty || 0)} L) as offloaded and sold.
+              Mark <strong>{offloadTarget?.truckPlate}</strong> ({fmtQty(offloadTarget?.qty || 0)} {offloadTarget?.unitLabel || 'Litres'}) as offloaded and sold.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
@@ -2152,7 +2160,7 @@ export default function DeliveryInventory() {
                 )} */}
                 <div className="flex justify-between">
                   <span className="text-slate-500">Quantity</span>
-                  <span className="font-bold text-slate-800">{fmtQty(offloadTarget.qty)} L</span>
+                  <span className="font-bold text-slate-800">{fmtQty(offloadTarget.qty)} {offloadTarget.unitLabel}</span>
                 </div>
                 {offloadTarget.destination && (
                   <div className="flex justify-between">

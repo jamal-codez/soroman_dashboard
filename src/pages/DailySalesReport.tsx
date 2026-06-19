@@ -1349,7 +1349,9 @@ export default function DailySalesReport() {
     </div>
 
     {/* ── Edit Staff Report Dialog ─────────────────────────────── */}
-    {editingReport && (
+    {editingReport && (() => {
+      const editUnitLabel = pfiUnitByNumber.get(String(editingReport.pfi_number || '')) || 'Litres';
+      return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-blue-600 to-blue-700 rounded-t-2xl">
@@ -1383,8 +1385,8 @@ export default function DailySalesReport() {
               <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Loading &amp; Opening</legend>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { key: 'yesterday_carried_over_loading', label: 'Carried Over Loading', suffix: 'L' },
-                  { key: 'product_brought_forward',        label: 'Opening Litres',        suffix: 'L' },
+                  { key: 'yesterday_carried_over_loading', label: 'Carried Over Loading', suffix: editUnitLabel },
+                  { key: 'product_brought_forward',        label: 'Opening Qty',           suffix: editUnitLabel },
                 ].map(({ key, label, suffix }) => (
                   <label key={key} className="block">
                     <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</span>
@@ -1404,10 +1406,10 @@ export default function DailySalesReport() {
               <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Sales Figures</legend>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { key: 'litres_sold_today', label: 'Litres Sold',   suffix: 'L', prefix: '',  auto: false },
-                  { key: 'price',             label: 'Price / Litre', suffix: '',  prefix: '₦', auto: false },
-                  { key: 'num_trucks_sold',   label: 'Trucks Sold',   suffix: '',  prefix: '',  auto: false },
-                  { key: 'tank_balance',      label: 'Tank Balance',  suffix: 'L', prefix: '',  auto: true  },
+                  { key: 'litres_sold_today', label: 'Qty Sold',       suffix: editUnitLabel, prefix: '',  auto: false },
+                  { key: 'price',             label: `Price / ${editUnitLabel}`, suffix: '',  prefix: '₦', auto: false },
+                  { key: 'num_trucks_sold',   label: 'Trucks Sold',    suffix: '',  prefix: '',  auto: false },
+                  { key: 'tank_balance',      label: 'Tank Balance',   suffix: editUnitLabel, prefix: '',  auto: true  },
                 ].map(({ key, label, suffix, prefix, auto }) => (
                   <label key={key} className="block">
                     <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -1495,7 +1497,8 @@ export default function DailySalesReport() {
           </div>
         </div>
       </div>
-    )}
+      );
+    })()}
     </>
   );
 }

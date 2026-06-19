@@ -1102,6 +1102,8 @@ export const apiClient = {
           location_name: string;
           product_id: number;
           product_name: string;
+          product_unit?: string;
+          product_unit_label?: string;
           starting_qty_litres: string;
           opening_balance: string;
           sold_today: string;

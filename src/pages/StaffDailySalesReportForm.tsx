@@ -21,11 +21,17 @@ interface PFIOption {
   pfi_number: string;
   location_name: string;
   product_name: string;
+  product_unit?: string;
+  product_unit_label?: string;
   opening_balance: string;
   sold_today: string;
   remaining_balance: string;
   price: string;
 }
+
+const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
+const getPfiOptionUnitLabel = (p?: PFIOption | null): string =>
+  p?.product_unit_label || UNIT_LABELS[(p?.product_unit || 'litres').toLowerCase()] || 'Litres';
 
 interface FormFields {
   pfi_id: string;
@@ -258,6 +264,8 @@ export default function StaffDailySalesReportForm() {
   });
 
   const pfis: PFIOption[] = pfiQuery.data?.pfis ?? [];
+  const selectedPfiOption = pfis.find(p => String(p.pfi_id) === form.pfi_id);
+  const selectedPfiUnitLabel = getPfiOptionUnitLabel(selectedPfiOption);
 
   // ── Auto-fill when PFI selected ─────────────────────────────────────
   useEffect(() => {
@@ -519,12 +527,12 @@ export default function StaffDailySalesReportForm() {
                               <div className="mt-2 flex gap-3 text-[10px]">
                                 <span className="text-slate-500">
                                   Remaining: <strong className={Number(pfi.remaining_balance) <= 0 ? 'text-red-500' : 'text-slate-700'}>
-                                    {Number(pfi.remaining_balance).toLocaleString(undefined, { maximumFractionDigits: 0 })} L
+                                    {Number(pfi.remaining_balance).toLocaleString(undefined, { maximumFractionDigits: 0 })} {getPfiOptionUnitLabel(pfi)}
                                   </strong>
                                 </span>
                                 <span className="text-slate-500">
                                   Sold: <strong className={Number(pfi.sold_today) > 0 ? 'text-emerald-700' : 'text-slate-400'}>
-                                    {Number(pfi.sold_today).toLocaleString(undefined, { maximumFractionDigits: 0 })} L
+                                    {Number(pfi.sold_today).toLocaleString(undefined, { maximumFractionDigits: 0 })} {getPfiOptionUnitLabel(pfi)}
                                   </strong>
                                 </span>
                               </div>
@@ -559,8 +567,8 @@ export default function StaffDailySalesReportForm() {
                       <fieldset className="rounded-xl border border-slate-200 p-4 space-y-4">
                         <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Loading &amp; Opening Figures</legend>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <Field label="Yesterday's Carried Over Loading" value={form.yesterday_carried_over_loading} onChange={set('yesterday_carried_over_loading')} suffix="Ltrs" />
-                          <Field label="Product Brought Forward (Opening Litres)" value={form.product_brought_forward} onChange={set('product_brought_forward')} suffix="Ltrs" highlight />
+                          <Field label="Yesterday's Carried Over Loading" value={form.yesterday_carried_over_loading} onChange={set('yesterday_carried_over_loading')} suffix={selectedPfiUnitLabel} />
+                          <Field label="Product Brought Forward (Opening Qty)" value={form.product_brought_forward} onChange={set('product_brought_forward')} suffix={selectedPfiUnitLabel} highlight />
                         </div>
                       </fieldset>
 
@@ -568,9 +576,9 @@ export default function StaffDailySalesReportForm() {
                       <fieldset className="rounded-xl border border-slate-200 p-4 space-y-4">
                         <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Sales Figures</legend>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <Field label="Litres Sold Today" value={form.litres_sold_today} onChange={set('litres_sold_today')} suffix="Ltrs" highlight />
-                          <Field label="Price per Litre" value={form.price} onChange={set('price')} prefix="₦" highlight decimal />
-                          <Field label="Tank Balance" value={form.tank_balance} onChange={set('tank_balance')} suffix="Ltrs" highlight />
+                          <Field label="Qty Sold Today" value={form.litres_sold_today} onChange={set('litres_sold_today')} suffix={selectedPfiUnitLabel} highlight />
+                          <Field label={`Price per ${selectedPfiUnitLabel}`} value={form.price} onChange={set('price')} prefix="₦" highlight decimal />
+                          <Field label="Tank Balance" value={form.tank_balance} onChange={set('tank_balance')} suffix={selectedPfiUnitLabel} highlight />
                           <Field label="No. of Trucks Sold" value={form.num_trucks_sold} onChange={set('num_trucks_sold')} />
                         </div>
                       </fieldset>
@@ -582,7 +590,7 @@ export default function StaffDailySalesReportForm() {
                           <Field label="Amount Paid" value={form.amount_paid} onChange={set('amount_paid')} prefix="₦" />
                           <Field label="Total Sales Amount" value={form.total_sales_amount} onChange={set('total_sales_amount')} prefix="₦" highlight />
                           <Field label="Differentials" value={form.differentials} onChange={set('differentials')} prefix="₦" highlight />
-                          <Field label="Loading Left Over" value={form.loading_left_over} onChange={set('loading_left_over')} suffix="Ltrs" />
+                          <Field label="Loading Left Over" value={form.loading_left_over} onChange={set('loading_left_over')} suffix={selectedPfiUnitLabel} />
                         </div>
                       </fieldset>
 
@@ -656,7 +664,7 @@ export default function StaffDailySalesReportForm() {
                         <tr className="text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 bg-slate-50/60">
                           <th className="px-4 py-2.5 text-left">Date</th>
                           <th className="px-4 py-2.5 text-left">Location</th>
-                          <th className="px-4 py-2.5 text-right">Litres Sold</th>
+                          <th className="px-4 py-2.5 text-right">Qty Sold</th>
                           <th className="px-4 py-2.5 text-right">Amount</th>
                           <th className="px-4 py-2.5 text-right">Submitted</th>
                           <th className="px-4 py-2.5 text-right">Actions</th>

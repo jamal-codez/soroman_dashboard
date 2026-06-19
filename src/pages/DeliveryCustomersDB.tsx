@@ -369,7 +369,7 @@ export default function DeliveryCustomersDB() {
     { title: 'Total Customers', value: String(totals.total), icon: <Users size={20} />, tone: 'neutral' },
     { title: 'Regular Customers', value: String(totals.regularCustomers), icon: <User size={20} />, tone: 'green' },
     { title: 'Filling Stations', value: String(totals.fillingStations), icon: <Fuel size={20} />, tone: 'neutral' },
-    { title: 'Total Qty Sold', value: `${fmtQty(totals.totalQtyFromLedger)} L`, icon: <Wallet size={20} />, tone: 'green' },
+    { title: 'Total Qty Sold', value: fmtQty(totals.totalQtyFromLedger), icon: <Wallet size={20} />, tone: 'green' },
   ], [totals]);
 
   // ═══════════════════════════════════════════════════════════════════
@@ -534,7 +534,7 @@ export default function DeliveryCustomersDB() {
         'Credit Limit': limit > 0 ? limit : '—',
         'Outstanding': outstanding > 0 ? outstanding : 0,
         'Trucks Used': trucksUsed || '—',
-        'Qty Sold (L)': stats?.totalQty || 0,
+        'Qty Sold': stats?.totalQty || 0,
         'Last Transaction': c._effectiveLastTxn
           ? format(parseISO(c._effectiveLastTxn), 'dd/MM/yyyy')
           : '—',
@@ -742,7 +742,7 @@ export default function DeliveryCustomersDB() {
 
                             {/* Qty Sold */}
                             <TableCell className="text-sm font-medium text-slate-700">
-                              {stats?.totalQty ? fmtQty(stats.totalQty) : '0'} Litres
+                              {stats?.totalQty ? fmtQty(stats.totalQty) : '0'}
                             </TableCell>
 
                             {/* Last Activity */}
@@ -967,7 +967,7 @@ export default function DeliveryCustomersDB() {
                       </div>
                       <div>
                         <span className="text-[11px] font-medium text-slate-500">Qty Sold</span>
-                        <p className="text-sm font-bold text-slate-800">{fmtQty(stats?.totalQty || 0)} Litres</p>
+                        <p className="text-sm font-bold text-slate-800">{fmtQty(stats?.totalQty || 0)}</p>
                       </div>
                       <div>
                         <span className="text-[11px] font-medium text-slate-500">Last Activity</span>
