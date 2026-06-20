@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
+import { ROLES } from '@/roles';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -58,6 +59,11 @@ type BackendPfi = {
   allowed_locations?: number[];
   allowed_location_names?: string[];
   delivery_allocated_qty?: number | string;
+  // Staff responsible for this PFI
+  marketing_person?: number | null;
+  marketing_person_name?: string | null;
+  finance_person?: number | null;
+  finance_person_name?: string | null;
 };
 
 type BackendProduct = { id: number; name: string; unit?: string };
@@ -130,6 +136,8 @@ export default function PFIPage() {
     product: '',
     startingQty: '',
     notes: '',
+    marketingPerson: '',
+    financePerson: '',
   });
   const [createErrors, setCreateErrors] = useState<{
     conflict?: string;
@@ -221,6 +229,30 @@ export default function PFIPage() {
       .filter(l => l && typeof l.id === 'number')
       .map(l => ({ id: l.id, label: String(l.name ?? l.state_name ?? l.state ?? `Location ${l.id}`) }));
   }, [locationsQuery.data]);
+
+  // Staff lists for assigning a marketing/finance person to a PFI
+  const usersQuery = useQuery<{ results?: Array<{ id: number; full_name: string; role: number }> } & Record<string, unknown>>({
+    queryKey: ['users-for-pfi'],
+    queryFn: async () => apiClient.admin.getUsers(),
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
+
+  const staffUsers = useMemo(() => {
+    const rec = isRecord(usersQuery.data) ? usersQuery.data : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(usersQuery.data) ? usersQuery.data : []);
+    return ((raw || []) as Array<{ id: number; full_name: string; role: number }>)
+      .filter(u => u && typeof u.id === 'number');
+  }, [usersQuery.data]);
+
+  const marketingStaffOptions = useMemo(
+    () => staffUsers.filter(u => u.role === ROLES.MARKETING).map(u => ({ id: u.id, label: u.full_name })),
+    [staffUsers]
+  );
+  const financeStaffOptions = useMemo(
+    () => staffUsers.filter(u => u.role === ROLES.FINANCE).map(u => ({ id: u.id, label: u.full_name })),
+    [staffUsers]
+  );
 
   // ═══════════════════════════════════════════════════════════════════
   // Derived data
@@ -431,9 +463,11 @@ export default function PFIPage() {
         product,
         starting_qty_litres: `${startingAsNumber.toFixed(2)}`,
         notes: createForm.notes.trim() || undefined,
+        marketing_person: createForm.marketingPerson ? Number(createForm.marketingPerson) : undefined,
+        finance_person: createForm.financePerson ? Number(createForm.financePerson) : undefined,
       });
       setCreateOpen(false);
-      setCreateForm({ pfiNumber: '', location: '', product: '', startingQty: '', notes: '' });
+      setCreateForm({ pfiNumber: '', location: '', product: '', startingQty: '', notes: '', marketingPerson: '', financePerson: '' });
       await queryClient.invalidateQueries({ queryKey: ['pfis'] });
       toast({ title: 'PFI created', description: `${pfi_number} created.` });
     } catch (e) {
@@ -507,6 +541,24 @@ export default function PFIPage() {
       setEditLocSaving(false);
     }
   }, [editLocTarget, editLocSelected, queryClient, toast]);
+
+  const [assigningStaff, setAssigningStaff] = useState<{ id: number; field: 'marketing_person' | 'finance_person' } | null>(null);
+
+  const updateStaffAssignment = useCallback(async (
+    pfiId: number,
+    field: 'marketing_person' | 'finance_person',
+    value: string,
+  ) => {
+    setAssigningStaff({ id: pfiId, field });
+    try {
+      await apiClient.admin.updatePfi(pfiId, { [field]: value ? Number(value) : null });
+      await queryClient.invalidateQueries({ queryKey: ['pfis'] });
+    } catch (e) {
+      toast({ title: 'Failed to update', description: (e as Error)?.message || 'Request failed', variant: 'destructive' });
+    } finally {
+      setAssigningStaff(null);
+    }
+  }, [queryClient, toast]);
 
   const selectedFinishPfi = useMemo(
     () => enriched.find(p => p.id === finishConfirm.pfiId),
@@ -683,6 +735,8 @@ export default function PFIPage() {
                         </TableHead>
                         <TableHead className="font-semibold text-slate-700">Action</TableHead>
                         <TableHead className="font-semibold text-slate-700">Allowed Locations</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Marketing</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Finance</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -779,6 +833,34 @@ export default function PFIPage() {
                                   <MapPin size={12} /> Edit
                                 </Button>
                               </div>
+                            </TableCell>
+                            <TableCell>
+                              <select
+                                aria-label="Marketing person"
+                                className="h-8 w-[150px] rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
+                                value={p.marketing_person ?? ''}
+                                disabled={assigningStaff?.id === p.id && assigningStaff.field === 'marketing_person'}
+                                onChange={e => updateStaffAssignment(p.id, 'marketing_person', e.target.value)}
+                              >
+                                <option value="">Unassigned</option>
+                                {marketingStaffOptions.map(u => (
+                                  <option key={u.id} value={u.id}>{u.label}</option>
+                                ))}
+                              </select>
+                            </TableCell>
+                            <TableCell>
+                              <select
+                                aria-label="Finance person"
+                                className="h-8 w-[150px] rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
+                                value={p.finance_person ?? ''}
+                                disabled={assigningStaff?.id === p.id && assigningStaff.field === 'finance_person'}
+                                onChange={e => updateStaffAssignment(p.id, 'finance_person', e.target.value)}
+                              >
+                                <option value="">Unassigned</option>
+                                {financeStaffOptions.map(u => (
+                                  <option key={u.id} value={u.id}>{u.label}</option>
+                                ))}
+                              </select>
                             </TableCell>
                           </TableRow>
                         );
@@ -913,6 +995,44 @@ export default function PFIPage() {
               {createErrors.fields?.starting_qty_litres?.length ? (
                 <p className="text-xs text-red-600">{createErrors.fields.starting_qty_litres.join(' ')}</p>
               ) : null}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="marketingPerson" className="text-sm font-medium text-slate-700">
+                  Marketing Person
+                </Label>
+                <select
+                  id="marketingPerson"
+                  aria-label="Marketing person"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={createForm.marketingPerson}
+                  onChange={e => setCreateForm(f => ({ ...f, marketingPerson: e.target.value }))}
+                >
+                  <option value="">Unassigned</option>
+                  {marketingStaffOptions.map(u => (
+                    <option key={u.id} value={u.id}>{u.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="financePerson" className="text-sm font-medium text-slate-700">
+                  Finance Person
+                </Label>
+                <select
+                  id="financePerson"
+                  aria-label="Finance person"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={createForm.financePerson}
+                  onChange={e => setCreateForm(f => ({ ...f, financePerson: e.target.value }))}
+                >
+                  <option value="">Unassigned</option>
+                  {financeStaffOptions.map(u => (
+                    <option key={u.id} value={u.id}>{u.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 

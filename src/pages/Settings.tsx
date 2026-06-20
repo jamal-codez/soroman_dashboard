@@ -49,6 +49,7 @@ import {
   Globe,
   Eye,
   EyeOff,
+  FileSearch2,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
@@ -68,6 +69,8 @@ type UserType = {
   location?: string;
   locations?: number[];       // scoped state IDs sent in PATCH
   location_names?: string[];  // resolved names returned by GET — use these for display
+  pfis?: number[];            // scoped PFI IDs sent in PATCH
+  pfi_numbers?: string[];     // resolved PFI numbers returned by GET — use these for display
   plain_password?: string | null;
 };
 
@@ -115,6 +118,7 @@ const Settings = () => {
     suspended: false,
     location: '',
     locations: [] as number[], // scoped state IDs
+    pfis: [] as number[], // scoped PFI IDs
   });
   const [errors, setErrors] = useState({
     full_name: '',
@@ -141,6 +145,17 @@ const Settings = () => {
   const statesList: { id: number; name: string }[] = Array.isArray(statesRaw)
     ? statesRaw
     : ((statesRaw as { results?: { id: number; name: string }[] })?.results ?? []);
+
+  // Fetch PFIs from API (for PFI scope assignment)
+  const { data: pfisRaw } = useQuery({
+    queryKey: ['pfis-settings'],
+    queryFn: () => apiClient.admin.getPfis({}),
+    staleTime: 5 * 60_000,
+  });
+  type PfiOption = { id: number; pfi_number: string; location_name?: string; product_name?: string };
+  const pfisList: PfiOption[] = Array.isArray(pfisRaw)
+    ? pfisRaw
+    : ((pfisRaw as { results?: PfiOption[] })?.results ?? []);
 
   const formatLastLogin = (value?: string | null) => {
     if (!value) return 'N/A';
@@ -211,6 +226,7 @@ const Settings = () => {
         suspended: user.suspended,
         location: user.location || '',
         locations: user.locations ?? [],
+        pfis: user.pfis ?? [],
       });
     } else {
       setEditingUser(null);
@@ -223,6 +239,7 @@ const Settings = () => {
         suspended: false,
         location: '',
         locations: [],
+        pfis: [],
       });
     }
     setIsDialogOpen(true);
@@ -240,6 +257,7 @@ const Settings = () => {
       suspended: false,
       location: '',
       locations: [],
+      pfis: [],
     });
     setErrors({
       full_name: '',
@@ -263,9 +281,9 @@ const Settings = () => {
           role: parseInt(formData.role),
           suspended: formData.suspended,
           location: formData.location.trim() || undefined,
-          // Only SUPERADMIN can change location scope; only send if not a SUPERADMIN target
+          // Only SUPERADMIN can change location/PFI scope; only send if not a SUPERADMIN target
           ...(isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
-            ? { locations: formData.locations }
+            ? { locations: formData.locations, pfis: formData.pfis }
             : {}),
         };
 
@@ -275,9 +293,12 @@ const Settings = () => {
 
         const response = await apiClient.admin.updateUser(editingUser.id, updatedUser);
 
-        // Resolve location_names from statesList for optimistic display
+        // Resolve location_names/pfi_numbers from statesList/pfisList for optimistic display
         const newLocationNames = isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
           ? formData.locations.map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[]
+          : undefined;
+        const newPfiNumbers = isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+          ? formData.pfis.map(id => pfisList.find(p => p.id === id)?.pfi_number).filter(Boolean) as string[]
           : undefined;
 
         setUsers(prev => prev.map(user =>
@@ -292,6 +313,8 @@ const Settings = () => {
                 location: formData.location.trim() || user.location,
                 locations: newLocationNames !== undefined ? formData.locations : user.locations,
                 location_names: newLocationNames !== undefined ? newLocationNames : user.location_names,
+                pfis: newPfiNumbers !== undefined ? formData.pfis : user.pfis,
+                pfi_numbers: newPfiNumbers !== undefined ? newPfiNumbers : user.pfi_numbers,
               }
             : user
         ));
@@ -316,7 +339,7 @@ const Settings = () => {
           role: parseInt(formData.role),
           location: formData.location.trim() || undefined,
           ...(isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
-            ? { locations: formData.locations }
+            ? { locations: formData.locations, pfis: formData.pfis }
             : {}),
         });
 
@@ -420,6 +443,8 @@ const Settings = () => {
           ...u,
           locations: u.locations ?? prevMap.get(u.id)?.locations ?? [],
           location_names: u.location_names ?? prevMap.get(u.id)?.location_names ?? [],
+          pfis: u.pfis ?? prevMap.get(u.id)?.pfis ?? [],
+          pfi_numbers: u.pfi_numbers ?? prevMap.get(u.id)?.pfi_numbers ?? [],
         }));
       });
     } catch {
@@ -517,6 +542,7 @@ const Settings = () => {
                     <TableHead className="min-w-[180px]">Name</TableHead>
                     <TableHead className="min-w-[180px]">Contact</TableHead>
                     <TableHead className="min-w-[220px]">Location</TableHead>
+                    <TableHead className="min-w-[160px]">PFI Scope</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="min-w-[160px]">Password</TableHead>
@@ -533,6 +559,9 @@ const Settings = () => {
                     const scopeNames: string[] = user.location_names?.length
                       ? user.location_names
                       : (user.locations ?? []).map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[];
+                    const scopePfiNumbers: string[] = user.pfi_numbers?.length
+                      ? user.pfi_numbers
+                      : (user.pfis ?? []).map(id => pfisList.find(p => p.id === id)?.pfi_number).filter(Boolean) as string[];
                     return (
                     <TableRow key={user.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                       <TableCell className="px-4 text-slate-400 text-center text-xs">{idx + 1}</TableCell>
@@ -555,6 +584,14 @@ const Settings = () => {
                           : scopeNames.length === 0
                             ? <span className="text-slate-400">Full Access</span>
                             : <span>{scopeNames.join(', ')}</span>
+                        }
+                      </TableCell>
+                      <TableCell className="px-4 text-sm text-slate-700">
+                        {isSuperAdminUser
+                          ? <span className="text-slate-400">—</span>
+                          : scopePfiNumbers.length === 0
+                            ? <span className="text-slate-400">Full Access</span>
+                            : <span>{scopePfiNumbers.join(', ')}</span>
                         }
                       </TableCell>
                       <TableCell className={`px-4 text-sm font-medium ${roleColorMap[user.role] || 'text-slate-700'}`}>
@@ -805,6 +842,72 @@ const Settings = () => {
                             className="w-3.5 h-3.5 accent-blue-600"
                           />
                           {state.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── PFI Scope (SUPERADMIN only, hidden for SUPERADMIN targets) ── */}
+              {isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN && (
+                <div className="space-y-1.5 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                  <Label className="text-sm font-semibold text-purple-800 flex items-center gap-1.5">
+                    <FileSearch2 size={13} /> PFI Scope
+                  </Label>
+                  <p className="text-xs text-purple-600">
+                    Select which PFIs this user can see data for.
+                    Leave all unchecked for <strong>Full Access</strong> (sees all PFIs, within their location scope above if any).
+                  </p>
+
+                  {/* Current scope chips */}
+                  <div className="flex flex-wrap gap-1 min-h-[24px]">
+                    {formData.pfis.length === 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                        <Globe size={10} /> Full Access
+                      </span>
+                    ) : (
+                      formData.pfis.map(id => {
+                        const pfi = pfisList.find(p => p.id === id);
+                        return pfi ? (
+                          <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">
+                            <FileSearch2 size={10} /> {pfi.pfi_number}
+                            <button
+                              type="button"
+                              onClick={() => setFormData(f => ({ ...f, pfis: f.pfis.filter(l => l !== id) }))}
+                              className="ml-0.5 hover:text-red-600"
+                            >×</button>
+                          </span>
+                        ) : null;
+                      })
+                    )}
+                  </div>
+
+                  {/* Checkboxes for each PFI */}
+                  <div className="grid grid-cols-2 gap-1.5 mt-2 max-h-40 overflow-y-auto pr-1">
+                    {pfisList.map(pfi => {
+                      const checked = formData.pfis.includes(pfi.id);
+                      return (
+                        <label key={pfi.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer border transition-colors ${
+                          checked ? 'bg-purple-100 border-purple-300 text-purple-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setFormData(f => ({
+                                ...f,
+                                pfis: checked
+                                  ? f.pfis.filter(l => l !== pfi.id)
+                                  : [...f.pfis, pfi.id],
+                              }));
+                            }}
+                            className="w-3.5 h-3.5 accent-purple-600"
+                          />
+                          <span className="truncate" title={`${pfi.pfi_number}${pfi.location_name ? ` — ${pfi.location_name}` : ''}${pfi.product_name ? ` (${pfi.product_name})` : ''}`}>
+                            {pfi.pfi_number}
+                            {pfi.location_name && <span className="text-slate-400"> — {pfi.location_name}</span>}
+                          </span>
                         </label>
                       );
                     })}

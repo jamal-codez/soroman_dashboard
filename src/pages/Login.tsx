@@ -95,6 +95,8 @@ const Login = () => {
         localStorage.setItem('fullname', response.user.full_name);
         localStorage.setItem('locations', JSON.stringify(response.user.locations ?? []));
         localStorage.setItem('location_names', JSON.stringify(response.user.location_names ?? []));
+        localStorage.setItem('pfis', JSON.stringify(response.user.pfis ?? []));
+        localStorage.setItem('pfi_numbers', JSON.stringify(response.user.pfi_numbers ?? []));
         setFullName(response.user.full_name);
 
         resetSessionExpiredGuard();

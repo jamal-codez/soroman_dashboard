@@ -135,6 +135,7 @@ export const apiClient = {
       suspended?: boolean;
       location?: string;
       locations?: number[];
+      pfis?: number[];
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/users/register/`, {
         method: 'POST',
@@ -1419,6 +1420,8 @@ export const apiClient = {
       product: number;
       starting_qty_litres: string;
       notes?: string;
+      marketing_person?: number | null;
+      finance_person?: number | null;
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/pfis/`, {
         method: 'POST',
@@ -1441,6 +1444,8 @@ export const apiClient = {
       allowed_locations?: number[];
       starting_qty_litres?: string;
       notes?: string;
+      marketing_person?: number | null;
+      finance_person?: number | null;
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/pfis/${id}/`, {
         method: 'PATCH',

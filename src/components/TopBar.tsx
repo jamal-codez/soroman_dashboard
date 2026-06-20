@@ -24,6 +24,8 @@ export const TopBar = React.memo(function TopBar() {
     localStorage.removeItem('label');
     localStorage.removeItem('locations');
     localStorage.removeItem('location_names');
+    localStorage.removeItem('pfis');
+    localStorage.removeItem('pfi_numbers');
     window.location.href = '/login';
   };
 

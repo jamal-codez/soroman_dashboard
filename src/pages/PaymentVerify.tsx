@@ -280,7 +280,7 @@ function VerifyConfirmModalBody({
     .trim();
   return (
     <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
-      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto p-0 border border-slate-300 shadow-xl">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto p-0 border border-slate-300 shadow-xl">
         <div className="border-b border-slate-800 bg-black px-6 pt-5 pb-4">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-lg text-white">Confirm Payment</DialogTitle>

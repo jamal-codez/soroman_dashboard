@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -10,7 +10,7 @@ import { CommaInput } from '@/components/ui/comma-input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Users, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus } from 'lucide-react';
+import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Users, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus, Wallet, AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -300,13 +300,35 @@ const getPaymentDate = (p: PaymentOrder): Date => {
   return new Date(raw);
 };
 
+/** Amount actually paid and outstanding balance for an order. Orders with no
+ * split payment records yet are treated as fully paid (legacy single-payment orders). */
+const getOrderPaymentTotals = (p: PaymentOrder): { paid: number; balance: number } => {
+  const salesValue = safeToNumber(p.total_price ?? p.amount);
+  const records = p.payment_records ?? [];
+  if (records.length === 0) return { paid: salesValue, balance: 0 };
+  const paid = records.reduce((sum, r) => sum + safeToNumber(r.amount), 0);
+  return { paid, balance: salesValue - paid };
+};
+
 export default function ConfirmedPayments() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'year'>('today');
+  const [filterType, setFilterType] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'year' | null>('today');
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [productFilter, setProductFilter] = useState<string | null>(null);
   const [pfiFilter, setPfiFilter] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
+
+  // Users scoped to specific location(s) and/or PFI(s) (set in Settings) don't need
+  // to manually filter by them — their data is already confined server-side.
+  const scopedLocationNames: string[] = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem('location_names') || '[]'); } catch { return []; }
+  }, []);
+  const isLocationScoped = scopedLocationNames.length > 0;
+
+  const scopedPfiNumbers: string[] = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem('pfi_numbers') || '[]'); } catch { return []; }
+  }, []);
+  const isPfiScoped = scopedPfiNumbers.length > 0;
 
   // Edit modal state
   const [editOrder, setEditOrder] = useState<PaymentOrder | null>(null);
@@ -637,7 +659,47 @@ export default function ConfirmedPayments() {
     return Array.from(new Set(pfis)).sort();
   }, [confirmedPayments]);
 
-  const hasActiveFilters = !!(locationFilter || productFilter || pfiFilter || filterType !== 'today' || dateRange.from);
+  // Each PFI belongs to exactly one location — derive that mapping from the
+  // loaded orders so picking a PFI can auto-fill the matching location.
+  const pfiToLocation = useMemo(() => {
+    const map = new Map<string, string>();
+    confirmedPayments.forEach((p) => {
+      const pfi = extractPfi(p);
+      const loc = extractLocation(p);
+      if (pfi && loc && !map.has(pfi)) map.set(pfi, loc);
+    });
+    return map;
+  }, [confirmedPayments]);
+
+  // Lock the location filter for users scoped to exactly one location — they
+  // don't need to pick it themselves, and their data is already confined to it.
+  useEffect(() => {
+    if (isLocationScoped && scopedLocationNames.length === 1 && !locationFilter) {
+      setLocationFilter(scopedLocationNames[0]);
+    }
+  }, [isLocationScoped, scopedLocationNames, locationFilter]);
+
+  // Same for PFI scope — independent of location scope.
+  useEffect(() => {
+    if (isPfiScoped && scopedPfiNumbers.length === 1 && !pfiFilter) {
+      setPfiFilter(scopedPfiNumbers[0]);
+    }
+  }, [isPfiScoped, scopedPfiNumbers, pfiFilter]);
+
+  const isLockedLocation = isLocationScoped && scopedLocationNames.length === 1 && locationFilter === scopedLocationNames[0];
+  const isLockedPfi = isPfiScoped && scopedPfiNumbers.length === 1 && pfiFilter === scopedPfiNumbers[0];
+  // Scoped to exactly one location/PFI: that's fixed, no need to pick it.
+  // Scoped to several: still let them pick among those.
+  const showLocationSelect = !isLocationScoped || scopedLocationNames.length > 1;
+  const showPfiSelect = !isPfiScoped || scopedPfiNumbers.length > 1;
+  const hasActiveFilters = !!(
+    searchQuery.trim() ||
+    (locationFilter && !isLockedLocation) ||
+    productFilter ||
+    (pfiFilter && !isLockedPfi) ||
+    filterType !== 'today' ||
+    dateRange.from
+  );
 
   const clearAllFilters = () => {
     setSearchQuery('');
@@ -662,21 +724,20 @@ export default function ConfirmedPayments() {
         return ref.includes(q) || company.includes(q) || customer.includes(q) || location.includes(q) || pfi.includes(q) || truck.includes(q);
       })
       .filter((p) => {
-        if (filterType === 'all') return true;
+        if (dateRange.from) {
+          // A single picked date (no "to" yet) filters to just that day.
+          const to = dateRange.to ?? dateRange.from;
+          const d = getPaymentDate(p);
+          return (isSameDay(d, dateRange.from) || isAfter(d, dateRange.from)) &&
+                 (isSameDay(d, to) || isBefore(d, addDays(to, 1)));
+        }
+        if (filterType === 'all' || !filterType) return true;
         const d = getPaymentDate(p);
         if (filterType === 'today') return isToday(d);
         if (filterType === 'yesterday') return isYesterday(d);
         if (filterType === 'week') return isThisWeek(d);
         if (filterType === 'month') return isThisMonth(d);
         if (filterType === 'year') return isThisYear(d);
-        return true;
-      })
-      .filter((p) => {
-        if (dateRange.from && dateRange.to) {
-          const d = getPaymentDate(p);
-          return (isSameDay(d, dateRange.from) || isAfter(d, dateRange.from)) &&
-                 (isSameDay(d, dateRange.to) || isBefore(d, addDays(dateRange.to, 1)));
-        }
         return true;
       })
       .filter((p) => {
@@ -699,37 +760,56 @@ export default function ConfirmedPayments() {
     const totalQty = filtered.reduce((sum, p) => sum + extractProductInfo(p).qty, 0);
     const avgOrderValue = totalOrders > 0 ? Math.round(totalAmount / totalOrders) : 0;
     const uniqueCustomers = new Set(filtered.map((p) => extractCustomerCompany(p) || extractCustomerName(p)).filter(Boolean)).size;
+    const totalPaid = filtered.reduce((sum, p) => sum + getOrderPaymentTotals(p).paid, 0);
+    const totalBalance = filtered.reduce((sum, p) => sum + getOrderPaymentTotals(p).balance, 0);
 
-    return { totalOrders, totalAmount, totalQty, avgOrderValue, uniqueCustomers };
+    return { totalOrders, totalAmount, totalQty, avgOrderValue, uniqueCustomers, totalPaid, totalBalance };
   }, [filtered]);
 
   const buildReportData = () => {
     const generatedAt = new Date().toLocaleString('en-GB');
 
-    const locationLabel = locationFilter ? locationFilter : 'All Locations';
+    const locationLabel = locationFilter ? locationFilter : (isLocationScoped ? scopedLocationNames.join(', ') : 'All Locations');
     const productLabel = productFilter ? productFilter : 'All Products';
+    const pfiLabel = pfiFilter ? pfiFilter : (isPfiScoped ? scopedPfiNumbers.join(', ') : 'All PFIs');
+    // Prefer a selected PFI, then a selected location, for the export file name.
+    const reportNamePrefix = (pfiFilter || locationFilter || '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .trim();
+    const periodLabel = dateRange.from
+      ? (dateRange.to && !isSameDay(dateRange.from, dateRange.to)
+          ? `${format(dateRange.from, 'dd MMM yyyy')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+          : format(dateRange.from, 'dd MMM yyyy'))
+      : filterType === 'all' ? 'All Time'
+      : filterType ? `${filterType.charAt(0).toUpperCase()}${filterType.slice(1)}`
+      : 'Custom Range';
 
     const totalQtyAll = filtered.reduce((sum, p) => sum + extractProductInfo(p).qty, 0);
     const ordersCountAll = filtered.length;
     const totalAmountAll = filtered.reduce((sum, p) => sum + safeToNumber(p.total_price ?? p.amount), 0);
     const exportUnitLabel = filtered.length > 0 ? extractProductInfo(filtered[0]).unitLabel : 'Litres';
 
-    const headingBlock: Array<[string, string]> = [
-      ['Date', generatedAt],
-      ['Location', locationLabel],
-      ['Product', productLabel],
-      ['Quantity Sold', `${totalQtyAll.toLocaleString()} ${exportUnitLabel}`],
-      ['Number of Orders', String(ordersCountAll)],
-      ['Total Amount', `N ${totalAmountAll.toLocaleString()}`],
-    ];
-
     const headers = [
-      'S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', `Quantity (${exportUnitLabel})`, 'Unit Price', 'Sales Value', 'Paying Company', 'Bank Account',
+      'S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', `Quantity (${exportUnitLabel})`, 'Product', 'Unit Price', 'Sales Value', 'Paying Company', 'Location',
       'Payment Date', 'Payment Amount', 'Balance', 'Payer', 'Payment Bank', 'Transaction Reference',
     ];
     // Sort oldest to newest for the exported file
     const exportSorted = [...filtered].sort((a, b) => getPaymentDate(a).getTime() - getPaymentDate(b).getTime());
     const rows: Array<Array<string>> = [];
+    const paymentCells = (r: { payment_date: string; amount: string; payer_name?: string | null; bank_name?: string | null; account_number?: string | null; transaction_reference?: string | null } | undefined, balance: number) => r
+      ? [
+          format(new Date(r.payment_date), 'dd/MM/yyyy'),
+          `N${safeToNumber(r.amount).toLocaleString()}`,
+          `N${balance.toLocaleString()}`,
+          r.payer_name || '',
+          r.bank_name ? `${r.bank_name}${r.account_number ? ` (${r.account_number})` : ''}` : '',
+          r.transaction_reference || '',
+        ]
+      : ['', '', '', '', '', ''];
+
+    let totalAmountPaidAll = 0;
+    let totalBalanceAll = 0;
+
     exportSorted.forEach((p, idx) => {
       const d = getPaymentDate(p);
       const date = Number.isNaN(d.getTime()) ? '' : format(d, 'dd/MM/yyyy HH:mm');
@@ -739,48 +819,81 @@ export default function ConfirmedPayments() {
       const { product, qty, unitPrice } = extractProductInfo(p);
       const salesValue = safeToNumber(p.total_price ?? p.amount);
       const company = extractCustomerCompany(p);
-      const { bankName: bank, acctNo: bankAcctNo } = extractBankInfo(p, bankAccounts);
-      // Order row — payment columns left blank
-      rows.push([
-        String(idx + 1), date, String(ref ?? ''), truckNo, customer,
-        `${qty.toLocaleString()} ${product}`, unitPrice ? `N${unitPrice.toLocaleString()}` : '',
-        `N${salesValue.toLocaleString()}`, company, bankAcctNo ? `${bank} (${bankAcctNo})` : bank,
-        '', '', '', '', '', '',
-      ]);
-      // Payment sub-rows — order columns left blank, one row per payment received
+      const location = extractLocation(p);
       const records = [...(p.payment_records ?? [])].sort(
         (a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime()
       );
-      let cumulative = 0;
-      records.forEach((r) => {
+      const [recordedFirstPayment, ...restPayments] = records;
+      const firstPayment = recordedFirstPayment ?? (() => {
+        const { bankName, acctNo } = extractBankInfo(p, bankAccounts);
+        return {
+          id: -1,
+          amount: String(salesValue),
+          payment_date: (Number.isNaN(d.getTime()) ? new Date() : d).toISOString(),
+          payer_name: company,
+          bank_name: bankName,
+          account_number: acctNo,
+          transaction_reference: '',
+        };
+      })();
+
+      let cumulative = firstPayment ? safeToNumber(firstPayment.amount) : 0;
+      // Order row — carries the first/only payment in the payment columns
+      rows.push([
+        String(idx + 1), date, String(ref ?? ''), truckNo, customer,
+        qty.toLocaleString(), product, unitPrice ? `N${unitPrice.toLocaleString()}` : '',
+        `N${salesValue.toLocaleString()}`, company, location,
+        ...paymentCells(firstPayment, salesValue - cumulative),
+      ]);
+      // Additional payments — order columns left blank, one row per extra payment received
+      restPayments.forEach((r) => {
         cumulative += safeToNumber(r.amount);
-        const rowBalance = salesValue - cumulative;
         rows.push([
-          '', '', '', '', '', '', '', '', '', '',
-          r.payment_date ? format(new Date(r.payment_date), 'dd/MM/yyyy') : '',
-          `N${safeToNumber(r.amount).toLocaleString()}`,
-          `N${rowBalance.toLocaleString()}`,
-          r.payer_name || '',
-          r.bank_name ? `${r.bank_name}${r.account_number ? ` (${r.account_number})` : ''}` : '',
-          r.transaction_reference || '',
+          '', '', '', '', '', '', '', '', '', '', '',
+          ...paymentCells(r, salesValue - cumulative),
         ]);
       });
+
+      totalAmountPaidAll += cumulative;
+      totalBalanceAll += salesValue - cumulative;
     });
 
-    return { generatedAt, headingBlock, headers, rows, totalQtyAll, ordersCountAll, totalAmountAll, exportUnitLabel };
+    const totalsRow = [
+      'TOTAL', '', '', '', '',
+      totalQtyAll.toLocaleString(), '', '', `N${totalAmountAll.toLocaleString()}`, '', '',
+      '', `N${totalAmountPaidAll.toLocaleString()}`, `N${totalBalanceAll.toLocaleString()}`, '', '', '',
+    ];
+
+    const headingBlock: Array<[string, string]> = [
+      ['Report Generated', generatedAt],
+      ['Period', periodLabel],
+      ['Location', locationLabel],
+      ['PFI', pfiLabel],
+      ['Product', productLabel],
+      ['Number of Orders', String(ordersCountAll)],
+      ['Total Quantity', `${totalQtyAll.toLocaleString()} ${exportUnitLabel}`],
+      ['Total Sales Value', `N${totalAmountAll.toLocaleString()}`],
+      ['Total Amount Paid', `N${totalAmountPaidAll.toLocaleString()}`],
+      ['Total Balance Outstanding', `N${totalBalanceAll.toLocaleString()}`],
+    ];
+
+    return { generatedAt, headingBlock, headers, rows, totalsRow, totalQtyAll, ordersCountAll, totalAmountAll, exportUnitLabel, reportNamePrefix };
   };
 
   const exportToXLS = () => {
-    const { headingBlock, headers, rows } = buildReportData();
-    const sheetData = [...headingBlock, [], headers, ...rows];
+    const { headingBlock, headers, rows, totalsRow, reportNamePrefix } = buildReportData();
+    const sheetData = [...headingBlock, [], headers, ...rows, totalsRow];
     const ws = XLSX.utils.aoa_to_sheet(sheetData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Report');
-    XLSX.writeFile(wb, `Payment Report ${format(new Date(), 'dd-MM-yy')}.xlsx`);
+    const fileName = reportNamePrefix
+      ? `${reportNamePrefix} PAYMENTS REPORT ${format(new Date(), 'dd-MM-yy')}.xlsx`
+      : `Payment Report ${format(new Date(), 'dd-MM-yy')}.xlsx`;
+    XLSX.writeFile(wb, fileName);
   };
 
   const exportToPDF = () => {
-    const { headingBlock, headers, rows } = buildReportData();
+    const { headingBlock, headers, rows, totalsRow, reportNamePrefix } = buildReportData();
     const doc = new jsPDF({ orientation: 'landscape' });
 
     doc.setFontSize(14);
@@ -798,11 +911,16 @@ export default function ConfirmedPayments() {
       startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6,
       head: [headers],
       body: rows,
+      foot: [totalsRow],
       styles: { fontSize: 8 },
       headStyles: { fillColor: [30, 41, 59] },
+      footStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold' },
     });
 
-    doc.save(`Payment Report ${format(new Date(), 'dd-MM-yy')}.pdf`);
+    const fileName = reportNamePrefix
+      ? `${reportNamePrefix} PAYMENTS REPORT ${format(new Date(), 'dd-MM-yy')}.pdf`
+      : `PAYMENTS REPORT ${format(new Date(), 'dd-MM-yy')}.pdf`;
+    doc.save(fileName);
   };
 
   return (
@@ -835,7 +953,7 @@ export default function ConfirmedPayments() {
             <SummaryCards
               cards={[
                 {
-                  title: 'Total Trucks',
+                  title: 'Total Orders',
                   value: isLoading ? '\u2026' : summary.totalOrders.toLocaleString(),
                   icon: <Truck className="h-4 w-4" />,
                   tone: 'neutral',
@@ -853,57 +971,87 @@ export default function ConfirmedPayments() {
                   icon: <Banknote className="h-4 w-4" />,
                   tone: 'green',
                 },
+                {
+                  title: 'Total Amount Paid',
+                  value: isLoading ? '\u2026' : `\u20A6${summary.totalPaid.toLocaleString()}`,
+                  className: "text-blue-700",
+                  icon: <Wallet className="h-4 w-4" />,
+                  tone: 'blue',
+                },
+                {
+                  title: 'Balance Outstanding',
+                  value: isLoading ? '\u2026' : `\u20A6${summary.totalBalance.toLocaleString()}`,
+                  className: summary.totalBalance > 0 ? "text-red-600" : "text-slate-500",
+                  icon: <AlertTriangle className="h-4 w-4" />,
+                  tone: summary.totalBalance > 0 ? 'red' : 'neutral',
+                },
+                {
+                  title: 'Unique Customers',
+                  value: isLoading ? '\u2026' : summary.uniqueCustomers.toLocaleString(),
+                  icon: <Users className="h-4 w-4" />,
+                  tone: 'neutral',
+                },
               ]}
             />
 
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
-              {/* Row 1: Search + Timeframe + Date Range + Clear */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_180px_220px_auto] gap-3 items-end">
-                <div>
-                  <label className="text-xs font-medium text-slate-500 mb-1 block">Search</label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <Input
-                      placeholder="Reference, customer, company, truck…"
-                      className="pl-10 h-9"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              {/* Search — full width */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Search</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input
+                    placeholder="Search by reference, customer, company, truck…"
+                    className="pl-10 h-10 text-sm w-full"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Period + Date Range — same row, 2 columns */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-100 items-end">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Period</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(['today', 'yesterday', 'week', 'month', 'year', 'all'] as const).map((tf) => (
+                      <Button
+                        key={tf}
+                        type="button"
+                        size="sm"
+                        variant={filterType === tf ? 'default' : 'outline'}
+                        className="h-9 text-xs capitalize"
+                        onClick={() => {
+                          setFilterType(tf);
+                          setDateRange({ from: null, to: null });
+                        }}
+                      >
+                        {tf === 'all' ? 'All Time' : tf}
+                      </Button>
+                    ))}
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-xs font-medium text-slate-500 mb-1 block">Timeframe</label>
-                  <select
-                    aria-label="Filter by timeframe"
-                    className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    value={filterType ?? ''}
-                    onChange={(e) => {
-                      setFilterType(e.target.value as typeof filterType);
-                      setDateRange({ from: null, to: null });
-                    }}
-                  >
-                    {(['today', 'yesterday', 'week', 'month', 'year', 'all'] as const).map((tf) => (
-                      <option key={tf} value={tf}>{tf === 'all' ? 'All Time' : tf.charAt(0).toUpperCase() + tf.slice(1)}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-slate-500 mb-1 block">Date Range</label>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Custom Date / Range</label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full h-9 justify-start text-left font-normal text-sm">
+                      <Button
+                        variant="outline"
+                        className={`w-full h-10 justify-start text-left font-normal text-sm ${dateRange.from ? 'border-blue-300 text-blue-700' : ''}`}
+                      >
                         <CalendarDays className="mr-2 h-4 w-4 text-slate-400" />
-                        {dateRange.from && dateRange.to
-                          ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
-                          : 'Pick date range'}
+                        {dateRange.from
+                          ? (dateRange.to && !isSameDay(dateRange.from, dateRange.to)
+                              ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+                              : format(dateRange.from, 'dd MMM yyyy'))
+                          : 'Pick a date or range'}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
                       <Calendar
                         mode="range"
-                        selected={dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined}
+                        selected={{ from: dateRange.from ?? undefined, to: dateRange.to ?? undefined }}
                         onSelect={(range) => {
                           setDateRange({ from: range?.from ?? null, to: range?.to ?? null });
                           if (range?.from) setFilterType(null);
@@ -913,42 +1061,34 @@ export default function ConfirmedPayments() {
                     </PopoverContent>
                   </Popover>
                 </div>
-
-                {hasActiveFilters && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-9 gap-1 text-slate-500 hover:text-red-600"
-                    onClick={clearAllFilters}
-                  >
-                    <X size={14} />
-                    Clear
-                  </Button>
-                )}
               </div>
 
-              {/* Row 2: Location, Product, PFI */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-slate-500 mb-1 block">Location</label>
-                  <select
-                    aria-label="Filter by location"
-                    className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    value={locationFilter ?? ''}
-                    onChange={(e) => setLocationFilter(e.target.value || null)}
-                  >
-                    <option value="">All Locations</option>
-                    {uniqueLocations.map((loc) => (
-                      <option key={loc} value={loc}>{loc}</option>
-                    ))}
-                  </select>
-                </div>
+              {/* Location, Product, PFI — same row */}
+              <div className={`grid grid-cols-1 gap-4 pt-3 border-t border-slate-100 ${
+                showLocationSelect && showPfiSelect ? 'sm:grid-cols-3' : showLocationSelect || showPfiSelect ? 'sm:grid-cols-2' : 'sm:grid-cols-1'
+              }`}>
+                {showLocationSelect && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Location</label>
+                    <select
+                      aria-label="Filter by location"
+                      className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                      value={locationFilter ?? ''}
+                      onChange={(e) => setLocationFilter(e.target.value || null)}
+                    >
+                      <option value="">All Locations</option>
+                      {uniqueLocations.map((loc) => (
+                        <option key={loc} value={loc}>{loc}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-                <div>
-                  <label className="text-xs font-medium text-slate-500 mb-1 block">Product</label>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Product</label>
                   <select
                     aria-label="Filter by product"
-                    className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
                     value={productFilter ?? ''}
                     onChange={(e) => setProductFilter(e.target.value || null)}
                   >
@@ -959,21 +1099,53 @@ export default function ConfirmedPayments() {
                   </select>
                 </div>
 
-                <div>
-                  <label className="text-xs font-medium text-slate-500 mb-1 block">PFI</label>
-                  <select
-                    aria-label="Filter by PFI"
-                    className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    value={pfiFilter ?? ''}
-                    onChange={(e) => setPfiFilter(e.target.value || null)}
-                  >
-                    <option value="">All PFIs</option>
-                    {uniquePfis.map((pfi) => (
-                      <option key={pfi} value={pfi}>{pfi}</option>
-                    ))}
-                  </select>
-                </div>
+                {showPfiSelect && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">PFI</label>
+                    <select
+                      aria-label="Filter by PFI"
+                      className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                      value={pfiFilter ?? ''}
+                      onChange={(e) => {
+                        const value = e.target.value || null;
+                        setPfiFilter(value);
+                        const matchedLocation = value ? pfiToLocation.get(value) : undefined;
+                        if (matchedLocation) setLocationFilter(matchedLocation);
+                      }}
+                    >
+                      <option value="">All PFIs</option>
+                      {uniquePfis.map((pfi) => (
+                        <option key={pfi} value={pfi}>{pfi}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
+
+              {/* Clear / scope note — separated bottom row */}
+              {(hasActiveFilters || isLocationScoped || isPfiScoped) && (
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                  <p className="text-xs text-slate-500 space-x-3">
+                    {isLocationScoped && (
+                      <span>Scoped location{scopedLocationNames.length > 1 ? 's' : ''}: <span className="font-medium text-slate-700">{scopedLocationNames.join(', ')}</span></span>
+                    )}
+                    {isPfiScoped && (
+                      <span>Scoped PFI{scopedPfiNumbers.length > 1 ? 's' : ''}: <span className="font-medium text-slate-700">{scopedPfiNumbers.join(', ')}</span></span>
+                    )}
+                  </p>
+                  {hasActiveFilters && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-9 gap-1.5 text-slate-500 hover:text-red-600"
+                      onClick={clearAllFilters}
+                    >
+                      <X size={14} />
+                      Clear filters
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
@@ -981,31 +1153,36 @@ export default function ConfirmedPayments() {
                 <TableHeader>
                   <TableRow className="bg-slate-50">
                     <TableHead className="w-[50px]">S/N</TableHead>
-                    <TableHead className="min-w-[90px]">Date</TableHead>
-                    <TableHead className="min-w-[110px]">Reference</TableHead>
-                    <TableHead className="min-w-[100px]">Truck Number</TableHead>
-                    <TableHead className="min-w-[140px]">Facilitator</TableHead>
-                    <TableHead className="min-w-[120px]">Quantity</TableHead>
-                    <TableHead className="min-w-[90px] text-right">Unit Price</TableHead>
-                    <TableHead className="min-w-[120px] text-right">Sales Value</TableHead>
-                    <TableHead className="min-w-[140px]">Paying Company</TableHead>
+                    <TableHead className="min-w-[90px]">Date & Time</TableHead>
+                    <TableHead className="min-w-[110px]">Order Reference</TableHead>
                     <TableHead className="min-w-[110px]">Location</TableHead>
-                    <TableHead className="min-w-[100px]">Bank</TableHead>
-                    <TableHead className="w-[160px]">Actions</TableHead>
+                    {/* <TableHead className="min-w-[100px]">Truck Number</TableHead> */}
+                    <TableHead className="min-w-[140px]">Facilitator</TableHead>
+                    <TableHead className="min-w-[140px]">Company Name</TableHead>
+                    <TableHead className="min-w-[120px]">Quantity</TableHead>
+                    <TableHead className="min-w-[120px]">Unit Price</TableHead>
+                    <TableHead className="min-w-[120px] text-right">Sales Value</TableHead>
+                    <TableHead className="min-w-[110px] text-right whitespace-nowrap">Amount Paid</TableHead>
+                    <TableHead className="min-w-[110px] text-right">Balance</TableHead>
+                    <TableHead className="min-w-[120px]">Depositor</TableHead>
+                    <TableHead className="min-w-[140px] whitespace-nowrap">Payment Bank</TableHead>
+                    <TableHead className="min-w-[120px]">Reference</TableHead>
+                    <TableHead className="min-w-[90px] whitespace-nowrap">Payment Date</TableHead>
+                    <TableHead className="w-[30px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     [...Array(6)].map((_, idx) => (
                       <TableRow key={idx}>
-                        {[...Array(12)].map((_, ci) => (
+                        {[...Array(17)].map((_, ci) => (
                           <TableCell key={ci}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center h-24 text-slate-500">
+                      <TableCell colSpan={17} className="text-center h-24 text-slate-500">
                         No confirmed payments found
                       </TableCell>
                     </TableRow>
@@ -1021,101 +1198,109 @@ export default function ConfirmedPayments() {
                       const salesValue = safeToNumber(p.total_price ?? p.amount);
                       const company = extractCustomerCompany(p);
                       const location = extractLocation(p);
-                      const { bankName: bank, acctNo: bankAcctNo } = extractBankInfo(p, bankAccounts);
-                      const records = p.payment_records ?? [];
+                      const records = [...(p.payment_records ?? [])].sort(
+                        (a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime()
+                      );
+                      const [recordedFirstPayment, ...restPayments] = records;
+                      const firstPayment = recordedFirstPayment ?? (() => {
+                        const { bankName, acctNo } = extractBankInfo(p, bankAccounts);
+                        return {
+                          id: -1,
+                          amount: String(salesValue),
+                          payment_date: (Number.isNaN(d.getTime()) ? new Date() : d).toISOString(),
+                          payer_name: company,
+                          bank_name: bankName,
+                          account_number: acctNo,
+                          transaction_reference: '',
+                        };
+                      })();
+
+                      let cumulative = firstPayment ? safeToNumber(firstPayment.amount) : 0;
+                      const firstBalance = salesValue - cumulative;
+
+                      const renderPaymentCells = (r: typeof firstPayment, balance: number) => (
+                        <>
+                          <TableCell className="text-right text-sm font-bold text-emerald-800">
+                            {r ? `${'\u20A6'}${safeToNumber(r.amount).toLocaleString()}` : '\u2014'}
+                          </TableCell>
+                          <TableCell className={`text-right text-sm font-bold ${r ? (balance > 0 ? 'text-red-700' : 'text-slate-500') : 'text-slate-300'}`}>
+                            {r ? `${'\u20A6'}${balance.toLocaleString()}` : '\u2014'}
+                          </TableCell>
+                          <TableCell className="text-sm uppercase text-slate-700">{r?.payer_name || '\u2014'}</TableCell>
+                          <TableCell className="text-sm uppercase text-slate-700">
+                            {r ? `${r.bank_name || '\u2014'}${r.account_number ? ` (${r.account_number})` : ''}` : '\u2014'}
+                          </TableCell>
+                          <TableCell className="text-xs font-mono text-slate-600">{r?.transaction_reference || '\u2014'}</TableCell>
+                          <TableCell className="text-sm text-slate-700 whitespace-nowrap">
+                            {r?.payment_date ? format(new Date(r.payment_date), 'dd/MM/yy') : '\u2014'}
+                          </TableCell>
+                        </>
+                      );
+
                       return (
                         <Fragment key={p.id}>
-                        <TableRow className="hover:bg-slate-50/60">
+                        <TableRow
+                          className="hover:bg-slate-50/60 cursor-pointer"
+                          onClick={() => openEditModal(p)}
+                        >
                           <TableCell className="text-slate-500">{filtered.length - idx}</TableCell>
                           <TableCell>
                             <div className="text-sm">{dateStr}</div>
                             <div className="text-xs text-slate-400">{timeStr}</div>
                           </TableCell>
-                          <TableCell className="text-slate-950 font-semibold">{ref}</TableCell>
-                          <TableCell className="text-sm">{truckNo || '\u2014'}</TableCell>
+                          <TableCell className="text-slate-950 font-mono font-semibold">{ref}</TableCell>
+                          {/* <TableCell className="text-sm">{truckNo || '\u2014'}</TableCell> */}
+                          <TableCell className="text-sm" title={location || undefined}>
+                            {location || '\u2014'}
+                          </TableCell>
                           <TableCell className="uppercase font-semibold max-w-[140px]" title={customerName || undefined}>
                             {customerName || '\u2014'}
+                          </TableCell>
+                          <TableCell className="text-sm uppercase font-semibold" title={company || undefined}>
+                            {company || '\u2014'}
                           </TableCell>
                           <TableCell className="">
                             <div className="font-semibold">{qty ? `${qty.toLocaleString()} ${unitLabel}` : '\u2014'}</div>
                             {product && <div className="text-xs text-slate-400">{product}</div>}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="">
                             {unitPrice ? `\u20A6${unitPrice.toLocaleString()}` : '\u2014'}
                           </TableCell>
-                          <TableCell className="text-right font-bold text-green-800">
+                          <TableCell className="text-right font-bold text-blue-800">
                             {'\u20A6'}{salesValue.toLocaleString()}
                           </TableCell>
-                          <TableCell className="text-sm uppercase font-semibold" title={company || undefined}>
-                            {company || '\u2014'}
-                          </TableCell>
-                          <TableCell className="text-sm" title={location || undefined}>
-                            {location || '\u2014'}
-                          </TableCell>
-                          <TableCell className="max-w-[140px]">
-                            {bankAcctNo && <div className="text-sm font-semibold text-slate-700">{bankAcctNo}</div>}
-                            <div className="font-normal text-xs" title={bank || undefined}>{bank || '\u2014'}</div>
-                          </TableCell>
+                          
+                          {renderPaymentCells(firstPayment, firstBalance)}
                           <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Button className="h-8 gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white" size="sm" onClick={() => openEditModal(p)}>
-                                <Pencil size={12} />
-                                Edit
-                              </Button>
-                              <Button className="h-8 gap-1.5 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white" size="sm" onClick={() => setOrderToDelete(p)}>
-                                <Trash2 size={12} />
-                                Delete
-                              </Button>
-                            </div>
+                            <button
+                              type="button"
+                              title="Delete order"
+                              onClick={(e) => { e.stopPropagation(); setOrderToDelete(p); }}
+                              className="inline-flex items-center justify-center h-8 w-8 rounded-md text-red-600 hover:bg-red-50"
+                            >
+                              <Trash2 size={15} />
+                            </button>
                           </TableCell>
                         </TableRow>
-                        {records.length > 0 && (
-                          <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
-                            <TableCell colSpan={12} className="py-2 px-4">
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="text-[10px] uppercase tracking-wider text-slate-400">
-                                    <th className="text-left font-semibold pb-1 pl-4">Date</th>
-                                    <th className="text-right font-semibold pb-1">Amount</th>
-                                    <th className="text-right font-semibold pb-1">Balance</th>
-                                    <th className="text-left font-semibold pb-1">Payer</th>
-                                    <th className="text-left font-semibold pb-1">Bank</th>
-                                    <th className="text-left font-semibold pb-1">Reference</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {(() => {
-                                    let cumulative = 0;
-                                    return [...records]
-                                      .sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime())
-                                      .map((r) => {
-                                        cumulative += safeToNumber(r.amount);
-                                        const rowBalance = salesValue - cumulative;
-                                        return (
-                                          <tr key={r.id} className="border-t border-slate-200/70">
-                                            <td className="py-1 pl-4 text-slate-600 whitespace-nowrap">
-                                              {r.payment_date ? format(new Date(r.payment_date), 'dd/MM/yy') : '—'}
-                                            </td>
-                                            <td className="py-1 text-right font-semibold text-emerald-700">
-                                              {'₦'}{safeToNumber(r.amount).toLocaleString()}
-                                            </td>
-                                            <td className={`py-1 text-right font-semibold ${rowBalance > 0 ? 'text-red-600' : 'text-slate-500'}`}>
-                                              {'₦'}{rowBalance.toLocaleString()}
-                                            </td>
-                                            <td className="py-1 text-slate-700">{r.payer_name || '—'}</td>
-                                            <td className="py-1 text-slate-700">
-                                              {r.bank_name || '—'}{r.account_number ? ` (${r.account_number})` : ''}
-                                            </td>
-                                            <td className="py-1 font-mono text-slate-500">{r.transaction_reference || '—'}</td>
-                                          </tr>
-                                        );
-                                      });
-                                  })()}
-                                </tbody>
-                              </table>
-                            </TableCell>
-                          </TableRow>
-                        )}
+                        {restPayments.map((r) => {
+                          cumulative += safeToNumber(r.amount);
+                          const rowBalance = salesValue - cumulative;
+                          return (
+                            <TableRow key={r.id} className="bg-emerald-50/30 hover:bg-emerald-50/50">
+                              <TableCell />
+                              <TableCell />
+                              <TableCell />
+                              <TableCell />
+                              <TableCell />
+                              <TableCell />
+                              <TableCell />
+                              <TableCell />
+                              <TableCell />
+                              {renderPaymentCells(r, rowBalance)}
+                              <TableCell />
+                            </TableRow>
+                          );
+                        })}
                         </Fragment>
                       );
                     })
@@ -1126,7 +1311,7 @@ export default function ConfirmedPayments() {
 
             {/* Edit Payment Details Dialog */}
             <Dialog open={!!editOrder} onOpenChange={(v) => { if (!v) setEditOrder(null); }}>
-              <DialogContent className="w-[92vw] sm:w-full sm:max-w-[440px] max-h-[90vh] border border-slate-300 shadow-xl p-0 flex flex-col gap-0">
+              <DialogContent className="w-[95vw] sm:w-full sm:max-w-[700px] lg:max-w-[1050px] max-h-[90vh] border border-slate-300 shadow-xl p-0 flex flex-col gap-0">
                 <div className="border-b border-slate-800 bg-black px-4 sm:px-6 py-3 sm:py-4 shrink-0">
                   <DialogHeader className="space-y-1">
                     <DialogTitle className="text-white text-base">Edit Order</DialogTitle>
@@ -1143,16 +1328,17 @@ export default function ConfirmedPayments() {
                   </DialogHeader>
                 </div>
 
-                <div className="space-y-3.5 bg-white px-4 sm:px-6 py-4 sm:py-5 flex-1 overflow-y-auto min-h-0">
+                <div className="bg-white px-4 sm:px-6 py-4 sm:py-5 flex-1 overflow-y-auto min-h-0 flex flex-col gap-5 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+                <div className="space-y-3.5">
                   {editOrder && (
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
                       <div>
                         <div className="text-slate-400 uppercase tracking-wider text-[10px]">Customer</div>
-                        <div className="font-semibold text-slate-800 truncate">{extractCustomerName(editOrder) || '—'}</div>
+                        <div className="font-bold uppercase text-slate-800 truncate">{extractCustomerName(editOrder) || '—'}</div>
                       </div>
                       <div>
                         <div className="text-slate-400 uppercase tracking-wider text-[10px]">Company</div>
-                        <div className="font-semibold text-slate-800 truncate">{extractCustomerCompany(editOrder) || '—'}</div>
+                        <div className="font-bold uppercase text-slate-800 truncate">{extractCustomerCompany(editOrder) || '—'}</div>
                       </div>
                     </div>
                   )}
@@ -1205,7 +1391,7 @@ export default function ConfirmedPayments() {
 
                   <div>
                     <label className="mb-1.5 block text-sm font-semibold text-slate-800">
-                      Sales Value (₦) <span className="text-[10px] font-normal text-emerald-600 normal-case">(auto-calculated)</span>
+                      Sales Value (₦)
                     </label>
                     <CommaInput
                       value={editTotalPrice}
@@ -1251,41 +1437,40 @@ export default function ConfirmedPayments() {
                       );
                     })()}
                   </div>
+                </div>
 
-                  <div className="h-px bg-slate-200" />
-
+                <div className="space-y-2.5">
                   {/* Payments — existing entries + add new split-payment lines, same UX as Confirm Payment */}
-                  <div className="space-y-2.5">
-                    <label className="text-sm font-semibold text-slate-800">Payments</label>
+                  <label className="text-sm font-semibold text-slate-800">Payments Recorded</label>
 
                     {existingPaymentRecords.length > 0 && (
                       <div className="rounded-md border border-slate-200 overflow-hidden">
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
-                              <th className="text-left font-semibold py-1.5 pl-2.5">Date</th>
-                              <th className="text-right font-semibold py-1.5">Amount</th>
-                              <th className="text-left font-semibold py-1.5 pl-2">Payer</th>
-                              <th className="text-left font-semibold py-1.5 pl-2">Bank</th>
-                              <th className="text-left font-semibold py-1.5 pl-2">Reference</th>
+                            <tr className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-400">
+                              <th className="text-left font-semibold py-2.5 pl-2.5">Date</th>
+                              <th className="text-left font-semibold py-2.5">Amount</th>
+                              <th className="text-left font-semibold py-2.5 pl-2">Payer</th>
+                              <th className="text-left font-semibold py-2.5 pl-2">Bank</th>
+                              <th className="text-left font-semibold py-2.5 pl-2">Reference</th>
                               <th className="w-[28px]"><span className="sr-only">Remove</span></th>
                             </tr>
                           </thead>
                           <tbody>
                             {existingPaymentRecords.map((r) => (
                               <tr key={r.id} className="border-t border-slate-100">
-                                <td className="py-1.5 pl-2.5 text-slate-600 whitespace-nowrap">
+                                <td className="py-2.5 pl-2.5 text-sm text-slate-600 whitespace-nowrap">
                                   {r.payment_date ? format(new Date(r.payment_date), 'dd/MM/yy') : '—'}
                                 </td>
-                                <td className="py-1.5 text-right font-semibold text-emerald-700">
+                                <td className="py-2.5 text-sm font-semibold text-emerald-700">
                                   ₦{safeToNumber(r.amount).toLocaleString()}
                                 </td>
-                                <td className="py-1.5 pl-2 text-slate-700">{r.payer_name || '—'}</td>
-                                <td className="py-1.5 pl-2 text-slate-700">
+                                <td className="py-2.5 pl-2 text-sm uppercase font-bold text-slate-700">{r.payer_name || '—'}</td>
+                                <td className="py-2.5 pl-2 text-sm text-slate-700">
                                   {r.bank_name || '—'}{r.account_number ? ` (${r.account_number})` : ''}
                                 </td>
-                                <td className="py-1.5 pl-2 font-mono text-slate-500">{r.transaction_reference || '—'}</td>
-                                <td className="py-1.5 pr-2">
+                                <td className="py-2.5 pl-2 font-mono text-slate-500">{r.transaction_reference || '—'}</td>
+                                <td className="py-2.5 pr-2">
                                   <button
                                     type="button"
                                     title="Remove entry"
@@ -1305,6 +1490,8 @@ export default function ConfirmedPayments() {
                       </div>
                     )}
 
+                    <div className="h-px bg-slate-200" />
+
                     {newPaymentLines.map((line, idx) => (
                       <div key={idx} className="rounded-lg border border-slate-300 bg-slate-50 p-3 space-y-2.5">
                         {newPaymentLines.length > 1 && (
@@ -1315,9 +1502,9 @@ export default function ConfirmedPayments() {
                             </button>
                           </div>
                         )}
-                        <div className="grid grid-cols-3 gap-2.5">
+                        <div className="grid grid-cols-2 gap-2.5">
                           <div>
-                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Amount (₦)</label>
+                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Amount (₦)</label>
                             <CommaInput
                               value={line.amount}
                               onValueChange={(v) => updateNewPaymentLine(idx, { amount: v })}
@@ -1326,7 +1513,16 @@ export default function ConfirmedPayments() {
                             />
                           </div>
                           <div>
-                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Date</label>
+                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Depositor</label>
+                            <Input
+                              value={line.payerName}
+                              onChange={(e) => updateNewPaymentLine(idx, { payerName: e.target.value })}
+                              placeholder="e.g. John Doe"
+                              className="h-9 text-sm bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Date</label>
                             <Input
                               type="date"
                               value={line.paymentDate}
@@ -1335,18 +1531,18 @@ export default function ConfirmedPayments() {
                             />
                           </div>
                           <div>
-                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Payer's Name</label>
+                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Transaction Reference</label>
                             <Input
-                              value={line.payerName}
-                              onChange={(e) => updateNewPaymentLine(idx, { payerName: e.target.value })}
-                              placeholder="Who sent the money"
-                              className="h-9 text-sm bg-white"
+                              value={line.transactionReference}
+                              onChange={(e) => updateNewPaymentLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
+                              // placeholder="Alphanumeric, unique"
+                              className="h-9 text-xs font-mono bg-white"
                             />
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-2.5">
+                        <div className="">
                           <div>
-                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Bank Account</label>
+                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Bank Account</label>
                             <select
                               aria-label="Bank account"
                               className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -1359,15 +1555,15 @@ export default function ConfirmedPayments() {
                               ))}
                             </select>
                           </div>
-                          <div>
-                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Transaction Reference</label>
+                          {/* <div>
+                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Transaction Reference</label>
                             <Input
                               value={line.transactionReference}
                               onChange={(e) => updateNewPaymentLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
-                              placeholder="Alphanumeric, unique"
-                              className="h-9 text-sm font-mono bg-white"
+                              // placeholder="Alphanumeric, unique"
+                              className="h-9 text-xs font-mono bg-white"
                             />
-                          </div>
+                          </div> */}
                         </div>
                       </div>
                     ))}
@@ -1376,7 +1572,7 @@ export default function ConfirmedPayments() {
                       type="button"
                       variant="outline"
                       onClick={addNewPaymentLine}
-                      className="w-full h-10 gap-2 border-2 border-dashed border-blue-300 text-blue-700 hover:bg-blue-50 hover:border-blue-400 hover:text-blue-800"
+                      className="w-full h-10 gap-2 border-2 border-dashed border-blue-300 font-semibold text-xs uppercase text-blue-700 hover:bg-blue-50 hover:border-blue-400 hover:text-blue-800"
                     >
                       <Plus size={16} />
                       Add Another Payment
@@ -1392,16 +1588,17 @@ export default function ConfirmedPayments() {
                         <div className={`flex items-center justify-between rounded-lg border px-3.5 py-2.5 ${
                           bal === 0 ? 'border-emerald-300 bg-emerald-100' : bal > 0 ? 'border-amber-300 bg-amber-100' : 'border-blue-300 bg-blue-100'
                         }`}>
-                          <span className="text-xs font-semibold text-slate-700">
+                          <span className="text-sm font-semibold text-slate-700">
                             ₦{totalPaid.toLocaleString()} <span className="text-slate-400">of</span> ₦{salesValue.toLocaleString()}
                           </span>
-                          <span className={`text-xs font-bold ${bal === 0 ? 'text-emerald-800' : bal > 0 ? 'text-amber-800' : 'text-blue-800'}`}>
-                            {bal === 0 ? 'Fully Matched ✓' : bal > 0 ? `₦${bal.toLocaleString()} remaining` : `₦${Math.abs(bal).toLocaleString()} overpaid`}
+                          <span className={`text-sm font-bold ${bal === 0 ? 'text-emerald-800' : bal > 0 ? 'text-amber-800' : 'text-blue-800'}`}>
+                            {bal === 0 ? 'Complete' : bal > 0 ? `₦${bal.toLocaleString()} remaining` : `₦${Math.abs(bal).toLocaleString()} overpaid`}
                           </span>
                         </div>
                       );
                     })()}
                   </div>
+                </div>
 
                   {/* Driver Name/Phone, Amount Paid, Status, Remarks, Payment Proof Files — commented out per request
                   <div className="grid grid-cols-2 gap-3">
@@ -1521,7 +1718,6 @@ export default function ConfirmedPayments() {
                     )}
                   </div>
                   */}
-                </div>
 
                 <div className="flex items-center justify-end gap-3 border-t border-slate-300 bg-slate-100 px-4 sm:px-6 py-3 sm:py-4 shrink-0">
                   <Button variant="outline" size="sm" onClick={() => setEditOrder(null)}>Cancel</Button>
