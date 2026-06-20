@@ -1439,8 +1439,11 @@ export const apiClient = {
       return response.json();
     },
 
-    /** PATCH /api/admin/pfis/<id>/ — update allowed_locations (and optionally other fields) */
+    /** PATCH /api/admin/pfis/<id>/ — update any editable PFI field */
     updatePfi: async (id: number | string, data: {
+      pfi_number?: string;
+      location?: number;
+      product?: number;
       allowed_locations?: number[];
       starting_qty_litres?: string;
       notes?: string;

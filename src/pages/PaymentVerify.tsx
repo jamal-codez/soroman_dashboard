@@ -1108,22 +1108,23 @@ export default function PaymentVerification() {
   };
 
   const summaryCards = useMemo((): SummaryCard[] => {
-    const pendingList = allPayments.filter(p => isConfirmableStatus(p.status));
-    const totalQty = pendingList.reduce((s, p) => {
+    // Reflects the active filters (search/period/location/product/date range) —
+    // not the full unfiltered queue — so the cards match what's actually on screen.
+    const totalQty = filteredPayments.reduce((s, p) => {
       const { qty } = extractProductInfo(p);
       const n = parseFloat(qty.replace(/,/g, '') || '0');
       return s + (Number.isFinite(n) ? n : 0);
     }, 0);
-    const totalAmt = pendingList.reduce((s, p) => {
+    const totalAmt = filteredPayments.reduce((s, p) => {
       const n = parseFloat(String(p.amount || '0').replace(/,/g, ''));
       return s + (Number.isFinite(n) ? n : 0);
     }, 0);
     return [
-      { title: 'Pending Payments', value: String(pendingList.length), icon: <Clock size={20} />, tone: pendingList.length > 0 ? 'amber' : 'neutral' },
+      { title: 'Pending Payments', value: String(filteredPayments.length), icon: <Clock size={20} />, tone: filteredPayments.length > 0 ? 'amber' : 'neutral' },
       { title: 'Total Volume', value: `${totalQty.toLocaleString(undefined, { maximumFractionDigits: 0 })} L`, icon: <Fuel size={20} />, tone: 'green' },
       { title: 'Total Amount', value: `₦${totalAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, icon: <DollarSign size={20} />, tone: 'green' },
     ];
-  }, [allPayments]);
+  }, [filteredPayments]);
 
   const exportToCSV = () => {
     const headers = ['Date', 'Order Reference', 'Account No', 'Account Name', 'Bank', 'Amount', 'Status'];

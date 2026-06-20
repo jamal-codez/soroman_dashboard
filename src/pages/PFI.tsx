@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { SummaryCards, type SummaryCard } from '@/components/SummaryCards';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
@@ -19,11 +20,10 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import {
   Download, Plus, Search, ArrowUpDown, ArrowUp, ArrowDown,
-  DropletIcon, FileSearch2, Package, Banknote, Loader2, CheckCircle2, MapPin, X,
+  DropletIcon, FileSearch2, Package, Banknote, Loader2, CheckCircle2, MapPin, X, Pencil,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/api/client';
-import { ROLES } from '@/roles';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -42,6 +42,7 @@ type BackendPfi = {
   product_unit?: string;
   product_unit_label?: string;
   starting_qty_litres?: number;
+  notes?: string | null;
   sold_qty_litres?: number;
   sold_qty?: number;
   created_at?: string;
@@ -150,10 +151,20 @@ export default function PFIPage() {
   const [finishConfirm, setFinishConfirm] = useState<FinishConfirmState>({ open: false });
   const [finishing, setFinishing] = useState(false);
 
-  // ── Edit allowed locations ──────────────────────────────────────────
-  const [editLocTarget, setEditLocTarget] = useState<BackendPfi | null>(null);
-  const [editLocSelected, setEditLocSelected] = useState<Set<number>>(new Set());
-  const [editLocSaving, setEditLocSaving] = useState(false);
+  // ── Edit PFI (full details: name, location, product, qty, notes, staff, allowed locations) ──
+  const [editTarget, setEditTarget] = useState<BackendPfi | null>(null);
+  const [editForm, setEditForm] = useState({
+    pfiNumber: '',
+    location: '',
+    product: '',
+    startingQty: '',
+    notes: '',
+    marketingPerson: '',
+    financePerson: '',
+  });
+  const [editAllowedLocations, setEditAllowedLocations] = useState<Set<number>>(new Set());
+  const [editSaving, setEditSaving] = useState(false);
+  const [editErrors, setEditErrors] = useState<{ fields?: Record<string, string[]>; message?: string }>({});
 
   // ═══════════════════════════════════════════════════════════════════
   // Queries
@@ -238,21 +249,16 @@ export default function PFIPage() {
     retry: 1,
   });
 
-  const staffUsers = useMemo(() => {
+  // Full staff list — assignment isn't restricted to a particular role,
+  // any staff member can be picked as the marketing/finance contact for a PFI.
+  const staffOptions = useMemo(() => {
     const rec = isRecord(usersQuery.data) ? usersQuery.data : null;
     const raw = (rec?.results as unknown) ?? (Array.isArray(usersQuery.data) ? usersQuery.data : []);
     return ((raw || []) as Array<{ id: number; full_name: string; role: number }>)
-      .filter(u => u && typeof u.id === 'number');
+      .filter(u => u && typeof u.id === 'number')
+      .map(u => ({ id: u.id, label: u.full_name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [usersQuery.data]);
-
-  const marketingStaffOptions = useMemo(
-    () => staffUsers.filter(u => u.role === ROLES.MARKETING).map(u => ({ id: u.id, label: u.full_name })),
-    [staffUsers]
-  );
-  const financeStaffOptions = useMemo(
-    () => staffUsers.filter(u => u.role === ROLES.FINANCE).map(u => ({ id: u.id, label: u.full_name })),
-    [staffUsers]
-  );
 
   // ═══════════════════════════════════════════════════════════════════
   // Derived data
@@ -379,21 +385,21 @@ export default function PFIPage() {
       icon: <CheckCircle2 size={20} />,
       tone: 'red',
     },
-    // {
-    //   title: 'Total Quantity',
-    //   value: `${fmtQty(totals.totalStarting)} L`,
-    //   icon: <DropletIcon size={20} />,
-    //   tone: 'neutral',
-    // },
-    // {
-    //   title: 'Total Sold',
-    //   value: `${fmtQty(totals.totalSold)} L`,
-    //   description: totals.totalStarting > 0
-    //     ? `${((totals.totalSold / totals.totalStarting) * 100).toFixed(1)}% sold`
-    //     : undefined,
-    //   icon: <Package size={20} />,
-    //   tone: 'green',
-    // },
+    {
+      title: 'Total Quantity',
+      value: `${fmtQty(totals.totalStarting)} L`,
+      icon: <DropletIcon size={20} />,
+      tone: 'neutral',
+    },
+    {
+      title: 'Total Sold',
+      value: `${fmtQty(totals.totalSold)} L`,
+      description: totals.totalStarting > 0
+        ? `${((totals.totalSold / totals.totalStarting) * 100).toFixed(1)}% sold`
+        : undefined,
+      icon: <Package size={20} />,
+      tone: 'green',
+    },
     {
       title: 'Quantity Remaining',
       value: `${fmtQty(totals.totalRemaining)} L`,
@@ -520,45 +526,73 @@ export default function PFIPage() {
     }
   }, [toast, queryClient]);
 
-  const openEditLocations = (p: BackendPfi) => {
-    setEditLocTarget(p);
-    setEditLocSelected(new Set(p.allowed_locations ?? []));
+  const openEditPfi = (p: BackendPfi) => {
+    setEditTarget(p);
+    setEditErrors({});
+    setEditForm({
+      pfiNumber: p.pfi_number,
+      location: String(p.location ?? ''),
+      product: String(p.product ?? ''),
+      startingQty: p.starting_qty_litres != null ? String(p.starting_qty_litres) : '',
+      notes: p.notes ?? '',
+      marketingPerson: p.marketing_person != null ? String(p.marketing_person) : '',
+      financePerson: p.finance_person != null ? String(p.finance_person) : '',
+    });
+    setEditAllowedLocations(new Set(p.allowed_locations ?? []));
   };
 
-  const saveAllowedLocations = useCallback(async () => {
-    if (!editLocTarget) return;
-    setEditLocSaving(true);
+  const saveEditPfi = useCallback(async () => {
+    if (!editTarget) return;
+    setEditErrors({});
+
+    const pfi_number = editForm.pfiNumber.trim();
+    const location = Number(editForm.location);
+    const product = Number(editForm.product);
+    const starting_qty_litres = String(editForm.startingQty).replace(/,/g, '').trim();
+    const startingAsNumber = Number(starting_qty_litres);
+
+    if (!pfi_number || !Number.isFinite(location) || !Number.isFinite(product) || !Number.isFinite(startingAsNumber) || startingAsNumber <= 0) {
+      toast({ title: 'Missing information', description: 'Provide PFI number, location, product, and valid starting quantity.', variant: 'destructive' });
+      return;
+    }
+
+    setEditSaving(true);
     try {
-      await apiClient.admin.updatePfi(editLocTarget.id, {
-        allowed_locations: Array.from(editLocSelected),
+      await apiClient.admin.updatePfi(editTarget.id, {
+        pfi_number,
+        location,
+        product,
+        starting_qty_litres: `${startingAsNumber.toFixed(2)}`,
+        notes: editForm.notes.trim() || undefined,
+        marketing_person: editForm.marketingPerson ? Number(editForm.marketingPerson) : null,
+        finance_person: editForm.financePerson ? Number(editForm.financePerson) : null,
+        allowed_locations: Array.from(editAllowedLocations),
       });
       await queryClient.invalidateQueries({ queryKey: ['pfis'] });
-      toast({ title: 'Allowed locations updated', description: editLocSelected.size === 0 ? 'Unrestricted (any location).' : `${editLocSelected.size} location(s) set.` });
-      setEditLocTarget(null);
+      toast({ title: 'PFI updated', description: `${pfi_number} saved.` });
+      setEditTarget(null);
     } catch (e) {
-      toast({ title: 'Failed to update', description: (e as Error)?.message || 'Request failed', variant: 'destructive' });
+      const err = e as Error;
+      const message = err?.message || 'Request failed';
+      let parsedFields: Record<string, string[]> | undefined;
+      const jsonStart = message.indexOf('{');
+      if (jsonStart >= 0) {
+        try {
+          const body = JSON.parse(message.slice(jsonStart)) as unknown;
+          if (isRecord(body)) {
+            const fieldErrors: Record<string, string[]> = {};
+            Object.entries(body).forEach(([k, v]) => {
+              if (Array.isArray(v)) fieldErrors[k] = v.map(x => String(x));
+            });
+            if (Object.keys(fieldErrors).length) parsedFields = fieldErrors;
+          }
+        } catch { /* not JSON, fall through */ }
+      }
+      setEditErrors(parsedFields ? { fields: parsedFields } : { message });
     } finally {
-      setEditLocSaving(false);
+      setEditSaving(false);
     }
-  }, [editLocTarget, editLocSelected, queryClient, toast]);
-
-  const [assigningStaff, setAssigningStaff] = useState<{ id: number; field: 'marketing_person' | 'finance_person' } | null>(null);
-
-  const updateStaffAssignment = useCallback(async (
-    pfiId: number,
-    field: 'marketing_person' | 'finance_person',
-    value: string,
-  ) => {
-    setAssigningStaff({ id: pfiId, field });
-    try {
-      await apiClient.admin.updatePfi(pfiId, { [field]: value ? Number(value) : null });
-      await queryClient.invalidateQueries({ queryKey: ['pfis'] });
-    } catch (e) {
-      toast({ title: 'Failed to update', description: (e as Error)?.message || 'Request failed', variant: 'destructive' });
-    } finally {
-      setAssigningStaff(null);
-    }
-  }, [queryClient, toast]);
+  }, [editTarget, editForm, editAllowedLocations, queryClient, toast]);
 
   const selectedFinishPfi = useMemo(
     () => enriched.find(p => p.id === finishConfirm.pfiId),
@@ -733,10 +767,10 @@ export default function PFIPage() {
                             Created <SortIcon col="created" />
                           </button>
                         </TableHead>
-                        <TableHead className="font-semibold text-slate-700">Action</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Allowed Locations</TableHead>
-                        <TableHead className="font-semibold text-slate-700">Marketing</TableHead>
+                        {/* <TableHead className="font-semibold text-slate-700">Allowed Locations</TableHead> */}
+                        <TableHead className="font-semibold text-slate-700">Sales</TableHead>
                         <TableHead className="font-semibold text-slate-700">Finance</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -801,66 +835,44 @@ export default function PFIPage() {
                             <TableCell className={`text-xs whitespace-nowrap ${isActive ? 'text-slate-500' : 'text-red-400'}`}>
                               {p.createdAtStr ? new Date(p.createdAtStr).toLocaleDateString() : '—'}
                             </TableCell>
-                            <TableCell>
-                              <Button
-                                size="sm"
-                                variant={isActive ? 'default' : 'outline'}
-                                disabled={!isActive}
-                                onClick={() => setFinishConfirm({ open: true, pfiId: p.id })}
-                                className="text-xs"
-                              >
-                                Close PFI
-                              </Button>
+                            {/* <TableCell>
+                              <div className="flex flex-wrap gap-1 max-w-[220px]">
+                                {(p.allowed_location_names ?? []).length > 0
+                                  ? (p.allowed_location_names ?? []).map(name => (
+                                      <span key={name} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-700 border border-blue-100">
+                                        {name}
+                                      </span>
+                                    ))
+                                  : <span className="text-xs text-slate-400 italic">Any location</span>
+                                }
+                              </div>
+                            </TableCell> */}
+                            <TableCell className="text-sm text-slate-700 whitespace-nowrap">
+                              {p.marketing_person_name || <span className="text-slate-400">-</span>}
+                            </TableCell>
+                            <TableCell className="text-sm text-slate-700 whitespace-nowrap">
+                              {p.finance_person_name || <span className="text-slate-400">-</span>}
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
-                                <div className="flex flex-wrap gap-1 max-w-[220px]">
-                                  {(p.allowed_location_names ?? []).length > 0
-                                    ? (p.allowed_location_names ?? []).map(name => (
-                                        <span key={name} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-700 border border-blue-100">
-                                          {name}
-                                        </span>
-                                      ))
-                                    : <span className="text-xs text-slate-400 italic">Any location</span>
-                                  }
-                                </div>
+                                <Button
+                                  size="sm"
+                                  variant={isActive ? 'default' : 'outline'}
+                                  disabled={!isActive}
+                                  onClick={() => setFinishConfirm({ open: true, pfiId: p.id })}
+                                  className="text-xs"
+                                >
+                                  Close PFI
+                                </Button>
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="text-xs gap-1 shrink-0"
-                                  onClick={() => openEditLocations(p)}
+                                  className="text-xs gap-1"
+                                  onClick={() => openEditPfi(p)}
                                 >
-                                  <MapPin size={12} /> Edit
+                                  <Pencil size={12} /> Edit
                                 </Button>
                               </div>
-                            </TableCell>
-                            <TableCell>
-                              <select
-                                aria-label="Marketing person"
-                                className="h-8 w-[150px] rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
-                                value={p.marketing_person ?? ''}
-                                disabled={assigningStaff?.id === p.id && assigningStaff.field === 'marketing_person'}
-                                onChange={e => updateStaffAssignment(p.id, 'marketing_person', e.target.value)}
-                              >
-                                <option value="">Unassigned</option>
-                                {marketingStaffOptions.map(u => (
-                                  <option key={u.id} value={u.id}>{u.label}</option>
-                                ))}
-                              </select>
-                            </TableCell>
-                            <TableCell>
-                              <select
-                                aria-label="Finance person"
-                                className="h-8 w-[150px] rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
-                                value={p.finance_person ?? ''}
-                                disabled={assigningStaff?.id === p.id && assigningStaff.field === 'finance_person'}
-                                onChange={e => updateStaffAssignment(p.id, 'finance_person', e.target.value)}
-                              >
-                                <option value="">Unassigned</option>
-                                {financeStaffOptions.map(u => (
-                                  <option key={u.id} value={u.id}>{u.label}</option>
-                                ))}
-                              </select>
                             </TableCell>
                           </TableRow>
                         );
@@ -985,12 +997,11 @@ export default function PFIPage() {
               <Label htmlFor="startingQty" className="text-sm font-medium text-slate-700">
                 Starting Quantity ({selectedCreateProductUnitLabel}) <span className="text-red-500">*</span>
               </Label>
-              <Input
+              <CommaInput
                 id="startingQty"
-                inputMode="decimal"
                 placeholder="e.g. 1,000,000"
                 value={createForm.startingQty}
-                onChange={e => setCreateForm(f => ({ ...f, startingQty: e.target.value }))}
+                onValueChange={v => setCreateForm(f => ({ ...f, startingQty: v }))}
               />
               {createErrors.fields?.starting_qty_litres?.length ? (
                 <p className="text-xs text-red-600">{createErrors.fields.starting_qty_litres.join(' ')}</p>
@@ -1000,7 +1011,7 @@ export default function PFIPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="marketingPerson" className="text-sm font-medium text-slate-700">
-                  Marketing Person
+                  Sales
                 </Label>
                 <select
                   id="marketingPerson"
@@ -1010,7 +1021,7 @@ export default function PFIPage() {
                   onChange={e => setCreateForm(f => ({ ...f, marketingPerson: e.target.value }))}
                 >
                   <option value="">Unassigned</option>
-                  {marketingStaffOptions.map(u => (
+                  {staffOptions.map(u => (
                     <option key={u.id} value={u.id}>{u.label}</option>
                   ))}
                 </select>
@@ -1018,7 +1029,7 @@ export default function PFIPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="financePerson" className="text-sm font-medium text-slate-700">
-                  Finance Person
+                  Finance
                 </Label>
                 <select
                   id="financePerson"
@@ -1028,7 +1039,7 @@ export default function PFIPage() {
                   onChange={e => setCreateForm(f => ({ ...f, financePerson: e.target.value }))}
                 >
                   <option value="">Unassigned</option>
-                  {financeStaffOptions.map(u => (
+                  {staffOptions.map(u => (
                     <option key={u.id} value={u.id}>{u.label}</option>
                   ))}
                 </select>
@@ -1049,87 +1060,214 @@ export default function PFIPage() {
       </Dialog>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* Edit Allowed Locations Dialog                                  */}
+      {/* Edit PFI Dialog — full details: name, location, product, qty,   */}
+      {/* notes, marketing/finance staff, allowed locations                */}
       {/* ═══════════════════════════════════════════════════════════════ */}
-      <Dialog open={!!editLocTarget} onOpenChange={open => { if (!open) setEditLocTarget(null); }}>
-        <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
+      <Dialog open={!!editTarget} onOpenChange={open => { if (!open) setEditTarget(null); }}>
+        <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-100">
-                <MapPin className="w-5 h-5 text-blue-600" />
+                <Pencil className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">Allowed Locations</h2>
+                <h2 className="text-lg font-semibold">Edit PFI</h2>
                 <p className="text-sm font-normal text-slate-500 mt-0.5">
-                  {editLocTarget?.pfi_number} — tick which locations can assign orders to this PFI.
-                  Leave all unticked to allow any location.
+                  {editTarget?.pfi_number}
                 </p>
               </div>
             </DialogTitle>
-            <DialogDescription className="sr-only">Edit allowed locations for this PFI</DialogDescription>
+            <DialogDescription className="sr-only">Edit PFI details</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2 py-2">
-            {/* Clear all shortcut */}
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs text-slate-500">
-                {editLocSelected.size === 0
-                  ? 'Unrestricted — any location can assign orders.'
-                  : `${editLocSelected.size} location${editLocSelected.size !== 1 ? 's' : ''} selected`}
-              </p>
-              {editLocSelected.size > 0 && (
-                <button
-                  type="button"
-                  className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1"
-                  onClick={() => setEditLocSelected(new Set())}
+          {editErrors.message && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              {editErrors.message}
+            </div>
+          )}
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="editPfiNumber" className="text-sm font-medium text-slate-700">
+                PFI Name <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="editPfiNumber"
+                value={editForm.pfiNumber}
+                onChange={e => setEditForm(f => ({ ...f, pfiNumber: e.target.value }))}
+              />
+              {editErrors.fields?.pfi_number?.length ? (
+                <p className="text-xs text-red-600">{editErrors.fields.pfi_number.join(' ')}</p>
+              ) : null}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editLocation" className="text-sm font-medium text-slate-700">
+                  Location <span className="text-red-500">*</span>
+                </Label>
+                <select
+                  id="editLocation"
+                  aria-label="Location"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={editForm.location}
+                  onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))}
                 >
-                  <X size={12} /> Clear all (unrestrict)
-                </button>
-              )}
+                  <option value="">Select location</option>
+                  {locationOptions.map(l => (
+                    <option key={l.id} value={l.id}>{l.label}</option>
+                  ))}
+                </select>
+                {editErrors.fields?.location?.length ? (
+                  <p className="text-xs text-red-600">{editErrors.fields.location.join(' ')}</p>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="editProduct" className="text-sm font-medium text-slate-700">
+                  Product <span className="text-red-500">*</span>
+                </Label>
+                <select
+                  id="editProduct"
+                  aria-label="Product"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={editForm.product}
+                  onChange={e => setEditForm(f => ({ ...f, product: e.target.value }))}
+                >
+                  <option value="">Select product</option>
+                  {productOptions.map(p => (
+                    <option key={p.id} value={p.id}>{p.label}</option>
+                  ))}
+                </select>
+                {editErrors.fields?.product?.length ? (
+                  <p className="text-xs text-red-600">{editErrors.fields.product.join(' ')}</p>
+                ) : null}
+              </div>
             </div>
 
-            {locationsQuery.isLoading && (
-              <div className="text-sm text-slate-400 py-4 text-center">Loading locations…</div>
-            )}
+            <div className="space-y-2">
+              <Label htmlFor="editStartingQty" className="text-sm font-medium text-slate-700">
+                Starting Quantity <span className="text-red-500">*</span>
+              </Label>
+              <CommaInput
+                id="editStartingQty"
+                value={editForm.startingQty}
+                onValueChange={v => setEditForm(f => ({ ...f, startingQty: v }))}
+              />
+              {editErrors.fields?.starting_qty_litres?.length ? (
+                <p className="text-xs text-red-600">{editErrors.fields.starting_qty_litres.join(' ')}</p>
+              ) : null}
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {locationOptions.map(loc => {
-                const checked = editLocSelected.has(loc.id);
-                return (
-                  <label
-                    key={loc.id}
-                    className={`flex items-center gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors select-none ${
-                      checked
-                        ? 'border-blue-300 bg-blue-50 text-blue-800'
-                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                    }`}
+            {/* <div className="space-y-2">
+              <Label htmlFor="editNotes" className="text-sm font-medium text-slate-700">Notes</Label>
+              <Input
+                id="editNotes"
+                value={editForm.notes}
+                onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+              />
+            </div> */}
+
+            <div className="h-px bg-slate-200" />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editMarketingPerson" className="text-sm font-medium text-slate-700">
+                  Sales
+                </Label>
+                <select
+                  id="editMarketingPerson"
+                  aria-label="Marketing person"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={editForm.marketingPerson}
+                  onChange={e => setEditForm(f => ({ ...f, marketingPerson: e.target.value }))}
+                >
+                  <option value="">Unassigned</option>
+                  {staffOptions.map(u => (
+                    <option key={u.id} value={u.id}>{u.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="editFinancePerson" className="text-sm font-medium text-slate-700">
+                  Finance
+                </Label>
+                <select
+                  id="editFinancePerson"
+                  aria-label="Finance person"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={editForm.financePerson}
+                  onChange={e => setEditForm(f => ({ ...f, financePerson: e.target.value }))}
+                >
+                  <option value="">Unassigned</option>
+                  {staffOptions.map(u => (
+                    <option key={u.id} value={u.id}>{u.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            
+
+            {/* <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700">Allowed Locations</Label>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-500">
+                  {editAllowedLocations.size === 0
+                    ? 'Unrestricted — any location can assign orders.'
+                    : `${editAllowedLocations.size} location${editAllowedLocations.size !== 1 ? 's' : ''} selected`}
+                </p>
+                {editAllowedLocations.size > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1"
+                    onClick={() => setEditAllowedLocations(new Set())}
                   >
-                    <input
-                      type="checkbox"
-                      className="accent-blue-600"
-                      checked={checked}
-                      onChange={() => {
-                        setEditLocSelected(prev => {
-                          const next = new Set(prev);
-                          next.has(loc.id) ? next.delete(loc.id) : next.add(loc.id);
-                          return next;
-                        });
-                      }}
-                    />
-                    <span className="text-sm">{loc.label}</span>
-                  </label>
-                );
-              })}
-            </div>
+                    <X size={12} /> Clear all (unrestrict)
+                  </button>
+                )}
+              </div> */}
+
+              {/* <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[180px] overflow-y-auto pr-1">
+                {locationOptions.map(loc => {
+                  const checked = editAllowedLocations.has(loc.id);
+                  return (
+                    <label
+                      key={loc.id}
+                      className={`flex items-center gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors select-none ${
+                        checked
+                          ? 'border-blue-300 bg-blue-50 text-blue-800'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="accent-blue-600"
+                        checked={checked}
+                        onChange={() => {
+                          setEditAllowedLocations(prev => {
+                            const next = new Set(prev);
+                            next.has(loc.id) ? next.delete(loc.id) : next.add(loc.id);
+                            return next;
+                          });
+                        }}
+                      />
+                      <span className="text-sm">{loc.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div> */}
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setEditLocTarget(null)} disabled={editLocSaving}>
+            <Button variant="outline" onClick={() => setEditTarget(null)} disabled={editSaving}>
               Cancel
             </Button>
-            <Button onClick={saveAllowedLocations} disabled={editLocSaving} className="gap-2">
-              {editLocSaving ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
-              {editLocSaving ? 'Saving…' : 'Save Locations'}
+            <Button onClick={saveEditPfi} disabled={editSaving} className="gap-2">
+              {editSaving ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}
+              {editSaving ? 'Saving…' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
