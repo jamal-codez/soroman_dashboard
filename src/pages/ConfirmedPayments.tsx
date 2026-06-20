@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -10,7 +10,7 @@ import { CommaInput } from '@/components/ui/comma-input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Users, Paperclip, FileText, ImageIcon, ExternalLink, Trash2 } from 'lucide-react';
+import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Users, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -80,6 +80,18 @@ interface PaymentOrder {
 
   // Payment proof files uploaded at confirm time
   payment_files?: Array<{ id: number; file: string; file_name: string; uploaded_at: string }>;
+
+  // Split payment entries recorded for this order
+  payment_records?: Array<{
+    id: number;
+    amount: string;
+    payment_date: string;
+    payer_name?: string | null;
+    bank_name?: string | null;
+    account_number?: string | null;
+    account_name?: string | null;
+    transaction_reference?: string | null;
+  }>;
 
   truck_number?: string | null;
   customer_details?: Record<string, unknown> | null;
@@ -348,8 +360,54 @@ export default function ConfirmedPayments() {
   // Delete order state
   const [orderToDelete, setOrderToDelete] = useState<PaymentOrder | null>(null);
 
+  // Payment records (split payments) state — lives inside the Edit dialog
+  type EditPaymentLine = {
+    amount: string;
+    paymentDate: string;
+    payerName: string;
+    bankAccountId: string;
+    transactionReference: string;
+  };
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const emptyPaymentLine = (): EditPaymentLine => ({
+    amount: '', paymentDate: todayStr(), payerName: '', bankAccountId: '', transactionReference: '',
+  });
+
+  const [existingPaymentRecords, setExistingPaymentRecords] = useState<Array<{
+    id: number;
+    amount: string;
+    payment_date: string;
+    payer_name?: string | null;
+    bank_name?: string | null;
+    account_number?: string | null;
+    account_name?: string | null;
+    transaction_reference?: string | null;
+  }>>([]);
+  const [newPaymentLines, setNewPaymentLines] = useState<EditPaymentLine[]>([emptyPaymentLine()]);
+  const [savingPayments, setSavingPayments] = useState(false);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null);
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const updateNewPaymentLine = (idx: number, patch: Partial<EditPaymentLine>) =>
+    setNewPaymentLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  const addNewPaymentLine = () => setNewPaymentLines((prev) => [...prev, emptyPaymentLine()]);
+  const removeNewPaymentLine = (idx: number) =>
+    setNewPaymentLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+
+  const handleDeletePaymentRecord = async (id: number) => {
+    setDeletingPaymentId(id);
+    try {
+      await apiClient.admin.deleteOrderPaymentRecord(id);
+      setExistingPaymentRecords((prev) => prev.filter((r) => r.id !== id));
+      await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
+    } catch (err) {
+      toast({ title: 'Error', description: (err as Error).message, variant: 'destructive' });
+    } finally {
+      setDeletingPaymentId(null);
+    }
+  };
 
   const deleteOrderMutation = useMutation({
     mutationFn: async (orderId: number) => {
@@ -392,6 +450,10 @@ export default function ConfirmedPayments() {
       (b) => b.bank_name === bankName && b.acct_no === acctNo
     );
     setEditBankAccountId(match ? String(match.id) : '');
+
+    // Payment records already come embedded on the order object.
+    setExistingPaymentRecords(p.payment_records ?? []);
+    setNewPaymentLines([emptyPaymentLine()]);
   };
 
   const updateNarrationMutation = useMutation({
@@ -426,8 +488,46 @@ export default function ConfirmedPayments() {
     },
   });
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editOrder) return;
+
+    // Record any new split-payment lines FIRST — if a reference turns out to
+    // be invalid/duplicate, stop here and leave the order fields untouched.
+    const linesToSubmit = newPaymentLines.filter((l) => parseFloat(l.amount || '0') > 0);
+    if (linesToSubmit.length > 0) {
+      for (const l of linesToSubmit) {
+        const ref = l.transactionReference.trim();
+        if (!ref || !/^[A-Za-z0-9]+$/.test(ref)) {
+          toast({ title: 'Invalid reference', description: 'Each new payment needs a non-empty alphanumeric transaction reference.', variant: 'destructive' });
+          return;
+        }
+      }
+      const refs = linesToSubmit.map((l) => l.transactionReference.trim().toLowerCase());
+      if (new Set(refs).size !== refs.length) {
+        toast({ title: 'Duplicate reference', description: 'Each payment must have a unique transaction reference.', variant: 'destructive' });
+        return;
+      }
+
+      setSavingPayments(true);
+      try {
+        for (const l of linesToSubmit) {
+          await apiClient.admin.addOrderPaymentRecord(editOrder.id, {
+            amount: parseFloat(l.amount || '0'),
+            payment_date: l.paymentDate || todayStr(),
+            payer_name: l.payerName.trim() || undefined,
+            bank_account: l.bankAccountId || undefined,
+            transaction_reference: l.transactionReference.trim(),
+          });
+        }
+        setNewPaymentLines([emptyPaymentLine()]);
+      } catch (err) {
+        toast({ title: 'Error recording payment', description: (err as Error).message, variant: 'destructive' });
+        setSavingPayments(false);
+        return;
+      }
+      setSavingPayments(false);
+    }
+
     const paidNum = parseFloat(editAmountPaid || '0');
     const prefix = Number.isFinite(paidNum) && paidNum > 0 ? `[PAID:${paidNum}] ` : '';
     const statusTag = editStatus ? `[STATUS:${editStatus}] ` : '';
@@ -623,10 +723,14 @@ export default function ConfirmedPayments() {
       ['Total Amount', `N ${totalAmountAll.toLocaleString()}`],
     ];
 
-    const headers = ['S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', `Quantity (${exportUnitLabel})`, 'Unit Price', 'Sales Value', 'Paying Company', 'Bank Account'];
+    const headers = [
+      'S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', `Quantity (${exportUnitLabel})`, 'Unit Price', 'Sales Value', 'Paying Company', 'Bank Account',
+      'Payment Date', 'Payment Amount', 'Balance', 'Payer', 'Payment Bank', 'Transaction Reference',
+    ];
     // Sort oldest to newest for the exported file
     const exportSorted = [...filtered].sort((a, b) => getPaymentDate(a).getTime() - getPaymentDate(b).getTime());
-    const rows = exportSorted.map((p, idx) => {
+    const rows: Array<Array<string>> = [];
+    exportSorted.forEach((p, idx) => {
       const d = getPaymentDate(p);
       const date = Number.isNaN(d.getTime()) ? '' : format(d, 'dd/MM/yyyy HH:mm');
       const ref = getOrderReference(p) || p.reference || p.id;
@@ -636,11 +740,31 @@ export default function ConfirmedPayments() {
       const salesValue = safeToNumber(p.total_price ?? p.amount);
       const company = extractCustomerCompany(p);
       const { bankName: bank, acctNo: bankAcctNo } = extractBankInfo(p, bankAccounts);
-      return [
+      // Order row — payment columns left blank
+      rows.push([
         String(idx + 1), date, String(ref ?? ''), truckNo, customer,
         `${qty.toLocaleString()} ${product}`, unitPrice ? `N${unitPrice.toLocaleString()}` : '',
         `N${salesValue.toLocaleString()}`, company, bankAcctNo ? `${bank} (${bankAcctNo})` : bank,
-      ];
+        '', '', '', '', '', '',
+      ]);
+      // Payment sub-rows — order columns left blank, one row per payment received
+      const records = [...(p.payment_records ?? [])].sort(
+        (a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime()
+      );
+      let cumulative = 0;
+      records.forEach((r) => {
+        cumulative += safeToNumber(r.amount);
+        const rowBalance = salesValue - cumulative;
+        rows.push([
+          '', '', '', '', '', '', '', '', '', '',
+          r.payment_date ? format(new Date(r.payment_date), 'dd/MM/yyyy') : '',
+          `N${safeToNumber(r.amount).toLocaleString()}`,
+          `N${rowBalance.toLocaleString()}`,
+          r.payer_name || '',
+          r.bank_name ? `${r.bank_name}${r.account_number ? ` (${r.account_number})` : ''}` : '',
+          r.transaction_reference || '',
+        ]);
+      });
     });
 
     return { generatedAt, headingBlock, headers, rows, totalQtyAll, ordersCountAll, totalAmountAll, exportUnitLabel };
@@ -898,8 +1022,10 @@ export default function ConfirmedPayments() {
                       const company = extractCustomerCompany(p);
                       const location = extractLocation(p);
                       const { bankName: bank, acctNo: bankAcctNo } = extractBankInfo(p, bankAccounts);
+                      const records = p.payment_records ?? [];
                       return (
-                        <TableRow key={p.id} className="hover:bg-slate-50/60">
+                        <Fragment key={p.id}>
+                        <TableRow className="hover:bg-slate-50/60">
                           <TableCell className="text-slate-500">{filtered.length - idx}</TableCell>
                           <TableCell>
                             <div className="text-sm">{dateStr}</div>
@@ -943,6 +1069,54 @@ export default function ConfirmedPayments() {
                             </div>
                           </TableCell>
                         </TableRow>
+                        {records.length > 0 && (
+                          <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+                            <TableCell colSpan={12} className="py-2 px-4">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-[10px] uppercase tracking-wider text-slate-400">
+                                    <th className="text-left font-semibold pb-1 pl-4">Date</th>
+                                    <th className="text-right font-semibold pb-1">Amount</th>
+                                    <th className="text-right font-semibold pb-1">Balance</th>
+                                    <th className="text-left font-semibold pb-1">Payer</th>
+                                    <th className="text-left font-semibold pb-1">Bank</th>
+                                    <th className="text-left font-semibold pb-1">Reference</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(() => {
+                                    let cumulative = 0;
+                                    return [...records]
+                                      .sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime())
+                                      .map((r) => {
+                                        cumulative += safeToNumber(r.amount);
+                                        const rowBalance = salesValue - cumulative;
+                                        return (
+                                          <tr key={r.id} className="border-t border-slate-200/70">
+                                            <td className="py-1 pl-4 text-slate-600 whitespace-nowrap">
+                                              {r.payment_date ? format(new Date(r.payment_date), 'dd/MM/yy') : '—'}
+                                            </td>
+                                            <td className="py-1 text-right font-semibold text-emerald-700">
+                                              {'₦'}{safeToNumber(r.amount).toLocaleString()}
+                                            </td>
+                                            <td className={`py-1 text-right font-semibold ${rowBalance > 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                                              {'₦'}{rowBalance.toLocaleString()}
+                                            </td>
+                                            <td className="py-1 text-slate-700">{r.payer_name || '—'}</td>
+                                            <td className="py-1 text-slate-700">
+                                              {r.bank_name || '—'}{r.account_number ? ` (${r.account_number})` : ''}
+                                            </td>
+                                            <td className="py-1 font-mono text-slate-500">{r.transaction_reference || '—'}</td>
+                                          </tr>
+                                        );
+                                      });
+                                  })()}
+                                </tbody>
+                              </table>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        </Fragment>
                       );
                     })
                   )}
@@ -1078,6 +1252,157 @@ export default function ConfirmedPayments() {
                     })()}
                   </div>
 
+                  <div className="h-px bg-slate-200" />
+
+                  {/* Payments — existing entries + add new split-payment lines, same UX as Confirm Payment */}
+                  <div className="space-y-2.5">
+                    <label className="text-sm font-semibold text-slate-800">Payments</label>
+
+                    {existingPaymentRecords.length > 0 && (
+                      <div className="rounded-md border border-slate-200 overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-400">
+                              <th className="text-left font-semibold py-1.5 pl-2.5">Date</th>
+                              <th className="text-right font-semibold py-1.5">Amount</th>
+                              <th className="text-left font-semibold py-1.5 pl-2">Payer</th>
+                              <th className="text-left font-semibold py-1.5 pl-2">Bank</th>
+                              <th className="text-left font-semibold py-1.5 pl-2">Reference</th>
+                              <th className="w-[28px]"><span className="sr-only">Remove</span></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {existingPaymentRecords.map((r) => (
+                              <tr key={r.id} className="border-t border-slate-100">
+                                <td className="py-1.5 pl-2.5 text-slate-600 whitespace-nowrap">
+                                  {r.payment_date ? format(new Date(r.payment_date), 'dd/MM/yy') : '—'}
+                                </td>
+                                <td className="py-1.5 text-right font-semibold text-emerald-700">
+                                  ₦{safeToNumber(r.amount).toLocaleString()}
+                                </td>
+                                <td className="py-1.5 pl-2 text-slate-700">{r.payer_name || '—'}</td>
+                                <td className="py-1.5 pl-2 text-slate-700">
+                                  {r.bank_name || '—'}{r.account_number ? ` (${r.account_number})` : ''}
+                                </td>
+                                <td className="py-1.5 pl-2 font-mono text-slate-500">{r.transaction_reference || '—'}</td>
+                                <td className="py-1.5 pr-2">
+                                  <button
+                                    type="button"
+                                    title="Remove entry"
+                                    disabled={deletingPaymentId === r.id}
+                                    onClick={() => handleDeletePaymentRecord(r.id)}
+                                    className="text-slate-400 hover:text-red-600 disabled:opacity-40"
+                                  >
+                                    {deletingPaymentId === r.id
+                                      ? <span className="inline-block w-3 h-3 border border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+                                      : <Trash2 size={12} />}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {newPaymentLines.map((line, idx) => (
+                      <div key={idx} className="rounded-lg border border-slate-300 bg-slate-50 p-3 space-y-2.5">
+                        {newPaymentLines.length > 1 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">New Payment {idx + 1}</span>
+                            <button type="button" title="Remove this payment" onClick={() => removeNewPaymentLine(idx)} className="text-slate-400 hover:text-red-600">
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-3 gap-2.5">
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Amount (₦)</label>
+                            <CommaInput
+                              value={line.amount}
+                              onValueChange={(v) => updateNewPaymentLine(idx, { amount: v })}
+                              placeholder="e.g. 2,500,000"
+                              className="h-9 text-sm bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Date</label>
+                            <Input
+                              type="date"
+                              value={line.paymentDate}
+                              onChange={(e) => updateNewPaymentLine(idx, { paymentDate: e.target.value })}
+                              className="h-9 text-sm bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Payer's Name</label>
+                            <Input
+                              value={line.payerName}
+                              onChange={(e) => updateNewPaymentLine(idx, { payerName: e.target.value })}
+                              placeholder="Who sent the money"
+                              className="h-9 text-sm bg-white"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Bank Account</label>
+                            <select
+                              aria-label="Bank account"
+                              className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                              value={line.bankAccountId}
+                              onChange={(e) => updateNewPaymentLine(idx, { bankAccountId: e.target.value })}
+                            >
+                              <option value="">{'— Select —'}</option>
+                              {bankAccounts.map((b) => (
+                                <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium text-slate-600">Transaction Reference</label>
+                            <Input
+                              value={line.transactionReference}
+                              onChange={(e) => updateNewPaymentLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
+                              placeholder="Alphanumeric, unique"
+                              className="h-9 text-sm font-mono bg-white"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={addNewPaymentLine}
+                      className="w-full h-10 gap-2 border-2 border-dashed border-blue-300 text-blue-700 hover:bg-blue-50 hover:border-blue-400 hover:text-blue-800"
+                    >
+                      <Plus size={16} />
+                      Add Another Payment
+                    </Button>
+
+                    {(() => {
+                      const salesValue = safeToNumber(editOrder?.total_price ?? editOrder?.amount);
+                      const existingTotal = existingPaymentRecords.reduce((s, r) => s + safeToNumber(r.amount), 0);
+                      const newTotal = newPaymentLines.reduce((s, l) => s + (parseFloat(l.amount || '0') || 0), 0);
+                      const totalPaid = existingTotal + newTotal;
+                      const bal = salesValue - totalPaid;
+                      return (
+                        <div className={`flex items-center justify-between rounded-lg border px-3.5 py-2.5 ${
+                          bal === 0 ? 'border-emerald-300 bg-emerald-100' : bal > 0 ? 'border-amber-300 bg-amber-100' : 'border-blue-300 bg-blue-100'
+                        }`}>
+                          <span className="text-xs font-semibold text-slate-700">
+                            ₦{totalPaid.toLocaleString()} <span className="text-slate-400">of</span> ₦{salesValue.toLocaleString()}
+                          </span>
+                          <span className={`text-xs font-bold ${bal === 0 ? 'text-emerald-800' : bal > 0 ? 'text-amber-800' : 'text-blue-800'}`}>
+                            {bal === 0 ? 'Fully Matched ✓' : bal > 0 ? `₦${bal.toLocaleString()} remaining` : `₦${Math.abs(bal).toLocaleString()} overpaid`}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   {/* Driver Name/Phone, Amount Paid, Status, Remarks, Payment Proof Files — commented out per request
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -1200,8 +1525,8 @@ export default function ConfirmedPayments() {
 
                 <div className="flex items-center justify-end gap-3 border-t border-slate-300 bg-slate-100 px-4 sm:px-6 py-3 sm:py-4 shrink-0">
                   <Button variant="outline" size="sm" onClick={() => setEditOrder(null)}>Cancel</Button>
-                  <Button size="sm" onClick={handleSaveEdit} disabled={updateNarrationMutation.isPending} className="gap-1.5">
-                    {updateNarrationMutation.isPending ? 'Saving...' : 'Save Changes'}
+                  <Button size="sm" onClick={handleSaveEdit} disabled={updateNarrationMutation.isPending || savingPayments} className="gap-1.5">
+                    {updateNarrationMutation.isPending || savingPayments ? 'Saving...' : 'Save Changes'}
                   </Button>
                 </div>
               </DialogContent>

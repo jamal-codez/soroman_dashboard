@@ -83,6 +83,11 @@ interface ReleasedOrder {
   qty?: number | string;
   litres?: number | string;
 
+  // Partial payment / partial release fields
+  total_paid?: string | null;
+  releasable_quantity?: number;
+  payment_status?: string;
+
   state?: string;
   location?: string;
   location_name?: string;
@@ -164,6 +169,9 @@ const getQty = (o: ReleasedOrder): number => {
     o.products?.[0]?.quantity ?? o.products?.[0]?.qty ?? o.products?.[0]?.litres;
   return toNum(v);
 };
+
+const isPartiallyPaid = (o: ReleasedOrder): boolean =>
+  typeof o.releasable_quantity === 'number' && o.releasable_quantity < getQty(o);
 
 const UNIT_LABELS: Record<string, string> = { litres: 'Litres', kg: 'kg', ton: 'ton' };
 const getProductUnit = (o: ReleasedOrder): string => {
@@ -581,7 +589,17 @@ export default function ReleasedOrders() {
                             </TableCell>
 
                             <TableCell className="font-semibold text-slate-800 whitespace-nowrap">
-                              {getRef(o)}
+                              <div className="flex items-center gap-1.5">
+                                <span>{getRef(o)}</span>
+                                {isPartiallyPaid(o) && (
+                                  <span
+                                    title={`Only ${Number(o.releasable_quantity).toLocaleString()} of ${qty.toLocaleString()} ${getProductUnit(o)} paid for`}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200"
+                                  >
+                                    Partial
+                                  </span>
+                                )}
+                              </div>
                             </TableCell>
 
                             <TableCell className="max-w-[160px]">

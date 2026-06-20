@@ -520,6 +520,61 @@ export const apiClient = {
       if (!response.ok) throw new Error(await safeReadError(response));
     },
 
+    // GET /api/admin/orders/<orderId>/payment-records/ — list split payment entries for an order
+    getOrderPaymentRecords: async (orderId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/payment-records/`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<Array<{
+        id: number;
+        order: number;
+        amount: string;
+        payment_date: string;
+        payer_name?: string | null;
+        bank_account?: number | null;
+        bank_name?: string | null;
+        account_number?: string | null;
+        account_name?: string | null;
+        transaction_reference?: string | null;
+        notes?: string | null;
+        created_by?: number | null;
+        created_by_name?: string | null;
+        created_at: string;
+        updated_at: string;
+      }>>;
+    },
+
+    // POST /api/admin/orders/<orderId>/payment-records/ — record a new (split) payment entry
+    addOrderPaymentRecord: async (
+      orderId: number | string,
+      data: {
+        amount: number | string;
+        payment_date?: string;
+        payer_name?: string;
+        bank_account?: number | string;
+        transaction_reference?: string;
+        notes?: string;
+      }
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/payment-records/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    // DELETE /api/admin/payment-records/<id>/ — remove a mistakenly-entered payment record
+    deleteOrderPaymentRecord: async (id: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/payment-records/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+    },
+
     // Confirmed Payments (paid + released orders)
     getConfirmedPayments: async (params?: {
       search?: string;

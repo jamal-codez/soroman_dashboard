@@ -113,6 +113,11 @@ interface Order {
   // Backend PFI fields
   pfi_id?: number | null;
   pfi_number?: string | null;
+
+  // Partial payment / partial release fields
+  total_paid?: string | null;
+  releasable_quantity?: number;
+  payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Overpaid' | string;
 }
 
 interface OrderResponse {
@@ -125,6 +130,16 @@ const getOrderUnitLabel = (order?: Order | null): string => {
   const p = order?.products?.[0];
   return p?.unit_label || UNIT_LABELS[(p?.unit || 'litres').toLowerCase()] || 'Litres';
 };
+
+/** How much of this order may actually be released/ticketed, based on what's been paid so far. */
+const getReleasableQty = (order?: Order | null): number => {
+  if (!order) return 0;
+  if (typeof order.releasable_quantity === 'number') return order.releasable_quantity;
+  return Number(order.quantity) || 0;
+};
+
+const isPartiallyPaid = (order?: Order | null): boolean =>
+  !!order && getReleasableQty(order) < (Number(order.quantity) || 0);
 
 interface ReleaseDetails {
   truckNumber: string;
@@ -784,7 +799,7 @@ export const PickupProcessing = () => {
     );
 
     // Initialise truck rows — default to 1 truck with the remaining (unallocated) qty
-    const orderQty = Number(order.quantity) || 0;
+    const orderQty = getReleasableQty(order);
     const alreadyAllocated = ticketAllocated[order.id] || 0;
     const remaining = Math.max(0, orderQty - alreadyAllocated);
     setTruckRows([{ ...freshTruckRow(), quantity_litres: remaining > 0 ? String(remaining) : '' }]);
@@ -803,7 +818,7 @@ export const PickupProcessing = () => {
   const handleReleaseWithDetails = async () => {
     if (!selectedOrder) return;
 
-    const orderQty = Number(selectedOrder.quantity) || 0;
+    const orderQty = getReleasableQty(selectedOrder);
 
     // ── Validate required loading details ────────────────────────────────
     if (!releaseForm.loadingDateTime?.trim()) {
@@ -865,9 +880,12 @@ export const PickupProcessing = () => {
     const grandTotal = totalAllocated + alreadyAllocated;
     if (orderQty > 0 && grandTotal > orderQty) {
       const u = getOrderUnitLabel(selectedOrder);
+      const partial = isPartiallyPaid(selectedOrder);
       toast({
         title: 'Quantity exceeded',
-        description: `Total (${grandTotal.toLocaleString()} ${u}) exceeds the order quantity (${orderQty.toLocaleString()} ${u}). Previously allocated: ${alreadyAllocated.toLocaleString()} ${u}.`,
+        description: partial
+          ? `Total (${grandTotal.toLocaleString()} ${u}) exceeds what's been paid for so far (${orderQty.toLocaleString()} ${u} releasable out of ${Number(selectedOrder.quantity).toLocaleString()} ${u} ordered). Previously allocated: ${alreadyAllocated.toLocaleString()} ${u}.`
+          : `Total (${grandTotal.toLocaleString()} ${u}) exceeds the order quantity (${orderQty.toLocaleString()} ${u}). Previously allocated: ${alreadyAllocated.toLocaleString()} ${u}.`,
         variant: 'destructive',
       });
       return;
@@ -1345,7 +1363,19 @@ export const PickupProcessing = () => {
                       <TableRow key={order.id}>
                         <TableCell className="font-medium text-slate-600">{sn}</TableCell>
                         {/* <TableCell className="font-medium">{order.id}</TableCell> */}
-                        <TableCell>{getOrderReference(order) || '-'}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <span>{getOrderReference(order) || '-'}</span>
+                            {isPartiallyPaid(order) && (
+                              <span
+                                title={`Only ${getReleasableQty(order).toLocaleString()} of ${Number(order.quantity).toLocaleString()} ${getOrderUnitLabel(order)} paid for`}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200"
+                              >
+                                Partial
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
                         {/* <TableCell className="capitalize">{order.release_type || '-'}</TableCell> */}
                         <TableCell>
                           <div className="text-slate-600">{loadingDateTime || '-'}</div>
@@ -1396,7 +1426,7 @@ export const PickupProcessing = () => {
                           <div className="flex justify-end gap-2">
                             {/* Determine if this released order is fully allocated */}
                             {(() => {
-                              const orderQty = Number(order.quantity) || 0;
+                              const orderQty = getReleasableQty(order);
                               const allocated = ticketAllocated[order.id] || 0;
                               const isLoaded = (order.status || '').toLowerCase() === 'loaded';
                               const fullyAllocated = (order.status === 'released' || isLoaded) && orderQty > 0 && allocated >= orderQty;
@@ -1452,7 +1482,9 @@ export const PickupProcessing = () => {
 
                                   {/* ─── Order summary card ──────────── */}
                                   {selectedOrder && (() => {
-                                    const orderQty = Number(selectedOrder.quantity) || 0;
+                                    const orderQty = getReleasableQty(selectedOrder);
+                                    const fullQty = Number(selectedOrder.quantity) || 0;
+                                    const partial = isPartiallyPaid(selectedOrder);
                                     const prevAllocated = ticketAllocated[selectedOrder.id] || 0;
                                     const newAlloc = truckRows.reduce((s, r) => s + (Number(r.quantity_litres) || 0), 0);
                                     const totalAlloc = prevAllocated + newAlloc;
@@ -1468,9 +1500,14 @@ export const PickupProcessing = () => {
                                           <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Order Summary</span>
                                           <span className="text-xs text-green-600 font-semibold">{getOrderReference(selectedOrder)}</span>
                                         </div>
+                                        {partial && (
+                                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                            <span className="font-bold">Partially Paid</span> — only {orderQty.toLocaleString()} of {fullQty.toLocaleString()} {u} ordered can be released until the rest is paid for.
+                                          </div>
+                                        )}
                                         <div className={`grid gap-3 ${prevAllocated > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
                                           <div>
-                                            <div className="text-[11px] text-slate-400 uppercase tracking-wide">Total Volume</div>
+                                            <div className="text-[11px] text-slate-400 uppercase tracking-wide">{partial ? 'Releasable Volume' : 'Total Volume'}</div>
                                             <div className="text-base font-bold text-slate-900">{orderQty.toLocaleString()} {u}</div>
                                           </div>
                                           {prevAllocated > 0 && (

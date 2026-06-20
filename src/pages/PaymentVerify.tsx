@@ -8,6 +8,7 @@ import {
   TableRow 
 } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SidebarNav } from '@/components/SidebarNav';
@@ -17,7 +18,7 @@ import { apiClient, fetchAllPages } from '@/api/client';
 import { isCurrentUserReadOnly } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
 import * as XLSX from 'xlsx';
-import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, Calendar, MapPin, Package, Building2, User, Banknote, CalendarDays, X, Fuel, Clock, Paperclip, FileText, ImageIcon, Trash2 } from 'lucide-react';
+import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, CalendarDays, X, Fuel, Clock, Paperclip, FileText, ImageIcon, Trash2, Plus } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
@@ -132,6 +133,15 @@ interface OrderResponse {
   results: PaymentOrder[];
 }
 
+// A single split-payment entry as entered in the Confirm Payment dialog
+type PaymentLineInput = {
+  amount: number;
+  payerName: string;
+  transactionReference: string;
+  bankAccountId?: number;
+  paymentDate: string;
+};
+
 // Replace old PaymentDetailsModal + ConfirmationModal with a single confirm dialog
 function VerifyConfirmModal({
   isOpen,
@@ -142,19 +152,21 @@ function VerifyConfirmModal({
   pfiOptions,
   selectedPfiId,
   onChangePfiId,
-  selectedBankAccountId,
-  onChangeBankAccountId,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (narration: string, files: File[], pfiId?: number, bankAccountId?: number) => void;
+  onConfirm: (
+    narration: string,
+    files: File[],
+    pfiId?: number,
+    bankAccountId?: number,
+    paymentLines?: PaymentLineInput[],
+  ) => void;
   payment: PaymentOrder | null;
   bankAccounts: BankAccount[];
   pfiOptions: Array<{ id: number; label: string }>;
   selectedPfiId: number | '';
   onChangePfiId: (value: number | '') => void;
-  selectedBankAccountId: number | '';
-  onChangeBankAccountId: (value: number | '') => void;
 }) {
   if (!payment) return null;
 
@@ -168,11 +180,17 @@ function VerifyConfirmModal({
       pfiOptions={pfiOptions}
       selectedPfiId={selectedPfiId}
       onChangePfiId={onChangePfiId}
-      selectedBankAccountId={selectedBankAccountId}
-      onChangeBankAccountId={onChangeBankAccountId}
     />
   );
 }
+
+type PaymentLine = {
+  amount: string;
+  payerName: string;
+  bankAccountId: string;
+  transactionReference: string;
+  paymentDate: string;
+};
 
 function VerifyConfirmModalBody({
   isOpen,
@@ -183,41 +201,78 @@ function VerifyConfirmModalBody({
   pfiOptions,
   selectedPfiId,
   onChangePfiId,
-  selectedBankAccountId,
-  onChangeBankAccountId,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (narration: string, files: File[], pfiId?: number, bankAccountId?: number) => void;
+  onConfirm: (
+    narration: string,
+    files: File[],
+    pfiId?: number,
+    bankAccountId?: number,
+    paymentLines?: PaymentLineInput[],
+  ) => void;
   payment: PaymentOrder;
   bankAccounts: BankAccount[];
   pfiOptions: Array<{ id: number; label: string }>;
   selectedPfiId: number | '';
   onChangePfiId: (value: number | '') => void;
-  selectedBankAccountId: number | '';
-  onChangeBankAccountId: (value: number | '') => void;
 }) {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [lines, setLines] = useState<PaymentLine[]>([]);
+
+  const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
+  const expectedAmountValue = parseFloat(payment.amount || '0');
+  const paidInto = extractPaidInto(payment);
+
+  const todayStr = () => new Date().toISOString().slice(0, 10);
 
   // Reset state whenever the modal opens or a different payment is selected.
   useEffect(() => {
     if (isOpen) {
       setAttachedFiles([]);
+      const matched = bankAccounts.find(
+        (b) => b.acct_no && paidInto.account_number && b.acct_no === paidInto.account_number
+      );
+      setLines([{
+        amount: expectedAmountValue > 0 ? String(expectedAmountValue) : '',
+        payerName: customerName || '',
+        bankAccountId: matched ? String(matched.id) : '',
+        transactionReference: '',
+        paymentDate: todayStr(),
+      }]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, payment.id]);
 
+  const updateLine = (idx: number, patch: Partial<PaymentLine>) =>
+    setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  const addLine = () =>
+    setLines((prev) => [...prev, { amount: '', payerName: customerName || '', bankAccountId: '', transactionReference: '', paymentDate: todayStr() }]);
+  const removeLine = (idx: number) =>
+    setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+
+  const totalEntered = lines.reduce((s, l) => s + (parseFloat(l.amount || '0') || 0), 0);
+  const balance = expectedAmountValue - totalEntered;
+
   const isPending = String(payment.status || '').toLowerCase() === 'pending';
-  const canConfirm = isPending && typeof selectedPfiId === 'number';
+  const referenceList = lines.map((l) => l.transactionReference.trim().toLowerCase());
+  const referencesAreUnique = new Set(referenceList).size === referenceList.length;
+  const linesValid = lines.length > 0 && lines.every((l) => {
+    const amt = parseFloat(l.amount || '0');
+    const refOk = l.transactionReference.trim().length > 0 && /^[A-Za-z0-9]+$/.test(l.transactionReference.trim());
+    return amt > 0 && refOk;
+  });
+  const canConfirm = isPending
+    && typeof selectedPfiId === 'number'
+    && linesValid
+    && referencesAreUnique;
   const createdDate = new Date(payment.created_at);
-  const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
   const companyName = extractCompanyName(payment);
   const { product, qty, unitPrice, unitLabel } = extractProductInfo(payment);
-  const paidInto = extractPaidInto(payment);
   const location = extractLocation(payment);
 
   const createdText = Number.isNaN(createdDate.getTime()) ? '—' : createdDate.toLocaleString('en-GB');
   const orderRef = getOrderReference(payment) || payment.order_id;
-  const expectedAmountValue = parseFloat(payment.amount || '0');
   const totalAmount = `₦${expectedAmountValue.toLocaleString()}`;
   const productSummary = [product, qty ? `${qty} ${unitLabel}` : '']
     .filter(Boolean)
@@ -225,133 +280,34 @@ function VerifyConfirmModalBody({
     .trim();
   return (
     <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
-      <DialogContent className="sm:max-w-[620px] max-h-[90vh] overflow-y-auto p-0 border border-slate-300 shadow-xl">
-        <div className="border-b border-slate-800 bg-black px-6 pt-6 pb-4">
+      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto p-0 border border-slate-300 shadow-xl">
+        <div className="border-b border-slate-800 bg-black px-6 pt-5 pb-4">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-lg text-white">Confirm Payment</DialogTitle>
-            <DialogDescription className="text-sm text-slate-200">
-              Review the order details below and confirm payment.
+            <DialogDescription className="text-sm text-slate-300">
+              <span className="font-mono font-semibold text-slate-100">{orderRef}</span> · {totalAmount} sales value
             </DialogDescription>
           </DialogHeader>
         </div>
 
         <div className="space-y-4 bg-white px-6 py-5 text-sm">
-          {/* Date & Order Ref */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
-              <Calendar size={15} className="mt-0.5 shrink-0 text-slate-700" />
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Date</div>
-                <div className="font-semibold text-slate-900">{createdText}</div>
-              </div>
+          {/* Compact order summary */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="grid grid-cols-2 gap-y-1.5 text-xs">
+              <div><span className="text-slate-400">Date:</span> <span className="font-medium text-slate-700">{createdText}</span></div>
+              <div><span className="text-slate-400">Location:</span> <span className="font-medium text-slate-700">{location || '—'}</span></div>
+              <div className="col-span-2"><span className="text-slate-400">Product:</span> <span className="font-medium text-slate-700">{productSummary || '—'}</span></div>
+              <div className="col-span-2"><span className="text-slate-400">Customer:</span> <span className="font-medium text-slate-700">{[companyName, customerName].filter(Boolean).join(' — ') || '—'}</span></div>
             </div>
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
-              <Search size={15} className="mt-0.5 shrink-0 text-slate-700" />
-              <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Order Ref</div>
-                <div className="truncate font-bold font-mono text-slate-950">{orderRef}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Location & Product */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
-              <MapPin size={15} className="mt-0.5 shrink-0 text-slate-700" />
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Location</div>
-                <div className="font-semibold text-slate-900">{location || '—'}</div>
-              </div>
-            </div>
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
-              <Package size={15} className="mt-0.5 shrink-0 text-slate-700" />
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Product & Qty</div>
-                <div className="font-semibold text-slate-900">{productSummary || '—'}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Company & Facilitator */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
-              <Building2 size={15} className="mt-0.5 shrink-0 text-slate-700" />
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Company</div>
-                <div className="font-semibold uppercase text-slate-900">{companyName || '—'}</div>
-              </div>
-            </div>
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-300 bg-slate-50 p-3">
-              <User size={15} className="mt-0.5 shrink-0 text-slate-700" />
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Facilitator</div>
-                <div className="font-semibold uppercase text-slate-900">{customerName || '—'}</div>
-                {/* {customerPhone ? <div className="text-sm text-slate-700">{customerPhone}</div> : null} */}
-              </div>
-            </div>
-          </div>
-
-          {/* Bank Details */}
-          <div className="rounded-lg border border-slate-300 bg-slate-100 p-3">
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
-              <Banknote size={14} />
-              Paid Into
-            </div>
-
-            <select
-              aria-label="Paid into bank account"
-              className="w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              value={selectedBankAccountId === '' ? '' : String(selectedBankAccountId)}
-              onChange={(e) => onChangeBankAccountId(e.target.value ? Number(e.target.value) : '')}
-            >
-              <option value="">{paidInto.account_number ? 'Use detected account below' : 'Select bank account'}</option>
-              {bankAccounts.map((b) => (
-                <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
-              ))}
-            </select>
-            <p className="mt-1 text-[11px] text-slate-600">
-              If the customer paid into a different one of our other accounts, pick the correct one here.
-            </p>
-
-            <div className="mt-2 grid grid-cols-3 gap-3">
-              {(() => {
-                const selected = bankAccounts.find((b) => b.id === selectedBankAccountId);
-                const display = selected
-                  ? { account_number: selected.acct_no, bank_name: selected.bank_name, account_name: selected.name }
-                  : paidInto;
-                return (
-                  <>
-                    <div>
-                      <div className="text-[11px] text-slate-600">Account No.</div>
-                      <div className="font-bold text-slate-900">{display.account_number || '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-slate-600">Bank</div>
-                      <div className="font-bold uppercase text-slate-900">{display.bank_name || '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-slate-600">Account Name</div>
-                      <div className="font-bold uppercase text-slate-900">{display.account_name || '—'}</div>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-
-          {/* Amount */}
-          <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-100 px-4 py-3">
-            <span className="text-sm font-semibold text-emerald-900">Expected Amount</span>
-            <span className="text-lg font-bold text-emerald-950">{totalAmount}</span>
           </div>
 
           {/* PFI Assignment */}
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-700">Assign to PFI</label>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-slate-700 shrink-0">Assign to PFI</label>
             <select
               aria-label="Select PFI"
               required
-              className="w-full h-10 px-3 rounded-md border border-slate-300 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="flex-1 h-9 px-3 rounded-md border border-slate-300 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               value={selectedPfiId === '' ? '' : String(selectedPfiId)}
               onChange={(e) => onChangePfiId(e.target.value ? Number(e.target.value) : '')}
             >
@@ -360,14 +316,101 @@ function VerifyConfirmModalBody({
                 <option key={opt.id} value={String(opt.id)}>{opt.label}</option>
               ))}
             </select>
-            {!canConfirm ? (
-              <p className="mt-1 text-xs text-amber-700">Select a PFI to continue.</p>
-            ) : (
-              <p className="mt-1 text-xs text-slate-600">PFI will be assigned when payment is confirmed.</p>
-            )}
           </div>
 
-          {/* Amount entry intentionally removed to keep this dialog simple and focused. */}
+          {/* Split payments — record each installment received for this order */}
+          <div className="space-y-2.5">
+            <label className="text-xs font-semibold text-slate-700">Payments Received</label>
+
+            {lines.map((line, idx) => (
+              <div key={idx} className="rounded-lg border border-slate-300 bg-slate-50 p-3 space-y-2.5">
+                {lines.length > 1 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Payment {idx + 1}</span>
+                    <button type="button" title="Remove this payment" onClick={() => removeLine(idx)} className="text-slate-400 hover:text-red-600">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Amount (₦)</label>
+                    <CommaInput
+                      value={line.amount}
+                      onValueChange={(v) => updateLine(idx, { amount: v })}
+                      placeholder="e.g. 5,000,000"
+                      className="h-9 text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Date</label>
+                    <Input
+                      type="date"
+                      value={line.paymentDate}
+                      onChange={(e) => updateLine(idx, { paymentDate: e.target.value })}
+                      className="h-9 text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Payer's Name</label>
+                    <Input
+                      value={line.payerName}
+                      onChange={(e) => updateLine(idx, { payerName: e.target.value })}
+                      placeholder="Who sent the money"
+                      className="h-9 text-sm bg-white"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Bank Account</label>
+                    <select
+                      aria-label="Bank account"
+                      className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      value={line.bankAccountId}
+                      onChange={(e) => updateLine(idx, { bankAccountId: e.target.value })}
+                    >
+                      <option value="">{'— Select —'}</option>
+                      {bankAccounts.map((b) => (
+                        <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Transaction Reference</label>
+                    <Input
+                      value={line.transactionReference}
+                      onChange={(e) => updateLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
+                      placeholder="Alphanumeric, unique"
+                      className="h-9 text-sm font-mono bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addLine}
+              className="w-full h-10 gap-2 border-2 border-dashed border-blue-300 text-blue-700 hover:bg-blue-50 hover:border-blue-400 hover:text-blue-800"
+            >
+              <Plus size={16} />
+              Add Another Payment
+            </Button>
+          </div>
+
+          {/* Live running total vs. expected sales value */}
+          <div className={`flex items-center justify-between rounded-lg border px-3.5 py-2.5 ${
+            balance === 0 ? 'border-emerald-300 bg-emerald-100' : balance > 0 ? 'border-amber-300 bg-amber-100' : 'border-blue-300 bg-blue-100'
+          }`}>
+            <span className="text-xs font-semibold text-slate-700">
+              ₦{totalEntered.toLocaleString()} <span className="text-slate-400">of</span> ₦{expectedAmountValue.toLocaleString()}
+            </span>
+            <span className={`text-xs font-bold ${balance === 0 ? 'text-emerald-800' : balance > 0 ? 'text-amber-800' : 'text-blue-800'}`}>
+              {balance === 0 ? 'Fully Matched ✓' : balance > 0 ? `₦${balance.toLocaleString()} remaining` : `₦${Math.abs(balance).toLocaleString()} overpaid`}
+            </span>
+          </div>
 
           {/* File attachments */}
           {/* <div>
@@ -416,12 +459,20 @@ function VerifyConfirmModalBody({
             className="gap-1.5 bg-green-700 hover:bg-green-900"
             disabled={!canConfirm}
             onClick={() => {
-              const prefix = Number.isFinite(expectedAmountValue) && expectedAmountValue > 0 ? `[PAID:${expectedAmountValue}] ` : '';
+              const prefix = totalEntered > 0 ? `[PAID:${totalEntered}] ` : '';
+              const paymentLines: PaymentLineInput[] = lines.map((l) => ({
+                amount: parseFloat(l.amount || '0'),
+                payerName: l.payerName.trim(),
+                transactionReference: l.transactionReference.trim(),
+                bankAccountId: l.bankAccountId ? Number(l.bankAccountId) : undefined,
+                paymentDate: l.paymentDate || todayStr(),
+              }));
               onConfirm(
                 prefix.trim(),
                 attachedFiles,
                 typeof selectedPfiId === 'number' ? selectedPfiId : undefined,
-                typeof selectedBankAccountId === 'number' ? selectedBankAccountId : undefined,
+                paymentLines[0]?.bankAccountId,
+                paymentLines,
               );
             }}
           >
@@ -650,7 +701,6 @@ export default function PaymentVerification() {
   const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentOrder | null>(null);
   const [selectedPfiId, setSelectedPfiId] = useState<number | ''>('');
-  const [selectedBankAccountId, setSelectedBankAccountId] = useState<number | ''>('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const { toast } = useToast();
 
@@ -837,14 +887,33 @@ export default function PaymentVerification() {
   }, [allPayments, searchQuery, filterType, locationFilter, productFilter, dateRange]);
 
   const updatePaymentMutation = useMutation({
-    mutationFn: async (args: { orderId: number; narration: string; files: File[]; pfiId?: number; bankAccount?: BankAccount }) => {
+    mutationFn: async (args: {
+      orderId: number;
+      narration: string;
+      files: File[];
+      pfiId?: number;
+      bankAccount?: BankAccount;
+      paymentLines?: PaymentLineInput[];
+    }) => {
       setUpdatingPaymentId(args.orderId);
       try {
+        // Record every split-payment entry FIRST — if any transaction reference
+        // turns out to be a duplicate, this throws and the order is never touched.
+        for (const line of args.paymentLines || []) {
+          await apiClient.admin.addOrderPaymentRecord(args.orderId, {
+            amount: line.amount,
+            payment_date: line.paymentDate || undefined,
+            payer_name: line.payerName || undefined,
+            transaction_reference: line.transactionReference || undefined,
+            bank_account: line.bankAccountId,
+          });
+        }
         await apiClient.admin.confirmPayment(args.orderId, {
           narration: args.narration?.trim() || undefined,
           pfi_id: args.pfiId,
         });
-        // If the admin picked a different (correct) bank account, save it on the order.
+        // Snapshot the (first) bank account used onto the order, for display
+        // in the main orders table.
         if (args.bankAccount) {
           await apiClient.admin.patchAdminOrder(args.orderId, {
             paid_to_bank_name: args.bankAccount.bank_name,
@@ -940,13 +1009,6 @@ export default function PaymentVerification() {
 
     setSelectedPayment(payment);
     setSelectedPfiId(payment.pfi_id && Number.isFinite(Number(payment.pfi_id)) ? Number(payment.pfi_id) : '');
-
-    const paidInto = extractPaidInto(payment);
-    const matchedAccount = bankAccounts.find(
-      (b) => b.acct_no && paidInto.account_number && b.acct_no === paidInto.account_number
-    );
-    setSelectedBankAccountId(matchedAccount ? matchedAccount.id : '');
-
     setIsConfirmModalOpen(true);
   };
 
@@ -955,13 +1017,29 @@ export default function PaymentVerification() {
     setIsCancelModalOpen(true);
   };
 
-  const handleConfirm = async (narration: string, files: File[], pfiId?: number, bankAccountId?: number) => {
+  const handleConfirm = async (
+    narration: string,
+    files: File[],
+    pfiId?: number,
+    bankAccountId?: number,
+    paymentLines?: PaymentLineInput[],
+  ) => {
     if (!selectedPayment?.order_id) return;
 
     if (!Number.isFinite(Number(pfiId))) {
       toast({
         title: 'PFI required',
         description: 'Select an active PFI before confirming payment.',
+        variant: 'destructive',
+        duration: 3000,
+      });
+      return;
+    }
+
+    if (!paymentLines || paymentLines.length === 0 || paymentLines.some((l) => !l.transactionReference)) {
+      toast({
+        title: 'Transaction reference required',
+        description: 'Enter a transaction reference for every payment before confirming.',
         variant: 'destructive',
         duration: 3000,
       });
@@ -998,7 +1076,7 @@ export default function PaymentVerification() {
     const bankAccount = typeof bankAccountId === 'number' ? bankAccounts.find((b) => b.id === bankAccountId) : undefined;
 
     try {
-      await updatePaymentMutation.mutateAsync({ orderId, narration, files, pfiId: Number(pfiId), bankAccount });
+      await updatePaymentMutation.mutateAsync({ orderId, narration, files, pfiId: Number(pfiId), bankAccount, paymentLines });
     } finally {
       setIsConfirmModalOpen(false);
       setSelectedPayment(null);
@@ -1425,7 +1503,6 @@ export default function PaymentVerification() {
                 setIsConfirmModalOpen(false);
                 setSelectedPayment(null);
                 setSelectedPfiId('');
-                setSelectedBankAccountId('');
               }}
               onConfirm={handleConfirm}
               payment={selectedPayment}
@@ -1433,8 +1510,6 @@ export default function PaymentVerification() {
               pfiOptions={pfiOptions}
               selectedPfiId={selectedPfiId}
               onChangePfiId={setSelectedPfiId}
-              selectedBankAccountId={selectedBankAccountId}
-              onChangeBankAccountId={setSelectedBankAccountId}
             />
 
             {/* Cancel/Delete confirmation modal */}
