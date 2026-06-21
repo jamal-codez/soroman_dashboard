@@ -255,11 +255,13 @@ function VerifyConfirmModalBody({
   const balance = expectedAmountValue - totalEntered;
 
   const isPending = String(payment.status || '').toLowerCase() === 'pending';
-  const referenceList = lines.map((l) => l.transactionReference.trim().toLowerCase());
+  // Transaction reference is optional — if provided it must be alphanumeric and unique across lines.
+  const referenceList = lines.map((l) => l.transactionReference.trim().toLowerCase()).filter(Boolean);
   const referencesAreUnique = new Set(referenceList).size === referenceList.length;
   const linesValid = lines.length > 0 && lines.every((l) => {
     const amt = parseFloat(l.amount || '0');
-    const refOk = l.transactionReference.trim().length > 0 && /^[A-Za-z0-9]+$/.test(l.transactionReference.trim());
+    const ref = l.transactionReference.trim();
+    const refOk = ref.length === 0 || /^[A-Za-z0-9]+$/.test(ref);
     return amt > 0 && refOk;
   });
   const canConfirm = isPending
@@ -332,7 +334,7 @@ function VerifyConfirmModalBody({
                     </button>
                   </div>
                 )}
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
                     <label className="mb-1 block text-[11px] font-medium text-slate-600">Amount (₦)</label>
                     <CommaInput
@@ -360,8 +362,17 @@ function VerifyConfirmModalBody({
                       className="h-9 text-sm bg-white"
                     />
                   </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Transaction Reference</label>
+                    <Input
+                      value={line.transactionReference}
+                      onChange={(e) => updateLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
+                      // placeholder="Alphanumeric, unique if provided"
+                      className="h-9 text-sm font-mono bg-white"
+                    />
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="">
                   <div>
                     <label className="mb-1 block text-[11px] font-medium text-slate-600">Bank Account</label>
                     <select
@@ -376,15 +387,6 @@ function VerifyConfirmModalBody({
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Transaction Reference</label>
-                    <Input
-                      value={line.transactionReference}
-                      onChange={(e) => updateLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
-                      placeholder="Alphanumeric, unique"
-                      className="h-9 text-sm font-mono bg-white"
-                    />
-                  </div>
                 </div>
               </div>
             ))}
@@ -393,7 +395,7 @@ function VerifyConfirmModalBody({
               type="button"
               variant="outline"
               onClick={addLine}
-              className="w-full h-10 gap-2 border-2 border-dashed border-blue-300 text-blue-700 hover:bg-blue-50 hover:border-blue-400 hover:text-blue-800"
+              className="w-full h-10 gap-2 border-2 border-dashed border-blue-300 text-blue-700 text-xs uppercase hover:bg-blue-50 hover:border-blue-400 hover:text-blue-800"
             >
               <Plus size={16} />
               Add Another Payment
@@ -408,7 +410,7 @@ function VerifyConfirmModalBody({
               ₦{totalEntered.toLocaleString()} <span className="text-slate-400">of</span> ₦{expectedAmountValue.toLocaleString()}
             </span>
             <span className={`text-xs font-bold ${balance === 0 ? 'text-emerald-800' : balance > 0 ? 'text-amber-800' : 'text-blue-800'}`}>
-              {balance === 0 ? 'Fully Matched ✓' : balance > 0 ? `₦${balance.toLocaleString()} remaining` : `₦${Math.abs(balance).toLocaleString()} overpaid`}
+              {balance === 0 ? 'Complete ✓' : balance > 0 ? `₦${balance.toLocaleString()} remaining` : `₦${Math.abs(balance).toLocaleString()} overpaid`}
             </span>
           </div>
 
@@ -1036,10 +1038,10 @@ export default function PaymentVerification() {
       return;
     }
 
-    if (!paymentLines || paymentLines.length === 0 || paymentLines.some((l) => !l.transactionReference)) {
+    if (!paymentLines || paymentLines.length === 0) {
       toast({
-        title: 'Transaction reference required',
-        description: 'Enter a transaction reference for every payment before confirming.',
+        title: 'Payment required',
+        description: 'Add at least one payment before confirming.',
         variant: 'destructive',
         duration: 3000,
       });
