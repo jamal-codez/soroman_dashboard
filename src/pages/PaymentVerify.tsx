@@ -152,6 +152,7 @@ function VerifyConfirmModal({
   pfiOptions,
   selectedPfiId,
   onChangePfiId,
+  isSubmitting,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -167,6 +168,7 @@ function VerifyConfirmModal({
   pfiOptions: Array<{ id: number; label: string }>;
   selectedPfiId: number | '';
   onChangePfiId: (value: number | '') => void;
+  isSubmitting: boolean;
 }) {
   if (!payment) return null;
 
@@ -180,6 +182,7 @@ function VerifyConfirmModal({
       pfiOptions={pfiOptions}
       selectedPfiId={selectedPfiId}
       onChangePfiId={onChangePfiId}
+      isSubmitting={isSubmitting}
     />
   );
 }
@@ -201,6 +204,7 @@ function VerifyConfirmModalBody({
   pfiOptions,
   selectedPfiId,
   onChangePfiId,
+  isSubmitting,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -216,6 +220,7 @@ function VerifyConfirmModalBody({
   pfiOptions: Array<{ id: number; label: string }>;
   selectedPfiId: number | '';
   onChangePfiId: (value: number | '') => void;
+  isSubmitting: boolean;
 }) {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [lines, setLines] = useState<PaymentLine[]>([]);
@@ -267,7 +272,8 @@ function VerifyConfirmModalBody({
   const canConfirm = isPending
     && typeof selectedPfiId === 'number'
     && linesValid
-    && referencesAreUnique;
+    && referencesAreUnique
+    && !isSubmitting;
   const createdDate = new Date(payment.created_at);
   const companyName = extractCompanyName(payment);
   const { product, qty, unitPrice, unitLabel } = extractProductInfo(payment);
@@ -461,6 +467,10 @@ function VerifyConfirmModalBody({
             className="gap-1.5 bg-green-700 hover:bg-green-900"
             disabled={!canConfirm}
             onClick={() => {
+              // Guard against double-clicks firing this twice before the
+              // parent's mutation flips isSubmitting/disables this button —
+              // each extra click otherwise creates duplicate payment records.
+              if (isSubmitting) return;
               const prefix = totalEntered > 0 ? `[PAID:${totalEntered}] ` : '';
               const paymentLines: PaymentLineInput[] = lines.map((l) => ({
                 amount: parseFloat(l.amount || '0'),
@@ -479,7 +489,7 @@ function VerifyConfirmModalBody({
             }}
           >
             <CheckCheck size={16} />
-            Confirm Payment
+            {isSubmitting ? 'Confirming…' : 'Confirm Payment'}
           </Button>
         </div>
       </DialogContent>
@@ -1027,6 +1037,9 @@ export default function PaymentVerification() {
     paymentLines?: PaymentLineInput[],
   ) => {
     if (!selectedPayment?.order_id) return;
+    // Defensive re-entrancy guard: never let a second confirm run while one
+    // is still in flight — that's what created duplicate payment records.
+    if (updatePaymentMutation.isPending) return;
 
     if (!Number.isFinite(Number(pfiId))) {
       toast({
@@ -1513,6 +1526,7 @@ export default function PaymentVerification() {
               pfiOptions={pfiOptions}
               selectedPfiId={selectedPfiId}
               onChangePfiId={setSelectedPfiId}
+              isSubmitting={updatePaymentMutation.isPending}
             />
 
             {/* Cancel/Delete confirmation modal */}
