@@ -1498,8 +1498,21 @@ export const apiClient = {
           ticket_status: string;
           created_at: string;
           updated_at: string;
+          exited_at: string | null;
+          exited_by: number | null;
+          exited_by_name: string | null;
         }>
       >;
+    },
+
+    /** POST /api/admin/truck-tickets/<id>/exit/ — mark a single truck/ticket as exited */
+    exitTruckTicket: async (ticketId: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/exit/`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{ success: boolean; already_exited?: boolean }>;
     },
 
     /**

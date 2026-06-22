@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
 import { MobileNav } from "@/components/MobileNav";
@@ -190,14 +190,21 @@ function getLoadingDateTime(o: OrderLike) {
   return raw ? formatLoadingDateTime(raw) : "";
 }
 
-const isReleased = (status: unknown) => normLower(status) === "released";
+// Exit is permitted once an order has been released, including after a truck
+// ticket has been generated (which automatically advances status to "loaded").
+const isExitEligible = (status: unknown) => {
+  const s = normLower(status);
+  return s === "released" || s === "loaded";
+};
 
 export default function SecurityPage() {
   const readOnly = isCurrentUserReadOnly();
   const [query, setQuery] = useState("");
   const [exiting, setExiting] = useState(false);
   const [exitedOrderId, setExitedOrderId] = useState<string | number | null>(null);
+  const [exitingTicketId, setExitingTicketId] = useState<number | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // We fetch all orders once (like other pages do) and filter client-side.
   const { data, isLoading, isError, error, refetch } = useQuery<PagedResponse<OrderLike>>({
@@ -219,9 +226,20 @@ export default function SecurityPage() {
     const list = data?.results || [];
     const found = list.find((o) => String(o.id) === q);
     if (!found) return null;
-    if (!isReleased(found.status)) return "NOT_RELEASED" as const;
+    if (!isExitEligible(found.status)) return "NOT_RELEASED" as const;
     return found;
   }, [data?.results, query]);
+
+  const matchedOrderId = match && match !== "NOT_RELEASED" ? match.id : null;
+
+  // An order can have multiple trucks/tickets — each one exits independently.
+  const ticketsQuery = useQuery({
+    queryKey: ["order-truck-tickets", matchedOrderId],
+    queryFn: () => apiClient.admin.getOrderTickets(Number(matchedOrderId)),
+    enabled: matchedOrderId != null,
+    staleTime: 10_000,
+  });
+  const tickets = ticketsQuery.data ?? [];
 
   // Replace localStorage logic with backend call for truck exit
   async function confirmTruckExit(orderId: string | number) {
@@ -239,6 +257,24 @@ export default function SecurityPage() {
       });
     } finally {
       setExiting(false);
+    }
+  }
+
+  async function confirmTicketExit(ticketId: number) {
+    setExitingTicketId(ticketId);
+    try {
+      await apiClient.admin.exitTruckTicket(ticketId);
+      await queryClient.invalidateQueries({ queryKey: ["order-truck-tickets", matchedOrderId] });
+      await refetch(); // Picks up the order-level truck_exited rollup once every ticket has exited
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({
+        title: 'Unable to confirm truck exit',
+        description: msg,
+        variant: 'destructive',
+      });
+    } finally {
+      setExitingTicketId(null);
     }
   }
 
@@ -301,29 +337,84 @@ export default function SecurityPage() {
                         <Detail label="Product" value={getProductName(match)} />
                         <Detail label="Quantity" value={getQuantity(match)} />
                         {/* <Detail label="NMDPRA Number" value={getDprOrNmdpra(match)} /> */}
-                        <Detail label="Driver's Name" value={getDriverName(match)} />
-                        <Detail label="Truck Number" value={getTruckNumber(match)} />
+                        {tickets.length <= 1 && (
+                          <>
+                            <Detail label="Driver's Name" value={getDriverName(match)} />
+                            <Detail label="Truck Number" value={getTruckNumber(match)} />
+                          </>
+                        )}
                         <Detail label="Loading Date & Time" value={getLoadingDateTime(match)} />
                       </div>
-                      <div className="mt-6 flex flex-col items-start">
-                        {(match.truck_exited || exitedOrderId === match.id) ? (
-                          <div className="p-4 rounded bg-green-800 text-white flex items-center gap-2">
-                            <TruckIcon className="w-4 h-4" />
-                            This truck has been exited!
+
+                      {tickets.length > 1 ? (
+                        // Multi-truck order — each truck/ticket clears security independently.
+                        <div className="mt-6 space-y-2.5">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Trucks ({tickets.length})
                           </div>
-                        ) : (
-                          !readOnly && (
-                          <button
-                            className="px-6 py-4 rounded bg-red-700 text-white hover:bg-red-800 mt-2 flex items-center gap-2 disabled:opacity-60"
-                            onClick={() => confirmTruckExit(match.id)}
-                            disabled={exiting}
-                          >
-                            <TruckIcon className="w-4 h-4" />
-                            {exiting ? "Exiting..." : "Confirm Truck Exit"}
-                          </button>
-                          )
-                        )}
-                      </div>
+                          {ticketsQuery.isLoading ? (
+                            <div className="text-sm text-slate-500">Loading trucks…</div>
+                          ) : (
+                            tickets.map((t) => {
+                              const exited = !!t.exited_at;
+                              return (
+                                <div
+                                  key={t.id}
+                                  className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3"
+                                >
+                                  <div className="text-sm">
+                                    <div className="font-semibold text-slate-900">
+                                      Truck {t.truck_number}{t.plate_number ? ` — ${t.plate_number}` : ''}
+                                    </div>
+                                    <div className="text-slate-500">
+                                      {t.driver_name || '—'}{t.driver_phone ? ` · ${t.driver_phone}` : ''} · {Number(t.quantity_litres).toLocaleString()} L
+                                    </div>
+                                  </div>
+                                  {exited ? (
+                                    <div className="shrink-0 px-3 py-1.5 rounded bg-green-800 text-white text-xs font-medium flex items-center gap-1.5">
+                                      <TruckIcon className="w-3.5 h-3.5" />
+                                      Exited{t.exited_by_name ? ` · ${t.exited_by_name}` : ''}
+                                    </div>
+                                  ) : (
+                                    !readOnly && (
+                                      <button
+                                        type="button"
+                                        className="shrink-0 px-3 py-1.5 rounded bg-red-700 text-white text-xs font-medium hover:bg-red-800 flex items-center gap-1.5 disabled:opacity-60"
+                                        onClick={() => confirmTicketExit(t.id)}
+                                        disabled={exitingTicketId === t.id}
+                                      >
+                                        <TruckIcon className="w-3.5 h-3.5" />
+                                        {exitingTicketId === t.id ? "Exiting…" : "Confirm Exit"}
+                                      </button>
+                                    )
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      ) : (
+                        <div className="mt-6 flex flex-col items-start">
+                          {(match.truck_exited || exitedOrderId === match.id || tickets[0]?.exited_at) ? (
+                            <div className="p-4 rounded bg-green-800 text-white flex items-center gap-2">
+                              <TruckIcon className="w-4 h-4" />
+                              This truck has been exited!
+                            </div>
+                          ) : (
+                            !readOnly && (
+                            <button
+                              type="button"
+                              className="px-6 py-4 rounded bg-red-700 text-white hover:bg-red-800 mt-2 flex items-center gap-2 disabled:opacity-60"
+                              onClick={() => tickets[0] ? confirmTicketExit(tickets[0].id) : confirmTruckExit(match.id)}
+                              disabled={exiting || exitingTicketId === tickets[0]?.id}
+                            >
+                              <TruckIcon className="w-4 h-4" />
+                              {(exiting || exitingTicketId === tickets[0]?.id) ? "Exiting..." : "Confirm Truck Exit"}
+                            </button>
+                            )
+                          )}
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
