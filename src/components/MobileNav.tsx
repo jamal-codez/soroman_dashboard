@@ -72,7 +72,7 @@ const navCategories: NavCategory[] = [
       { title: "Released Report", icon: ClipboardCheck, path: "/released-orders", allowedRoles: [0, 1, 4, 7, 8] },
       { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 4, 7, 8] },
       { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 2, 7, 8] },
-      { title: "My Daily Report", icon: ClipboardList, path: "/staff-daily-report", allowedRoles: [0, 1, 10] },
+      { title: "My Daily Report", icon: ClipboardList, path: "/staff-daily-report", allowedRoles: [0, 1, 7, 10] },
 
       // { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
       // { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0] },
@@ -113,8 +113,8 @@ const navCategories: NavCategory[] = [
     category: 'Admin',
     items: [
       { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0] },
-      { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 8] },
-      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0, 1, 2, 8] },
+      { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 2, 8] },
+      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0, 1, 2, 7, 8] },
       { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0] },
       { title: "Staff Actions Log", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0, 1, 8] },
       { title: "Staff Directory", icon: Users2Icon, path: "/users-management", allowedRoles: [0, 1, 8] },
@@ -131,6 +131,7 @@ const navCategories: NavCategory[] = [
     category: 'Security',
     items: [
       { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 5, 8] },
+      { title: "Security Report", icon: FileSearch2, path: "/security-report", allowedRoles: [0, 1, 5, 8] },
     ],
   },
   {

@@ -33,6 +33,7 @@ const Report = lazy(() => import("./pages/Report"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const Agents = lazy(() => import("./pages/Agents"));
 const SecurityPage = lazy(() => import("./pages/Security"));
+const SecurityReportPage = lazy(() => import("./pages/SecurityReport"));
 const OrderAudit = lazy(() => import("./pages/OrderAudit"));
 const PFIPage = lazy(() => import("./pages/PFI"));
 const OrdersPFI = lazy(() => import("./pages/OrdersPFI"));
@@ -147,6 +148,7 @@ const App = () => (
               <Route path="/report" element={<Protected><Report /></Protected>} />
               <Route path="/pricing" element={<Protected><Pricing /></Protected>} />
               <Route path="/security" element={<Protected><SecurityPage /></Protected>} />
+              <Route path="/security-report" element={<Protected><SecurityReportPage /></Protected>} />
 
               {/* All authenticated routes */}
               <Route path="/pfi" element={<Protected><PFIPage /></Protected>} />

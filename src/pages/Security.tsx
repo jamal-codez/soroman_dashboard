@@ -6,11 +6,26 @@ import { MobileNav } from "@/components/MobileNav";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { apiClient, fetchAllPages } from "@/api/client";
 import { isCurrentUserReadOnly } from '@/roles';
 import { Search, CheckCircle, CheckIcon, TruckIcon, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+
+// Local "now" formatted for a <input type="datetime-local"> default value.
+function nowForDateTimeInput(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 type OrderLike = {
   id: number | string;
@@ -197,14 +212,32 @@ const isExitEligible = (status: unknown) => {
   return s === "released" || s === "loaded";
 };
 
+type ExitTarget =
+  | { kind: "ticket"; ticketId: number; label: string }
+  | { kind: "order"; orderId: string | number; label: string };
+
+type ExitFormState = { exitTime: string; gantry: string; loaderName: string };
+
+const EMPTY_EXIT_FORM: ExitFormState = { exitTime: "", gantry: "", loaderName: "" };
+
 export default function SecurityPage() {
   const readOnly = isCurrentUserReadOnly();
   const [query, setQuery] = useState("");
   const [exiting, setExiting] = useState(false);
   const [exitedOrderId, setExitedOrderId] = useState<string | number | null>(null);
   const [exitingTicketId, setExitingTicketId] = useState<number | null>(null);
+  const [exitTarget, setExitTarget] = useState<ExitTarget | null>(null);
+  const [exitForm, setExitForm] = useState<ExitFormState>(EMPTY_EXIT_FORM);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  function openExitDialog(target: ExitTarget) {
+    setExitForm({ exitTime: nowForDateTimeInput(), gantry: "", loaderName: "" });
+    setExitTarget(target);
+  }
+
+  const exitFormValid =
+    exitForm.exitTime.trim() !== "" && exitForm.gantry.trim() !== "" && exitForm.loaderName.trim() !== "";
 
   // We fetch all orders once (like other pages do) and filter client-side.
   const { data, isLoading, isError, error, refetch } = useQuery<PagedResponse<OrderLike>>({
@@ -241,11 +274,14 @@ export default function SecurityPage() {
   });
   const tickets = ticketsQuery.data ?? [];
 
-  // Replace localStorage logic with backend call for truck exit
-  async function confirmTruckExit(orderId: string | number) {
+  async function confirmTruckExit(orderId: string | number, details: ExitFormState) {
     setExiting(true);
     try {
-      await apiClient.admin.confirmTruckExit(orderId);
+      await apiClient.admin.confirmTruckExit(orderId, {
+        exit_time: new Date(details.exitTime).toISOString(),
+        gantry: details.gantry.trim(),
+        loader_name: details.loaderName.trim(),
+      });
       setExitedOrderId(orderId);
       await refetch(); // Refresh orders to get updated truck_exited status
     } catch (e: unknown) {
@@ -260,10 +296,14 @@ export default function SecurityPage() {
     }
   }
 
-  async function confirmTicketExit(ticketId: number) {
+  async function confirmTicketExit(ticketId: number, details: ExitFormState) {
     setExitingTicketId(ticketId);
     try {
-      await apiClient.admin.exitTruckTicket(ticketId);
+      await apiClient.admin.exitTruckTicket(ticketId, {
+        exit_time: new Date(details.exitTime).toISOString(),
+        gantry: details.gantry.trim(),
+        loader_name: details.loaderName.trim(),
+      });
       await queryClient.invalidateQueries({ queryKey: ["order-truck-tickets", matchedOrderId] });
       await refetch(); // Picks up the order-level truck_exited rollup once every ticket has exited
     } catch (e: unknown) {
@@ -276,6 +316,16 @@ export default function SecurityPage() {
     } finally {
       setExitingTicketId(null);
     }
+  }
+
+  async function handleExitDialogSubmit() {
+    if (!exitTarget || !exitFormValid) return;
+    if (exitTarget.kind === "ticket") {
+      await confirmTicketExit(exitTarget.ticketId, exitForm);
+    } else {
+      await confirmTruckExit(exitTarget.orderId, exitForm);
+    }
+    setExitTarget(null);
   }
 
   return (
@@ -371,16 +421,23 @@ export default function SecurityPage() {
                                     </div>
                                   </div>
                                   {exited ? (
-                                    <div className="shrink-0 px-3 py-1.5 rounded bg-green-800 text-white text-xs font-medium flex items-center gap-1.5">
-                                      <TruckIcon className="w-3.5 h-3.5" />
-                                      Exited{t.exited_by_name ? ` · ${t.exited_by_name}` : ''}
+                                    <div className="shrink-0 px-3 py-1.5 rounded bg-green-800 text-white text-xs font-medium flex flex-col items-end gap-0.5">
+                                      <span className="flex items-center gap-1.5">
+                                        <TruckIcon className="w-3.5 h-3.5" />
+                                        Exited{t.exited_by_name ? ` · ${t.exited_by_name}` : ''}
+                                      </span>
+                                      {(t.gantry || t.loader_name) && (
+                                        <span className="text-[11px] font-normal text-green-100">
+                                          {t.gantry ? `Arm ${t.gantry}` : ''}{t.gantry && t.loader_name ? ' · ' : ''}{t.loader_name || ''}
+                                        </span>
+                                      )}
                                     </div>
                                   ) : (
                                     !readOnly && (
                                       <button
                                         type="button"
                                         className="shrink-0 px-3 py-1.5 rounded bg-red-700 text-white text-xs font-medium hover:bg-red-800 flex items-center gap-1.5 disabled:opacity-60"
-                                        onClick={() => confirmTicketExit(t.id)}
+                                        onClick={() => openExitDialog({ kind: "ticket", ticketId: t.id, label: `Truck ${t.truck_number}${t.plate_number ? ` — ${t.plate_number}` : ''}` })}
                                         disabled={exitingTicketId === t.id}
                                       >
                                         <TruckIcon className="w-3.5 h-3.5" />
@@ -405,7 +462,11 @@ export default function SecurityPage() {
                             <button
                               type="button"
                               className="px-6 py-4 rounded bg-red-700 text-white hover:bg-red-800 mt-2 flex items-center gap-2 disabled:opacity-60"
-                              onClick={() => tickets[0] ? confirmTicketExit(tickets[0].id) : confirmTruckExit(match.id)}
+                              onClick={() =>
+                                tickets[0]
+                                  ? openExitDialog({ kind: "ticket", ticketId: tickets[0].id, label: `Order #${match.id}` })
+                                  : openExitDialog({ kind: "order", orderId: match.id, label: `Order #${match.id}` })
+                              }
                               disabled={exiting || exitingTicketId === tickets[0]?.id}
                             >
                               <TruckIcon className="w-4 h-4" />
@@ -423,6 +484,69 @@ export default function SecurityPage() {
           </div>
         </div>
       </div>
+
+      <Dialog open={!!exitTarget} onOpenChange={(open) => { if (!open) setExitTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Exit{exitTarget ? ` — ${exitTarget.label}` : ''}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="exit-time">Time of Exit</Label>
+              <Input
+                id="exit-time"
+                type="datetime-local"
+                value={exitForm.exitTime}
+                onChange={(e) => setExitForm((f) => ({ ...f, exitTime: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="exit-gantry">Gantry</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500 shrink-0">Arm</span>
+                <Input
+                  id="exit-gantry"
+                  inputMode="numeric"
+                  placeholder="e.g. 3"
+                  value={exitForm.gantry}
+                  onChange={(e) => setExitForm((f) => ({ ...f, gantry: e.target.value.replace(/[^0-9A-Za-z]/g, '') }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="exit-loader">Loader's Name</Label>
+              <Input
+                id="exit-loader"
+                placeholder="Enter loader's name"
+                value={exitForm.loaderName}
+                onChange={(e) => setExitForm((f) => ({ ...f, loaderName: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100"
+              onClick={() => setExitTarget(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-md bg-red-700 text-white text-sm font-medium hover:bg-red-800 disabled:opacity-60 flex items-center gap-2"
+              disabled={!exitFormValid || exiting || exitingTicketId != null}
+              onClick={handleExitDialogSubmit}
+            >
+              <TruckIcon className="w-4 h-4" />
+              {exiting || exitingTicketId != null ? "Confirming…" : "Confirm Exit"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

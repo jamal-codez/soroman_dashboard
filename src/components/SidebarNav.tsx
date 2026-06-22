@@ -132,7 +132,7 @@ const navCategories: NavCategory[] = [
     category: 'Admin',
     items: [
       { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0] },
-      { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 8] },
+      { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 2, 8] },
       { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0, 1, 2, 7, 8] },
       { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0] },
       { title: "Staff Actions Log", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0, 1, 8] },
@@ -150,6 +150,7 @@ const navCategories: NavCategory[] = [
     category: 'Security',
     items: [
       { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 5, 8] },
+      { title: "Security Report", icon: FileSearch2, path: "/security-report", allowedRoles: [0, 1, 5, 8] },
     ],
   },
   {

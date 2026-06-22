@@ -545,7 +545,7 @@ const Settings = () => {
                     <TableHead className="min-w-[160px]">PFI Scope</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="min-w-[160px]">Password</TableHead>
+                    {/* <TableHead className="min-w-[160px]">Password</TableHead> */}
                     {/* <TableHead className="min-w-[160px]">Last Login</TableHead> */}
                     <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
@@ -604,7 +604,7 @@ const Settings = () => {
                           {!user.suspended ? 'Active' : 'Suspended'}
                         </span>
                       </TableCell>
-                      <TableCell className="px-4">
+                      {/* <TableCell className="px-4">
                         {user.plain_password ? (
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-mono text-slate-700 tracking-wide">
@@ -627,7 +627,7 @@ const Settings = () => {
                         ) : (
                           <span className="text-xs text-slate-400">—</span>
                         )}
-                      </TableCell>
+                      </TableCell> */}
                       {/* <TableCell className="px-4 text-sm text-slate-500 whitespace-nowrap">{formatLastLogin(user.last_login)}</TableCell> */}
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
@@ -748,7 +748,7 @@ const Settings = () => {
               </div>
 
               {/* Location (text label) */}
-              <div className="space-y-1.5">
+              {/* <div className="space-y-1.5">
                 <Label htmlFor="location">Location Label</Label>
                 <Input
                   id="location"
@@ -758,7 +758,7 @@ const Settings = () => {
                   className="h-10"
                 />
                 <p className="text-xs text-slate-400">Display-only label shown in the Location column.</p>
-              </div>
+              </div> */}
 
               {/* Role */}
               <div className="space-y-1.5">

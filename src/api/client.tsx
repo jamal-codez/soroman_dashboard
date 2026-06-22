@@ -446,10 +446,14 @@ export const apiClient = {
       return response.json();
     },
 
-    confirmTruckExit: async (orderId: string | number) => {
+    confirmTruckExit: async (
+      orderId: string | number,
+      details: { exit_time: string; gantry: string; loader_name: string },
+    ) => {
       const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/exit-truck/`, {
         method: 'POST',
         headers: getHeaders(),
+        body: JSON.stringify(details),
       });
       if (!response.ok) {
         const msg = await safeReadError(response);
@@ -1501,18 +1505,104 @@ export const apiClient = {
           exited_at: string | null;
           exited_by: number | null;
           exited_by_name: string | null;
+          gantry: string | null;
+          loader_name: string | null;
         }>
       >;
     },
 
     /** POST /api/admin/truck-tickets/<id>/exit/ — mark a single truck/ticket as exited */
-    exitTruckTicket: async (ticketId: number) => {
+    exitTruckTicket: async (
+      ticketId: number,
+      details: { exit_time: string; gantry: string; loader_name: string },
+    ) => {
       const response = await safeFetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/exit/`, {
         method: 'POST',
         headers: getHeaders(),
+        body: JSON.stringify(details),
       });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json() as Promise<{ success: boolean; already_exited?: boolean }>;
+    },
+
+    // ── Security Exit Report ─────────────────────────────────────────────
+
+    /** GET /api/admin/security/filter-options/ — PFIs/locations scoped to the current user's assigned access */
+    getSecurityFilterOptions: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/security/filter-options/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        pfis: Array<{ id: number; pfi_number: string }>;
+        locations: Array<{ id: number; name: string }>;
+      }>;
+    },
+
+    /** GET /api/admin/security/exits-summary/?date_from=&date_to=&pfi=&location= — single range summary, scoped + filtered, with cumulative totals for that scope/filter */
+    getSecurityExitsSummary: async (params: { date_from?: string; date_to?: string; pfi?: string | number; location?: string | number }) => {
+      const url = new URL(`${ADMIN_BASE}/security/exits-summary/`);
+      Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.set(k, String(v)); });
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        date_from: string | null;
+        date_to: string | null;
+        total_trucks: number;
+        quantity_litres: string;
+        cumulative_trucks: number;
+        cumulative_quantity_litres: string;
+      }>;
+    },
+
+    /** GET /api/admin/security/exits-detail/?date_from=&date_to=&pfi=&location= — one row per truck exit */
+    getSecurityExitsDetail: async (params: { date_from?: string; date_to?: string; pfi?: string | number; location?: string | number }) => {
+      const url = new URL(`${ADMIN_BASE}/security/exits-detail/`);
+      Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.set(k, String(v)); });
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        results: Array<{
+          date: string;
+          truck_no: string;
+          order_ref: string;
+          order_id: number;
+          quantity_litres: string;
+          exit_time: string;
+          gantry: string;
+          loader_name: string;
+        }>;
+      }>;
+    },
+
+    downloadSecurityReportExcel: async (params: { date_from?: string; date_to?: string; pfi?: string | number; location?: string | number }) => {
+      const url = new URL(`${ADMIN_BASE}/security/exits-summary/download/`);
+      Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.set(k, String(v)); });
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `Security-Exit-Report-${params.date_from || 'all'}_${params.date_to || 'all'}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    },
+
+    downloadSecurityReportPdf: async (params: { date_from?: string; date_to?: string; pfi?: string | number; location?: string | number }) => {
+      const url = new URL(`${ADMIN_BASE}/security/exits-summary/download-pdf/`);
+      Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.set(k, String(v)); });
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `Security-Exit-Report-${params.date_from || 'all'}_${params.date_to || 'all'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
     },
 
     /**
