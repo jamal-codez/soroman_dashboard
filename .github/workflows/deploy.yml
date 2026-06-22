@@ -2,53 +2,104 @@ name: Deploy Frontend to EC2 on Push
 
 on:
   push:
-    branches: [ master ] 
+    branches: [ master ]
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+
   deploy:
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
-    - name: SSH and Deploy DASHBOARD on EC2
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USER }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        command_timeout: 30m
-        script: |
-          echo "Deploying frontend..."
-          cd soroman_dashboard || exit 1
-          # Fetch latest and force-reset to origin/master (avoids divergent branch errors)
-          git fetch origin master || exit 1
-          git reset --hard origin/master || exit 1
-          git clean -fd
-          npm ci || exit 1
-          npm run build || exit 1
-          sudo rm -rf /var/www/react-dashboard/* || exit 1
-          sudo cp -r dist/* /var/www/react-dashboard/ || exit 1
-          sudo systemctl restart nginx || exit 1
-          echo "Frontend deployed successfully ✅"
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
 
-    - name: Notify on failure
-      if: failure()
-      uses: slackapi/slack-github-action@v1.24.0
-      with:
-        payload: |
-          {
-            "text": "🚨 DASHBOARD deployment failed to ${{ secrets.EC2_HOST }}"
-          }
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Upload dist to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "dist/*"
+          target: "deploy_tmp"
+          strip_components: 1
+          timeout: 60s
 
-    - name: Notify on success
-      if: success()
-      uses: slackapi/slack-github-action@v1.24.0
-      with:
-        payload: |
-          {
-            "text": "✅ DASHBOARD deployment to ${{ secrets.EC2_HOST }} *succeeded*! 🎉"
-          }
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Move files into place and reload nginx
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 5m
+          script: |
+            echo "Deploying frontend..."
+            sudo rm -rf /var/www/react-dashboard/* || exit 1
+            sudo cp -r ~/deploy_tmp/* /var/www/react-dashboard/ || exit 1
+            rm -rf ~/deploy_tmp
+            sudo systemctl reload nginx || exit 1
+            echo "Frontend deployed successfully ✅"
 
+      - name: Notify on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🚨 DASHBOARD deployment failed to ${{ secrets.EC2_HOST }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "✅ DASHBOARD deployment to ${{ secrets.EC2_HOST }} *succeeded*! 🎉"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  notify-build-failure:
+    needs: build
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify build failure
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🚨 DASHBOARD build failed before deployment to ${{ secrets.EC2_HOST }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
