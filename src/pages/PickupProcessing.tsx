@@ -830,15 +830,6 @@ export const PickupProcessing = () => {
       return;
     }
 
-    if (!releaseForm.pfiId) {
-      toast({
-        title: 'No PFI assigned',
-        description: 'This order has no PFI assigned. Assign a PFI to it before generating tickets.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     // ── Validate truck rows ──────────────────────────────────────────────
     for (let i = 0; i < truckRows.length; i++) {
       const r = truckRows[i];
