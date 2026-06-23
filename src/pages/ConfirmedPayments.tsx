@@ -10,7 +10,7 @@ import { CommaInput } from '@/components/ui/comma-input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus, Wallet } from 'lucide-react';
+import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus, Wallet, ArrowLeftRight, CheckCircle2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -445,6 +445,46 @@ export default function ConfirmedPayments() {
     },
   });
 
+  // ── Transfer overpayment to another order ──────────────────────────────
+  const [transferSource, setTransferSource] = useState<PaymentOrder | null>(null);
+  const [transferTargetId, setTransferTargetId] = useState('');
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferNarration, setTransferNarration] = useState('');
+
+  const openTransferDialog = (p: PaymentOrder) => {
+    const overpaid = Math.abs(Math.min(0, getOrderPaymentTotals(p).balance));
+    setTransferSource(p);
+    setTransferTargetId('');
+    setTransferAmount(overpaid ? String(overpaid) : '');
+    setTransferNarration('');
+  };
+
+  const transferOverpaymentMutation = useMutation({
+    mutationFn: async () => {
+      if (!transferSource) throw new Error('No source order selected');
+      const targetId = Number(transferTargetId);
+      if (!Number.isFinite(targetId)) throw new Error('Enter a valid target order ID');
+      const amt = parseFloat(transferAmount || '0');
+      if (!(amt > 0)) throw new Error('Enter an amount greater than zero');
+      return apiClient.admin.transferOverpayment(transferSource.id, {
+        target_order_id: targetId,
+        amount: amt,
+        narration: transferNarration.trim() || undefined,
+      });
+    },
+    onSuccess: async (res) => {
+      await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
+      toast({
+        title: 'Overpayment transferred',
+        description: `₦${parseFloat(res.amount).toLocaleString()} moved to order #${res.target_order_id}. New balances — source: ₦${parseFloat(res.source_balance).toLocaleString()}, target: ₦${parseFloat(res.target_balance).toLocaleString()}.`,
+      });
+      setTransferSource(null);
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Transfer failed', description: err.message, variant: 'destructive' });
+    },
+  });
+
   const PAYMENT_STATUSES = ['Fully Paid', 'Partially Paid', 'Unpaid', 'Overpaid'] as const;
 
   const openEditModal = (p: PaymentOrder) => {
@@ -626,9 +666,27 @@ export default function ConfirmedPayments() {
     return [];
   }, [bankAccountsResponse]);
 
+  // PFI stock summary — scoped server-side to the user's assigned PFIs/locations;
+  // also respects whichever location/PFI filter is currently selected on the page.
+  const pfiStockQuery = useQuery({
+    queryKey: ['pfi-stock-summary', locationFilter, pfiFilter],
+    queryFn: () => apiClient.admin.getPfiStockSummary({
+      location: locationFilter || undefined,
+      pfi: pfiFilter || undefined,
+    }),
+    staleTime: 30_000,
+  });
+  const pfiStockRows = pfiStockQuery.data?.results ?? [];
+
   const isLoading = listQuery.isLoading;
 
   const allPayments = useMemo(() => listQuery.data?.results ?? [], [listQuery.data?.results]);
+
+  const transferTarget = useMemo(() => {
+    const idNum = Number(transferTargetId);
+    if (!transferTargetId || !Number.isFinite(idNum)) return null;
+    return allPayments.find((p) => Number(p.id) === idNum) || null;
+  }, [transferTargetId, allPayments]);
 
   const confirmedPayments = useMemo(() => {
     const s = (v: unknown) => String(v || '').toLowerCase();
@@ -1006,6 +1064,76 @@ export default function ConfirmedPayments() {
     const widths = [6, 12, 12, 12, 18, 12, 12, 12, 16, 20, 14, 12, 14, 14, 18, 18, 16];
     widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
+    // ── PFI Stock Summary — appended below the main report ──────────────
+    r += 2;
+    const pfiAlign: Array<'left' | 'right'> = ['left', 'left', 'left', 'right', 'right', 'right', 'right', 'right'];
+    const pfiHeaders = ['PFI', 'LOCATION', 'PRODUCT', 'INITIAL STOCK', 'SOLD TODAY', 'TOTAL SOLD', 'BALANCE', 'REVENUE'];
+    const pfiBodyRows = pfiStockRows.map((pr) => [
+      pr.pfi_number, pr.location_name || '—', pr.product_name || '—',
+      safeToNumber(pr.initial_stock).toLocaleString(),
+      safeToNumber(pr.sold_today).toLocaleString(),
+      safeToNumber(pr.total_sold).toLocaleString(),
+      safeToNumber(pr.balance).toLocaleString(),
+      `N${safeToNumber(pr.revenue).toLocaleString()}`,
+    ].map((v) => String(v).toUpperCase()));
+    const pfiSum = (key: 'initial_stock' | 'sold_today' | 'total_sold' | 'balance' | 'revenue') =>
+      pfiStockRows.reduce((s, pr) => s + safeToNumber(pr[key]), 0);
+    const pfiTotalsRow = [
+      'TOTAL', '', '',
+      pfiSum('initial_stock').toLocaleString(), pfiSum('sold_today').toLocaleString(),
+      pfiSum('total_sold').toLocaleString(), pfiSum('balance').toLocaleString(),
+      `N${pfiSum('revenue').toLocaleString()}`,
+    ];
+
+    if (pfiBodyRows.length > 0) {
+      const pfiColCount = pfiHeaders.length;
+      ws.mergeCells(`A${r}:${ws.getColumn(pfiColCount).letter}${r}`);
+      const pfiTitleCell = ws.getCell(`A${r}`);
+      pfiTitleCell.value = 'PFI STOCK SUMMARY';
+      pfiTitleCell.font = { name: 'Calibri', bold: true, size: 13, color: { argb: WHITE } };
+      pfiTitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      pfiTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(r).height = 22;
+      r += 1;
+
+      const pfiHeaderRow = ws.getRow(r);
+      pfiHeaderRow.height = 20;
+      pfiHeaders.forEach((h, i) => {
+        const cell = pfiHeaderRow.getCell(i + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      });
+      r += 1;
+
+      pfiBodyRows.forEach((row, idx) => {
+        const xlRow = ws.getRow(r);
+        xlRow.height = 16;
+        row.forEach((val, ci) => {
+          const cell = xlRow.getCell(ci + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 9.5 };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? WHITE : BAND } };
+          cell.border = allBorders;
+          cell.alignment = { vertical: 'middle', horizontal: pfiAlign[ci] || 'left' };
+        });
+        r += 1;
+      });
+
+      const pfiTotalsXlRow = ws.getRow(r);
+      pfiTotalsXlRow.height = 18;
+      pfiTotalsRow.forEach((val, ci) => {
+        const cell = pfiTotalsXlRow.getCell(ci + 1);
+        cell.value = val;
+        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF0F172A' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: pfiAlign[ci] || 'left' };
+      });
+    }
+
     // Freeze the header row so it stays visible while scrolling.
     ws.views = [{ state: 'frozen', ySplit: headerRowIdx, showGridLines: false }];
 
@@ -1086,6 +1214,58 @@ export default function ConfirmedPayments() {
       footStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 7, valign: 'middle' },
     });
 
+    // ── PFI Stock Summary — appended below the main report ────────────────
+    if (pfiStockRows.length > 0) {
+      const pfiHeaders = ['PFI', 'LOCATION', 'PRODUCT', 'INITIAL STOCK', 'SOLD TODAY', 'TOTAL SOLD', 'BALANCE', 'REVENUE'];
+      const pfiAlign: Array<'left' | 'right'> = ['left', 'left', 'left', 'right', 'right', 'right', 'right', 'right'];
+      const pfiBodyRows = pfiStockRows.map((pr) => [
+        pr.pfi_number, pr.location_name || '—', pr.product_name || '—',
+        safeToNumber(pr.initial_stock).toLocaleString(),
+        safeToNumber(pr.sold_today).toLocaleString(),
+        safeToNumber(pr.total_sold).toLocaleString(),
+        safeToNumber(pr.balance).toLocaleString(),
+        `N${safeToNumber(pr.revenue).toLocaleString()}`,
+      ].map((v) => String(v).toUpperCase()));
+      const pfiSum = (key: 'initial_stock' | 'sold_today' | 'total_sold' | 'balance' | 'revenue') =>
+        pfiStockRows.reduce((s, pr) => s + safeToNumber(pr[key]), 0);
+      const pfiTotalsRow = [
+        'TOTAL', '', '',
+        pfiSum('initial_stock').toLocaleString(), pfiSum('sold_today').toLocaleString(),
+        pfiSum('total_sold').toLocaleString(), pfiSum('balance').toLocaleString(),
+        `N${pfiSum('revenue').toLocaleString()}`,
+      ];
+
+      const pfiColWidthsMm = [40, 50, 35, 28, 28, 28, 28, 32];
+      const pfiColumnStyles: Record<number, { cellWidth: number; halign: 'left' | 'right' }> = {};
+      pfiColWidthsMm.forEach((w, i) => { pfiColumnStyles[i] = { cellWidth: w, halign: pfiAlign[i] }; });
+
+      doc.addPage();
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, 297, 16, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PFI STOCK SUMMARY', 14, 10.5);
+      doc.setTextColor(0, 0, 0);
+      doc.setFont('helvetica', 'normal');
+
+      autoTable(doc, {
+        startY: 22,
+        head: [pfiHeaders],
+        body: pfiBodyRows,
+        foot: [pfiTotalsRow],
+        showFoot: 'lastPage',
+        margin: { left: 7, right: 7 },
+        tableWidth: 'wrap',
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 2, valign: 'middle', lineColor: [176, 196, 222], lineWidth: 0.15 },
+        columnStyles: pfiColumnStyles,
+        alternateRowStyles: { fillColor: [245, 248, 252] },
+        headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 8, halign: 'center', valign: 'middle', fontStyle: 'bold' },
+        footStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 8.5, valign: 'middle' },
+      });
+    }
+
     const fileName = reportNamePrefix
       ? `${reportNamePrefix} PAYMENTS REPORT ${format(new Date(), 'dd-MM-yy')}.pdf`
       : `PAYMENTS REPORT ${format(new Date(), 'dd-MM-yy')}.pdf`;
@@ -1146,6 +1326,73 @@ export default function ConfirmedPayments() {
                 },
               ]}
             />
+
+            {/* ── PFI Stock Summary ─────────────────────────────────────── */}
+            <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-3">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100">
+                  <Droplets size={14} className="text-amber-700" />
+                </span>
+                <h3 className="text-sm font-semibold text-slate-800">PFI Stock Summary</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase bg-slate-50/30">
+                      <th className="px-4 py-2.5 text-left">PFI</th>
+                      <th className="px-4 py-2.5 text-left">Location</th>
+                      <th className="px-4 py-2.5 text-left">Product</th>
+                      <th className="px-4 py-2.5 text-right">Initial Stock</th>
+                      <th className="px-4 py-2.5 text-right">Volume Sold Today</th>
+                      <th className="px-4 py-2.5 text-right">Total Volume Sold</th>
+                      <th className="px-4 py-2.5 text-right">Volume Remaining</th>
+                      <th className="px-4 py-2.5 text-right">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {pfiStockQuery.isLoading ? (
+                      <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">Loading…</td></tr>
+                    ) : pfiStockQuery.isError ? (
+                      <tr><td colSpan={8} className="px-4 py-6 text-center text-red-600">Failed to load PFI stock summary.</td></tr>
+                    ) : pfiStockRows.length === 0 ? (
+                      <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">No PFIs in scope for the current filter.</td></tr>
+                    ) : (
+                      pfiStockRows.map((r, idx) => {
+                        const balance = safeToNumber(r.balance);
+                        return (
+                          <tr key={r.pfi_id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}>
+                            <td className="px-4 py-2.5 font-semibold text-slate-800">{r.pfi_number}</td>
+                            <td className="px-4 py-2.5 text-slate-600">{r.location_name || '—'}</td>
+                            <td className="px-4 py-2.5 text-slate-600">{r.product_name || '—'}</td>
+                            <td className="px-4 py-2.5 text-right text-slate-700">{safeToNumber(r.initial_stock).toLocaleString()}</td>
+                            <td className="px-4 py-2.5 text-right text-slate-700">{safeToNumber(r.sold_today).toLocaleString()}</td>
+                            <td className="px-4 py-2.5 text-right font-medium text-slate-800">{safeToNumber(r.total_sold).toLocaleString()}</td>
+                            <td className={`px-4 py-2.5 text-right font-semibold ${balance < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                              {balance.toLocaleString()}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-semibold text-emerald-700">
+                              {'₦'}{safeToNumber(r.revenue).toLocaleString()}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  {/* {pfiStockRows.length > 0 && (
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-200 bg-amber-50/60 font-bold text-slate-800 text-xs">
+                        <td className="px-4 py-3 uppercase" colSpan={3}>Total</td>
+                        <td className="px-4 py-3 text-right">{pfiStockRows.reduce((s, r) => s + safeToNumber(r.initial_stock), 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right">{pfiStockRows.reduce((s, r) => s + safeToNumber(r.sold_today), 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right">{pfiStockRows.reduce((s, r) => s + safeToNumber(r.total_sold), 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right">{pfiStockRows.reduce((s, r) => s + safeToNumber(r.balance), 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right text-emerald-700">{'₦'}{pfiStockRows.reduce((s, r) => s + safeToNumber(r.revenue), 0).toLocaleString()}</td>
+                      </tr>
+                    </tfoot>
+                  )} */}
+                </table>
+              </div>
+            </div>
 
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
               {/* Search — full width */}
@@ -1321,7 +1568,7 @@ export default function ConfirmedPayments() {
                     <TableHead className="min-w-[140px] whitespace-nowrap">Payment Bank</TableHead>
                     <TableHead className="min-w-[120px]">Reference</TableHead>
                     <TableHead className="min-w-[90px] whitespace-nowrap">Payment Date</TableHead>
-                    <TableHead className="w-[30px]"></TableHead>
+                    <TableHead className="w-[30px]">Del</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1379,11 +1626,14 @@ export default function ConfirmedPayments() {
                           <TableCell className={`text-right text-sm font-bold ${r ? (balance > 0 ? 'text-red-700' : 'text-slate-500') : 'text-slate-300'}`}>
                             {r ? `${'\u20A6'}${balance.toLocaleString()}` : '\u2014'}
                           </TableCell>
-                          <TableCell className="text-sm uppercase text-slate-700">{r?.payer_name || '\u2014'}</TableCell>
-                          <TableCell className="text-sm uppercase text-slate-700">
+                          <TableCell className="text-sm uppercase text-slate-700 max-w-[120px] truncate" title={r?.payer_name || undefined}>{r?.payer_name || '\u2014'}</TableCell>
+                          <TableCell
+                            className="text-sm uppercase text-slate-700 max-w-[140px] truncate"
+                            title={r ? `${r.bank_name || ''}${r.account_number ? ` (${r.account_number})` : ''}` : undefined}
+                          >
                             {r ? `${r.bank_name || '\u2014'}${r.account_number ? ` (${r.account_number})` : ''}` : '\u2014'}
                           </TableCell>
-                          <TableCell className="text-xs font-mono text-slate-600">{r?.transaction_reference || '\u2014'}</TableCell>
+                          <TableCell className="text-xs font-mono text-slate-600 max-w-[120px] truncate" title={r?.transaction_reference || undefined}>{r?.transaction_reference || '\u2014'}</TableCell>
                           <TableCell className="text-sm text-slate-700 whitespace-nowrap">
                             {r?.payment_date ? format(new Date(r.payment_date), 'dd/MM/yy') : '\u2014'}
                           </TableCell>
@@ -1401,20 +1651,20 @@ export default function ConfirmedPayments() {
                             <div className="text-sm">{dateStr}</div>
                             <div className="text-xs text-slate-400">{timeStr}</div>
                           </TableCell>
-                          <TableCell className="text-slate-950 font-mono font-semibold">{ref}</TableCell>
+                          <TableCell className="text-slate-950 font-mono font-semibold max-w-[130px] truncate" title={String(ref ?? '')}>{ref}</TableCell>
                           {/* <TableCell className="text-sm">{truckNo || '\u2014'}</TableCell> */}
-                          <TableCell className="text-sm" title={location || undefined}>
+                          <TableCell className="text-sm max-w-[140px] truncate" title={location || undefined}>
                             {location || '\u2014'}
                           </TableCell>
-                          <TableCell className="uppercase font-semibold max-w-[140px]" title={customerName || undefined}>
+                          <TableCell className="uppercase font-semibold max-w-[140px] truncate" title={customerName || undefined}>
                             {customerName || '\u2014'}
                           </TableCell>
-                          <TableCell className="text-sm uppercase font-semibold" title={company || undefined}>
+                          <TableCell className="text-sm uppercase font-semibold max-w-[140px] truncate" title={company || undefined}>
                             {company || '\u2014'}
                           </TableCell>
-                          <TableCell className="">
-                            <div className="font-semibold">{qty ? `${qty.toLocaleString()} ${unitLabel}` : '\u2014'}</div>
-                            {product && <div className="text-xs text-slate-400">{product}</div>}
+                          <TableCell className="max-w-[150px]">
+                            <div className="font-semibold truncate" title={qty ? `${qty.toLocaleString()} ${unitLabel}` : undefined}>{qty ? `${qty.toLocaleString()} ${unitLabel}` : '\u2014'}</div>
+                            {product && <div className="text-xs text-slate-400 truncate" title={product}>{product}</div>}
                           </TableCell>
                           <TableCell className="">
                             {unitPrice ? `\u20A6${unitPrice.toLocaleString()}` : '\u2014'}
@@ -1738,16 +1988,37 @@ export default function ConfirmedPayments() {
                       const totalPaid = existingTotal + newTotal;
                       const bal = salesValue - totalPaid;
                       return (
-                        <div className={`flex items-center justify-between rounded-lg border px-3.5 py-2.5 ${
-                          bal === 0 ? 'border-emerald-300 bg-emerald-100' : bal > 0 ? 'border-amber-300 bg-amber-100' : 'border-blue-300 bg-blue-100'
-                        }`}>
-                          <span className="text-sm font-semibold text-slate-700">
-                            ₦{totalPaid.toLocaleString()} <span className="text-slate-400">of</span> ₦{salesValue.toLocaleString()}
-                          </span>
-                          <span className={`text-sm font-bold ${bal === 0 ? 'text-emerald-800' : bal > 0 ? 'text-amber-800' : 'text-blue-800'}`}>
-                            {bal === 0 ? 'Complete' : bal > 0 ? `₦${bal.toLocaleString()} remaining` : `₦${Math.abs(bal).toLocaleString()} overpaid`}
-                          </span>
-                        </div>
+                        <>
+                          <div className={`flex items-center justify-between rounded-lg border px-3.5 py-2.5 ${
+                            bal === 0 ? 'border-emerald-300 bg-emerald-100' : bal > 0 ? 'border-amber-300 bg-amber-100' : 'border-blue-300 bg-blue-100'
+                          }`}>
+                            <span className="text-sm font-semibold text-slate-700">
+                              ₦{totalPaid.toLocaleString()} <span className="text-slate-400">of</span> ₦{salesValue.toLocaleString()}
+                            </span>
+                            <span className={`text-sm font-bold ${bal === 0 ? 'text-emerald-800' : bal > 0 ? 'text-amber-800' : 'text-blue-800'}`}>
+                              {bal === 0 ? 'Complete' : bal > 0 ? `₦${bal.toLocaleString()} remaining` : `₦${Math.abs(bal).toLocaleString()} overpaid`}
+                            </span>
+                          </div>
+                          {bal < -0.01 && editOrder && (
+                            <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-blue-300 bg-blue-50 px-3.5 py-2.5">
+                              <span className="text-sm text-blue-900">
+                                This order is overpaid by <span className="font-bold">₦{Math.abs(bal).toLocaleString()}</span>. Transfer it to another order?
+                              </span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="gap-1.5 shrink-0 bg-blue-600 hover:bg-blue-700"
+                                onClick={() => {
+                                  const source = editOrder;
+                                  setEditOrder(null);
+                                  openTransferDialog(source);
+                                }}
+                              >
+                                <ArrowLeftRight size={14} /> Transfer
+                              </Button>
+                            </div>
+                          )}
+                        </>
                       );
                     })()}
                   </div>
@@ -1913,6 +2184,97 @@ export default function ConfirmedPayments() {
                     onClick={() => orderToDelete && deleteOrderMutation.mutate(Number(orderToDelete.id))}
                   >
                     {deleteOrderMutation.isPending ? 'Deleting...' : 'Delete'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* ── Transfer Overpayment dialog ──────────────────────────────── */}
+            <Dialog open={!!transferSource} onOpenChange={(v) => { if (!v) setTransferSource(null); }}>
+              <DialogContent className="sm:max-w-[480px]">
+                <DialogHeader>
+                  <DialogTitle className="text-slate-950 flex items-center gap-2">
+                    <ArrowLeftRight size={18} className="text-blue-600" /> Transfer Overpayment
+                  </DialogTitle>
+                  <DialogDescription className="text-slate-600">
+                    Move part or all of this order's overpayment onto another order's balance.
+                    Neither order's sales value changes — this just records a transfer between them.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {transferSource && (() => {
+                  const overpaid = Math.abs(Math.min(0, getOrderPaymentTotals(transferSource).balance));
+                  return (
+                    <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                      <div>
+                        <span className="text-blue-900/70">From Order:</span>{' '}
+                        <span className="font-semibold font-mono">{getOrderReference(transferSource) || transferSource.id}</span>
+                      </div>
+                      <div className="mt-1">
+                        <span className="text-blue-900/70">Available Overpayment:</span>{' '}
+                        <span className="font-bold">₦{overpaid.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Target Order ID</label>
+                    <Input
+                      value={transferTargetId}
+                      onChange={(e) => setTransferTargetId(e.target.value.replace(/[^0-9]/g, ''))}
+                      placeholder="e.g. 9326"
+                      className="h-10 border-slate-300 text-slate-900 font-medium"
+                      inputMode="numeric"
+                    />
+                    {transferTargetId && (
+                      transferTarget ? (
+                        <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                          <CheckCircle2 size={13} className="shrink-0" />
+                          <span className="font-semibold font-mono">{getOrderReference(transferTarget) || transferTarget.id}</span>
+                          <span className="truncate">— {extractCustomerCompany(transferTarget) || extractCustomerName(transferTarget) || 'Unknown customer'}</span>
+                          <span className="ml-auto shrink-0 font-semibold">
+                            Bal: ₦{getOrderPaymentTotals(transferTarget).balance.toLocaleString()}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          No order found with that ID in the currently loaded list.
+                        </div>
+                      )
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Amount to Transfer (₦)</label>
+                    <CommaInput
+                      value={transferAmount}
+                      onValueChange={setTransferAmount}
+                      placeholder="Enter amount"
+                      className="h-10 border-slate-300 text-slate-900 font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Narration (optional)</label>
+                    <Textarea
+                      value={transferNarration}
+                      onChange={(e) => setTransferNarration(e.target.value)}
+                      placeholder="Reason for transfer, e.g. customer's request"
+                      className="border-slate-300 text-slate-900"
+                      rows={2}
+                    />
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setTransferSource(null)}>Cancel</Button>
+                  <Button
+                    disabled={transferOverpaymentMutation.isPending || !transferTargetId || !transferAmount}
+                    onClick={() => transferOverpaymentMutation.mutate()}
+                  >
+                    {transferOverpaymentMutation.isPending ? 'Transferring...' : 'Transfer'}
                   </Button>
                 </DialogFooter>
               </DialogContent>

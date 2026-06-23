@@ -490,6 +490,35 @@ export const apiClient = {
       return response.json();
     },
 
+    // POST /api/admin/orders/<orderId>/transfer-overpayment/ — move part/all of an
+    // order's overpayment onto another order's balance (two ledger entries, no
+    // total_price changes on either side).
+    transferOverpayment: async (
+      sourceOrderId: number | string,
+      payload: { target_order_id: number | string; amount: number | string; narration?: string },
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${sourceOrderId}/transfer-overpayment/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const msg =
+          (typeof body.error === 'string' && body.error) ||
+          (await safeReadError(response));
+        throw new Error(msg);
+      }
+      return response.json() as Promise<{
+        message: string;
+        source_order_id: number;
+        target_order_id: number;
+        amount: string;
+        source_balance: string;
+        target_balance: string;
+      }>;
+    },
+
     // Upload payment proof files for an order
     // POST /api/admin/orders/<orderId>/payment-files/  (multipart/form-data, field: "files")
     uploadPaymentFiles: async (orderId: number | string, files: File[]) => {
@@ -1416,6 +1445,31 @@ export const apiClient = {
       const response = await safeFetch(url.toString(), { headers: getHeaders() });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
+    },
+
+    // GET /api/admin/pfi-stock-summary/?location=&pfi= — per-PFI stock ledger,
+    // scoped to the requesting user's assigned PFIs/locations.
+    getPfiStockSummary: async (params?: { location?: number | string; pfi?: number | string }) => {
+      const url = new URL(`${ADMIN_BASE}/pfi-stock-summary/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.set(k, String(v)); });
+      }
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        results: Array<{
+          pfi_id: number;
+          pfi_number: string;
+          location_name: string | null;
+          product_name: string | null;
+          status: string;
+          initial_stock: string;
+          sold_today: string;
+          total_sold: string;
+          balance: string;
+          revenue: string;
+        }>;
+      }>;
     },
 
     createPfi: async (data: {

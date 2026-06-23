@@ -141,6 +141,19 @@ const getReleasableQty = (order?: Order | null): number => {
 const isPartiallyPaid = (order?: Order | null): boolean =>
   !!order && getReleasableQty(order) < (Number(order.quantity) || 0);
 
+/** True when the order is fully paid but its tickets still reflect an earlier, smaller
+ * partial-payment quantity — e.g. a ticket was generated while payment was incomplete,
+ * and nothing has gone back to top it up since the rest of the payment came in. */
+const hasTicketQtyShortfall = (
+  order: Order | null | undefined,
+  ticketAllocated: number,
+  ticketCount: number
+): boolean => {
+  if (!order || ticketCount === 0) return false;
+  if (isPartiallyPaid(order)) return false; // still genuinely partial — not a sync issue
+  return ticketAllocated < getReleasableQty(order);
+};
+
 interface ReleaseDetails {
   truckNumber: string;
   driverName: string;
@@ -595,6 +608,48 @@ export const PickupProcessing = () => {
       // Silently fail — no count shown
     }
   }, []);
+
+  /** Order ids currently mid-sync, so the button can show a spinner and avoid double-clicks. */
+  const [syncingOrderIds, setSyncingOrderIds] = useState<Set<number>>(new Set());
+
+  /** Top up the last ticket for an order so its quantity matches what's now fully paid for.
+   * Triggered only by a human clicking "Sync" — never automatic — so a ticket that's
+   * already been printed/handed to a driver is only changed when someone confirms it. */
+  const syncTicketQuantityToPaid = useCallback(async (order: Order) => {
+    const tickets = ticketDataByOrder[order.id] || [];
+    if (tickets.length === 0) return;
+
+    const allocated = ticketAllocated[order.id] || 0;
+    const target = getReleasableQty(order);
+    const shortfall = target - allocated;
+    if (shortfall <= 0) return;
+
+    const lastTicket = [...tickets].sort((a, b) => (a.truck_number ?? 0) - (b.truck_number ?? 0)).slice(-1)[0];
+    if (!lastTicket) return;
+
+    setSyncingOrderIds((prev) => new Set(prev).add(order.id));
+    try {
+      const newQty = (Number(lastTicket.quantity_litres) || 0) + shortfall;
+      await apiClient.admin.updateTicket(lastTicket.id, { quantity_litres: newQty });
+      await fetchTicketCount(order.id);
+      toast({
+        title: 'Ticket quantity synced',
+        description: `Truck ${lastTicket.plate_number || lastTicket.truck_number} updated to ${newQty.toLocaleString()} ${getOrderUnitLabel(order)} to match the now fully-paid order.`,
+      });
+    } catch (err) {
+      toast({
+        title: 'Sync failed',
+        description: err instanceof Error ? err.message : 'Could not update the ticket quantity.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncingOrderIds((prev) => {
+        const next = new Set(prev);
+        next.delete(order.id);
+        return next;
+      });
+    }
+  }, [ticketDataByOrder, ticketAllocated, fetchTicketCount]);
 
   // --- export/reporting helpers (need component state access) ---
   const formatDateOnly = (raw: string): string => {
@@ -1364,6 +1419,17 @@ export const PickupProcessing = () => {
                               >
                                 Partial
                               </span>
+                            )}
+                            {hasTicketQtyShortfall(order, ticketAllocated[order.id] || 0, ticketCount) && (
+                              <button
+                                type="button"
+                                disabled={syncingOrderIds.has(order.id)}
+                                onClick={(e) => { e.stopPropagation(); syncTicketQuantityToPaid(order); }}
+                                title={`Ticket totals ${ (ticketAllocated[order.id] || 0).toLocaleString() } but order is paid for ${getReleasableQty(order).toLocaleString()} ${getOrderUnitLabel(order)}. Click to sync.`}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 disabled:opacity-50"
+                              >
+                                {syncingOrderIds.has(order.id) ? 'Syncing…' : 'Sync Qty'}
+                              </button>
                             )}
                           </div>
                         </TableCell>
