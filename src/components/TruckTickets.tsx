@@ -120,13 +120,6 @@ const formatLoadingDateTime = (raw: string | null): string => {
   }
 };
 
-/** Format a numeric string as Naira currency for display on the printed ticket */
-const formatAmount = (raw: string | null): string => {
-  const n = Number(raw);
-  if (!raw || Number.isNaN(n)) return '';
-  return `₦${n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
-
 /** Convert a 1-based truck number to a letter suffix: 1→A, 2→B, … 26→Z, 27→AA */
 const truckSuffix = (n: number): string => {
   let s = '';
@@ -564,7 +557,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
           <TicketRow label="Phone Number" value={d.customer_phone} />
           {/* <TicketRow label="Product Bought" value={d.product_name} /> */}
           <TicketRow label="Product" value={`${d.product_name} x ${Number(d.quantity_litres).toLocaleString()} Litres`} />
-          <TicketRow label="Amount" value={formatAmount(d.amount)} />
+          <TicketRow label="Loading Date & Time" value={formatLoadingDateTime(d.loading_datetime)} />
           <TicketRow label="Truck Number" value={d.plate_number || ''} />
           <TicketRow
             label="Truck Driver"
@@ -595,10 +588,6 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
                 </div>
               ))}
             </div>
-          </div>
-          {/* Loading Date & Time — full width */}
-          <div className="p-3 border-t border-slate-200 first:border-t-0 sm:border-t-0 sm:[&:nth-child(n+3)]:border-t sm:border-r sm:[&:nth-child(2n)]:border-r-0 sm:col-span-2">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Loading Date &amp; Time: <span className="text-xs font-semibold text-slate-900">{formatLoadingDateTime(d.loading_datetime)}</span></div>
           </div>
         </div>
       </div>
