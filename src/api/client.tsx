@@ -463,7 +463,7 @@ export const apiClient = {
     },
 
     // Confirm payment & release order (requires CanConfirmPayments permission)
-    confirmPayment: async (orderId: number | string, payload?: { narration?: string; pfi_id?: number }) => {
+    confirmPayment: async (orderId: number | string, payload?: { narration?: string; pfi_id?: number; unit_price?: number | string }) => {
       const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/confirm-payment/`, {
         method: 'POST',
         headers: getHeaders(),

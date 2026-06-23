@@ -389,11 +389,11 @@ export default function SecurityPage() {
                         {/* <Detail label="NMDPRA Number" value={getDprOrNmdpra(match)} /> */}
                         {tickets.length <= 1 && (
                           <>
-                            <Detail label="Driver's Name" value={getDriverName(match)} />
+                            {/* <Detail label="Driver's Name" value={getDriverName(match)} /> */}
                             <Detail label="Truck Number" value={getTruckNumber(match)} />
                           </>
                         )}
-                        <Detail label="Loading Date & Time" value={getLoadingDateTime(match)} />
+                        {/* <Detail label="Loading Date & Time" value={getLoadingDateTime(match)} /> */}
                       </div>
 
                       {tickets.length > 1 ? (

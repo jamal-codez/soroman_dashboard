@@ -214,6 +214,7 @@ function VerifyConfirmModalBody({
     pfiId?: number,
     bankAccountId?: number,
     paymentLines?: PaymentLineInput[],
+    unitPrice?: number,
   ) => void;
   payment: PaymentOrder;
   bankAccounts: BankAccount[];
@@ -224,10 +225,24 @@ function VerifyConfirmModalBody({
 }) {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [lines, setLines] = useState<PaymentLine[]>([]);
+  const [unitPriceInput, setUnitPriceInput] = useState('');
 
   const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
-  const expectedAmountValue = parseFloat(payment.amount || '0');
+  const originalAmountValue = parseFloat(payment.amount || '0');
   const paidInto = extractPaidInto(payment);
+  const { qtyNum, unitPriceNum: originalUnitPriceNum } = extractProductInfo(payment);
+
+  const editedUnitPriceNum = unitPriceInput.trim() === '' ? undefined : Number(unitPriceInput.replace(/,/g, ''));
+  const unitPriceChanged =
+    editedUnitPriceNum !== undefined &&
+    Number.isFinite(editedUnitPriceNum) &&
+    editedUnitPriceNum > 0 &&
+    editedUnitPriceNum !== originalUnitPriceNum;
+
+  // The expected sales value live-updates as the unit price is edited, so the
+  // split-payment balance check below always compares against the current total.
+  const expectedAmountValue =
+    unitPriceChanged && qtyNum !== undefined ? editedUnitPriceNum * qtyNum : originalAmountValue;
 
   const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -235,11 +250,12 @@ function VerifyConfirmModalBody({
   useEffect(() => {
     if (isOpen) {
       setAttachedFiles([]);
+      setUnitPriceInput(originalUnitPriceNum !== undefined ? String(originalUnitPriceNum) : '');
       const matched = bankAccounts.find(
         (b) => b.acct_no && paidInto.account_number && b.acct_no === paidInto.account_number
       );
       setLines([{
-        amount: expectedAmountValue > 0 ? String(expectedAmountValue) : '',
+        amount: originalAmountValue > 0 ? String(originalAmountValue) : '',
         payerName: customerName || '',
         bankAccountId: matched ? String(matched.id) : '',
         transactionReference: '',
@@ -306,6 +322,27 @@ function VerifyConfirmModalBody({
               <div><span className="text-slate-400">Location:</span> <span className="font-medium text-slate-700">{location || '—'}</span></div>
               <div className="col-span-2"><span className="text-slate-400">Product:</span> <span className="font-medium text-slate-700">{productSummary || '—'}</span></div>
               <div className="col-span-2"><span className="text-slate-400">Customer:</span> <span className="font-medium text-slate-700">{[companyName, customerName].filter(Boolean).join(' — ') || '—'}</span></div>
+            </div>
+          </div>
+
+          {/* Editable unit price — recomputes the sales total live */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-end gap-3">
+            <div className="flex-1">
+              <label className="mb-1 block text-[11px] font-medium text-slate-600">
+                Unit Price (₦{qtyNum !== undefined ? ` per ${unitLabel}` : ''})
+              </label>
+              <CommaInput
+                value={unitPriceInput}
+                onValueChange={setUnitPriceInput}
+                placeholder="Unit price"
+                className="h-9 text-sm bg-white"
+              />
+            </div>
+            <div className="text-right">
+              <div className="text-[11px] font-medium text-slate-500">Sales Total</div>
+              <div className={`text-sm font-bold ${unitPriceChanged ? 'text-blue-700' : 'text-slate-800'}`}>
+                ₦{expectedAmountValue.toLocaleString()}
+              </div>
             </div>
           </div>
 
@@ -485,6 +522,7 @@ function VerifyConfirmModalBody({
                 typeof selectedPfiId === 'number' ? selectedPfiId : undefined,
                 paymentLines[0]?.bankAccountId,
                 paymentLines,
+                unitPriceChanged ? editedUnitPriceNum : undefined,
               );
             }}
           >
@@ -632,7 +670,7 @@ const extractCustomerDisplay = (p: PaymentOrder): { name: string; phone: string 
   return { name, phone };
 };
 
-const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; unitPrice: string; unitLabel: string } => {
+const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; qtyNum: number | undefined; unitPrice: string; unitPriceNum: number | undefined; unitLabel: string } => {
   const products = Array.isArray(p.products) ? p.products : [];
   const product = products
     .map((x) => x?.name)
@@ -664,17 +702,19 @@ const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; un
   const qty = qtyNum !== undefined ? qtyNum.toLocaleString() : '';
 
   const rawUnit = products?.[0]?.unit_price ?? products?.[0]?.unitPrice ?? products?.[0]?.price;
-  const unitPrice =
-    rawUnit === undefined || rawUnit === null || rawUnit === ''
-      ? ''
-      : (() => {
-          const n = Number(String(rawUnit).replace(/,/g, ''));
-          return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(rawUnit);
-        })();
+  const unitPriceNum = rawUnit === undefined || rawUnit === null || rawUnit === ''
+    ? undefined
+    : (() => {
+        const n = Number(String(rawUnit).replace(/,/g, ''));
+        return Number.isFinite(n) ? n : undefined;
+      })();
+  const unitPrice = unitPriceNum === undefined
+    ? (rawUnit !== undefined && rawUnit !== null ? String(rawUnit) : '')
+    : unitPriceNum.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   const unitLabel = products?.[0]?.unit_label || products?.[0]?.unit || 'Litres';
 
-  return { product, qty, unitPrice, unitLabel };
+  return { product, qty, qtyNum, unitPrice, unitPriceNum, unitLabel };
 };
 
 const extractCompanyName = (p: PaymentOrder): string => {
@@ -906,6 +946,7 @@ export default function PaymentVerification() {
       pfiId?: number;
       bankAccount?: BankAccount;
       paymentLines?: PaymentLineInput[];
+      unitPrice?: number;
     }) => {
       setUpdatingPaymentId(args.orderId);
       try {
@@ -923,6 +964,7 @@ export default function PaymentVerification() {
         await apiClient.admin.confirmPayment(args.orderId, {
           narration: args.narration?.trim() || undefined,
           pfi_id: args.pfiId,
+          unit_price: args.unitPrice,
         });
         // Snapshot the (first) bank account used onto the order, for display
         // in the main orders table.
@@ -1035,6 +1077,7 @@ export default function PaymentVerification() {
     pfiId?: number,
     bankAccountId?: number,
     paymentLines?: PaymentLineInput[],
+    unitPrice?: number,
   ) => {
     if (!selectedPayment?.order_id) return;
     // Defensive re-entrancy guard: never let a second confirm run while one
@@ -1091,7 +1134,7 @@ export default function PaymentVerification() {
     const bankAccount = typeof bankAccountId === 'number' ? bankAccounts.find((b) => b.id === bankAccountId) : undefined;
 
     try {
-      await updatePaymentMutation.mutateAsync({ orderId, narration, files, pfiId: Number(pfiId), bankAccount, paymentLines });
+      await updatePaymentMutation.mutateAsync({ orderId, narration, files, pfiId: Number(pfiId), bankAccount, paymentLines, unitPrice });
     } finally {
       setIsConfirmModalOpen(false);
       setSelectedPayment(null);

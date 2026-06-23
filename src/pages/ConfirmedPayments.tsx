@@ -10,12 +10,12 @@ import { CommaInput } from '@/components/ui/comma-input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Users, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus, Wallet, AlertTriangle } from 'lucide-react';
+import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus, Wallet } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient, fetchAllPages } from '@/api/client';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -758,12 +758,10 @@ export default function ConfirmedPayments() {
     const totalOrders = filtered.length;
     const totalAmount = filtered.reduce((sum, p) => sum + safeToNumber(p.total_price ?? p.amount), 0);
     const totalQty = filtered.reduce((sum, p) => sum + extractProductInfo(p).qty, 0);
-    const avgOrderValue = totalOrders > 0 ? Math.round(totalAmount / totalOrders) : 0;
-    const uniqueCustomers = new Set(filtered.map((p) => extractCustomerCompany(p) || extractCustomerName(p)).filter(Boolean)).size;
     const totalPaid = filtered.reduce((sum, p) => sum + getOrderPaymentTotals(p).paid, 0);
     const totalBalance = filtered.reduce((sum, p) => sum + getOrderPaymentTotals(p).balance, 0);
 
-    return { totalOrders, totalAmount, totalQty, avgOrderValue, uniqueCustomers, totalPaid, totalBalance };
+    return { totalOrders, totalAmount, totalQty, totalPaid, totalBalance };
   }, [filtered]);
 
   const buildReportData = () => {
@@ -801,9 +799,9 @@ export default function ConfirmedPayments() {
           format(new Date(r.payment_date), 'dd/MM/yyyy'),
           `N${safeToNumber(r.amount).toLocaleString()}`,
           `N${balance.toLocaleString()}`,
-          r.payer_name || '',
-          r.bank_name ? `${r.bank_name}${r.account_number ? ` (${r.account_number})` : ''}` : '',
-          r.transaction_reference || '',
+          r.payer_name || '—',
+          r.bank_name ? `${r.bank_name}${r.account_number ? ` (${r.account_number})` : ''}` : '—',
+          r.transaction_reference || '—',
         ]
       : ['', '', '', '', '', ''];
 
@@ -870,51 +868,222 @@ export default function ConfirmedPayments() {
       ['Location', locationLabel],
       ['PFI', pfiLabel],
       ['Product', productLabel],
-      ['Number of Orders', String(ordersCountAll)],
+      ['Number of Orders', ordersCountAll.toLocaleString()],
       ['Total Quantity', `${totalQtyAll.toLocaleString()} ${exportUnitLabel}`],
       ['Total Sales Value', `N${totalAmountAll.toLocaleString()}`],
       ['Total Amount Paid', `N${totalAmountPaidAll.toLocaleString()}`],
       ['Total Balance Outstanding', `N${totalBalanceAll.toLocaleString()}`],
     ];
 
-    return { generatedAt, headingBlock, headers, rows, totalsRow, totalQtyAll, ordersCountAll, totalAmountAll, exportUnitLabel, reportNamePrefix };
+    // Reports should read consistently in ALL CAPS, end to end.
+    const upper = (v: unknown): string => String(v ?? '').toUpperCase();
+    const headersUp = headers.map(upper);
+    const rowsUp = rows.map((row) => row.map(upper));
+    const totalsRowUp = totalsRow.map(upper);
+    const headingBlockUp = headingBlock.map(([label, value]) => [upper(label), upper(value)] as [string, string]);
+
+    return {
+      generatedAt, headingBlock: headingBlockUp, headers: headersUp, rows: rowsUp, totalsRow: totalsRowUp,
+      totalQtyAll, ordersCountAll, totalAmountAll, exportUnitLabel, reportNamePrefix,
+    };
   };
+
+  // Lays the 10 label/value summary facts out as a 5-row × 4-column grid
+  // (left half = report scope, right half = totals) instead of one long
+  // thin column — reads much better on a wide landscape page/sheet.
+  const pairHeadingBlock = (headingBlock: Array<[string, string]>): Array<[string, string, string, string]> => {
+    const half = Math.ceil(headingBlock.length / 2);
+    const left = headingBlock.slice(0, half);
+    const right = headingBlock.slice(half);
+    return left.map((l, i) => [l[0], l[1], right[i]?.[0] ?? '', right[i]?.[1] ?? '']);
+  };
+
+  // Per-column horizontal alignment shared by both exports — numeric/money
+  // columns right-aligned, the S/N column centered, everything else left.
+  const COLUMN_ALIGN: Array<'left' | 'center' | 'right'> = [
+    'center', 'left', 'left', 'left', 'left', 'right', 'left', 'right', 'right', 'left', 'left',
+    'left', 'right', 'right', 'left', 'left', 'left',
+  ];
 
   const exportToXLS = () => {
     const { headingBlock, headers, rows, totalsRow, reportNamePrefix } = buildReportData();
-    const sheetData = [...headingBlock, [], headers, ...rows, totalsRow];
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Report');
+    const colCount = headers.length;
+
+    const NAVY = 'FF1E293B';
+    const WHITE = 'FFFFFFFF';
+    const LIGHT = 'FFF5F8FC';
+    const BAND = 'FFEFF3F8';
+    const TOTAL_FILL = 'FFE2E8F0';
+    const BORDER_COLOR = 'FFB0C4DE';
+    const thinBorder = { style: 'thin' as const, color: { argb: BORDER_COLOR } };
+    const allBorders = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Soroman Dashboard';
+    workbook.created = new Date();
+    const ws = workbook.addWorksheet('Report', { views: [{ showGridLines: false }] });
+
+    const lastColLetter = ws.getColumn(colCount).letter;
+
+    // ── Title bar ──────────────────────────────────────────────────────
+    ws.mergeCells(`A1:${lastColLetter}1`);
+    const titleCell = ws.getCell('A1');
+    titleCell.value = 'PAYMENTS REPORT';
+    titleCell.font = { name: 'Calibri', bold: true, size: 16, color: { argb: WHITE } };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 26;
+
+    // ── Summary grid (label/value × 2 columns) ──────────────────────────
+    const pairs = pairHeadingBlock(headingBlock);
+    let r = 3;
+    pairs.forEach(([l1, v1, l2, v2]) => {
+      const row = ws.getRow(r);
+      row.height = 18;
+      const cells: Array<[number, string, boolean]> = [
+        [1, l1, true], [2, v1, false], [3, l2, true], [4, v2, false],
+      ];
+      cells.forEach(([col, val, isLabel]) => {
+        const cell = row.getCell(col);
+        cell.value = val;
+        cell.font = { name: 'Calibri', bold: isLabel, size: 10, color: { argb: 'FF1E3A5F' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isLabel ? LIGHT : WHITE } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: isLabel ? 'left' : 'left', indent: 1 };
+      });
+      r += 1;
+    });
+    ws.getColumn(1).width = 22;
+    ws.getColumn(2).width = 22;
+    ws.getColumn(3).width = 22;
+    ws.getColumn(4).width = 22;
+
+    // ── Spacer ───────────────────────────────────────────────────────────
+    r += 1;
+
+    // ── Column headers ───────────────────────────────────────────────────
+    const headerRowIdx = r;
+    const headerRow = ws.getRow(headerRowIdx);
+    headerRow.height = 22;
+    headers.forEach((h, i) => {
+      const cell = headerRow.getCell(i + 1);
+      cell.value = h;
+      cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      cell.border = allBorders;
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    });
+    r += 1;
+
+    // ── Data rows (zebra-striped, bordered, vertically centered) ────────
+    rows.forEach((row, idx) => {
+      const xlRow = ws.getRow(r);
+      xlRow.height = 16;
+      row.forEach((val, ci) => {
+        const cell = xlRow.getCell(ci + 1);
+        cell.value = val;
+        cell.font = { name: 'Calibri', size: 9.5 };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? WHITE : BAND } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: COLUMN_ALIGN[ci] || 'left' };
+      });
+      r += 1;
+    });
+
+    // ── Totals row ────────────────────────────────────────────────────────
+    const totalsRowXl = ws.getRow(r);
+    totalsRowXl.height = 18;
+    totalsRow.forEach((val, ci) => {
+      const cell = totalsRowXl.getCell(ci + 1);
+      cell.value = val;
+      cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF0F172A' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } };
+      cell.border = allBorders;
+      cell.alignment = { vertical: 'middle', horizontal: COLUMN_ALIGN[ci] || 'left' };
+    });
+
+    // Balanced column widths so every field is readable without manual resizing.
+    const widths = [6, 12, 12, 12, 18, 12, 12, 12, 16, 20, 14, 12, 14, 14, 18, 18, 16];
+    widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+
+    // Freeze the header row so it stays visible while scrolling.
+    ws.views = [{ state: 'frozen', ySplit: headerRowIdx, showGridLines: false }];
+
     const fileName = reportNamePrefix
       ? `${reportNamePrefix} PAYMENTS REPORT ${format(new Date(), 'dd-MM-yy')}.xlsx`
       : `Payment Report ${format(new Date(), 'dd-MM-yy')}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+
+    workbook.xlsx.writeBuffer().then((buffer) => {
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
   };
 
   const exportToPDF = () => {
     const { headingBlock, headers, rows, totalsRow, reportNamePrefix } = buildReportData();
     const doc = new jsPDF({ orientation: 'landscape' });
 
-    doc.setFontSize(14);
-    doc.text('Payments Report', 14, 14);
+    doc.setFillColor(30, 41, 59);
+    doc.rect(0, 0, 297, 16, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(15);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PAYMENTS REPORT', 14, 10.5);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal');
 
+    // ── Summary block — bordered 4-column label/value grid, properly spaced.
+    const pairs = pairHeadingBlock(headingBlock);
     autoTable(doc, {
-      startY: 20,
-      body: headingBlock,
-      theme: 'plain',
-      styles: { fontSize: 9, cellPadding: 1 },
-      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } },
+      startY: 22,
+      body: pairs,
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 2.5, valign: 'middle', lineColor: [176, 196, 222], lineWidth: 0.2 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 45, fillColor: [238, 244, 251], textColor: [30, 58, 95] },
+        1: { cellWidth: 60 },
+        2: { fontStyle: 'bold', cellWidth: 45, fillColor: [238, 244, 251], textColor: [30, 58, 95] },
+        3: { cellWidth: 60 },
+      },
     });
 
+    // Explicit, balanced widths for every column so the table never looks
+    // lopsided or overflows the page — text shrinks to fit instead of wrapping
+    // unevenly. Widths are in mm and sum to ~269mm, comfortably inside the
+    // ~283mm usable width on a landscape A4 page with 7mm margins.
+    const colWidthsMm = [8, 16, 14, 14, 20, 14, 14, 14, 18, 22, 16, 14, 16, 14, 20, 20, 15];
+    const columnStyles: Record<number, { cellWidth: number; halign: 'left' | 'center' | 'right' }> = {};
+    colWidthsMm.forEach((w, i) => { columnStyles[i] = { cellWidth: w, halign: COLUMN_ALIGN[i] || 'left' }; });
+
     autoTable(doc, {
-      startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6,
+      startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8,
       head: [headers],
       body: rows,
       foot: [totalsRow],
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [30, 41, 59] },
-      footStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold' },
+      // Only print the totals once, at the very end — not on every page.
+      showFoot: 'lastPage',
+      margin: { left: 7, right: 7 },
+      tableWidth: 'wrap',
+      theme: 'grid',
+      styles: {
+        fontSize: 6.5,
+        cellPadding: 1.4,
+        overflow: 'linebreak',
+        valign: 'middle',
+        lineColor: [176, 196, 222],
+        lineWidth: 0.15,
+      },
+      columnStyles,
+      alternateRowStyles: { fillColor: [245, 248, 252] },
+      headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 6.5, halign: 'center', valign: 'middle', fontStyle: 'bold' },
+      footStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 7, valign: 'middle' },
     });
 
     const fileName = reportNamePrefix
@@ -951,45 +1120,29 @@ export default function ConfirmedPayments() {
             />
 
             <SummaryCards
+              gridClassName="grid-cols-1 sm:grid-cols-3"
               cards={[
                 {
-                  title: 'Total Orders',
-                  value: isLoading ? '\u2026' : summary.totalOrders.toLocaleString(),
-                  icon: <Truck className="h-4 w-4" />,
-                  tone: 'neutral',
-                },
-                {
                   title: 'Total Quantity',
-                  value: isLoading ? '\u2026' : `${summary.totalQty.toLocaleString()} L`,
+                  value: isLoading ? '\u2026' : `${summary.totalQty.toLocaleString()} Litres`,
+                  description: isLoading ? undefined : `${summary.totalOrders.toLocaleString()} orders`,
                   icon: <Droplets className="h-4 w-4" />,
                   tone: 'neutral',
                 },
                 {
-                  title: 'Total Sales Value',
+                  title: 'Sales Value',
                   value: isLoading ? '\u2026' : `\u20A6${summary.totalAmount.toLocaleString()}`,
                   className: "text-emerald-700",
                   icon: <Banknote className="h-4 w-4" />,
                   tone: 'green',
                 },
                 {
-                  title: 'Total Amount Paid',
+                  title: 'Amount Paid',
                   value: isLoading ? '\u2026' : `\u20A6${summary.totalPaid.toLocaleString()}`,
+                  description: isLoading ? undefined : `\u20A6${summary.totalBalance.toLocaleString()} balance`,
                   className: "text-blue-700",
                   icon: <Wallet className="h-4 w-4" />,
-                  tone: 'blue',
-                },
-                {
-                  title: 'Balance Outstanding',
-                  value: isLoading ? '\u2026' : `\u20A6${summary.totalBalance.toLocaleString()}`,
-                  className: summary.totalBalance > 0 ? "text-red-600" : "text-slate-500",
-                  icon: <AlertTriangle className="h-4 w-4" />,
-                  tone: summary.totalBalance > 0 ? 'red' : 'neutral',
-                },
-                {
-                  title: 'Unique Customers',
-                  value: isLoading ? '\u2026' : summary.uniqueCustomers.toLocaleString(),
-                  icon: <Users className="h-4 w-4" />,
-                  tone: 'neutral',
+                  tone: summary.totalBalance > 0 ? 'red' : 'blue',
                 },
               ]}
             />
