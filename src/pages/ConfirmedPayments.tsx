@@ -19,7 +19,7 @@ import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, addDays, isAfter, isBefore, isSameDay } from 'date-fns';
+import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, addDays, isAfter, isBefore, isSameDay, startOfWeek, startOfMonth, startOfYear, subDays } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { getOrderReference } from '@/lib/orderReference';
@@ -371,7 +371,7 @@ export default function ConfirmedPayments() {
     try {
       await apiClient.admin.deletePaymentFile(fileId);
       setFetchedFiles((prev) => prev.filter((f) => f.id !== fileId));
-      await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
+      await queryClient.refetchQueries({ queryKey: ['confirmed-payments-orders'] });
     } catch (err) {
       toast({ title: 'Error', description: (err as Error).message, variant: 'destructive' });
     } finally {
@@ -423,7 +423,7 @@ export default function ConfirmedPayments() {
     try {
       await apiClient.admin.deleteOrderPaymentRecord(id);
       setExistingPaymentRecords((prev) => prev.filter((r) => r.id !== id));
-      await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
+      await queryClient.refetchQueries({ queryKey: ['confirmed-payments-orders'] });
     } catch (err) {
       toast({ title: 'Error', description: (err as Error).message, variant: 'destructive' });
     } finally {
@@ -436,7 +436,7 @@ export default function ConfirmedPayments() {
       await apiClient.admin.deleteOrder(orderId);
     },
     onSuccess: async () => {
-      await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
+      await queryClient.refetchQueries({ queryKey: ['confirmed-payments-orders'] });
       toast({ title: 'Order deleted', description: 'The order has been removed.' });
       setOrderToDelete(null);
     },
@@ -473,7 +473,7 @@ export default function ConfirmedPayments() {
       });
     },
     onSuccess: async (res) => {
-      await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
+      await queryClient.refetchQueries({ queryKey: ['confirmed-payments-orders'] });
       toast({
         title: 'Overpayment transferred',
         description: `₦${parseFloat(res.amount).toLocaleString()} moved to order #${res.target_order_id}. New balances — source: ₦${parseFloat(res.source_balance).toLocaleString()}, target: ₦${parseFloat(res.target_balance).toLocaleString()}.`,
@@ -540,7 +540,7 @@ export default function ConfirmedPayments() {
       }
     },
     onSuccess: async () => {
-      await queryClient.refetchQueries({ queryKey: ['all-orders', 'shared'] });
+      await queryClient.refetchQueries({ queryKey: ['confirmed-payments-orders'] });
       toast({ title: 'Updated', description: 'Payment details updated successfully.' });
       setEditOrder(null);
       setEditAttachedFiles([]);
@@ -639,11 +639,31 @@ export default function ConfirmedPayments() {
     updateNarrationMutation.mutate({ orderId: editOrder.id, narration: fullNarration, files: editAttachedFiles, patch });
   };
 
+  const { serverDateFrom, serverDateTo } = useMemo(() => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    if (dateRange.from) {
+      const to = dateRange.to ?? dateRange.from;
+      return { serverDateFrom: format(dateRange.from, 'yyyy-MM-dd'), serverDateTo: format(to, 'yyyy-MM-dd') };
+    }
+    if (filterType === 'today') return { serverDateFrom: todayStr, serverDateTo: todayStr };
+    if (filterType === 'yesterday') {
+      const y = format(subDays(new Date(), 1), 'yyyy-MM-dd');
+      return { serverDateFrom: y, serverDateTo: y };
+    }
+    if (filterType === 'week') return { serverDateFrom: format(startOfWeek(new Date()), 'yyyy-MM-dd'), serverDateTo: todayStr };
+    if (filterType === 'month') return { serverDateFrom: format(startOfMonth(new Date()), 'yyyy-MM-dd'), serverDateTo: todayStr };
+    if (filterType === 'year') return { serverDateFrom: format(startOfYear(new Date()), 'yyyy-MM-dd'), serverDateTo: todayStr };
+    return { serverDateFrom: undefined as string | undefined, serverDateTo: undefined as string | undefined };
+  }, [filterType, dateRange]);
+
   const listQuery = useQuery<OrderResponse>({
-    queryKey: ['all-orders', 'shared'],
+    queryKey: ['confirmed-payments-orders', serverDateFrom, serverDateTo],
     queryFn: async () => {
       return fetchAllPages<PaymentOrder>(
-        (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size }),
+        (p) => apiClient.admin.getAllAdminOrders({
+          page: p.page, page_size: p.page_size,
+          date_from: serverDateFrom, date_to: serverDateTo,
+        }),
       );
     },
     staleTime: 30_000,
@@ -843,11 +863,11 @@ export default function ConfirmedPayments() {
     const totalQtyAll = filtered.reduce((sum, p) => sum + extractProductInfo(p).qty, 0);
     const ordersCountAll = filtered.length;
     const totalAmountAll = filtered.reduce((sum, p) => sum + safeToNumber(p.total_price ?? p.amount), 0);
-    const exportUnitLabel = filtered.length > 0 ? extractProductInfo(filtered[0]).unitLabel : 'Litres';
+    const exportUnitLabel = filtered.length > 0 ? extractProductInfo(filtered[0]).unitLabel : 'L';
 
     const headers = [
-      'S/N', 'Date', 'Reference', 'Truck No.', 'Facilitator', `Quantity (${exportUnitLabel})`, 'Product', 'Unit Price', 'Sales Value', 'Paying Company', 'Location',
-      'Payment Date', 'Payment Amount', 'Balance', 'Payer', 'Payment Bank', 'Transaction Reference',
+      'S/N', 'Date', 'Ref', 'Truck No.', 'Customer', `Qty (${exportUnitLabel})`, 'Product', 'Rate', 'Sales Value', 'Paying Company', 'Location',
+      'Payment Date', 'Amount', 'Balance', 'Payer', 'Bank', 'Bank Ref',
     ];
     // Sort oldest to newest for the exported file
     const exportSorted = [...filtered].sort((a, b) => getPaymentDate(a).getTime() - getPaymentDate(b).getTime());
@@ -930,7 +950,7 @@ export default function ConfirmedPayments() {
       ['Total Quantity', `${totalQtyAll.toLocaleString()} ${exportUnitLabel}`],
       ['Total Sales Value', `N${totalAmountAll.toLocaleString()}`],
       ['Total Amount Paid', `N${totalAmountPaidAll.toLocaleString()}`],
-      ['Total Balance Outstanding', `N${totalBalanceAll.toLocaleString()}`],
+      ['Total Balance', `N${totalBalanceAll.toLocaleString()}`],
     ];
 
     // Reports should read consistently in ALL CAPS, end to end.
@@ -1067,7 +1087,7 @@ export default function ConfirmedPayments() {
     // ── PFI Stock Summary — appended below the main report ──────────────
     r += 2;
     const pfiAlign: Array<'left' | 'right'> = ['left', 'left', 'left', 'right', 'right', 'right', 'right', 'right'];
-    const pfiHeaders = ['PFI', 'LOCATION', 'PRODUCT', 'INITIAL STOCK', 'SOLD TODAY', 'TOTAL SOLD', 'BALANCE', 'REVENUE'];
+    const pfiHeaders = ['PFI', 'LOCATION', 'PRODUCT', 'INITIAL STOCK', 'SOLD TODAY', 'TOTAL SOLD', 'REMAINING', 'REVENUE'];
     const pfiBodyRows = pfiStockRows.map((pr) => [
       pr.pfi_number, pr.location_name || '—', pr.product_name || '—',
       safeToNumber(pr.initial_stock).toLocaleString(),
@@ -1216,7 +1236,7 @@ export default function ConfirmedPayments() {
 
     // ── PFI Stock Summary — appended below the main report ────────────────
     if (pfiStockRows.length > 0) {
-      const pfiHeaders = ['PFI', 'LOCATION', 'PRODUCT', 'INITIAL STOCK', 'SOLD TODAY', 'TOTAL SOLD', 'BALANCE', 'REVENUE'];
+      const pfiHeaders = ['PFI', 'LOCATION', 'PRODUCT', 'INITIAL STOCK', 'SOLD TODAY', 'TOTAL SOLD', 'REMAINING', 'REVENUE'];
       const pfiAlign: Array<'left' | 'right'> = ['left', 'left', 'left', 'right', 'right', 'right', 'right', 'right'];
       const pfiBodyRows = pfiStockRows.map((pr) => [
         pr.pfi_number, pr.location_name || '—', pr.product_name || '—',
@@ -1653,13 +1673,13 @@ export default function ConfirmedPayments() {
                           </TableCell>
                           <TableCell className="text-slate-950 font-mono font-semibold max-w-[130px] truncate" title={String(ref ?? '')}>{ref}</TableCell>
                           {/* <TableCell className="text-sm">{truckNo || '\u2014'}</TableCell> */}
-                          <TableCell className="text-sm max-w-[140px] truncate" title={location || undefined}>
+                          <TableCell className="text-sm max-w-[140px]" title={location || undefined}>
                             {location || '\u2014'}
                           </TableCell>
                           <TableCell className="uppercase font-semibold max-w-[140px] truncate" title={customerName || undefined}>
                             {customerName || '\u2014'}
                           </TableCell>
-                          <TableCell className="text-sm uppercase font-semibold max-w-[140px] truncate" title={company || undefined}>
+                          <TableCell className="text-sm uppercase font-semibold max-w-[140px]" title={company || undefined}>
                             {company || '\u2014'}
                           </TableCell>
                           <TableCell className="max-w-[150px]">

@@ -664,7 +664,7 @@ export const apiClient = {
     },
 
     // All Orders (Admin View)
-    getAllAdminOrders: async (params?: { page?: number; page_size?: number; status?: string }) => {
+    getAllAdminOrders: async (params?: { page?: number; page_size?: number; status?: string; date_from?: string; date_to?: string }) => {
       const url = new URL(`${ADMIN_BASE}/all-orders/`);
       if (params) {
         Object.entries(params).forEach(([key, value]) => {
