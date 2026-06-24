@@ -973,8 +973,10 @@ export const PickupProcessing = () => {
         [selectedOrder.id]: sanitized,
       }));
 
-      // 1. Release the order (transitions status) — only needed for first-time release
-      if (selectedOrder.status !== 'released') {
+      // 1. Release the order (transitions status) — only needed for first-time release.
+      // Once an order is 'released' or 'loaded' it's already past this step, even if
+      // more tickets are still being added to cover the remaining quantity.
+      if (selectedOrder.status !== 'released' && selectedOrder.status !== 'loaded') {
         await apiClient.admin.releaseOrder(selectedOrder.id, {
           truck_number: firstTruck.plate_number || '-',
           driver_name: firstTruck.driver_name || '-',
@@ -1506,15 +1508,21 @@ export const PickupProcessing = () => {
                         </TableCell> */}
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            {/* Determine if this released order is fully allocated */}
+                            {/* Determine if this order is fully allocated — based on actual
+                                ticketed quantity, not just status. An order flips to 'loaded'
+                                as soon as the first ticket is generated, which does NOT mean
+                                every truck has been ticketed yet (e.g. 90,000L sold, only
+                                45,000L/1 truck loaded so far) — that case must still be able
+                                to add more tickets for the remainder. */}
                             {(() => {
                               const orderQty = getReleasableQty(order);
                               const allocated = ticketAllocated[order.id] || 0;
                               const isLoaded = (order.status || '').toLowerCase() === 'loaded';
-                              const fullyAllocated = (order.status === 'released' || isLoaded) && orderQty > 0 && allocated >= orderQty;
+                              const canGenerateMore = order.status === 'released' || isLoaded;
+                              const fullyAllocated = canGenerateMore && orderQty > 0 && allocated >= orderQty;
 
-                              // Loaded orders or fully allocated → show "View/Edit Ticket"
-                              if (isLoaded || fullyAllocated) {
+                              // Fully allocated → just view/edit the existing tickets
+                              if (fullyAllocated) {
                                 return (
                                   <Button
                                     size="sm"
@@ -1528,7 +1536,8 @@ export const PickupProcessing = () => {
                                 );
                               }
 
-                              // Not fully allocated → show Generate / Add Ticket dialog
+                              // Not fully allocated (released, or loaded but short) → allow
+                              // generating/adding more tickets for the remaining quantity.
                               return (
                             <Dialog
                               open={releaseOpen && selectedOrder?.id === order.id}
@@ -1544,10 +1553,10 @@ export const PickupProcessing = () => {
                                   size="sm"
                                   className="h-8 gap-1"
                                   onClick={() => openRelease(order)}
-                                  disabled={readOnly || order.status !== 'released'}
+                                  disabled={readOnly || !canGenerateMore}
                                 >
                                   <File className="h-4 w-4" />
-                                  <span>Generate Ticket</span>
+                                  <span>{allocated > 0 ? 'Add Ticket' : 'Generate Ticket'}</span>
                                 </Button>
                               </DialogTrigger>
                               <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-2xl sm:w-auto flex flex-col max-h-[90vh] gap-0 p-0">
@@ -1555,7 +1564,7 @@ export const PickupProcessing = () => {
                                 <div className="px-6 pt-6 pb-4">
                                   <DialogHeader className="space-y-1">
                                     <DialogTitle className="text-lg font-semibold tracking-tight">
-                                      Generate Loading Ticket{truckRows.length > 1 ? 's' : ''}
+                                      {allocated > 0 ? 'Add' : 'Generate'} Loading Ticket{truckRows.length > 1 ? 's' : ''}
                                     </DialogTitle>
                                     <DialogDescription className="text-sm text-slate-500">
                                       Split the order across one or more trucks. Each truck gets its own ticket.
@@ -1803,7 +1812,7 @@ export const PickupProcessing = () => {
                                     ) : (
                                       <File className="h-4 w-4" />
                                     )}
-                                    Generate {truckRows.length} Ticket{truckRows.length > 1 ? 's' : ''}
+                                    {allocated > 0 ? 'Add' : 'Generate'} {truckRows.length} Ticket{truckRows.length > 1 ? 's' : ''}
                                   </Button>
                                 </div>
                               </DialogContent>
