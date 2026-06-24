@@ -31,7 +31,9 @@ import {
   ShieldCheck, ListFilter, RefreshCw,
   FuelIcon, Save, AlertCircle,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   format, parseISO, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear,
   addDays, isAfter, isBefore, isSameDay, startOfDay, endOfDay,
@@ -90,6 +92,9 @@ interface Order {
   agent?: unknown;
   assigned_agent?: unknown;
   meta?: Record<string, unknown>;
+  total_paid?: string | number | null;
+  truck_tickets_count?: number;
+  truck_tickets_qty?: string | number;
 }
 
 type TimePreset = 'today' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'custom';
@@ -725,28 +730,30 @@ export default function DepotView() {
     const pending = filteredOrders.filter(o => o.status?.toLowerCase() === 'pending').length;
     const totalQty = filteredOrders.reduce((s, o) => s + toNum(o.quantity), 0);
     const totalAmount = filteredOrders.reduce((s, o) => s + toNum(o.total_price), 0);
+    const totalPaid = filteredOrders.reduce((s, o) => s + toNum(o.total_paid), 0);
 
     const releasedOrders = filteredOrders.filter(o => o.status?.toLowerCase() === 'released');
-    const loadedOrders = filteredOrders.filter(o => o.status?.toLowerCase() === 'loaded');
     const releasedQty = releasedOrders.reduce((s, o) => s + toNum(o.quantity), 0);
     const releasedAmount = releasedOrders.reduce((s, o) => s + toNum(o.total_price), 0);
-    const loadedQty = loadedOrders.reduce((s, o) => s + toNum(o.quantity), 0);
-    const loadedAmount = loadedOrders.reduce((s, o) => s + toNum(o.total_price), 0);
+
+    // Trucks loaded & volume loaded come from actual TruckTicket rows, not
+    // the order's status — a "loaded" order can still be only partially
+    // fulfilled (e.g. 1 of 2 trucks so far), so this is the accurate figure.
+    const trucksLoaded = filteredOrders.reduce((s, o) => s + (o.truck_tickets_count || 0), 0);
+    const volumeLoaded = filteredOrders.reduce((s, o) => s + toNum(o.truck_tickets_qty), 0);
 
     return [
       { title: 'Total Orders', value: String(total), icon: <FileText size={20} />, tone: 'neutral', description: `${paid} paid & released` },
-      { title: 'Total Amount', value: totalAmount > 0 ? fmt(totalAmount) : '₦0.00', icon: <DollarSign size={20} />, tone: 'green' },
       { title: 'Payment Not Confirmed', value: String(pending), icon: <Clock size={20} />, tone: pending > 0 ? 'amber' : 'neutral' },
-      { title: 'Total Qty (L)', value: totalQty > 0 ? fmtQty(totalQty) : '0', icon: <Fuel size={20} />, tone: 'neutral', description: totalAmount > 0 ? fmt(totalAmount) : undefined },
+      { title: 'Total Qty Ordered (L)', value: totalQty > 0 ? fmtQty(totalQty) : '0', icon: <Fuel size={20} />, tone: 'neutral' },
+      { title: 'Total Amount', value: totalAmount > 0 ? fmt(totalAmount) : '₦0.00', icon: <DollarSign size={20} />, tone: 'green', description: totalPaid > 0 ? `${fmt(totalPaid)} paid` : undefined },
+      { title: 'Trucks Loaded', value: String(trucksLoaded), icon: <Truck size={20} />, tone: 'neutral', description: volumeLoaded > 0 ? `${fmtQty(volumeLoaded)} L loaded` : undefined },
       { title: 'Released Qty (L)', value: releasedQty > 0 ? fmtQty(releasedQty) : '0', icon: <ShieldCheck size={20} />, tone: 'neutral', description: releasedAmount > 0 ? fmt(releasedAmount) : undefined },
-      { title: 'Loaded Qty (L)', value: loadedQty > 0 ? fmtQty(loadedQty) : '0', icon: <Truck size={20} />, tone: 'neutral', description: loadedAmount > 0 ? fmt(loadedAmount) : undefined },
     ];
   }, [filteredOrders]);
 
-  const handleExportExcel = () => {
-    try {
-    if (filteredOrders.length === 0) { console.warn('[Export] filteredOrders is empty — button should be disabled'); return; }
-
+  // ── Shared report data builder (used by both Excel and PDF exports) ────
+  const buildDepotReportData = () => {
     const generatedAt = format(new Date(), 'dd MMM yyyy, HH:mm');
     const dateRangeLabel = timePreset === 'custom' && calRange.from
       ? calRange.to
@@ -760,105 +767,239 @@ export default function DepotView() {
       pfiFilter !== 'all' ? pfiFilter : '',
       locationFilter !== 'all' ? locationFilter : '',
     ].filter(Boolean).join(' - ') || 'ALL';
-    // Excel sheet names cannot contain / \ * ? : [ ] and are max 31 chars
     const safeLabel = reportLabel.replace(/[/\\*?:[\]]/g, '-');
-    const sheetName = `${safeLabel} SALES REPORT`.slice(0, 31);
-    const fileName = `SALES REPORT ${safeLabel} - ${format(new Date(), 'ddMMyy')}.xlsx`;
 
-    // AOA layout (0-based row indices):
-    //  0: SALES REPORT title
-    //  1: blank
-    //  2: DATE PERIOD
-    //  3: LOCATION
-    //  4: PFI
-    //  5: blank
-    //  6: SUMMARY label
-    //  7: METRIC / VALUE header
-    //  8: TOTAL ORDERS
-    //  9: TOTAL QTY (L)
-    // 10: TOTAL AMOUNT (₦)
-    // 11: RELEASED QTY (L)
-    // 12: blank separator
-    // 13: SALES ORDERS label
-    // 14: blank
-    // 15: column headers
-    // 16+: order data rows
-    const ORDERS_DATA_START = 16;
+    const totalOrders = filteredOrders.length;
+    const totalQty = filteredOrders.reduce((s, o) => s + toNum(o.quantity), 0);
+    const totalAmount = filteredOrders.reduce((s, o) => s + toNum(o.total_price), 0);
+    const totalPaid = filteredOrders.reduce((s, o) => s + toNum(o.total_paid), 0);
+    const releasedQty = filteredOrders.filter(o => o.status?.toLowerCase() === 'released').reduce((s, o) => s + toNum(o.quantity), 0);
+    const trucksLoaded = filteredOrders.reduce((s, o) => s + (o.truck_tickets_count || 0), 0);
+    const volumeLoaded = filteredOrders.reduce((s, o) => s + toNum(o.truck_tickets_qty), 0);
 
-    const ws = XLSX.utils.aoa_to_sheet([
-      ['SALES REPORT'],
-      [''],
-      ['DATE PERIOD', String(dateRangeLabel).toUpperCase()],
-      ['LOCATION', locationFilter === 'all' ? 'ALL LOCATIONS' : String(locationFilter).toUpperCase()],
+    const headingBlock: Array<[string, string]> = [
+      ['Report Generated', generatedAt],
+      ['Date Period', String(dateRangeLabel).toUpperCase()],
+      ['Location', locationFilter === 'all' ? 'ALL LOCATIONS' : String(locationFilter).toUpperCase()],
       ['PFI', pfiFilter === 'all' ? 'ALL PFIS' : String(pfiFilter).toUpperCase()],
-      [''],
-      ['SUMMARY'],
-      ['METRIC', 'VALUE'],
-      ['TOTAL ORDERS', filteredOrders.length],
-      ['TOTAL QTY (L)', filteredOrders.reduce((sum, o) => sum + toNum(o.quantity), 0)],
-      ['TOTAL AMOUNT (₦)', filteredOrders.reduce((sum, o) => sum + toNum(o.total_price), 0)],
-      ['RELEASED QTY (L)', filteredOrders.filter(o => o.status?.toLowerCase() === 'released').reduce((sum, o) => sum + toNum(o.quantity), 0)],
-      [''],
-      ['SALES ORDERS'],
-      [''],
-      ['REFERENCE', 'DATE', 'CUSTOMER', 'COMPANY', 'CONTACT', 'LOCATION', 'PFI', 'TRUCK NO.', 'PRODUCT', 'QTY (L)', 'UNIT PRICE', 'AMOUNT', 'STATUS'],
-      ...sortedOrders.map(order => {
-        const qty = toNum(order.quantity);
-        const unitPrice = getUnitPrice(order);
-        const amount = toNum(order.total_price);
-        return [
-          String(getOrderReference(order) || order.id).toUpperCase(),
-          fmtDateTime(order.created_at).toUpperCase(),
-          getCustomerName(order).toUpperCase(),
-          getCompanyName(order).toUpperCase(),
-          getPhone(order).toUpperCase(),
-          getLocation(order).toUpperCase(),
-          getPfiNumber(order).toUpperCase(),
-          getTruckNumber(order).toUpperCase(),
-          getProductName(order).toUpperCase(),
-          qty,
-          unitPrice,
-          amount,
-          String(order.status || '').toUpperCase(),
-        ];
-      }),
-    ]);
-
-    ws['!merges'] = [
-      { s: { r: 0,  c: 0 }, e: { r: 0,  c: 12 } }, // SALES REPORT title
-      { s: { r: 6,  c: 0 }, e: { r: 6,  c: 12 } }, // SUMMARY label
-      { s: { r: 13, c: 0 }, e: { r: 13, c: 12 } }, // SALES ORDERS label
+      ['Total Orders', totalOrders.toLocaleString()],
+      ['Total Qty Ordered (L)', totalQty.toLocaleString()],
+      ['Trucks Loaded', `${trucksLoaded.toLocaleString()} (${volumeLoaded.toLocaleString()} L)`],
+      ['Released Qty (L)', releasedQty.toLocaleString()],
+      ['Total Amount', `N${totalAmount.toLocaleString()}`],
+      ['Total Paid', `N${totalPaid.toLocaleString()}`],
     ];
 
-    ws['!cols'] = [
-      { wch: 24 }, { wch: 20 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 18 }, { wch: 16 },
-      { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 },
+    const headers = [
+      'Reference', 'Date', 'Customer', 'Company', 'Contact', 'Location', 'PFI', 'Truck No.',
+      'Product', 'Qty (L)', 'Trucks Loaded', 'Vol. Loaded (L)', 'Unit Price', 'Amount', 'Paid', 'Status',
     ];
 
-    // Number formats for summary B-column (Excel row = 0-index + 1)
-    // Row 9 → B10 (TOTAL QTY), Row 10 → B11 (TOTAL AMOUNT), Row 11 → B12 (RELEASED QTY)
-    (['B10', 'B11', 'B12'] as const).forEach(addr => {
-      const cell = ws[addr];
-      if (cell && typeof cell.v === 'number') cell.z = '#,##0.00';
-    });
+    const rows = sortedOrders.map(order => [
+      String(getOrderReference(order) || order.id),
+      fmtDateTime(order.created_at),
+      getCustomerName(order),
+      getCompanyName(order),
+      getPhone(order),
+      getLocation(order),
+      getPfiNumber(order),
+      getTruckNumber(order),
+      getProductName(order),
+      toNum(order.quantity).toLocaleString(),
+      String(order.truck_tickets_count || 0),
+      toNum(order.truck_tickets_qty).toLocaleString(),
+      `N${toNum(getUnitPrice(order)).toLocaleString()}`,
+      `N${toNum(order.total_price).toLocaleString()}`,
+      `N${toNum(order.total_paid).toLocaleString()}`,
+      String(order.status || ''),
+    ].map(v => String(v).toUpperCase()));
 
-    // Number formats for order data columns:
-    // J=QTY (index 9), K=UNIT PRICE (index 10), L=AMOUNT (index 11)
-    for (let i = 0; i < sortedOrders.length; i++) {
-      const excelRow = ORDERS_DATA_START + i + 1; // 1-based
-      const qtyCell = ws[`J${excelRow}`];
-      const unitPriceCell = ws[`K${excelRow}`];
-      const amountCell = ws[`L${excelRow}`];
-      if (qtyCell) qtyCell.z = '#,##0';
-      if (unitPriceCell) unitPriceCell.z = '#,##0.00';
-      if (amountCell) amountCell.z = '#,##0.00';
-    }
+    const totalsRow = [
+      'TOTAL', '', '', '', '', '', '', '',
+      '', totalQty.toLocaleString(), String(trucksLoaded), volumeLoaded.toLocaleString(),
+      '', `N${totalAmount.toLocaleString()}`, `N${totalPaid.toLocaleString()}`, '',
+    ];
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, ws, sheetName);
-    XLSX.writeFile(workbook, fileName);
+    const fileName = `SALES REPORT ${safeLabel} - ${format(new Date(), 'ddMMyy')}`;
+
+    return { headingBlock, headers, rows, totalsRow, fileName, safeLabel };
+  };
+
+  const COLUMN_ALIGN: Array<'left' | 'center' | 'right'> = [
+    'left', 'left', 'left', 'left', 'left', 'left', 'left', 'left',
+    'left', 'right', 'right', 'right', 'right', 'right', 'right', 'left',
+  ];
+
+  const handleExportExcel = async () => {
+    if (filteredOrders.length === 0) { console.warn('[Export] filteredOrders is empty — button should be disabled'); return; }
+    try {
+      const { headingBlock, headers, rows, totalsRow, fileName, safeLabel } = buildDepotReportData();
+      const colCount = headers.length;
+
+      const NAVY = 'FF1E293B';
+      const WHITE = 'FFFFFFFF';
+      const LIGHT = 'FFF5F8FC';
+      const BAND = 'FFEFF3F8';
+      const TOTAL_FILL = 'FFE2E8F0';
+      const BORDER_COLOR = 'FFB0C4DE';
+      const thinBorder = { style: 'thin' as const, color: { argb: BORDER_COLOR } };
+      const allBorders = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
+
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Soroman Dashboard';
+      workbook.created = new Date();
+      const sheetName = `${safeLabel} SALES REPORT`.slice(0, 31);
+      const ws = workbook.addWorksheet(sheetName, { views: [{ showGridLines: false }] });
+
+      const lastColLetter = ws.getColumn(colCount).letter;
+
+      ws.mergeCells(`A1:${lastColLetter}1`);
+      const titleCell = ws.getCell('A1');
+      titleCell.value = 'SALES REPORT';
+      titleCell.font = { name: 'Calibri', bold: true, size: 16, color: { argb: WHITE } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 26;
+
+      // Summary grid — label/value pairs, 2 per row across 4 columns
+      const pairs: Array<[string, string, string, string]> = [];
+      for (let i = 0; i < headingBlock.length; i += 2) {
+        pairs.push([headingBlock[i][0], headingBlock[i][1], headingBlock[i + 1]?.[0] ?? '', headingBlock[i + 1]?.[1] ?? '']);
+      }
+      let r = 3;
+      pairs.forEach(([l1, v1, l2, v2]) => {
+        const row = ws.getRow(r);
+        row.height = 18;
+        ([[1, l1, true], [2, v1, false], [3, l2, true], [4, v2, false]] as const).forEach(([col, val, isLabel]) => {
+          const cell = row.getCell(col);
+          cell.value = val;
+          cell.font = { name: 'Calibri', bold: isLabel, size: 10, color: { argb: 'FF1E3A5F' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isLabel ? LIGHT : WHITE } };
+          cell.border = allBorders;
+          cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        });
+        r += 1;
+      });
+      ws.getColumn(1).width = 22; ws.getColumn(2).width = 22;
+      ws.getColumn(3).width = 22; ws.getColumn(4).width = 22;
+
+      r += 1;
+      const headerRowIdx = r;
+      const headerRow = ws.getRow(headerRowIdx);
+      headerRow.height = 22;
+      headers.forEach((h, i) => {
+        const cell = headerRow.getCell(i + 1);
+        cell.value = h.toUpperCase();
+        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      });
+      r += 1;
+
+      rows.forEach((row, idx) => {
+        const xlRow = ws.getRow(r);
+        xlRow.height = 16;
+        row.forEach((val, ci) => {
+          const cell = xlRow.getCell(ci + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 9.5 };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? WHITE : BAND } };
+          cell.border = allBorders;
+          cell.alignment = { vertical: 'middle', horizontal: COLUMN_ALIGN[ci] || 'left' };
+        });
+        r += 1;
+      });
+
+      const totalsRowXl = ws.getRow(r);
+      totalsRowXl.height = 18;
+      totalsRow.forEach((val, ci) => {
+        const cell = totalsRowXl.getCell(ci + 1);
+        cell.value = val;
+        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF0F172A' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: COLUMN_ALIGN[ci] || 'left' };
+      });
+
+      const widths = [24, 18, 22, 22, 18, 18, 16, 16, 18, 12, 12, 14, 14, 16, 16, 14];
+      widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+      ws.views = [{ state: 'frozen', ySplit: headerRowIdx, showGridLines: false }];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error('[Export] Excel export failed:', err);
+      alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleExportPDF = () => {
+    if (filteredOrders.length === 0) { console.warn('[Export] filteredOrders is empty — button should be disabled'); return; }
+    try {
+      const { headingBlock, headers, rows, totalsRow, fileName } = buildDepotReportData();
+      const doc = new jsPDF({ orientation: 'landscape' });
+
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, 297, 16, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.text('SALES REPORT', 14, 10.5);
+      doc.setTextColor(0, 0, 0);
+      doc.setFont('helvetica', 'normal');
+
+      const pairs: Array<[string, string, string, string]> = [];
+      for (let i = 0; i < headingBlock.length; i += 2) {
+        pairs.push([headingBlock[i][0], headingBlock[i][1], headingBlock[i + 1]?.[0] ?? '', headingBlock[i + 1]?.[1] ?? '']);
+      }
+      autoTable(doc, {
+        startY: 22,
+        body: pairs,
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 2.5, valign: 'middle', lineColor: [176, 196, 222], lineWidth: 0.2 },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 45, fillColor: [238, 244, 251], textColor: [30, 58, 95] },
+          1: { cellWidth: 60 },
+          2: { fontStyle: 'bold', cellWidth: 45, fillColor: [238, 244, 251], textColor: [30, 58, 95] },
+          3: { cellWidth: 60 },
+        },
+      });
+
+      const colWidthsMm = [22, 14, 18, 18, 16, 16, 16, 14, 16, 12, 12, 14, 14, 14, 14, 13];
+      const columnStyles: Record<number, { cellWidth: number; halign: 'left' | 'center' | 'right' }> = {};
+      colWidthsMm.forEach((w, i) => { columnStyles[i] = { cellWidth: w, halign: COLUMN_ALIGN[i] || 'left' }; });
+
+      autoTable(doc, {
+        startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8,
+        head: [headers.map(h => h.toUpperCase())],
+        body: rows,
+        foot: [totalsRow],
+        showFoot: 'lastPage',
+        margin: { left: 7, right: 7 },
+        tableWidth: 'wrap',
+        theme: 'grid',
+        styles: {
+          fontSize: 6.5, cellPadding: 1.4, overflow: 'linebreak', valign: 'middle',
+          lineColor: [176, 196, 222], lineWidth: 0.15,
+        },
+        columnStyles,
+        alternateRowStyles: { fillColor: [245, 248, 252] },
+        headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 6.5, halign: 'center', valign: 'middle', fontStyle: 'bold' },
+        footStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 7, valign: 'middle' },
+      });
+
+      doc.save(`${fileName}.pdf`);
+    } catch (err) {
+      console.error('[Export] PDF export failed:', err);
       alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
@@ -916,6 +1057,16 @@ export default function DepotView() {
                   >
                     <FileText size={15} />
                     Export Excel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={handleExportPDF}
+                    disabled={filteredOrders.length === 0}
+                  >
+                    <FileText size={15} />
+                    Export PDF
                   </Button>
                   <Button
                     variant="outline"

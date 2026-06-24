@@ -566,6 +566,8 @@ export default function DailySalesReport() {
       total_sales_amount:             String(r.total_sales_amount ?? ''),
       differentials:                  String(r.differentials ?? ''),
       loading_left_over:              String(r.loading_left_over ?? ''),
+      bank_name:                      String(r.bank_name ?? ''),
+      account_number:                 String(r.account_number ?? ''),
       remarks:                        String(r.remarks ?? ''),
       submitted_by_name:              String(r.submitted_by_name ?? ''),
     });
@@ -1092,6 +1094,7 @@ export default function DailySalesReport() {
                             <th className="px-4 py-2.5 text-right">Total Sales</th>
                             <th className="px-4 py-2.5 text-right">Differentials</th>
                             <th className="px-4 py-2.5 text-right">Leftover</th>
+                            <th className="px-4 py-2.5 text-left">Bank</th>
                             <th className="px-4 py-2.5 text-left">Submitted By</th>
                             <th className="px-4 py-2.5 text-right">Action</th>
                           </tr>
@@ -1129,6 +1132,11 @@ export default function DailySalesReport() {
                                 <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.total_sales_amount)}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.differentials)}</td>
                                 <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.loading_left_over)}</td>
+                                <td className="px-4 py-2.5 text-xs text-slate-600">
+                                  {rpt.bank_name || rpt.account_number
+                                    ? `${rpt.bank_name || '—'}${rpt.account_number ? ` (${rpt.account_number})` : ''}`
+                                    : <span className="text-slate-300">NIL</span>}
+                                </td>
                                 <td className="px-4 py-2.5 text-xs text-slate-500">{String(rpt.submitted_by_name || '—')}</td>
                                 <td className="px-4 py-2.5 text-right">
                                   {confirmDeleteId === Number(rpt.id) ? (
@@ -1191,6 +1199,7 @@ export default function DailySalesReport() {
                                 <td className="px-4 py-3 text-right text-emerald-700">₦{sum('total_sales_amount').toLocaleString()}</td>
                                 <td className="px-4 py-3 text-right">{sum('differentials').toLocaleString()}</td>
                                 <td className="px-4 py-3 text-right">{sum('loading_left_over').toLocaleString()}</td>
+                                <td className="px-4 py-3"></td>
                                 <td className="px-4 py-3"></td>
                                 <td className="px-4 py-3"></td>
                               </tr>
@@ -1463,6 +1472,23 @@ export default function DailySalesReport() {
                     </div>
                   </label>
                 ))}
+              </div>
+            </fieldset>
+
+            {/* Payment Destination */}
+            <fieldset className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Payment Destination</legend>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bank Name</span>
+                  <input type="text" value={editForm.bank_name ?? ''} onChange={e => setEditForm(f => ({ ...f, bank_name: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                </label>
+                <label className="block">
+                  <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Account Number</span>
+                  <input type="text" value={editForm.account_number ?? ''} onChange={e => setEditForm(f => ({ ...f, account_number: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+                </label>
               </div>
             </fieldset>
 

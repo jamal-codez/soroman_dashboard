@@ -118,6 +118,11 @@ interface Order {
   total_paid?: string | null;
   releasable_quantity?: number;
   payment_status?: 'Unpaid' | 'Partially Paid' | 'Fully Paid' | 'Overpaid' | string;
+
+  // Actual truck-ticket loading data (from TruckTicket rows) — the real,
+  // physically-loaded figures, distinct from `quantity` (what was sold/ordered).
+  truck_tickets_count?: number;
+  truck_tickets_qty?: string | number;
 }
 
 interface OrderResponse {
@@ -1122,7 +1127,15 @@ export const PickupProcessing = () => {
     const released = list.filter((o) => norm(o.status) === 'released').length;
     const loaded = list.filter((o) => norm(o.status) === 'loaded').length;
 
+    // "Sold" — what was ordered (Order.quantity). This is NOT the same as
+    // what physically left the depot; see totalLoadedQty below.
     const totalQty = list.reduce((sum, o) => sum + (Number(o.quantity) || 0), 0);
+    // "Loaded" — sum of real TruckTicket quantities for these orders. An
+    // order with status 'loaded' can still be short: e.g. 100,000L sold,
+    // only 40,000L actually ticketed/loaded so far — this is the number
+    // that tells you that, where `totalQty` alone would not.
+    const totalLoadedQty = list.reduce((sum, o) => sum + (Number(o.truck_tickets_qty) || 0), 0);
+    const totalTrucksLoaded = list.reduce((sum, o) => sum + (Number(o.truck_tickets_count) || 0), 0);
     const totalAmount = list.reduce((sum, o) => {
       const v = String(o.total_price ?? '0').replace(/,/g, '');
       return sum + (Number(v) || 0);
@@ -1130,7 +1143,7 @@ export const PickupProcessing = () => {
     const uniqueUnits = new Set(list.map((o) => getOrderUnitLabel(o)));
     const qtyUnitLabel = uniqueUnits.size === 1 ? [...uniqueUnits][0] : 'units';
 
-    return { total, released, loaded, totalQty, totalAmount, qtyUnitLabel };
+    return { total, released, loaded, totalQty, totalLoadedQty, totalTrucksLoaded, totalAmount, qtyUnitLabel };
   }, [filteredOrders]);
 
   // Auto-fetch ticket counts only for currently visible orders to prevent 429 throttling
@@ -1186,10 +1199,22 @@ export const PickupProcessing = () => {
                 //   tone: 'neutral',
                 // },
                 {
-                  title: 'Quantity Loaded',
+                  title: 'Quantity Sold',
                   value: isLoading ? '…' : `${summary.totalQty.toLocaleString()} ${summary.qtyUnitLabel}`,
                   icon: <Droplets className="h-4 w-4" />,
                   tone: 'neutral',
+                  description: 'Total ordered, regardless of loading status',
+                },
+                {
+                  title: 'Quantity Loaded',
+                  value: isLoading ? '…' : `${summary.totalLoadedQty.toLocaleString()} ${summary.qtyUnitLabel}`,
+                  icon: <TruckIcon className="h-4 w-4" />,
+                  tone: summary.totalLoadedQty < summary.totalQty ? 'amber' : 'green',
+                  description: isLoading
+                    ? undefined
+                    : summary.totalLoadedQty < summary.totalQty
+                      ? `${(summary.totalQty - summary.totalLoadedQty).toLocaleString()} ${summary.qtyUnitLabel} not yet loaded`
+                      : 'Fully loaded',
                 },
                 // {
                 //   title: 'Total Amount',
@@ -1199,7 +1224,7 @@ export const PickupProcessing = () => {
                 // },
                 {
                   title: 'Trucks Loaded',
-                  value: isLoading ? '…' : summary.loaded.toLocaleString(),
+                  value: isLoading ? '…' : summary.totalTrucksLoaded.toLocaleString(),
                   icon: <TruckIcon className="h-4 w-4" />,
                   tone: 'green',
                 },

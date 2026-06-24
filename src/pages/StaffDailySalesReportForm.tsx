@@ -46,6 +46,8 @@ interface FormFields {
   total_sales_amount: string;
   differentials: string;
   loading_left_over: string;
+  bank_name: string;
+  account_number: string;
   remarks: string;
 }
 
@@ -62,6 +64,8 @@ const EMPTY: FormFields = {
   total_sales_amount: '',
   differentials: '',
   loading_left_over: '',
+  bank_name: '',
+  account_number: '',
   remarks: '',
 };
 
@@ -94,11 +98,13 @@ const toNum = (s: string) => {
 // Field Component
 // ─────────────────────────────────────────────────────────────────────────────
 function Field({
-  label, value, onChange, prefix, suffix, multiline, readOnly = false, highlight = false, decimal = false,
+  label, value, onChange, prefix, suffix, multiline, readOnly = false, highlight = false, decimal = false, text = false, placeholder,
 }: {
   label: string; value: string; onChange: (v: string) => void;
   prefix?: string; suffix?: string; multiline?: boolean;
   readOnly?: boolean; highlight?: boolean; decimal?: boolean;
+  /** Plain free-text input (no numeric formatting) — for things like bank name/account number. */
+  text?: boolean; placeholder?: string;
 }) {
   return (
     <div>
@@ -119,6 +125,15 @@ function Field({
             rows={2}
             placeholder="Optional…"
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 disabled:bg-slate-50 transition-all resize-none"
+          />
+        ) : text ? (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={readOnly}
+            placeholder={placeholder || 'Optional…'}
+            className={`w-full rounded-lg border py-2 text-sm text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:border-green-400 disabled:bg-slate-50 transition-all ${prefix ? 'pl-8 pr-3' : suffix ? 'pl-3 pr-10' : 'px-3'} ${highlight ? 'border-green-300 bg-green-50/40 focus:ring-green-500/30' : 'border-slate-200 bg-white focus:ring-green-500/30'}`}
           />
         ) : (
           <input
@@ -340,6 +355,8 @@ export default function StaffDailySalesReportForm() {
       total_sales_amount: numVal(rpt.total_sales_amount),
       differentials: numVal(rpt.differentials),
       loading_left_over: numVal(rpt.loading_left_over),
+      bank_name: String(rpt.bank_name ?? ''),
+      account_number: String(rpt.account_number ?? ''),
       remarks: String(rpt.remarks ?? ''),
     });
     setShowForm(true);
@@ -363,6 +380,8 @@ export default function StaffDailySalesReportForm() {
       total_sales_amount: rawNum(form.total_sales_amount) || '0',
       differentials: rawNum(form.differentials) || '0',
       loading_left_over: rawNum(form.loading_left_over) || '0',
+      bank_name: form.bank_name.trim(),
+      account_number: form.account_number.trim(),
       remarks: form.remarks,
     }),
     onSuccess: () => {
@@ -591,6 +610,15 @@ export default function StaffDailySalesReportForm() {
                           <Field label="Total Sales Amount" value={form.total_sales_amount} onChange={set('total_sales_amount')} prefix="₦" highlight />
                           <Field label="Differentials" value={form.differentials} onChange={set('differentials')} prefix="₦" highlight />
                           <Field label="Loading Left Over" value={form.loading_left_over} onChange={set('loading_left_over')} suffix={selectedPfiUnitLabel} />
+                        </div>
+                      </fieldset>
+
+                      {/* Payment Destination */}
+                      <fieldset className="rounded-xl border border-slate-200 p-4 space-y-4">
+                        <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Bank Details</legend>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <Field label="Bank Name" value={form.bank_name} onChange={set('bank_name')} text placeholder="e.g. Zenith Bank" />
+                          <Field label="Account Number" value={form.account_number} onChange={set('account_number')} text placeholder="e.g. 1234567890" />
                         </div>
                       </fieldset>
 

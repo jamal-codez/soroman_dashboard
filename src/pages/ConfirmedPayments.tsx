@@ -336,10 +336,6 @@ export default function ConfirmedPayments() {
   const [editAmountPaid, setEditAmountPaid] = useState('');
   const [editStatus, setEditStatus] = useState('');
   const [editAttachedFiles, setEditAttachedFiles] = useState<File[]>([]);
-  const [editQuantity, setEditQuantity] = useState('');
-  const [editUnitPrice, setEditUnitPrice] = useState('');
-  const [editTotalPrice, setEditTotalPrice] = useState('');
-  const [editTruckNumber, setEditTruckNumber] = useState('');
   const [editDriverName, setEditDriverName] = useState('');
   const [editDriverPhone, setEditDriverPhone] = useState('');
   const [editBankAccountId, setEditBankAccountId] = useState('');
@@ -499,11 +495,6 @@ export default function ConfirmedPayments() {
     setEditStatus(status.label === '\u2014' ? 'Fully Paid' : status.label);
     setEditAttachedFiles([]);
 
-    const { qty, unitPrice } = extractProductInfo(p);
-    setEditQuantity(qty ? String(qty) : '');
-    setEditUnitPrice(unitPrice ? String(unitPrice) : '');
-    setEditTotalPrice(salesValue ? String(salesValue) : '');
-    setEditTruckNumber(extractTruckNumber(p));
     setEditDriverName(extractDriverName(p));
     setEditDriverPhone(extractDriverPhone(p));
 
@@ -597,26 +588,6 @@ export default function ConfirmedPayments() {
 
     const patch: Parameters<typeof apiClient.admin.patchAdminOrder>[1] = {};
 
-    const { qty: origQty, unitPrice: origUnitPrice } = extractProductInfo(editOrder);
-    const newQty = parseFloat(editQuantity || '0');
-    if (editQuantity.trim() && Number.isFinite(newQty) && newQty !== origQty) {
-      patch.quantity = newQty;
-    }
-
-    const newUnitPrice = parseFloat(editUnitPrice || '0');
-    if (editUnitPrice.trim() && Number.isFinite(newUnitPrice) && newUnitPrice !== origUnitPrice) {
-      patch.unit_price = newUnitPrice;
-    }
-
-    const origPrice = safeToNumber(editOrder.total_price ?? editOrder.amount);
-    const newPrice = parseFloat(editTotalPrice || '0');
-    if (editTotalPrice.trim() && Number.isFinite(newPrice) && newPrice !== origPrice) {
-      patch.total_price = newPrice;
-    }
-
-    if (editTruckNumber.trim() !== extractTruckNumber(editOrder)) {
-      patch.truck_number = editTruckNumber.trim();
-    }
     if (editDriverName.trim() !== extractDriverName(editOrder)) {
       patch.driver_name = editDriverName.trim();
     }
@@ -1734,8 +1705,8 @@ export default function ConfirmedPayments() {
 
             {/* Edit Payment Details Dialog */}
             <Dialog open={!!editOrder} onOpenChange={(v) => { if (!v) setEditOrder(null); }}>
-              <DialogContent className="w-[95vw] sm:w-full sm:max-w-[700px] lg:max-w-[1050px] max-h-[90vh] border border-slate-300 shadow-xl p-0 flex flex-col gap-0">
-                <div className="border-b border-slate-800 bg-black px-4 sm:px-6 py-3 sm:py-4 shrink-0">
+              <DialogContent className="w-[75vw] sm:w-full sm:max-w-[500px] lg:max-w-[750px] max-h-[80vh] border border-slate-300 shadow-xl p-0 flex flex-col gap-0">
+                <div className="border-b border-slate-800  bg-black px-4 sm:px-6 py-3 sm:py-4 shrink-0">
                   <DialogHeader className="space-y-1">
                     <DialogTitle className="text-white text-base">Edit Order</DialogTitle>
                     <DialogDescription className="text-slate-200 text-xs sm:text-sm">
@@ -1751,82 +1722,51 @@ export default function ConfirmedPayments() {
                   </DialogHeader>
                 </div>
 
-                <div className="bg-white px-4 sm:px-6 py-4 sm:py-5 flex-1 overflow-y-auto min-h-0 flex flex-col gap-5 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
-                <div className="space-y-3.5">
+                <div className="bg-white px-4 sm:px-6 py-4 sm:py-5 flex-1 overflow-y-auto min-h-0 flex flex-col gap-5 lg:grid lg:grid-cols-1 lg:gap-6 lg:items-start">
+                <div className="grid grid-cols-2 gap-x-3">
                   {editOrder && (
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-4 text-xs">
                       <div>
                         <div className="text-slate-400 uppercase tracking-wider text-[10px]">Customer</div>
-                        <div className="font-bold uppercase text-slate-800 truncate">{extractCustomerName(editOrder) || '—'}</div>
+                        <div className="font-bold text-sm uppercase text-slate-800 truncate">{extractCustomerName(editOrder) || '—'}</div>
                       </div>
                       <div>
-                        <div className="text-slate-400 uppercase tracking-wider text-[10px]">Company</div>
-                        <div className="font-bold uppercase text-slate-800 truncate">{extractCustomerCompany(editOrder) || '—'}</div>
+                        <div className="text-slate-400 pt-4 uppercase tracking-wider text-[10px]">Company</div>
+                        <div className="font-bold text-sm uppercase text-slate-800 truncate">{extractCustomerCompany(editOrder) || '—'}</div>
                       </div>
                     </div>
                   )}
 
-                  <div>
-                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Truck Number</label>
-                    <Input
-                      value={editTruckNumber}
-                      onChange={(e) => setEditTruckNumber(e.target.value)}
-                      placeholder="e.g. ABC-123-XY"
-                      className="h-10 border-slate-300 text-slate-900 font-medium"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="mb-1.5 block text-sm font-semibold text-slate-800">Quantity</label>
-                      <div className="relative">
-                        <CommaInput
-                          value={editQuantity}
-                          onValueChange={(v) => {
-                            setEditQuantity(v);
-                            const qty = parseFloat(v || '0');
-                            const price = parseFloat(editUnitPrice || '0');
-                            if (qty > 0 && price > 0) setEditTotalPrice(String(Math.round(qty * price * 100) / 100));
-                          }}
-                          placeholder="e.g. 33,000"
-                          className="h-10 border-slate-300 text-slate-900 font-medium pr-14"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">
-                          {editOrder ? extractProductInfo(editOrder).unitLabel : 'Litres'}
-                        </span>
+                  {editOrder && (() => {
+                    const { qty, unitPrice, unitLabel } = extractProductInfo(editOrder);
+                    const truckNo = extractTruckNumber(editOrder);
+                    const salesValue = safeToNumber(editOrder.total_price ?? editOrder.amount);
+                    return (
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-4 text-xs">
+                        {/* <div>
+                          <div className="text-slate-400 uppercase tracking-wider text-[10px]">Truck Number</div>
+                          <div className="font-bold text-slate-800 truncate">{truckNo || '—'}</div>
+                        </div> */}
+                        <div>
+                          <div className="text-slate-400 uppercase tracking-wider text-[10px]">Quantity</div>
+                          <div className="font-bold text-sm text-slate-800 truncate">{qty ? `${qty.toLocaleString()} ${unitLabel}` : '—'}</div>
+                        </div>
+                        <div>
+                          <div className="text-slate-400 pt-4 uppercase tracking-wider text-[10px]">Unit Price (₦)</div>
+                          <div className="font-bold text-sm text-slate-800 truncate">{unitPrice ? unitPrice.toLocaleString() : '—'}</div>
+                        </div>
+                        <div>
+                          <div className="text-slate-400 pt-4 uppercase tracking-wider text-[10px]">Sales Value (₦)</div>
+                          <div className="font-bold text-sm text-emerald-700 truncate">{salesValue ? salesValue.toLocaleString() : '—'}</div>
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <label className="mb-1.5 block text-sm font-semibold text-slate-800">Unit Price (₦)</label>
-                      <CommaInput
-                        value={editUnitPrice}
-                        onValueChange={(v) => {
-                          setEditUnitPrice(v);
-                          const qty = parseFloat(editQuantity || '0');
-                          const price = parseFloat(v || '0');
-                          if (qty > 0 && price > 0) setEditTotalPrice(String(Math.round(qty * price * 100) / 100));
-                        }}
-                        placeholder="e.g. 1,000"
-                        className="h-10 border-slate-300 text-slate-900 font-medium"
-                      />
-                    </div>
-                  </div>
+                    );
+                  })()}
+                </div>
 
-                  <div>
-                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">
-                      Sales Value (₦)
-                    </label>
-                    <CommaInput
-                      value={editTotalPrice}
-                      onValueChange={setEditTotalPrice}
-                      placeholder="e.g. 33,000,000"
-                      className="h-11 border-emerald-200 bg-emerald-50/50 text-slate-900 font-bold text-base"
-                    />
-                  </div>
+                <div className="h-px bg-slate-200" />
 
-                  <div className="h-px bg-slate-200" />
-
-                  <div>
+                <div>
                     <label className="mb-1.5 block text-sm font-semibold text-slate-800">Bank Account</label>
                     <select
                       aria-label="Bank account"
@@ -1859,8 +1799,9 @@ export default function ConfirmedPayments() {
                         </div>
                       );
                     })()}
-                  </div>
                 </div>
+
+                <div className="h-px bg-slate-200" />
 
                 <div className="space-y-2.5">
                   {/* Payments — existing entries + add new split-payment lines, same UX as Confirm Payment */}

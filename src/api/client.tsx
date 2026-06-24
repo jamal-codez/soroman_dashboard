@@ -1141,6 +1141,8 @@ export const apiClient = {
       total_sales_amount?: string | number;
       differentials?: string | number;
       loading_left_over?: string | number;
+      bank_name?: string;
+      account_number?: string;
       remarks?: string;
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/reports/staff/submit/`, {
@@ -1246,6 +1248,8 @@ export const apiClient = {
       total_sales_amount?: string | number;
       differentials?: string | number;
       loading_left_over?: string | number;
+      bank_name?: string;
+      account_number?: string;
       remarks?: string;
       submitted_by_name?: string;
     }) => {

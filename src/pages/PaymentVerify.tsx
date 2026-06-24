@@ -317,7 +317,7 @@ function VerifyConfirmModalBody({
         <div className="space-y-4 bg-white px-6 py-5 text-sm">
           {/* Compact order summary */}
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div className="grid grid-cols-2 gap-y-1.5 text-xs">
+            <div className="grid grid-cols-1 gap-y-1.5 text-xs">
               <div><span className="text-slate-400">Date:</span> <span className="font-medium text-slate-700">{createdText}</span></div>
               <div><span className="text-slate-400">Location:</span> <span className="font-medium text-slate-700">{location || '—'}</span></div>
               <div className="col-span-2"><span className="text-slate-400">Product:</span> <span className="font-medium text-slate-700">{productSummary || '—'}</span></div>
@@ -326,7 +326,7 @@ function VerifyConfirmModalBody({
           </div>
 
           {/* Editable unit price — recomputes the sales total live */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-end gap-3">
+          {/* <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-end gap-3">
             <div className="flex-1">
               <label className="mb-1 block text-[11px] font-medium text-slate-600">
                 Unit Price (₦{qtyNum !== undefined ? ` per ${unitLabel}` : ''})
@@ -344,7 +344,7 @@ function VerifyConfirmModalBody({
                 ₦{expectedAmountValue.toLocaleString()}
               </div>
             </div>
-          </div>
+          </div> */}
 
           {/* PFI Assignment */}
           <div className="flex items-center gap-2">
