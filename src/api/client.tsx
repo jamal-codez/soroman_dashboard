@@ -1714,6 +1714,15 @@ export const apiClient = {
       return response.json();
     },
 
+    /** DELETE /api/admin/truck-tickets/<id>/ — remove a mistakenly-created ticket */
+    deleteTicket: async (ticketId: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+    },
+
     /** GET /api/admin/truck-tickets/<id>/print/ — full print-ready data */
     getTicketPrintData: async (ticketId: number) => {
       const response = await safeFetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/print/`, {

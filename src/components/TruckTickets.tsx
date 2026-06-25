@@ -32,6 +32,7 @@ import {
   Globe,
   PhoneCall,
   RotateCw,
+  Trash2,
 } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -150,8 +151,9 @@ export function TruckTickets({
 
   // ── Edit ticket state ──────────────────────────────────────────────────
   const [editTicket, setEditTicket] = useState<Ticket | null>(null);
-  const [editForm, setEditForm] = useState({ driver_name: '', driver_phone: '', plate_number: '' });
+  const [editForm, setEditForm] = useState({ driver_name: '', driver_phone: '', plate_number: '', quantity_litres: '' });
   const [editBusy, setEditBusy] = useState(false);
+  const [deleteBusyId, setDeleteBusyId] = useState<number | null>(null);
 
   // ── Print state ────────────────────────────────────────────────────────
   const printRef = useRef<HTMLDivElement>(null);
@@ -182,17 +184,24 @@ export function TruckTickets({
       driver_name: t.driver_name || '',
       driver_phone: t.driver_phone || '',
       plate_number: t.plate_number || '',
+      quantity_litres: t.quantity_litres || '',
     });
   };
 
   const saveEdit = async () => {
     if (!editTicket) return;
+    const qty = Number(editForm.quantity_litres);
+    if (!editForm.quantity_litres.trim() || !Number.isFinite(qty) || qty <= 0) {
+      toast({ title: 'Invalid quantity', description: 'Enter a quantity greater than 0.', variant: 'destructive' });
+      return;
+    }
     setEditBusy(true);
     try {
       await apiClient.admin.updateTicket(editTicket.id, {
         driver_name: editForm.driver_name.trim() || undefined,
         driver_phone: editForm.driver_phone.trim() || undefined,
         plate_number: editForm.plate_number.trim() || undefined,
+        quantity_litres: qty,
       });
       await queryClient.invalidateQueries({ queryKey: ['order-tickets', orderId] });
       toast({ title: 'Saved', description: 'Ticket details updated.' });
@@ -201,6 +210,23 @@ export function TruckTickets({
       toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' });
     } finally {
       setEditBusy(false);
+    }
+  };
+
+  const deleteTicket = async (t: Ticket) => {
+    const confirmed = window.confirm(
+      `Delete ticket for Truck #${t.truck_number} (${t.plate_number || 'no plate'}, ${t.quantity_litres} L)? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    setDeleteBusyId(t.id);
+    try {
+      await apiClient.admin.deleteTicket(t.id);
+      await queryClient.invalidateQueries({ queryKey: ['order-tickets', orderId] });
+      toast({ title: 'Ticket deleted', description: `Truck #${t.truck_number} ticket removed.` });
+    } catch (e) {
+      toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' });
+    } finally {
+      setDeleteBusyId(null);
     }
   };
 
@@ -425,6 +451,20 @@ export function TruckTickets({
                           <Pencil className="h-3 w-3" />
                           Edit
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs gap-1.5 font-medium text-red-600 hover:bg-red-50 hover:text-red-700 border-red-200"
+                          disabled={deleteBusyId === t.id}
+                          onClick={() => deleteTicket(t)}
+                        >
+                          {deleteBusyId === t.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3 w-3" />
+                          )}
+                          Delete
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -446,10 +486,21 @@ export function TruckTickets({
           <DialogHeader>
             <DialogTitle>Edit Ticket for Truck #{editTicket?.truck_number}</DialogTitle>
             <DialogDescription>
-              Update driver details or truck number for this truck.
+              Update driver details, truck number, or quantity for this truck.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-qty" className="text-xs font-medium text-slate-600">Quantity (Litres)</Label>
+              <Input
+                id="edit-qty"
+                type="number"
+                min="1"
+                value={editForm.quantity_litres}
+                onChange={(e) => setEditForm({ ...editForm, quantity_litres: e.target.value })}
+                placeholder="e.g. 45000"
+              />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-plate" className="text-xs font-medium text-slate-600">Truck Number</Label>
               <Input
