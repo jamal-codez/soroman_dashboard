@@ -18,7 +18,7 @@ import { apiClient, fetchAllPages } from '@/api/client';
 import { isCurrentUserReadOnly } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
 import * as XLSX from 'xlsx';
-import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, CalendarDays, X, Fuel, Clock, Paperclip, FileText, ImageIcon, Trash2, Plus } from 'lucide-react';
+import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, CalendarDays, X, Fuel, Clock, Paperclip, FileText, ImageIcon, Trash2, Plus, FileSearch as FileSearchIcon } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
@@ -140,6 +140,7 @@ type PaymentLineInput = {
   transactionReference: string;
   bankAccountId?: number;
   paymentDate: string;
+  statementLineId?: number;
 };
 
 // Replace old PaymentDetailsModal + ConfirmationModal with a single confirm dialog
@@ -193,7 +194,115 @@ type PaymentLine = {
   bankAccountId: string;
   transactionReference: string;
   paymentDate: string;
+  statementLineId?: number;
 };
+
+// A single deposit row pulled from a bank statement upload.
+type StatementLineOption = {
+  id: number;
+  transaction_date: string;
+  depositor_name?: string | null;
+  bank_ref?: string | null;
+  amount: string | number;
+  narration?: string | null;
+};
+
+// Lets finance pick the real deposit row from an uploaded bank statement
+// instead of retyping depositor/amount/ref by hand — selecting a row fills
+// the payment line and locks that row so it can't be picked again elsewhere.
+function StatementPicker({
+  bankAccountId,
+  onPick,
+}: {
+  bankAccountId: string;
+  onPick: (line: StatementLineOption) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['statement-picker-lines', bankAccountId, search],
+    queryFn: () => apiClient.admin.getBankAccountStatementLines(Number(bankAccountId), {
+      status: 'UNMATCHED',
+      search: search || undefined,
+      page_size: 25,
+    }),
+    enabled: !!bankAccountId,
+  });
+
+  const lines: StatementLineOption[] = data?.results || [];
+  const count: number | undefined = typeof data?.count === 'number' ? data.count : undefined;
+
+  if (!bankAccountId) {
+    return (
+      <div className="rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-[11px] text-slate-400">
+        Select a bank account above to pick its deposits from a statement.
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full h-11 flex items-center justify-center gap-2 rounded-lg bg-blue-600 text-white text-sm font-bold shadow-sm hover:bg-blue-700 transition-colors"
+      >
+        <FileSearchIcon size={16} />
+        Pick from Bank Statement
+        {typeof count === 'number' && (
+          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white/20 text-xs font-bold">
+            {count}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1.5 w-full min-w-[320px] rounded-lg border border-slate-300 bg-white shadow-xl">
+          <div className="p-2 border-b border-slate-100">
+            <Input
+              autoFocus
+              placeholder="Search depositor, ref…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {isLoading ? (
+              <p className="p-3 text-xs text-slate-400 text-center">Loading…</p>
+            ) : lines.length === 0 ? (
+              <p className="p-3 text-xs text-slate-400 text-center">No unmatched deposits found for this account.</p>
+            ) : (
+              lines.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => { onPick(l); setOpen(false); setSearch(''); }}
+                  className="w-full text-left px-3 py-2.5 border-b border-slate-50 last:border-0 hover:bg-blue-50 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-800">{l.depositor_name || '—'}</span>
+                    <span className="font-bold text-slate-900">₦{Number(l.amount).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-0.5 text-slate-400">
+                    <span className="font-mono">{l.bank_ref || '—'}</span>
+                    <span>{l.transaction_date}</span>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+          <div className="p-1.5 border-t border-slate-100 text-right">
+            <button type="button" onClick={() => setOpen(false)} className="text-[11px] text-slate-400 hover:text-slate-600 px-2">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function VerifyConfirmModalBody({
   isOpen,
@@ -377,6 +486,44 @@ function VerifyConfirmModalBody({
                     </button>
                   </div>
                 )}
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-slate-600">Bank Account</label>
+                  <select
+                    aria-label="Bank account"
+                    className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={line.bankAccountId}
+                    onChange={(e) => updateLine(idx, { bankAccountId: e.target.value, statementLineId: undefined })}
+                  >
+                    <option value="">{'— Select —'}</option>
+                    {bankAccounts.map((b) => (
+                      <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <StatementPicker
+                  bankAccountId={line.bankAccountId}
+                  onPick={(picked) => updateLine(idx, {
+                    amount: String(picked.amount),
+                    payerName: picked.depositor_name || line.payerName,
+                    transactionReference: (picked.bank_ref || '').replace(/[^A-Za-z0-9]/g, ''),
+                    paymentDate: picked.transaction_date,
+                    statementLineId: picked.id,
+                  })}
+                />
+
+                {line.statementLineId && (
+                  <p className="text-[11px] font-medium text-emerald-700 flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1.5">
+                    <CheckCheck size={13} /> Filled from bank statement — this row will be locked as matched once you confirm.
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-px bg-slate-200" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">or enter manually</span>
+                  <div className="flex-1 h-px bg-slate-200" />
+                </div>
+
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
                     <label className="mb-1 block text-[11px] font-medium text-slate-600">Amount (₦)</label>
@@ -413,22 +560,6 @@ function VerifyConfirmModalBody({
                       // placeholder="Alphanumeric, unique if provided"
                       className="h-9 text-sm font-mono bg-white"
                     />
-                  </div>
-                </div>
-                <div className="">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Bank Account</label>
-                    <select
-                      aria-label="Bank account"
-                      className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      value={line.bankAccountId}
-                      onChange={(e) => updateLine(idx, { bankAccountId: e.target.value })}
-                    >
-                      <option value="">{'— Select —'}</option>
-                      {bankAccounts.map((b) => (
-                        <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
-                      ))}
-                    </select>
                   </div>
                 </div>
               </div>
@@ -515,6 +646,7 @@ function VerifyConfirmModalBody({
                 transactionReference: l.transactionReference.trim(),
                 bankAccountId: l.bankAccountId ? Number(l.bankAccountId) : undefined,
                 paymentDate: l.paymentDate || todayStr(),
+                statementLineId: l.statementLineId,
               }));
               onConfirm(
                 prefix.trim(),
@@ -959,6 +1091,7 @@ export default function PaymentVerification() {
             payer_name: line.payerName || undefined,
             transaction_reference: line.transactionReference || undefined,
             bank_account: line.bankAccountId,
+            statement_line_ids: line.statementLineId ? [line.statementLineId] : undefined,
           });
         }
         await apiClient.admin.confirmPayment(args.orderId, {

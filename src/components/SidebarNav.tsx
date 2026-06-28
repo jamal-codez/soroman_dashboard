@@ -127,6 +127,7 @@ const navCategories: NavCategory[] = [
       { title: "Finance Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2, 8] },
       { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 2, 8] },
       { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0, 1, 2, 8] },
+      { title: "Bank Statements", icon: FileText, path: "/bank-statements", allowedRoles: [0, 1, 2, 8] },
     ],
   },
   {

@@ -416,6 +416,108 @@ export const apiClient = {
       return response.json();
     },
 
+    // ── Bank Statements ───────────────────────────────────────────────
+    /** POST /api/admin/bank-accounts/<id>/statement-mapping/preview/ — upload a sample file, get back headers + preview rows */
+    previewStatementMapping: async (bankAccountId: number | string, file: File, headerRow?: number) => {
+      const form = new FormData();
+      form.append('file', file);
+      if (headerRow) form.append('header_row', String(headerRow));
+      const headers = getHeaders();
+      delete (headers as Record<string, string>)['Content-Type'];
+      const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/${bankAccountId}/statement-mapping/preview/`, {
+        method: 'POST',
+        headers,
+        body: form,
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** GET /api/admin/bank-accounts/<id>/statement-mapping/ — fetch saved column mapping (throws on 404) */
+    getStatementMapping: async (bankAccountId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/${bankAccountId}/statement-mapping/`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** PUT /api/admin/bank-accounts/<id>/statement-mapping/ — create/update the column mapping */
+    saveStatementMapping: async (bankAccountId: number | string, mapping: {
+      header_row: number;
+      date_column: string;
+      amount_column?: string;
+      credit_column?: string;
+      depositor_column?: string;
+      reference_column?: string;
+      narration_column?: string;
+      sample_file_name?: string;
+    }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/${bankAccountId}/statement-mapping/`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify(mapping),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** GET /api/admin/bank-accounts/<id>/statements/ — list statements uploaded for this bank account */
+    getBankStatements: async (bankAccountId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/${bankAccountId}/statements/`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** POST /api/admin/bank-accounts/<id>/statements/ — upload + parse a new statement file */
+    uploadBankStatement: async (bankAccountId: number | string, file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      const headers = getHeaders();
+      delete (headers as Record<string, string>)['Content-Type'];
+      const response = await safeFetch(`${ADMIN_BASE}/bank-accounts/${bankAccountId}/statements/`, {
+        method: 'POST',
+        headers,
+        body: form,
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** DELETE /api/admin/statements/<id>/ — remove a mistakenly-uploaded statement */
+    deleteBankStatement: async (statementId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/statements/${statementId}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return true;
+    },
+
+    /** GET /api/admin/statements/<id>/lines/ — paginated lines for one statement */
+    getStatementLines: async (statementId: number | string, params?: { status?: string; search?: string; page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/statements/${statementId}/lines/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') url.searchParams.set(k, String(v)); });
+      }
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** GET /api/admin/bank-accounts/<id>/statement-lines/ — cross-statement lines for the matching picker (defaults to unmatched) */
+    getBankAccountStatementLines: async (bankAccountId: number | string, params?: { status?: string; search?: string; amount?: number | string; page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/bank-accounts/${bankAccountId}/statement-lines/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') url.searchParams.set(k, String(v)); });
+      }
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
     releaseOrder: async (
       id: number,
       payload: {
@@ -606,6 +708,7 @@ export const apiClient = {
         bank_account?: number | string;
         transaction_reference?: string;
         notes?: string;
+        statement_line_ids?: number[];
       }
     ) => {
       const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/payment-records/`, {

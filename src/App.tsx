@@ -20,6 +20,7 @@ const Inventory = lazy(() => import("./pages/Inventory"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Customers = lazy(() => import("./pages/Customers"));
 const Finance = lazy(() => import("./pages/Finance"));
+const BankStatements = lazy(() => import("./pages/BankStatements"));
 const Release = lazy(() => import("./pages/Release"));
 const PaymentVerification = lazy(() => import("./pages/PaymentVerify"));
 const ConfirmedPayments = lazy(() => import("./pages/ConfirmedPayments"));
@@ -118,6 +119,7 @@ const App = () => (
               <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
               <Route path="/customers" element={<Protected><Customers /></Protected>} />
               <Route path="/finance" element={<Protected><Finance /></Protected>} />
+              <Route path="/bank-statements" element={<Protected><BankStatements /></Protected>} />
               <Route path="/release" element={<Protected><Release /></Protected>} />
               <Route path="/payment-verify" element={<Protected><PaymentVerification /></Protected>} />
               <Route path="/notifications" element={<Protected><Notify /></Protected>} />
