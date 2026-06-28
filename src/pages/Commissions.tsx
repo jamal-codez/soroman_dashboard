@@ -273,7 +273,7 @@ const ConfirmPayoutDialog = ({
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function Commissions() {
-  const [timePreset, setTimePreset] = useState<TimePreset>('today');
+  const [timePreset, setTimePreset] = useState<TimePreset>('month');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [calOpen, setCalOpen] = useState(false);
@@ -614,10 +614,10 @@ export default function Commissions() {
   };
 
   const hasFilters = searchQuery || statusFilter !== 'all' || locationFilter !== 'all' ||
-    pfiFilter !== 'all' || timePreset !== 'today' || customFrom || customTo;
+    pfiFilter !== 'all' || timePreset !== 'month' || customFrom || customTo;
 
   const clearFilters = () => {
-    setTimePreset('today');
+    setTimePreset('month');
     setCustomFrom(''); setCustomTo('');
     setCalRange({});
     setSearchQuery('');
@@ -780,13 +780,13 @@ export default function Commissions() {
 
               <div className="flex items-center justify-between pt-1 border-t border-slate-100">
                 <div className="flex items-center gap-2 flex-wrap">
-                  {timePreset !== 'today' && (
+                  {timePreset !== 'month' && (
                     <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full">
                       <CalendarDays size={11} />
                       {timePreset === 'custom' && calRange.from
                         ? calRange.to ? `${format(calRange.from, 'dd MMM')} – ${format(calRange.to, 'dd MMM yyyy')}` : format(calRange.from, 'dd MMM yyyy')
                         : PRESETS.find(p => p.key === timePreset)?.label}
-                      <button onClick={() => { setTimePreset('today'); setCustomFrom(''); setCustomTo(''); setCalRange({}); }} title="Remove date filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
+                      <button onClick={() => { setTimePreset('month'); setCustomFrom(''); setCustomTo(''); setCalRange({}); }} title="Remove date filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
                     </span>
                   )}
                   {statusFilter !== 'all' && (
