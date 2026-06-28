@@ -399,6 +399,23 @@ export const apiClient = {
       return response.json();
     },
 
+    /** POST /api/admin/orders/<id>/confirm-commission-payment/ — mark ₦1/litre commission as paid */
+    confirmCommissionPayment: async (orderId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/confirm-commission-payment/`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const error = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        const message =
+          (typeof error.error === 'string' && error.error) ||
+          (typeof error.detail === 'string' && error.detail) ||
+          `Confirm commission payment failed (${response.status})`;
+        throw new Error(message);
+      }
+      return response.json();
+    },
+
     releaseOrder: async (
       id: number,
       payload: {
