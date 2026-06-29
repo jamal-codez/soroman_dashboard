@@ -518,6 +518,85 @@ export const apiClient = {
       return response.json();
     },
 
+    // ── LPG Division ───────────────────────────────────────────────────────
+
+    getLPGDashboard: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/lpg/dashboard/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    getLPGPlants: async (params?: { active?: boolean }) => {
+      const url = new URL(`${ADMIN_BASE}/lpg/plants/`);
+      if (params?.active !== undefined) url.searchParams.set('active', String(params.active));
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    addLPGPlant: async (data: { name: string; location?: number; capacity_kg?: number; low_stock_threshold_kg?: number; is_active?: boolean }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/lpg/plants/`, {
+        method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    updateLPGPlant: async (id: number, data: Partial<{ name: string; location: number; capacity_kg: number; low_stock_threshold_kg: number; is_active: boolean }>) => {
+      const response = await safeFetch(`${ADMIN_BASE}/lpg/plants/${id}/`, {
+        method: 'PUT', headers: getHeaders(), body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    deleteLPGPlant: async (id: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/lpg/plants/${id}/`, { method: 'DELETE', headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+    },
+
+    getLPGStockEntries: async (params?: { plant?: number | string; date_from?: string; date_to?: string; page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/lpg/stock/`);
+      if (params) Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') url.searchParams.set(k, String(v)); });
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    addLPGStockEntry: async (data: { plant: number; date: string; opening_stock_kg: number; received_kg: number; sold_kg: number; remarks?: string }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/lpg/stock/`, {
+        method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    deleteLPGStockEntry: async (id: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/lpg/stock/${id}/`, { method: 'DELETE', headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+    },
+
+    getLPGSales: async (params?: { plant?: number | string; date_from?: string; date_to?: string; page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/lpg/sales/`);
+      if (params) Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') url.searchParams.set(k, String(v)); });
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    addLPGSale: async (data: { plant: number; date: string; customer_name?: string; kg: number; price_per_kg: number; payment_method: string; invoice_number?: string }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/lpg/sales/`, {
+        method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    deleteLPGSale: async (id: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/lpg/sales/${id}/`, { method: 'DELETE', headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+    },
+
     releaseOrder: async (
       id: number,
       payload: {

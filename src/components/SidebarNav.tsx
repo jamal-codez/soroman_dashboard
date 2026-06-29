@@ -46,6 +46,7 @@ import {
   FileCheck2,
   FileArchive,
   FileArchiveIcon,
+  Flame,
 } from "lucide-react";
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
@@ -64,6 +65,10 @@ type OrdersResults = { results?: Array<{ status?: string | null }> };
 //   AUDITOR: 8,  Audit
 //   MARKETING: 9,  Marketing
 //   LOCATION_MANAGER: 10,  Location Manager
+//   LPG_DASHBOARD: 11,  LPG Dashboard
+//   LPG_PLANTS: 12,  LPG Plants
+//   LPG_STOCK: 13,  LPG Stock
+//   LPG_SALES: 14,  LPG Sales
 
 type NavItem = { title: string; icon: React.ComponentType<{ size?: string | number; className?: string }>; path: string; allowedRoles: number[] };
 type NavCategory = { category: string; items: NavItem[] };
@@ -125,11 +130,21 @@ const navCategories: NavCategory[] = [
     items: [
       { title: "Verify Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2, 8, 9] },
       { title: "Finance Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2, 8] },
-      { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 2, 8] },
+      { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 2, 7] },
       { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0, 1, 2, 8] },
-      { title: "Bank Statements", icon: FileText, path: "/bank-statements", allowedRoles: [0, 1, 2, 8] },
+      { title: "Bank Statements", icon: FileText, path: "/bank-statements", allowedRoles: [0, 1, 8] },
     ],
   },
+  // {
+  //   category: 'LPG Division',
+  //   items: [
+  //     { title: "LPG Division", icon: Flame, path: "/lpg", allowedRoles: [0, 1, 8, 11, 12, 13, 14] },
+  //     { title: "LPG Dashboard", icon: Flame, path: "/lpg/dashboard", allowedRoles: [0, 1, 8, 11] },
+  //     { title: "LPG Plants", icon: Flame, path: "/lpg/plants", allowedRoles: [0, 1, 8, 12] },
+  //     { title: "LPG Stock Register", icon: Flame, path: "/lpg/stock", allowedRoles: [0, 1, 8, 13] },
+  //     { title: "LPG Sales Register", icon: Flame, path: "/lpg/sales", allowedRoles: [0, 1, 8, 14] },
+  //   ],
+  // },
   {
     category: 'Admin',
     items: [

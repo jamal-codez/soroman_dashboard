@@ -86,6 +86,10 @@ const roleMap: Record<number, string> = {
   8: 'Audit',
   9: 'Marketing',
   10: 'Location Manager',
+  11: 'LPG Dashboard',
+  12: 'LPG Plants',
+  13: 'LPG Stock',
+  14: 'LPG Sales',
 };
 
 const roleColorMap: Record<number, string> = {
@@ -99,6 +103,10 @@ const roleColorMap: Record<number, string> = {
   8: 'text-slate-500',
   9: 'text-green-600',
   10: 'text-teal-600',
+  11: 'text-orange-600',
+  12: 'text-orange-600',
+  13: 'text-orange-600',
+  14: 'text-orange-600',
 };
 
 const Settings = () => {
@@ -516,7 +524,7 @@ const Settings = () => {
                   >
                     <option value="all">All Roles</option>
                     {Object.entries(roleMap).map(([value, label]) => (
-                      <option key={value} value={value}>{label.charAt(0) + label.slice(1).toLowerCase()}</option>
+                      <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
                   <select
@@ -782,6 +790,12 @@ const Settings = () => {
                     <option value="8">Audit</option>
                     <option value="5">Security</option>
                     <option value="10">Location Manager</option>
+                  </optgroup>
+                  <optgroup label="LPG Division">
+                    <option value="11">LPG Dashboard</option>
+                    <option value="12">LPG Plants</option>
+                    <option value="13">LPG Stock</option>
+                    <option value="14">LPG Sales</option>
                   </optgroup>
                 </select>
               </div>

@@ -21,6 +21,11 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const Customers = lazy(() => import("./pages/Customers"));
 const Finance = lazy(() => import("./pages/Finance"));
 const BankStatements = lazy(() => import("./pages/BankStatements"));
+const LPGDivision = lazy(() => import("./pages/LPGDivision"));
+const LPGDashboard = lazy(() => import("./pages/LPGDashboard"));
+const LPGPlants = lazy(() => import("./pages/LPGPlants"));
+const LPGStockRegister = lazy(() => import("./pages/LPGStockRegister"));
+const LPGSalesRegister = lazy(() => import("./pages/LPGSalesRegister"));
 const Release = lazy(() => import("./pages/Release"));
 const PaymentVerification = lazy(() => import("./pages/PaymentVerify"));
 const ConfirmedPayments = lazy(() => import("./pages/ConfirmedPayments"));
@@ -160,6 +165,11 @@ const App = () => (
               <Route path="/users-management" element={<Protected><Settings /></Protected>} />
               <Route path="/agents" element={<Protected><Agents /></Protected>} />
               <Route path="/order-audit" element={<Protected><OrderAudit /></Protected>} />
+              <Route path="/lpg" element={<Protected><LPGDivision /></Protected>} />
+              <Route path="/lpg/dashboard" element={<Protected><LPGDashboard /></Protected>} />
+              <Route path="/lpg/plants" element={<Protected><LPGPlants /></Protected>} />
+              <Route path="/lpg/stock" element={<Protected><LPGStockRegister /></Protected>} />
+              <Route path="/lpg/sales" element={<Protected><LPGSalesRegister /></Protected>} />
 
               <Route path="*" element={<NotFound />} />
             </Routes>
