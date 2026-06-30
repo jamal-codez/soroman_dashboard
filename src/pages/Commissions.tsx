@@ -316,7 +316,7 @@ export default function Commissions() {
 
   const filteredOrders = useMemo(() => {
     return eligibleOrders.filter(o => {
-      const dateStr = o.ticket_generated_at || o.created_at;
+      const dateStr = o.created_at;
       if (timePreset === 'custom') {
         if (customFrom || customTo) {
           try {
@@ -413,7 +413,7 @@ export default function Commissions() {
         .join(', ');
       return [
         String(getOrderReference(o) || o.id),
-        fmtDateTime(o.ticket_generated_at || o.created_at),
+        fmtDateTime(o.created_at),
         getCustomerName(o),
         getPhone(o),
         getLocation(o),
@@ -888,7 +888,7 @@ export default function Commissions() {
                             <TableCell className="text-sm text-amber-700 font-mono font-semibold whitespace-nowrap">{ref}</TableCell>
 
                             <TableCell className="text-slate-600 whitespace-nowrap text-sm">
-                              {fmtDateTime(o.ticket_generated_at || o.created_at)}
+                              {fmtDateTime(o.created_at)}
                             </TableCell>
 
                             <TableCell className="font-medium text-slate-900 whitespace-nowrap">
