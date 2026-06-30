@@ -191,7 +191,7 @@ const MappingSetupDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
-      <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[640px] lg:max-w-[820px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-100"><Settings2 className="w-5 h-5 text-blue-600" /></div>
@@ -234,7 +234,7 @@ const MappingSetupDialog = ({
               Detected {headers.length} columns from <span className="font-medium">{fileName}</span>. Tell us which one is which:
             </p>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-600">Date Column *</label>
                 <select aria-label="Date column" value={dateCol} onChange={e => setDateCol(e.target.value)} className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-2 text-sm">

@@ -28,6 +28,7 @@ import {
   startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, isWithinInterval,
 } from 'date-fns';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { isCurrentUserReadOnly } from '@/roles';
@@ -180,6 +181,22 @@ const BANK_ACCOUNTS: BankAccount[] = [
   // { id: 4, account_name: 'Soroman Energy Ltd', account_number: '1122334455', bank_name: 'Access Bank', is_active: true },
   // { id: 5, account_name: 'Soroman Energy Ltd', account_number: '6677889900', bank_name: 'UBA', is_active: true },
 ];
+
+// Stored bank strings are "ACCOUNT_NUMBER · BANK_NAME" (account name isn't
+// persisted), so resolve the account name back via the account number.
+const resolveBankAccount = (bankStr: string | null | undefined): BankAccount | null => {
+  if (!bankStr) return null;
+  return BANK_ACCOUNTS.find(b => bankStr.startsWith(b.account_number) || bankStr.includes(b.account_number)) || null;
+};
+
+// Human-friendly label for a stored bank string: "ACCOUNT NAME — BANK NAME (ACCOUNT NUMBER)"
+const formatBankLabel = (bankStr: string | null | undefined): string => {
+  if (!bankStr) return '';
+  const acct = resolveBankAccount(bankStr);
+  if (acct) return `${acct.account_name} — ${acct.bank_name} (${acct.account_number})`;
+  // Fallback for legacy/unmatched strings: show as-is
+  return bankStr;
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -1028,9 +1045,12 @@ export default function DeliverySalesLedger() {
             truckNumber: loading.truck_number || '',
             dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
             depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
+            // Only fall back to the loading record's location when the truck is
+            // actually assigned to a customer — otherwise it's not yet "going"
+            // anywhere and showing a stale destination is misleading.
             location: isFillingStation(customerObj)
               ? (customerObj?.customer_name || '')
-              : (firstPayment?.location || loading.location || ''),
+              : (firstPayment?.location || (custId ? loading.location : '') || ''),
             customerId: custId,
             customerName: customerObj?.customer_name || firstPayment?.customer_name || '',
             quantity,
@@ -1062,9 +1082,12 @@ export default function DeliverySalesLedger() {
           truckNumber: loading.truck_number || '',
           dateLoaded: loading.date_allocated || firstPayment?.date_loaded || '',
           depot: loading.depot || loading.pfi_location || firstPayment?.depot_loaded || '',
+          // Only fall back to the loading record's location when the truck is
+          // actually assigned to a customer — an unassigned truck hasn't been
+          // sold anywhere yet, so the destination column should stay blank.
           location: isFillingStation(customerObj)
             ? (customerObj?.customer_name || '')
-            : (firstPayment?.location || loading.location || ''),
+            : (firstPayment?.location || (customerId ? loading.location : '') || ''),
           customerId,
           customerName: loading.customer_name || customerObj?.customer_name || firstPayment?.customer_name || '',
           quantity,
@@ -1191,6 +1214,56 @@ export default function DeliverySalesLedger() {
     });
   }, [ledgerGroups, dateRange, truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter, searchQuery, tripCodes, customerTypeFilter]);
 
+  // Same filter chain as filteredLedgerGroups, but never drops filling-station
+  // trucks — quantities must always match Delivery Inventory's totals (which has
+  // no concept of "filling station vs normal"), regardless of which customer-type
+  // view the user is currently browsing.
+  const quantityScopedGroups = useMemo(() => {
+    let result = [...ledgerGroups];
+
+    result = result.filter(group => {
+      return (
+        matchesDateRange(group.dateLoaded, dateRange.from, dateRange.to)
+        || group.payments.some(payment => matchesDateRange(payment.date_of_payment || payment.created_at || payment.date_loaded, dateRange.from, dateRange.to))
+      );
+    });
+
+    if (truckFilter !== 'all') {
+      result = result.filter(group => group.truckNumber === truckFilter);
+    }
+    if (locationFilter !== 'all') {
+      result = result.filter(group => group.location === locationFilter);
+    }
+    if (customerFilter !== 'all') {
+      result = result.filter(group => String(group.customerId || '') === customerFilter);
+    }
+    if (depotFilter !== 'all') {
+      result = result.filter(group => group.depot === depotFilter);
+    }
+    if (tripCodeFilter !== 'all') {
+      result = result.filter(group => group.code === tripCodeFilter);
+    }
+
+    const query = searchQuery.trim().toLowerCase();
+    if (query) {
+      result = result.filter(group =>
+        group.truckNumber.toLowerCase().includes(query)
+        || group.depot.toLowerCase().includes(query)
+        || group.location.toLowerCase().includes(query)
+        || group.customerName.toLowerCase().includes(query)
+        || group.allocationCode.toLowerCase().includes(query)
+        || group.code.toLowerCase().includes(query)
+        || group.pfiNumber.toLowerCase().includes(query)
+        || group.payments.some(payment =>
+          (payment.payer_name || '').toLowerCase().includes(query)
+          || (payment.bank || '').toLowerCase().includes(query),
+        )
+      );
+    }
+
+    return result;
+  }, [ledgerGroups, dateRange, truckFilter, locationFilter, customerFilter, depotFilter, tripCodeFilter, searchQuery]);
+
   const totals = useMemo(() => {
     let totalExpected = 0;
     let totalPaid = 0;
@@ -1200,9 +1273,13 @@ export default function DeliverySalesLedger() {
     let entries = 0;
     let fullyPaidCount = 0;
     let pendingPaymentCount = 0;
+    let soldCount = 0;
+    let withBalanceCount = 0;
+    let notSoldCount = 0;
 
     const uniqueTrucks = new Set<string>();
     const uniqueCustomers = new Set<number>();
+    const dailySoldMap: Record<string, number> = {};
 
     // Compute summaries per allocation code (PFI code)
     const codeSummaries: Record<string, {
@@ -1214,6 +1291,9 @@ export default function DeliverySalesLedger() {
       trucksCount: number;
       fullyPaidCount: number;
       pendingCount: number;
+      soldCount: number;
+      withBalanceCount: number;
+      notSoldCount: number;
       truckSet: Set<string>;
     }> = {};
 
@@ -1227,11 +1307,13 @@ export default function DeliverySalesLedger() {
         trucksCount: 0,
         fullyPaidCount: 0,
         pendingCount: 0,
+        soldCount: 0,
+        withBalanceCount: 0,
+        notSoldCount: 0,
         truckSet: new Set<string>(),
       };
     });
 
-    const countedCycles = new Set<string>();
     // Sort so loading: groups come before sale: groups
     const orderedGroups = [...filteredLedgerGroups].sort((a, b) => {
       const aIsLoading = a.key.startsWith('loading:') ? 0 : 1;
@@ -1243,14 +1325,8 @@ export default function DeliverySalesLedger() {
       if (group.truckNumber) uniqueTrucks.add(group.truckNumber);
       if (group.customerId) uniqueCustomers.add(group.customerId);
 
-      const cycleKey = `${(group.truckNumber || '').trim().toUpperCase()}||${(group.dateLoaded || '').split('T')[0]}`;
       const isOrphan = group.key.startsWith('sale:');
-      const alreadyCounted = isOrphan && countedCycles.has(cycleKey);
 
-      const qty = (!isOrphan || !alreadyCounted) ? Math.max(0, toNum(group.quantity)) : 0;
-      if (cycleKey && (!isOrphan || !alreadyCounted)) countedCycles.add(cycleKey);
-
-      totalQty += qty;
       totalExpected += Math.max(0, toNum(group.expected));
       totalPaid += toNum(group.totalPaid);
       entries += group.payments.length;
@@ -1263,6 +1339,9 @@ export default function DeliverySalesLedger() {
       // silently disappear from the summary and confuse reconciliation.
       const isLoadedTruck = !!group.truckNumber;
       const isFullyPaid = isExpectedPositive && bal <= 0;
+      const isSold = !!group.customerId;
+      const hasPaymentEntered = toNum(group.totalPaid) > 0;
+      const hasBalanceWithPayment = hasPaymentEntered && bal > 0;
 
       if (isLoadedTruck) {
         if (isFullyPaid) {
@@ -1270,16 +1349,30 @@ export default function DeliverySalesLedger() {
         } else {
           pendingPaymentCount += 1;
         }
+
+        if (isSold) {
+          soldCount += 1;
+          const dayKey = (group.dateLoaded || '').split('T')[0];
+          if (dayKey) dailySoldMap[dayKey] = (dailySoldMap[dayKey] || 0) + 1;
+        } else {
+          notSoldCount += 1;
+        }
+
+        if (hasBalanceWithPayment) withBalanceCount += 1;
       }
 
       if (bal > 0) totalOutstanding += bal;
       else if (bal < 0) totalOverpaid += Math.abs(bal);
 
-      // Accumulate per allocation code
-      const code = group.code || '';
+      // Accumulate per allocation code (qty is handled separately below, scoped
+      // to quantityScopedGroups so filling-station trucks aren't dropped from it).
+      // codeSummaries is keyed by normalized (trim+uppercase) codes — group.code is
+      // the raw allocation_code straight off the record, which may differ in case/
+      // spacing. Normalize before lookup or matching records silently drop out of
+      // their bucket's totals.
+      const code = (group.code || '').trim().toUpperCase();
       if (codeSummaries[code]) {
         const sumObj = codeSummaries[code];
-        sumObj.qty += qty;
         sumObj.expected += Math.max(0, toNum(group.expected));
         sumObj.paid += toNum(group.totalPaid);
         sumObj.balance += bal;
@@ -1288,7 +1381,37 @@ export default function DeliverySalesLedger() {
         if (isLoadedTruck) {
           if (isFullyPaid) sumObj.fullyPaidCount += 1;
           else sumObj.pendingCount += 1;
+
+          if (isSold) sumObj.soldCount += 1;
+          else sumObj.notSoldCount += 1;
+
+          if (hasBalanceWithPayment) sumObj.withBalanceCount += 1;
         }
+      }
+    });
+
+    // Quantity totals are sourced from quantityScopedGroups (not orderedGroups
+    // above) — they always include filling-station trucks so PFI-code and grand
+    // total litres match Delivery Inventory exactly, regardless of the
+    // Normal/Filling-Station view the user has selected for browsing rows.
+    const qtyCountedCycles = new Set<string>();
+    const qtyOrderedGroups = [...quantityScopedGroups].sort((a, b) => {
+      const aIsLoading = a.key.startsWith('loading:') ? 0 : 1;
+      const bIsLoading = b.key.startsWith('loading:') ? 0 : 1;
+      return aIsLoading - bIsLoading;
+    });
+    qtyOrderedGroups.forEach(group => {
+      const cycleKey = `${(group.truckNumber || '').trim().toUpperCase()}||${(group.dateLoaded || '').split('T')[0]}`;
+      const isOrphan = group.key.startsWith('sale:');
+      const alreadyCounted = isOrphan && qtyCountedCycles.has(cycleKey);
+      const qty = (!isOrphan || !alreadyCounted) ? Math.max(0, toNum(group.quantity)) : 0;
+      if (cycleKey && (!isOrphan || !alreadyCounted)) qtyCountedCycles.add(cycleKey);
+
+      totalQty += qty;
+
+      const code = (group.code || '').trim().toUpperCase();
+      if (codeSummaries[code]) {
+        codeSummaries[code].qty += isOrphan ? 0 : Math.max(0, toNum(group.quantity));
       }
     });
 
@@ -1297,6 +1420,10 @@ export default function DeliverySalesLedger() {
       ...s,
       trucksCount: s.truckSet.size,
     }));
+
+    const dailySoldCounts = Object.entries(dailySoldMap)
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => b.date.localeCompare(a.date));
 
     return {
       entries,
@@ -1310,9 +1437,13 @@ export default function DeliverySalesLedger() {
       customerCount: uniqueCustomers.size,
       fullyPaidCount,
       pendingPaymentCount,
+      soldCount,
+      withBalanceCount,
+      notSoldCount,
+      dailySoldCounts,
       codeSummaries: codeSummariesList,
     };
-  }, [filteredLedgerGroups, tripCodes]);
+  }, [filteredLedgerGroups, quantityScopedGroups, tripCodes]);
 
   const summaryCards = useMemo((): SummaryCard[] => {
     const netBalance = totals.totalOutstanding - totals.totalOverpaid;
@@ -2230,11 +2361,8 @@ export default function DeliverySalesLedger() {
     }
   }, [editTarget, editForm, editTripCode, toast, saleToLoadingMap, loadingCodeMap]);
 
-  const exportExcel = useCallback(() => {
+  const exportExcel = useCallback(async () => {
     if (!filteredLedgerGroups.length) return;
-    const period = timePreset === 'custom'
-      ? `${customFrom || '?'}_TO_${customTo || '?'}`
-      : timePreset.toUpperCase();
 
     const n = (v: number) => v > 0 ? v.toLocaleString('en-NG') : '—';
     const u = (s: string) => (s || '').toUpperCase();
@@ -2242,6 +2370,10 @@ export default function DeliverySalesLedger() {
       if (!d) return '';
       try { return format(parseISO(d), 'dd/MM/yyyy'); } catch { return d.split('T')[0] || d; }
     };
+    const safeFmtDayLabel = (d: string): string => {
+      try { return format(parseISO(d), 'dd MMM yyyy'); } catch { return d; }
+    };
+    const bankLabel = (raw: string | null | undefined): string => u(formatBankLabel(raw));
 
     // Sort groups by trip code order (tripCodes), then by truck number asc, then by group index (for serials)
     const tripCodeOrder = new Map<string, number>();
@@ -2259,93 +2391,220 @@ export default function DeliverySalesLedger() {
       return 0;
     });
 
-    // Grand totals and per-trip code quantities
-    // Deduplicate qty by truck cycle to prevent double-counting (same logic as totals useMemo)
-    const grandQty = totals.totalQty;
-    const grandExpected = totals.totalExpected;
-    const grandPaid = totals.totalPaid;
-    const grandOutstanding = totals.totalOutstanding;
-    const grandOverpaid = totals.totalOverpaid;
-    const grandBalance = totals.outstanding;
-    const truckSet = new Set<string>();
-    const tripCodeQty: Record<string, number> = {};
-    tripCodes.forEach(code => { tripCodeQty[code] = 0; });
-    let unassignedQty = 0;
-    const exportCountedCycles = new Set<string>();
-    // Process loading: groups before sale: groups so inventory is source of truth for qty
-    const exportOrderedGroups = [...sortedGroups].sort((a, b) =>
-      (a.key.startsWith('loading:') ? 0 : 1) - (b.key.startsWith('loading:') ? 0 : 1)
-    );
-    exportOrderedGroups.forEach(group => {
-      if (group.truckNumber) truckSet.add(group.truckNumber);
-      const cycleKey = `${(group.truckNumber || '').trim().toUpperCase()}||${(group.dateLoaded || '').split('T')[0]}`;
-      const isOrphan = group.key.startsWith('sale:');
-      const alreadyCounted = isOrphan && cycleKey ? exportCountedCycles.has(cycleKey) : false;
-      const qty = (!isOrphan || !alreadyCounted) ? (group.quantity > 0 ? group.quantity : 0) : 0;
-      if (cycleKey && (!isOrphan || !alreadyCounted)) exportCountedCycles.add(cycleKey);
-      const code = group.code || '';
-      if (Object.prototype.hasOwnProperty.call(tripCodeQty, code)) tripCodeQty[code] += qty;
-      else unassignedQty += qty;
-    });
-    const totalTrucks = truckSet.size;
-
     const COLS = [
       'S/N', 'PFI CODE', 'TRUCK NO.', 'CUSTOMER', 'DESTINATION',
       'QTY (LTRS)', 'RATE (₦)', 'EXPECTED (₦)', 'PAYMENT (₦)', 'BALANCE (₦)',
       'PAYER', 'BANK', 'PAYMENT DATE',
-    ] as const;
+    ];
+    const colCount = COLS.length;
+    const lastColIdx = colCount;
 
-    const aoa: (string | number)[][] = [];
+    // ── Palette ───────────────────────────────────────────────
+    const NAVY = 'FF1E293B';
+    const INDIGO = 'FF4338CA';
+    const WHITE = 'FFFFFFFF';
+    const LIGHT = 'FFF5F8FC';
+    const BAND = 'FFEFF3F8';
+    const SUBTOTAL_FILL = 'FFFDE68A';
+    const SOLD_FILL = 'FFD1FAE5';
+    const SOLD_TEXT = 'FF047857';
+    const BALANCE_FILL = 'FFFFE4E6';
+    const BALANCE_TEXT = 'FFB91C1C';
+    const NOTSOLD_FILL = 'FFF1F5F9';
+    const NOTSOLD_TEXT = 'FF475569';
+    const BORDER_COLOR = 'FFB0C4DE';
+    const GREEN_TEXT = 'FF15803D';
+    const RED_TEXT = 'FFDC2626';
+    const OVERPAID_TEXT = 'FF15803D';
+    const thinBorder = { style: 'thin' as const, color: { argb: BORDER_COLOR } };
+    const allBorders = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
 
-    aoa.push(['DELIVERY SALES LEDGER SUMMARY REPORT']);
-    aoa.push([]);
-    aoa.push(['GRAND TOTAL SUMMARY']);
-    // aoa.push(['TOTAL UNIQUE TRUCKS LOADED', totalTrucks]);
-    aoa.push(['TOTAL TRUCK LOADED', filteredLedgerGroups.filter(g => !!g.truckNumber).length]);
-    aoa.push(['TRUCKS FULLY PAID', totals.fullyPaidCount]);
-    aoa.push(['TRUCKS YET TO COMPLETE PAYMENT', totals.pendingPaymentCount]);
-    aoa.push([]);
-    aoa.push(['TOTAL QUANTITY LOADED', n(totals.totalQty) + ' LITRES']);
-    aoa.push([]);
-    aoa.push(['TOTAL EXPECTED REVENUE', `₦${n(totals.totalExpected)}`]);
-    aoa.push(['TOTAL PAID', `₦${n(totals.totalPaid)}`]);
-    aoa.push(['NET OUTSTANDING BALANCE', totals.outstanding === 0 ? 'FULLY SETTLED' : totals.outstanding > 0 ? `₦ ${n(totals.outstanding)}` : `+₦ ${n(Math.abs(totals.outstanding))} (OVERPAID)`]);
-    aoa.push([]);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Soroman Dashboard';
+    workbook.created = new Date();
+    const ws = workbook.addWorksheet('Delivery Sales Ledger', { views: [{ showGridLines: false }] });
 
-    aoa.push(['BREAKDOWN BY PFI CODE']);
-    aoa.push([
-      'PFI CODE', 'QTY LOADED (LTRS)', 'FULLY PAID', 'PENDING BALANCE',
-      'EXPECTED REVENUE (₦)', 'TOTAL PAID (₦)', 'OUTSTANDING (₦)'
-    ]);
+    let r = 1;
+    const lastColLetter = ws.getColumn(lastColIdx).letter;
 
-    totals.codeSummaries.forEach(s => {
-      aoa.push([
-        u(s.code || 'UNASSIGNED'),
-        s.qty > 0 ? s.qty : 0,
-        // s.trucksCount,
-        s.fullyPaidCount,
-        s.pendingCount,
-        s.expected > 0 ? s.expected : 0,
-        s.paid > 0 ? s.paid : 0,
-        s.balance
-      ]);
+    // ── Title ─────────────────────────────────────────────────
+    ws.mergeCells(`A${r}:${lastColLetter}${r}`);
+    const titleCell = ws.getCell(`A${r}`);
+    titleCell.value = 'DELIVERY SALES LEDGER SUMMARY REPORT';
+    titleCell.font = { name: 'Calibri', bold: true, size: 16, color: { argb: WHITE } };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(r).height = 28;
+    r += 2;
+
+    const writeSectionTitle = (text: string) => {
+      ws.mergeCells(`A${r}:${lastColLetter}${r}`);
+      const cell = ws.getCell(`A${r}`);
+      cell.value = text;
+      cell.font = { name: 'Calibri', bold: true, size: 11, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: INDIGO } };
+      cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      ws.getRow(r).height = 20;
+      r += 1;
+    };
+
+    const writeLabelRow = (label: string, value: string | number, fillColor = LIGHT, valueColor = 'FF0F172A') => {
+      const row = ws.getRow(r);
+      row.height = 17;
+      const c1 = row.getCell(1);
+      c1.value = label;
+      c1.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF1E3A5F' } };
+      c1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
+      c1.border = allBorders;
+      c1.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+      const c2 = row.getCell(2);
+      c2.value = value;
+      c2.font = { name: 'Calibri', bold: true, size: 10, color: { argb: valueColor } };
+      c2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: WHITE } };
+      c2.border = allBorders;
+      c2.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      r += 1;
+    };
+
+    // ── Grand Total Summary ───────────────────────────────────
+    writeSectionTitle('GRAND TOTAL SUMMARY');
+    writeLabelRow('TOTAL TRUCKS LOADED', filteredLedgerGroups.filter(g => !!g.truckNumber).length);
+    writeLabelRow('SOLD (ASSIGNED TO CUSTOMER)', totals.soldCount, SOLD_FILL, SOLD_TEXT);
+    writeLabelRow('WITH BALANCE (PAYMENT ENTERED, NOT FULLY PAID)', totals.withBalanceCount, BALANCE_FILL, BALANCE_TEXT);
+    writeLabelRow('NOT SOLD (NOT YET ASSIGNED)', totals.notSoldCount, NOTSOLD_FILL, NOTSOLD_TEXT);
+    r += 1;
+    writeLabelRow('TOTAL QUANTITY LOADED', `${n(totals.totalQty)} LITRES`);
+    r += 1;
+    writeLabelRow('TOTAL EXPECTED REVENUE', `₦${n(totals.totalExpected)}`);
+    writeLabelRow('TOTAL PAID', `₦${n(totals.totalPaid)}`, LIGHT, GREEN_TEXT);
+    writeLabelRow(
+      'NET OUTSTANDING BALANCE',
+      totals.outstanding === 0 ? 'FULLY SETTLED' : totals.outstanding > 0 ? `₦${n(totals.outstanding)}` : `+₦${n(Math.abs(totals.outstanding))} (OVERPAID)`,
+      LIGHT,
+      totals.outstanding === 0 ? GREEN_TEXT : totals.outstanding > 0 ? RED_TEXT : OVERPAID_TEXT,
+    );
+    r += 2;
+
+    // ── Trucks Sold Per Day ────────────────────────────────────
+    if (totals.dailySoldCounts.length > 0) {
+      writeSectionTitle('TRUCKS SOLD PER DAY (ASSIGNED TO A CUSTOMER)');
+      const dailyHeaderRow = ws.getRow(r);
+      dailyHeaderRow.height = 18;
+      ['DATE', 'TRUCKS SOLD'].forEach((h, i) => {
+        const cell = dailyHeaderRow.getCell(i + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      });
+      r += 1;
+      totals.dailySoldCounts.forEach((d, idx) => {
+        const row = ws.getRow(r);
+        row.height = 16;
+        const c1 = row.getCell(1);
+        c1.value = safeFmtDayLabel(d.date);
+        c1.font = { name: 'Calibri', size: 9.5 };
+        c1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? WHITE : BAND } };
+        c1.border = allBorders;
+        c1.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+        const c2 = row.getCell(2);
+        c2.value = d.count;
+        c2.font = { name: 'Calibri', bold: true, size: 9.5, color: { argb: SOLD_TEXT } };
+        c2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? WHITE : BAND } };
+        c2.border = allBorders;
+        c2.alignment = { vertical: 'middle', horizontal: 'center' };
+        r += 1;
+      });
+      r += 1;
+    }
+
+    // ── Breakdown by PFI Code ──────────────────────────────────
+    writeSectionTitle('BREAKDOWN BY PFI CODE');
+    const pfiHeaders = ['PFI CODE', 'QTY LOADED (LTRS)', 'SOLD', 'WITH BALANCE', 'NOT SOLD', 'EXPECTED REVENUE (₦)', 'TOTAL PAID (₦)', 'OUTSTANDING (₦)'];
+    const pfiHeaderRow = ws.getRow(r);
+    pfiHeaderRow.height = 20;
+    pfiHeaders.forEach((h, i) => {
+      const cell = pfiHeaderRow.getCell(i + 1);
+      cell.value = h;
+      cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      cell.border = allBorders;
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     });
-    aoa.push([]);
-    aoa.push([]);
-    aoa.push([...COLS]);
+    r += 1;
 
+    totals.codeSummaries.forEach((s, idx) => {
+      const band = idx % 2 === 0 ? WHITE : BAND;
+      const row = ws.getRow(r);
+      row.height = 16;
+      const isOverpaid = s.balance < 0;
+      const hasOutstanding = s.balance > 0;
 
-    let rowNum = 0;
+      const cells: Array<[string | number, string | undefined, string | undefined]> = [
+        [u(s.code || 'UNASSIGNED'), band, undefined],
+        [s.qty > 0 ? n(s.qty) : '—', band, undefined],
+        [s.soldCount, SOLD_FILL, SOLD_TEXT],
+        [s.withBalanceCount, BALANCE_FILL, BALANCE_TEXT],
+        [s.notSoldCount, NOTSOLD_FILL, NOTSOLD_TEXT],
+        [s.expected > 0 ? `₦${n(s.expected)}` : '—', band, undefined],
+        [s.paid > 0 ? `₦${n(s.paid)}` : '—', band, GREEN_TEXT],
+        [s.balance === 0 ? '₦0' : isOverpaid ? `+₦${n(Math.abs(s.balance))}` : `₦${n(s.balance)}`, band, hasOutstanding ? RED_TEXT : isOverpaid ? OVERPAID_TEXT : GREEN_TEXT],
+      ];
+      cells.forEach(([val, fill, textColor], ci) => {
+        const cell = row.getCell(ci + 1);
+        cell.value = val;
+        cell.font = { name: 'Calibri', bold: ci >= 2 && ci <= 4, size: 9.5, color: textColor ? { argb: textColor } : undefined };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill || band } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: ci === 0 ? 'left' : 'center', indent: ci === 0 ? 1 : 0 };
+      });
+      r += 1;
+    });
+    r += 2;
+
+    // ── Detailed Truck Ledger ──────────────────────────────────
+    writeSectionTitle('DETAILED TRUCK LEDGER (NUMBERED PER TRUCK)');
+    const detailHeaderRow = ws.getRow(r);
+    detailHeaderRow.height = 20;
+    COLS.forEach((h, i) => {
+      const cell = detailHeaderRow.getCell(i + 1);
+      cell.value = h;
+      cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      cell.border = allBorders;
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    });
+    r += 1;
+
     // For serial numbering of repeated trucks within a trip code
-    let lastTripCode = null;
+    let lastTripCode: string | null = null;
     let truckSerialMap: Record<string, number> = {};
+    let truckNum0 = 0; // per-truck row number (not per payment line)
+    let bandIdx = 0;
+
+    const writeDetailRow = (values: (string | number)[], opts: { bold?: boolean; fill: string; paymentColor?: string; balanceColor?: string }) => {
+      const row = ws.getRow(r);
+      row.height = 16;
+      values.forEach((val, ci) => {
+        const cell = row.getCell(ci + 1);
+        cell.value = val;
+        let color: string | undefined;
+        if (ci === 8 && opts.paymentColor) color = opts.paymentColor; // PAYMENT col
+        if (ci === 9 && opts.balanceColor) color = opts.balanceColor; // BALANCE col
+        cell.font = { name: 'Calibri', bold: !!opts.bold, size: 9.5, color: color ? { argb: color } : undefined };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.fill } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: ci === 0 || ci >= 5 ? 'center' : 'left', indent: (ci > 0 && ci < 5) ? 1 : 0 };
+      });
+      r += 1;
+    };
 
     sortedGroups.forEach(group => {
       const truckNum = u(group.truckNumber || '');
-      const pfi = group.pfiNumber || '';
       const tripCode = group.code || '';
-      const dateLoadedStr = safeFmtDate(group.dateLoaded);
-      const depot = u(group.depot || '');
       const dest = u(group.location || '');
       const custNameGroup = u(group.customerName || '');
 
@@ -2364,11 +2623,13 @@ export default function DeliverySalesLedger() {
         ? `${truckNum}${serial > 1 ? ` (${serial})` : ''}`
         : truckNum;
 
+      truckNum0 += 1;
+      const rowFill = bandIdx % 2 === 0 ? WHITE : LIGHT;
+      bandIdx += 1;
+
       if (group.payments.length === 0) {
-        rowNum += 1;
-        aoa.push([
-          rowNum,
-          pfi || '',
+        writeDetailRow([
+          truckNum0,
           tripCode || '',
           truckNumWithSerial || '',
           custNameGroup,
@@ -2381,7 +2642,7 @@ export default function DeliverySalesLedger() {
           '', // payer
           '', // bank
           '', // date
-        ]);
+        ], { fill: rowFill, balanceColor: group.expected > 0 ? RED_TEXT : undefined });
       } else {
         // Sort payments chronologically within group
         const sortedPayments = [...group.payments].sort((a, b) => {
@@ -2393,24 +2654,23 @@ export default function DeliverySalesLedger() {
         let cumulativePaid = 0;
 
         sortedPayments.forEach((s, idx) => {
-          rowNum += 1;
           cumulativePaid += toNum(s.payment_amount);
           const runningBalance = group.expected - cumulativePaid;
           const custName = u(s.customer_name || customerMap.get(s.customer)?.customer_name || '');
 
-          // First row of group: emit truck/loading fields; subsequent: blank
+          // First row of group: emit truck/loading fields and the per-truck S/N; subsequent: blank
           const isFirst = idx === 0;
 
           let balanceCell = '';
+          let balanceColor: string | undefined;
           if (group.expected > 0) {
-            if (runningBalance > 0) balanceCell = n(runningBalance);
-            else if (runningBalance < 0) balanceCell = `+${n(Math.abs(runningBalance))} OVERPAID`;
-            else balanceCell = 'FULLY PAID';
+            if (runningBalance > 0) { balanceCell = n(runningBalance); balanceColor = RED_TEXT; }
+            else if (runningBalance < 0) { balanceCell = `+${n(Math.abs(runningBalance))} OVERPAID`; balanceColor = OVERPAID_TEXT; }
+            else { balanceCell = 'FULLY PAID'; balanceColor = GREEN_TEXT; }
           }
 
-          aoa.push([
-            rowNum,
-            // isFirst ? (pfi || '') : '',
+          writeDetailRow([
+            isFirst ? truckNum0 : '',
             isFirst ? (tripCode || '') : '',
             isFirst ? truckNumWithSerial : '',
             isFirst ? custName : '',
@@ -2421,45 +2681,45 @@ export default function DeliverySalesLedger() {
             toNum(s.payment_amount) > 0 ? n(toNum(s.payment_amount)) : '',
             balanceCell,
             u(s.payer_name || ''),
-            u(s.bank || ''),
+            bankLabel(s.bank),
             safeFmtDate(s.date_of_payment),
-          ]);
+          ], { fill: rowFill, paymentColor: toNum(s.payment_amount) > 0 ? GREEN_TEXT : undefined, balanceColor });
         });
 
-        // Subtotal row
-        aoa.push([
-          '', // S/N
-          '', // PFI
-          '', // ALLOCATION CODE
-          '', // TRUCK NO.
-          'SUBTOTAL', // CUSTOMER
-          '', // DESTINATION
-          group.quantity > 0 ? n(group.quantity) : '', // QTY
-          '', // RATE
-          group.expected > 0 ? n(group.expected) : '', // EXPECTED
-          group.totalPaid > 0 ? n(group.totalPaid) : '', // PAYMENT
-          group.balance === 0
-            ? 'PAID'
-            : group.balance > 0
-              ? n(group.balance)
-              : group.balance < 0
-                ? `+${n(Math.abs(group.balance))} OVERPAID`
-                : '', // BALANCE
-          '', // PAYER
-          '', // BANK
-          '', // PAYMENT DATE
-        ]);
-      }
+        // Subtotal row (highlighted)
+        let subtotalBalanceText: string | number = '';
+        let subtotalBalanceColor: string | undefined;
+        if (group.balance === 0) { subtotalBalanceText = 'PAID'; subtotalBalanceColor = GREEN_TEXT; }
+        else if (group.balance > 0) { subtotalBalanceText = n(group.balance); subtotalBalanceColor = RED_TEXT; }
+        else { subtotalBalanceText = `+${n(Math.abs(group.balance))} OVERPAID`; subtotalBalanceColor = OVERPAID_TEXT; }
 
-      // Blank separator between groups
-      aoa.push([]);
+        writeDetailRow([
+          '', '', '', 'SUBTOTAL', '',
+          group.quantity > 0 ? n(group.quantity) : '',
+          '',
+          group.expected > 0 ? n(group.expected) : '',
+          group.totalPaid > 0 ? n(group.totalPaid) : '',
+          subtotalBalanceText,
+          '', '', '',
+        ], { fill: SUBTOTAL_FILL, bold: true, paymentColor: group.totalPaid > 0 ? GREEN_TEXT : undefined, balanceColor: subtotalBalanceColor });
+      }
     });
 
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Delivery Sales Ledger');
-    XLSX.writeFile(wb, `DELIVERY SALES LEDGER.xlsx`);
-  }, [filteredLedgerGroups, customerMap, timePreset, customFrom, customTo, totals]);
+    const widths = [6, 12, 14, 24, 18, 12, 12, 16, 16, 18, 20, 18, 14];
+    widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+    ws.getColumn(1).width = Math.max(widths[0], 8);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'DELIVERY SALES LEDGER.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [filteredLedgerGroups, customerMap, tripCodes, totals]);
 
   // ── Daily Payments flat export ─────────────────────────────────────
   const exportDailyPayments = useCallback(() => {
@@ -2499,7 +2759,7 @@ export default function DeliverySalesLedger() {
         toNum(s.sales_value) > 0 ? toNum(s.sales_value) : '',
         toNum(s.payment_amount) > 0 ? toNum(s.payment_amount) : '',
         u(s.payer_name || ''),
-        u(s.bank || ''),
+        u(formatBankLabel(s.bank)),
         s.phone_number || '',
         u(s.entered_by || ''),
       ]);
@@ -3113,11 +3373,15 @@ export default function DeliverySalesLedger() {
                   <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
                     <span className="inline-flex items-center rounded-md bg-emerald-50 px-2.5 py-1 text-emerald-700 ring-1 ring-inset ring-emerald-700/10 gap-1.5">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      Fully Paid: <strong>{totals.fullyPaidCount}</strong> Trucks
+                      Sold: <strong>{totals.soldCount}</strong> Trucks
                     </span>
-                    <span className="inline-flex items-center rounded-md bg-rose-50 px-2.5 py-1 text-rose-700 ring-1 ring-inset ring-rose-700/10 gap-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse"></span>
-                      With Balance: <strong>{totals.pendingPaymentCount}</strong> Trucks
+                    <span className="inline-flex items-center rounded-md bg-amber-50 px-2.5 py-1 text-amber-700 ring-1 ring-inset ring-amber-700/10 gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                      With Balance: <strong>{totals.withBalanceCount}</strong> Trucks
+                    </span>
+                    <span className="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-slate-700 ring-1 ring-inset ring-slate-700/10 gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-500 animate-pulse"></span>
+                      Not Sold: <strong>{totals.notSoldCount}</strong> Trucks
                     </span>
                   </div>
                 </div>
@@ -3129,9 +3393,9 @@ export default function DeliverySalesLedger() {
                         <TableRow>
                           <TableHead className="font-semibold text-slate-700 w-[160px]">PFI Code</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[150px]">Qty Loaded</TableHead>
-                          {/* <TableHead className="font-semibold text-slate-700 text-center w-[120px]">Trucks Loaded</TableHead> */}
-                          <TableHead className="font-semibold text-slate-700 w-[130px]">Fully Paid</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[110px]">Sold</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[150px]">With Balance</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[120px]">Not Sold</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[150px]">Expected Revenue</TableHead>
                           <TableHead className="font-semibold text-emerald-700 w-[150px]">Total Paid</TableHead>
                           <TableHead className="font-semibold text-red-700 w-[160px]">Balance</TableHead>
@@ -3145,15 +3409,19 @@ export default function DeliverySalesLedger() {
                             <TableRow key={s.code || 'unassigned'} className="hover:bg-slate-50/50 bg-white">
                               <TableCell className="font-semibold text-slate-700 uppercase whitespace-nowrap">{s.code || 'UNASSIGNED'}</TableCell>
                               <TableCell className="font-semibold text-slate-800 whitespace-nowrap">{s.qty > 0 ? `${s.qty.toLocaleString()} Ltrs` : '—'}</TableCell>
-                              {/* <TableCell className="text-center font-semibold text-slate-800 whitespace-nowrap">{s.trucksCount}</TableCell> */}
                               <TableCell className="whitespace-nowrap">
                                 <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
-                                  {s.fullyPaidCount}
+                                  {s.soldCount}
                                 </span>
                               </TableCell>
                               <TableCell className="whitespace-nowrap">
-                                <span className="inline-flex items-center rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/10">
-                                  {s.pendingCount}
+                                <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/10">
+                                  {s.withBalanceCount}
+                                </span>
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-400/30">
+                                  {s.notSoldCount}
                                 </span>
                               </TableCell>
                               <TableCell className="font-semibold text-slate-800 whitespace-nowrap">{s.expected > 0 ? fmt(s.expected) : '—'}</TableCell>
@@ -3170,6 +3438,43 @@ export default function DeliverySalesLedger() {
                 ) : (
                   <div className="text-center py-4 text-slate-400 text-xs">No PFI allocation metrics calculated.</div>
                 )}
+              </div>
+            )}
+
+            {/* ── Trucks Sold/Assigned Per Day ─────────────────────────── */}
+            {activeView === 'ledger' && totals.dailySoldCounts.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5 uppercase">
+                    <CalendarIcon size={16} className="text-emerald-500" />
+                    Trucks Sold Per Day
+                  </h3>
+                  <p className="text-xs text-slate-400">Count of trucks assigned/sold (given to a customer) on each day.</p>
+                </div>
+                <div className="overflow-x-auto border border-slate-200/60 rounded-xl bg-slate-50/20">
+                  <Table className="text-xs">
+                    <TableHeader className="bg-slate-50/80 font-semibold text-slate-700">
+                      <TableRow>
+                        <TableHead className="font-semibold text-slate-700 w-[160px]">Date</TableHead>
+                        <TableHead className="font-semibold text-slate-700 w-[150px]">Trucks Sold</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {totals.dailySoldCounts.map(d => (
+                        <TableRow key={d.date} className="hover:bg-slate-50/50 bg-white">
+                          <TableCell className="font-semibold text-slate-700 whitespace-nowrap">
+                            {(() => { try { return format(parseISO(d.date), 'dd MMM yyyy'); } catch { return d.date; } })()}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
+                              {d.count}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             )}
 
@@ -3427,7 +3732,7 @@ export default function DeliverySalesLedger() {
                           group.payments.forEach(payment => {
                             cumulative += toNum(payment.payment_amount);
                             const balanceAfter = group.expected - cumulative;
-                            const bankParts = payment.bank ? payment.bank.split(' · ') : null;
+                            const bankAcct = resolveBankAccount(payment.bank);
 
                             rows.push(
                               <TableRow
@@ -3458,11 +3763,13 @@ export default function DeliverySalesLedger() {
                                   ) : payment.phone_number ? <span className="text-xs text-slate-500">{payment.phone_number}</span> : ' '}
                                 </TableCell>
                                 <TableCell className="text-sm w-[180px] min-w-[180px] whitespace-nowrap">
-                                  {bankParts ? (
+                                  {bankAcct ? (
                                     <div>
-                                      <p className="font-semibold text-black">{bankParts[0]}</p>
-                                      {bankParts[1] && <p className="text-xs text-slate-600">{bankParts[1]}</p>}
+                                      <p className="font-semibold text-black">{bankAcct.account_name}</p>
+                                      <p className="text-xs text-slate-600">{bankAcct.bank_name} ({bankAcct.account_number})</p>
                                     </div>
+                                  ) : payment.bank ? (
+                                    <p className="text-xs text-slate-600">{payment.bank}</p>
                                   ) : ' '}
                                 </TableCell>
                                 <TableCell className="text-slate-600 w-[120px] min-w-[120px] whitespace-nowrap text-sm">
@@ -3600,7 +3907,7 @@ export default function DeliverySalesLedger() {
                                   {toNum(sale.payment_amount) > 0 ? fmt(toNum(sale.payment_amount)) : '—'}
                                 </TableCell>
                                 <TableCell className="text-slate-600 whitespace-nowrap w-[170px]">{sale.payer_name || '—'}</TableCell>
-                                <TableCell className="text-slate-600 text-xs whitespace-nowrap w-[180px]">{sale.bank || '—'}</TableCell>
+                                <TableCell className="text-slate-600 text-xs whitespace-nowrap w-[180px]">{formatBankLabel(sale.bank) || '—'}</TableCell>
                                 <TableCell className="text-slate-500 text-xs whitespace-nowrap w-[120px]">{sale.entered_by || '—'}</TableCell>
                               </TableRow>
                             );
@@ -3996,7 +4303,7 @@ export default function DeliverySalesLedger() {
                               <option value="">Select account…</option>
                               {activeBankAccounts.map(b => (
                                 <option key={b.id} value={String(b.id)}>
-                                  {b.account_number} · {b.bank_name}
+                                  {b.account_name} — {b.bank_name} ({b.account_number})
                                 </option>
                               ))}
                             </select>
@@ -4323,7 +4630,7 @@ export default function DeliverySalesLedger() {
                 <option value="">Select account…</option>
                 {activeBankAccounts.map(b => (
                   <option key={b.id} value={String(b.id)}>
-                    {b.account_number} · {b.bank_name}
+                    {b.account_name} — {b.bank_name} ({b.account_number})
                   </option>
                 ))}
               </select>
@@ -4531,7 +4838,7 @@ export default function DeliverySalesLedger() {
                       <option value="">Select account…</option>
                       {BANK_ACCOUNTS.filter(b => b.is_active).map(b => (
                         <option key={b.id} value={String(b.id)}>
-                          {b.account_number} · {b.bank_name}
+                          {b.account_name} — {b.bank_name} ({b.account_number})
                         </option>
                       ))}
                     </select>

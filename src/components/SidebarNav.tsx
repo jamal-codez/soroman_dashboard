@@ -135,16 +135,16 @@ const navCategories: NavCategory[] = [
       { title: "Bank Statements", icon: FileText, path: "/bank-statements", allowedRoles: [0, 1, 8] },
     ],
   },
-  // {
-  //   category: 'LPG Division',
-  //   items: [
-  //     { title: "LPG Division", icon: Flame, path: "/lpg", allowedRoles: [0, 1, 8, 11, 12, 13, 14] },
-  //     { title: "LPG Dashboard", icon: Flame, path: "/lpg/dashboard", allowedRoles: [0, 1, 8, 11] },
-  //     { title: "LPG Plants", icon: Flame, path: "/lpg/plants", allowedRoles: [0, 1, 8, 12] },
-  //     { title: "LPG Stock Register", icon: Flame, path: "/lpg/stock", allowedRoles: [0, 1, 8, 13] },
-  //     { title: "LPG Sales Register", icon: Flame, path: "/lpg/sales", allowedRoles: [0, 1, 8, 14] },
-  //   ],
-  // },
+  {
+    category: 'LPG Division',
+    items: [
+      { title: "LPG Division", icon: Flame, path: "/lpg", allowedRoles: [0, 1, 8, 11, 12, 13, 14] },
+      { title: "LPG Dashboard", icon: Flame, path: "/lpg/dashboard", allowedRoles: [0, 1, 8, 11] },
+      { title: "LPG Plants", icon: Flame, path: "/lpg/plants", allowedRoles: [0, 1, 8, 12] },
+      { title: "LPG Stock Register", icon: Flame, path: "/lpg/stock", allowedRoles: [0, 1, 8, 13] },
+      { title: "LPG Sales Register", icon: Flame, path: "/lpg/sales", allowedRoles: [0, 1, 8, 14] },
+    ],
+  },
   {
     category: 'Admin',
     items: [
