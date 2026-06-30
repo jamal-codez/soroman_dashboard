@@ -23,6 +23,7 @@ import { apiClient } from '@/api/client';
 import { format, isThisWeek, isThisMonth, isThisYear, isToday } from 'date-fns';
 import { shouldAutoCancel } from '@/lib/orderTimers';
 import { getOrderReference } from '@/lib/orderReference';
+import { getActiveCargoNameForStateAndProduct } from '@/lib/cargoInventory';
 
 interface Order {
   id: number;
@@ -114,6 +115,7 @@ const Orders = () => {
   const [locationFilter, setLocationFilter] = useState<string|null>(null);
   const [statusFilter, setStatusFilter] = useState<string|null>(null);
   const [agentFilter, setAgentFilter] = useState<string|null>(null);
+  const [cargoFilter, setCargoFilter] = useState<string | null>(null);
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
@@ -199,6 +201,21 @@ const Orders = () => {
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
   }, [apiResponse?.results]);
 
+  const uniqueCargoNames = useMemo(() => {
+    const list = apiResponse?.results || [];
+    const names = list
+      .map((o) => {
+        const location = String(o.state || '').trim();
+        const product = String((o.products?.[0] as any)?.name || '').trim();
+        if (!location || !product) return '';
+        // Orders page only has location name; cargo mapping requires stateId.
+        // We will surface cargo filter once backend provides location_id.
+        return '';
+      })
+      .filter(Boolean) as string[];
+    return Array.from(new Set(names)).sort();
+  }, [apiResponse?.results]);
+
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base
@@ -246,8 +263,13 @@ const Orders = () => {
         if (!agentFilter) return true;
         const n = getAssignedAgentName(order).trim();
         return n === agentFilter;
+      })
+      .filter(order => {
+        if (!cargoFilter) return true;
+        // Cannot compute cargo here without location_id from backend. Keep filter non-blocking.
+        return true;
       });
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter, agentFilter]);
+  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter, agentFilter, cargoFilter]);
 
   const safeParseNumber = (v: unknown) => {
     if (v == null) return 0;
@@ -515,7 +537,7 @@ const Orders = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
                   <select
                     aria-label="Date filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
@@ -580,6 +602,20 @@ const Orders = () => {
                       <option key={a} value={a}>{a}</option>
                     ))}
                   </select>
+
+                  <select
+                    aria-label="Cargo filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={cargoFilter ?? ''}
+                    onChange={(e) => setCargoFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">All Cargos</option>
+                    {uniqueCargoNames.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -629,6 +665,7 @@ const Orders = () => {
                     <TableHead className="w-[150px]">Product</TableHead>
                     <TableHead className="w-[80px]">Qty (L)</TableHead>
                     <TableHead className="w-[105px]">Amount</TableHead>
+                    <TableHead className="w-[120px]">Cargo</TableHead>
                     <TableHead className="w-[110px]">Status</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -703,6 +740,8 @@ const Orders = () => {
                           ₦{safeParseNumber(order.total_price).toLocaleString()}
                         </TableCell>
 
+                        <TableCell className="text-slate-800 truncate max-w-[120px]">-</TableCell>
+
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <span
@@ -723,7 +762,7 @@ const Orders = () => {
                   })}
                   {filteredOrders.length === 0 && !isLoading && (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center text-slate-500 py-10">
+                      <TableCell colSpan={12} className="text-center text-slate-500 py-10">
                         No orders found for the selected filters.
                       </TableCell>
                     </TableRow>

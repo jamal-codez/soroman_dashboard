@@ -43,6 +43,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { PageHeader } from '@/components/PageHeader';
 import { SummaryCards } from '@/components/SummaryCards';
 import { getOrderReference } from '@/lib/orderReference';
+import { getActiveCargoNameForStateAndProduct } from '@/lib/cargoInventory';
 
 interface Order {
   id: number;
@@ -420,6 +421,7 @@ export const PickupProcessing = () => {
   const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [cargoFilter, setCargoFilter] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const { toast } = useToast();
@@ -684,6 +686,11 @@ export const PickupProcessing = () => {
     return Array.from(new Set(locs)).sort();
   }, [apiResponse?.results]);
 
+  const uniqueCargoNames = useMemo(() => {
+    // Frontend-only placeholder: cargo mapping depends on backend providing location_id/stateId and consistent product types.
+    return [] as string[];
+  }, []);
+
   const filteredOrders = useMemo(() => {
     const base = apiResponse?.results || [];
     return base
@@ -719,8 +726,13 @@ export const PickupProcessing = () => {
       .filter(order => {
         if (!statusFilter) return true;
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
+      })
+      .filter((order) => {
+        if (!cargoFilter) return true;
+        // Cannot compute cargo here without location_id from backend. Keep filter non-blocking.
+        return true;
       });
-  }, [apiResponse?.results, searchQuery, filterType, locationFilter, statusFilter, releaseDetailsByOrder]);
+  }, [apiResponse?.results, searchQuery, filterType, locationFilter, statusFilter, releaseDetailsByOrder, cargoFilter]);
 
   const exportToCSV = (orders: Order[]) => {
     const headers = [
@@ -882,7 +894,7 @@ export const PickupProcessing = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-4 gap-3">
                     <select
                     aria-label="Timeframe filter"
                     className="border border-gray-300 rounded px-3 py-2 h-11"
@@ -922,6 +934,20 @@ export const PickupProcessing = () => {
                     <option value="canceled">Canceled</option>
                     <option value="released">Released</option>
                   </select>
+
+                  <select
+                    aria-label="Cargo filter"
+                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    value={cargoFilter ?? ''}
+                    onChange={(e) => setCargoFilter(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">All Cargos</option>
+                    {uniqueCargoNames.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
@@ -941,6 +967,7 @@ export const PickupProcessing = () => {
                     <TableHead>Qty (L)</TableHead>
                     <TableHead>Driver Details</TableHead>
                     <TableHead>Truck No.</TableHead>
+                    <TableHead>Cargo</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-center">Action</TableHead>
                   </TableRow>
@@ -982,6 +1009,7 @@ export const PickupProcessing = () => {
                           )}
                         </TableCell>
                         <TableCell>{truckNumber || '-'}</TableCell>
+                        <TableCell>-</TableCell>
                         <TableCell>
                           <div className={`inline-flex items-center px-2.5 py-1 text-xs font-medium border rounded-full ${getStatusClass(order.status)}`}>
                             {getStatusIcon(order.status)}
@@ -1230,7 +1258,7 @@ export const PickupProcessing = () => {
                               nmdrpaNumber: '',
                               product: selectedOrder.products.map((p) => p.name).join(', '),
                               qty: `${selectedOrder.quantity.toLocaleString()} Litres`,
-                              // unitPrice: extractUnitPrice(selectedOrder),
+                              unitPrice: '',
                               truckNumber: '',
                               driverName: '',
                               driverPhone: '',
