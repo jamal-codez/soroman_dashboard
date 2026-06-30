@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { resolveLocationPhones } from '@/lib/locationPhones';
 import { useToast } from '@/hooks/use-toast';
 import { useReactToPrint } from 'react-to-print';
 import {
@@ -667,9 +668,7 @@ function TicketPrintPage({ data: d, isLast }: { data: PrintData; isLast: boolean
             </div>
             <div className="flex items-center gap-2">
               <PhoneCall className="h-4 w-4" />
-              <span className="font-bold">
-                07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324
-              </span>
+              <span className="font-bold">{resolveLocationPhones(d.location)}</span>
             </div>
           </div>
 

@@ -175,9 +175,9 @@ interface BankAccount {
 }
 
 const BANK_ACCOUNTS: BankAccount[] = [
-  { id: 1, account_name: 'Soroman Energy Ltd', account_number: '1311924986', bank_name: 'Zenith Bank', is_active: true },
-  { id: 2, account_name: 'Action Energy Ltd', account_number: '1017185599', bank_name: 'Zenith Bank', is_active: true },
-  { id: 3, account_name: 'Soroman Energy Ltd', account_number: '1000102110', bank_name: 'Optimus Bank', is_active: true },
+  { id: 1, account_name: 'Soroman Trucks', account_number: '1311924986', bank_name: 'Zenith Bank', is_active: true },
+  { id: 2, account_name: 'Action Energy', account_number: '1017185599', bank_name: 'Zenith Bank', is_active: true },
+  { id: 3, account_name: 'Soroman Nigeria Ltd', account_number: '1000102110', bank_name: 'Optimus Bank', is_active: true },
   // { id: 4, account_name: 'Soroman Energy Ltd', account_number: '1122334455', bank_name: 'Access Bank', is_active: true },
   // { id: 5, account_name: 'Soroman Energy Ltd', account_number: '6677889900', bank_name: 'UBA', is_active: true },
 ];

@@ -1,5 +1,6 @@
 import { forwardRef } from "react";
 import { Globe, Phone, PhoneCall } from "lucide-react";
+import { resolveLocationPhones } from "@/lib/locationPhones";
 
 export type ReleaseTicketData = {
   orderReference: string;
@@ -133,7 +134,7 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
               </div>
               <div className="flex items-center gap-2">
                 <PhoneCall className="h-3 w-3" />
-                <span className="font-bold">07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324</span>
+                <span className="font-bold">{resolveLocationPhones(data.location)}</span>
               </div>
             </div>
 
