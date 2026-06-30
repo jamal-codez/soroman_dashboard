@@ -69,6 +69,7 @@ type OrdersResults = { results?: Array<{ status?: string | null }> };
 //   LPG_PLANTS: 12,  LPG Plants
 //   LPG_STOCK: 13,  LPG Stock
 //   LPG_SALES: 14,  LPG Sales
+//   COMMISSIONS: 15,  Commissions
 
 type NavItem = { title: string; icon: React.ComponentType<{ size?: string | number; className?: string }>; path: string; allowedRoles: number[] };
 type NavCategory = { category: string; items: NavItem[] };
@@ -130,7 +131,7 @@ const navCategories: NavCategory[] = [
     items: [
       { title: "Verify Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2, 8, 9] },
       { title: "Finance Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2, 8] },
-      { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 2, 7] },
+      { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 2, 7, 15] },
       { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0, 1, 2, 8] },
       { title: "Bank Statements", icon: FileText, path: "/bank-statements", allowedRoles: [0, 1, 8] },
     ],

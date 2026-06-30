@@ -11,6 +11,7 @@ export const ROLES = {
   AUDITOR: 8,             // Audit
   MARKETING: 9,           // Marketing
   LOCATION_MANAGER: 10,   // Location Manager
+  COMMISSIONS: 15,        // Commissions
 };
 
 /**

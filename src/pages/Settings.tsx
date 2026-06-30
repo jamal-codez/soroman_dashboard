@@ -790,6 +790,7 @@ const Settings = () => {
                     <option value="8">Audit</option>
                     <option value="5">Security</option>
                     <option value="10">Location Manager</option>
+                    <option value="15">Commissions</option>
                   </optgroup>
                   <optgroup label="LPG Division">
                     <option value="11">LPG Dashboard</option>
