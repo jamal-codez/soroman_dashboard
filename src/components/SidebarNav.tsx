@@ -96,7 +96,7 @@ const navCategories: NavCategory[] = [
       { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0, 1, 7, 8] },
       { title: "Released Report", icon: ClipboardCheck, path: "/released-orders", allowedRoles: [0, 1, 4, 7, 8] },
       { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 4, 7, 8] },
-      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 2, 7, 8] },
+      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 7, 8] },
       { title: "My Daily Report", icon: ClipboardList, path: "/staff-daily-report", allowedRoles: [0, 1, 7, 10] },
 
       // { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
@@ -108,7 +108,7 @@ const navCategories: NavCategory[] = [
     category: 'Transport',
     items: [
       { title: "Fleet Directory", icon: Truck, path: "/fleet-trucks", allowedRoles: [0, 1, 6, 8] },
-      { title: "Trucks Expense Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0, 6, 8] },
+      { title: "Trucks Expense Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0, 1, 6, 8] },
     ],
   },
   {
@@ -129,9 +129,9 @@ const navCategories: NavCategory[] = [
   {
     category: 'Finance',
     items: [
-      { title: "Verify Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2, 8, 9] },
+      { title: "Verify Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2, 8] },
       { title: "Finance Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2, 8] },
-      { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 2, 7, 15] },
+      { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 7, 15] },
       { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0, 1, 2, 8] },
       { title: "Bank Statements", icon: FileText, path: "/bank-statements", allowedRoles: [0, 1, 8] },
     ],
@@ -150,11 +150,11 @@ const navCategories: NavCategory[] = [
     category: 'Admin',
     items: [
       { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0] },
-      { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1, 2, 8] },
+      { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1] },
       { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0, 1, 2, 7, 8] },
       { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0] },
-      { title: "Staff Actions Log", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0, 1, 8] },
-      { title: "Staff Directory", icon: Users2Icon, path: "/users-management", allowedRoles: [0, 1, 8] },
+      { title: "Users Actions Log", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0, 1, 8] },
+      { title: "Manage Users", icon: Users2Icon, path: "/users-management", allowedRoles: [0, 1, 8] },
     ],
   },
   // {
@@ -174,7 +174,7 @@ const navCategories: NavCategory[] = [
   {
     category: 'Feedback',
     items: [
-      { title: "Feedback & Reviews", icon: ActivityIcon, path: "/feedback-dashboard", allowedRoles: [0, 1, 8, 9] },
+      { title: "Feedback & Reviews", icon: ActivityIcon, path: "/feedback-dashboard", allowedRoles: [0, 1, 8] },
     ],
   },
 ];
