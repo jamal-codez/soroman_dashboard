@@ -67,7 +67,7 @@ const Pricing = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [editingState, setEditingState] = useState<State | null>(null);
-  const [tempPrices, setTempPrices] = useState<Record<string, number>>({});
+  const [tempPrices, setTempPrices] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const productNames = useMemo(() => {
@@ -89,8 +89,8 @@ const Pricing = () => {
   }, [states, searchQuery]);
 
   const openEdit = (state: State) => {
-    const prices: Record<string, number> = {};
-    (state.products || []).forEach(p => { prices[p.id] = p.price; });
+    const prices: Record<string, string> = {};
+    (state.products || []).forEach(p => { prices[p.id] = String(p.price); });
     setTempPrices(prices);
     setEditingState(state);
   };
@@ -103,7 +103,7 @@ const Pricing = () => {
         id: Number(editingState.id),
         products: editingState.products.map(p => ({
           id: Number(p.id),
-          price: tempPrices[p.id] ?? p.price,
+          price: tempPrices[p.id] !== undefined ? (parseFloat(tempPrices[p.id]) || 0) : p.price,
         })),
       });
       setEditingState(null);
@@ -259,9 +259,9 @@ const Pricing = () => {
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">₦</span>
                     <CommaInput
                       className="pl-7 h-10 text-right font-semibold tabular-nums"
-                      value={String(tempPrices[product.id] ?? product.price)}
+                      value={tempPrices[product.id] ?? String(product.price)}
                       onValueChange={(v) =>
-                        setTempPrices(prev => ({ ...prev, [product.id]: parseFloat(v) || 0 }))
+                        setTempPrices(prev => ({ ...prev, [product.id]: v }))
                       }
                     />
                   </div>
