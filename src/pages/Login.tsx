@@ -18,11 +18,11 @@ function landingPageForRole(role: number | string): string {
       return '/dashboard';
     case 1: // ADMIN
       return '/dashboard';
-    case 2: // FINANCE / Accounts
+    case 2: // FINANCE
       return '/payment-verify';
-    case 3: // SALES / Marketing
+    case 3: // SALES
       return '/delivery-sales-ledger';
-    case 4: // RELEASE / Ticketing
+    case 4: // TICKET OFFICER
       return '/pickup-processing';
     case 5: // SECURITY
       return '/security';
@@ -36,6 +36,8 @@ function landingPageForRole(role: number | string): string {
       return '/depot-view';
     case 10: // LOCATION MANAGER
       return '/staff-daily-report';
+    case 15: // COMMISSION OFFICER
+      return '/commissions';
     default:
       return '/dashboard';
   }
