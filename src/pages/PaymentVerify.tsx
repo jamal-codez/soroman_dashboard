@@ -109,6 +109,17 @@ interface PaymentOrder {
 
   bank_account_id?: number | null;
 
+  // Customer-declared breakdown of which of THEIR OWN accounts the payment is
+  // coming from (free text depositor name, not one of our Bankacct rows).
+  // Helps staff match incoming bank transfers to this order. Empty/absent =
+  // customer is paying the full amount from a single account.
+  payment_splits?: Array<{
+    id: number;
+    amount: string | number;
+    depositor_name?: string;
+    created_at?: string;
+  }>;
+
   // Company fields sometimes live at the payment/order level
   companyName?: string;
   company_name?: string;
@@ -1318,18 +1329,20 @@ export default function PaymentVerification() {
   }, [filteredPayments]);
 
   const exportToCSV = () => {
-    const headers = ['Date', 'Order Reference', 'Account No', 'Account Name', 'Bank', 'Amount', 'Status'];
-    const rows = filteredPayments.map(p => {
-      const { acct_no, name, bank_name } = extractAccountDetails(p, bankAccounts);
-      return [
-        format(new Date(p.created_at), 'dd/MM/yyyy'),
-        getOrderReference(p) || p.order_id,
-        acct_no,
-        name,
-        bank_name,
-        p.amount,
-        p.status,
-      ];
+    const headers = ['Date', 'Order Reference', 'Paid Into Account No', 'Paid Into Bank', 'Amount', 'Declared Depositor', 'Declared Split Amount', 'Status'];
+    const rows: (string | number | undefined)[][] = [];
+    filteredPayments.forEach(p => {
+      const { acct_no, bank_name } = extractAccountDetails(p, bankAccounts);
+      const ref = getOrderReference(p) || p.order_id;
+      const date = format(new Date(p.created_at), 'dd/MM/yyyy');
+      if (p.payment_splits && p.payment_splits.length > 0) {
+        // One row per declared split so each deposit chunk maps to a line
+        p.payment_splits.forEach(split => {
+          rows.push([date, ref, acct_no, bank_name, p.amount, split.depositor_name || '', split.amount, p.status]);
+        });
+      } else {
+        rows.push([date, ref, acct_no, bank_name, p.amount, '', '', p.status]);
+      }
     });
 
     const csvContent = [headers, ...rows]
@@ -1564,6 +1577,7 @@ export default function PaymentVerification() {
                     <TableHead>Product</TableHead>
                     <TableHead>Quantity</TableHead>
                     <TableHead>Paid Into</TableHead>
+                    <TableHead>Customer Says</TableHead>
                     <TableHead>Expected Amount</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
@@ -1642,6 +1656,24 @@ export default function PaymentVerification() {
                               <span className="font-semibold text-slate-900">{paidInto.account_number || '—'}</span>
                               <span className="text-xs text-slate-500">{paidInto.bank_name || '—'}</span>
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            {payment.payment_splits && payment.payment_splits.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                {payment.payment_splits.map((split, i) => {
+                                  const splitAmt = parseFloat(String(split.amount || '0'));
+                                  return (
+                                    <div key={split.id ?? i} className="text-xs border-l-2 border-blue-200 pl-2">
+                                      <span className="font-semibold text-slate-900">₦{splitAmt.toLocaleString()}</span>
+                                      <span className="text-slate-500"> from </span>
+                                      <span className="text-slate-700">{split.depositor_name || '—'}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-xs">Single payment</span>
+                            )}
                           </TableCell>
                            <TableCell className="text-right font-bold text-slate-950">
                              ₦{parseFloat(String(payment.amount || '0')).toLocaleString()}
