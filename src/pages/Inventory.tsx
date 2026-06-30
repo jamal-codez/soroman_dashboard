@@ -4,15 +4,9 @@ import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -35,18 +29,8 @@ import {
 import { apiClient } from '@/api/client';
 import AddProductModal from '@/components/AddProductModal';
 import { useToast } from '@/hooks/use-toast';
-import {
-  getCargosByState,
-  getActiveCargoNameForStateAndProduct,
-} from '@/lib/cargoInventory';
-import {
-  addInventoryCargoHistoryEntry,
-  clearActiveCargoFor,
-  getActiveCargoFor,
-  getInventoryCargoHistoryFor,
-  msToDurationShort,
-  setActiveCargoFor,
-} from '@/lib/inventoryCargoHistory';
+import { MobileNav } from '@/components/MobileNav';
+import { PageHeader } from '@/components/PageHeader';
 
 interface Product {
   id: number;
@@ -57,7 +41,16 @@ interface Product {
   location: string;
   updated_at: string;
   description: string;
+  unit?: string;
 }
+
+const UNIT_LABELS: Record<string, string> = {
+  litres: 'Litres',
+  kg: 'kg',
+  ton: 'ton',
+};
+
+const getUnitLabel = (unit?: string): string => UNIT_LABELS[(unit || 'litres').toLowerCase()] || 'Litres';
 
 type UpdateProductPayload = {
   name: string;
@@ -87,10 +80,6 @@ const Inventory = () => {
     abbreviation: '',
     description: ''
   });
-  const [editCargoName, setEditCargoName] = useState('');
-  const [editNote, setEditNote] = useState('');
-  const [editChangeType, setEditChangeType] = useState<'set' | 'increment' | 'decrement'>('set');
-  const [editHistoryRefreshKey, setEditHistoryRefreshKey] = useState(0);
   const [formData, setFormData] = useState({ state: 0 });
 
   useEffect(() => {
@@ -99,7 +88,7 @@ const Inventory = () => {
         const [statesRes] = await Promise.all([
           apiClient.admin.getStates()
         ]);
-        const statesData = statesRes.results || statesRes;
+        const statesData = Array.isArray(statesRes) ? statesRes : Array.isArray(statesRes?.results) ? statesRes.results : [];
         setStates(statesData);
       
       // ✅ Set default state to first item
@@ -165,14 +154,6 @@ const Inventory = () => {
       abbreviation: product.abbreviation,
       description: product.description
     });
-
-    // Prefill cargo name from active cargo selection, then fall back to Cargo Inventory active cargo by state+product.
-    const activeSelection = getActiveCargoFor(formData.state, product.id);
-    const fallbackCargo = getActiveCargoNameForStateAndProduct(formData.state, product.abbreviation || product.name);
-    setEditCargoName(activeSelection?.cargoName || fallbackCargo || '');
-    setEditNote('');
-    setEditChangeType('set');
-    setEditHistoryRefreshKey((k) => k + 1);
   };
 
   const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -180,60 +161,15 @@ const Inventory = () => {
   };
 
   const handleEditSubmit = async () => {
-    if (!editingProduct) return;
-
-    const cargoName = String(editCargoName || '').trim();
-    if (!cargoName) {
-      toast({
-        title: 'Cargo name required',
-        description: 'Please enter or select a cargo name before updating quantity.',
-        variant: 'destructive',
-        duration: 1200,
-      });
-      return;
+    if (editingProduct) {
+      const updatedProduct = {
+        ...editingProduct,
+        ...editFormData,
+        stock_quantity: parseInt(editFormData.stock_quantity, 10),
+        description: editFormData.description
+      };
+      await adminUpdateProduct.mutate(updatedProduct);
     }
-
-    const rawQty = Number(editFormData.stock_quantity);
-    if (!Number.isFinite(rawQty)) {
-      toast({
-        title: 'Invalid quantity',
-        description: 'Please enter a valid stock quantity.',
-        variant: 'destructive',
-        duration: 1200,
-      });
-      return;
-    }
-
-    const previousQty = Number(editingProduct.stock_quantity) || 0;
-    let nextQty = previousQty;
-
-    if (editChangeType === 'set') nextQty = rawQty;
-    if (editChangeType === 'increment') nextQty = previousQty + rawQty;
-    if (editChangeType === 'decrement') nextQty = Math.max(0, previousQty - rawQty);
-
-    const updatedProduct = {
-      ...editingProduct,
-      ...editFormData,
-      stock_quantity: nextQty,
-      description: editFormData.description
-    };
-
-    // Local (frontend-first) cargo tracking.
-    setActiveCargoFor(formData.state, editingProduct.id, cargoName);
-    addInventoryCargoHistoryEntry({
-      stateId: formData.state,
-      productId: editingProduct.id,
-      productName: editingProduct.name,
-      cargoName,
-      previousQty,
-      nextQty,
-      deltaQty: nextQty - previousQty,
-      changeType: editChangeType,
-      note: String(editNote || '').trim() || undefined,
-    });
-
-    await adminUpdateProduct.mutate(updatedProduct);
-    setEditHistoryRefreshKey((k) => k + 1);
   };
 
   const handleDeleteClick = (productId: number) => {
@@ -315,24 +251,19 @@ const Inventory = () => {
       </div>
     );
   }
-<style>{`
-  [data-state="checked"] > [data-radix-select-item-indicator] {
-    display: none !important;
-  }
-`}</style>
 
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">All Inventory</h1>
-              <div className="flex gap-2">
-              </div>
-            </div>
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="Inventory"
+              description="View stock levels by depot/state, manage products, and update availability."
+            />
 
             {/* Row 1: Search */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
@@ -359,28 +290,18 @@ const Inventory = () => {
                     </span>
                   </Label>
                   <div className="mt-2 flex flex-col sm:flex-row gap-4">
-                    <Select
+                    <select
                       value={formData.state.toString()}
-                      onValueChange={v => setFormData({ ...formData, state: Number(v) })}
+                      onChange={e => setFormData({ ...formData, state: Number(e.target.value) })}
+                      className="w-full h-11 rounded-lg border border-slate-200 bg-background px-3 py-2 text-sm hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
                     >
-                      <SelectTrigger className="w-full h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
-                        <SelectValue placeholder="Select state" />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-lg shadow-lg border border-slate-200 max-h-60">
-                        {states.map(state => (
-                          <SelectItem
-                            key={state.id}
-                            value={state.id.toString()}
-                            className={`px-4 py-2 relative ${
-                              formData.state === state.id ? 'bg-green-100 text-green-900' : 'hover:bg-slate-50'
-                            }`}
-                          >
-                            <span className="pointer-events-none select-none">{state.name}</span>
-                            <span className="hidden" data-radix-select-item-indicator />
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <option value="0">Select state</option>
+                      {states.map(state => (
+                        <option key={state.id} value={state.id.toString()}>
+                          {state.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>
@@ -418,7 +339,7 @@ const Inventory = () => {
                           <div>
                             <div className="flex justify-between mb-1">
                               <span className="text-xs font-medium">
-                                {item.stock_quantity.toLocaleString()} Litres
+                                {item.stock_quantity.toLocaleString()} {getUnitLabel(item.unit)}
                               </span>
                             </div>
                             <div className="w-full bg-slate-200 rounded-full h-2">
@@ -451,189 +372,19 @@ const Inventory = () => {
 
             {editingProduct && (
               <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                <div className="bg-white p-6 rounded-lg max-w-3xl w-full max-h-[90vh] overflow-auto">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h2 className="text-2xl font-bold mb-1">Edit Product</h2>
-                      <p className="text-sm text-slate-600">
-                        Track updates by cargo name (saved locally until backend support is added).
-                      </p>
-                    </div>
-                    <Button variant="ghost" onClick={() => setEditingProduct(null)}>
-                      Close
-                    </Button>
+                <div className="bg-white p-6 rounded-lg max-w-md w-full">
+                  <h2 className="text-2xl font-bold mb-4">Edit Product</h2>
+                  <div className="space-y-4">
+                    <Input name="name" placeholder="Product Name" value={editFormData.name} onChange={handleEditChange} />
+                    <CommaInput placeholder="Stock Quantity" value={editFormData.stock_quantity} onValueChange={(v) => setEditFormData(prev => ({ ...prev, stock_quantity: v }))} />
+                    <Input name="abbreviation" placeholder="Abbreviation" value={editFormData.abbreviation} onChange={handleEditChange} />
+                    <Input name="description" placeholder="Description" value={editFormData.description} onChange={handleEditChange} />
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                    <div>
-                      <div className="space-y-4">
-                        <Input name="name" placeholder="Product Name" value={editFormData.name} onChange={handleEditChange} />
-
-                        <div className="space-y-2">
-                          <Label>Quantity update mode</Label>
-                          <Select value={editChangeType} onValueChange={(v) => setEditChangeType(v as any)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Select update mode" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="set">Set stock to (absolute)</SelectItem>
-                              <SelectItem value="increment">Add quantity</SelectItem>
-                              <SelectItem value="decrement">Subtract quantity</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-slate-500">
-                            Current stock: <span className="font-medium">{editingProduct.stock_quantity.toLocaleString()}</span>
-                          </p>
-                        </div>
-
-                        <Input
-                          name="stock_quantity"
-                          placeholder={editChangeType === 'set' ? 'New Stock Quantity' : 'Quantity'}
-                          type="number"
-                          value={editFormData.stock_quantity}
-                          onChange={handleEditChange}
-                        />
-
-                        <Input name="abbreviation" placeholder="Abbreviation" value={editFormData.abbreviation} onChange={handleEditChange} />
-                        <Input name="description" placeholder="Description" value={editFormData.description} onChange={handleEditChange} />
-
-                        <div className="space-y-2">
-                          <Label>Cargo name</Label>
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="e.g. Cargo 12 - Jan 2026"
-                              value={editCargoName}
-                              onChange={(e) => setEditCargoName(e.target.value)}
-                            />
-                            <Select
-                              value={editCargoName || '__none__'}
-                              onValueChange={(v) => setEditCargoName(v === '__none__' ? '' : v)}
-                            >
-                              <SelectTrigger className="w-[220px]">
-                                <SelectValue placeholder="Pick cargo" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__none__">(none)</SelectItem>
-                                {getCargosByState(formData.state)
-                                  .map((c) => c.cargoName)
-                                  .filter((v, i, arr) => v && arr.indexOf(v) === i)
-                                  .map((name) => (
-                                    <SelectItem key={name} value={name}>
-                                      {name}
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {(() => {
-                            const active = getActiveCargoFor(formData.state, editingProduct.id);
-                            if (!active) return null;
-                            const ms = Date.now() - new Date(active.activatedAt).getTime();
-                            return (
-                              <div className="text-xs text-slate-600 flex items-center justify-between">
-                                <span>
-                                  Active cargo: <span className="font-medium">{active.cargoName}</span>
-                                  <span className="text-slate-400"> · </span>
-                                  <span>Active for {msToDurationShort(ms)}</span>
-                                </span>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    clearActiveCargoFor(formData.state, editingProduct.id);
-                                    setEditHistoryRefreshKey((k) => k + 1);
-                                  }}
-                                >
-                                  Clear
-                                </Button>
-                              </div>
-                            );
-                          })()}
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Note (optional)</Label>
-                          <Input placeholder="Reason / comment" value={editNote} onChange={(e) => setEditNote(e.target.value)} />
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end gap-2 mt-6">
-                        <Button variant="outline" onClick={() => setEditingProduct(null)}>
-                          Cancel
-                        </Button>
-                        <Button onClick={handleEditSubmit} disabled={adminUpdateProduct.isPending}>
-                          {adminUpdateProduct.isPending ? 'Updating...' : 'Update'}
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold">Cargo History</h3>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditHistoryRefreshKey((k) => k + 1)}
-                        >
-                          Refresh
-                        </Button>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Date, cargo, quantity change log for this product in this depot.
-                      </p>
-
-                      <div className="mt-3 rounded-lg border border-slate-200 overflow-hidden">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Cargo</TableHead>
-                              <TableHead className="text-right">Δ Qty</TableHead>
-                              <TableHead className="text-right">Prev</TableHead>
-                              <TableHead className="text-right">Next</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {(() => {
-                              // force recompute when user hits refresh
-                              void editHistoryRefreshKey;
-                              const rows = getInventoryCargoHistoryFor(formData.state, editingProduct.id);
-                              if (rows.length === 0) {
-                                return (
-                                  <TableRow>
-                                    <TableCell colSpan={5} className="h-20 text-center text-slate-500">
-                                      No history yet.
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              }
-
-                              return rows.slice(0, 25).map((r) => (
-                                <TableRow key={r.id}>
-                                  <TableCell className="whitespace-nowrap">
-                                    {new Date(r.createdAt).toLocaleString()}
-                                  </TableCell>
-                                  <TableCell className="max-w-[220px] truncate" title={r.cargoName}>
-                                    {r.cargoName}
-                                  </TableCell>
-                                  <TableCell className={`text-right ${r.deltaQty >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                    {r.deltaQty >= 0 ? '+' : ''}
-                                    {Number(r.deltaQty).toLocaleString()}
-                                  </TableCell>
-                                  <TableCell className="text-right text-slate-600">
-                                    {Number(r.previousQty).toLocaleString()}
-                                  </TableCell>
-                                  <TableCell className="text-right font-medium">
-                                    {Number(r.nextQty).toLocaleString()}
-                                  </TableCell>
-                                </TableRow>
-                              ));
-                            })()}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
+                  <div className="flex justify-end gap-2 mt-4">
+                    <Button variant="outline" onClick={() => setEditingProduct(null)}>Cancel</Button>
+                    <Button onClick={handleEditSubmit} disabled={adminUpdateProduct.isPending}>
+                      {adminUpdateProduct.isPending ? 'Updating...' : 'Update'}
+                    </Button>
                   </div>
                 </div>
               </div>

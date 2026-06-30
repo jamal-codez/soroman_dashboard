@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
+import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import {
   Table,
   TableBody,
@@ -39,7 +42,7 @@ import {
 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { Calendar as DatePicker } from '@/components/ui/calendar';
 import { apiClient } from '@/api/client';
 
@@ -79,6 +82,7 @@ export default function OfflineSales() {
     state: 0,
     trucks: [''],
     status: 'pending' as 'pending' | 'paid',
+    date: new Date().toISOString(),
     items: [{ product: 0, quantity: '' }],
     notes: ''
   });
@@ -86,16 +90,37 @@ export default function OfflineSales() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [salesRes, statesRes, productsRes] = await Promise.all([
+        // Use Promise.allSettled so one failing endpoint doesn't block the others
+        const [salesRes, statesRes] = await Promise.allSettled([
           apiClient.admin.getOfflineSales(),
           apiClient.admin.getStates(),
-          apiClient.admin.getProducts({ page_size: 100 }), // Ensure we get all products
         ]);
-        
-        // Handle potential paginated responses
-        setSales(salesRes.results || salesRes);
-        setStates(statesRes.results || statesRes);
-        setProducts((productsRes.results || productsRes) as Product[]);
+
+        const unwrap = (r: PromiseSettledResult<unknown>) => {
+          if (r.status !== 'fulfilled') return [];
+          const v = r.value as Record<string, unknown>;
+          return Array.isArray(v) ? v : Array.isArray(v?.results) ? v.results : [];
+        };
+
+        setSales(unwrap(salesRes) as typeof sales);
+        setStates(unwrap(statesRes) as typeof states);
+
+        // Try multiple product endpoints — some may be role-restricted
+        const productEndpoints = [
+          () => apiClient.admin.getProducts({ page_size: 100 }),
+          () => apiClient.admin.getProductsInventory({ page_size: 100 }),
+          () => apiClient.admin.getProductInventory(),
+        ];
+        let prodArr: Product[] = [];
+        for (const fn of productEndpoints) {
+          if (prodArr.length > 0) break;
+          try {
+            const res = await fn();
+            const arr = Array.isArray(res) ? res : Array.isArray((res as Record<string, unknown>)?.results) ? (res as Record<string, unknown>).results as Product[] : [];
+            if (arr.length > 0) prodArr = arr as Product[];
+          } catch { /* try next */ }
+        }
+        setProducts(prodArr);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -160,6 +185,7 @@ export default function OfflineSales() {
       state: sale.state,
       trucks: [...(sale.trucks || []), ''],
       status: sale.status,
+      date: sale.date,
       items: [...sale.items.map(item => ({ ...item, quantity: item.quantity.toString() })), { product: 0, quantity: '' }],
       notes: sale.notes || ''
     });
@@ -178,7 +204,7 @@ export default function OfflineSales() {
 
   const resetForm = () => {
     setFormData({
-      created_at: new Date().toISOString(),
+      date: new Date().toISOString(),
       state: 0,
       trucks: [''],
       status: 'pending',
@@ -216,13 +242,15 @@ export default function OfflineSales() {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Offline Sales Dashboard</h1>
-            </div>
-            
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="Offline Sales"
+              description="Log offline transactions, manage items and trucks, and export sales history."
+            />
+
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">
@@ -283,7 +311,7 @@ export default function OfflineSales() {
                                   </span>
                                 </Label>
                                 <DatePicker
-                                  selected={new Date(formData.created_at)}
+                                  selected={new Date(formData.date)}
                                   onSelect={(date) => date && setFormData({...formData, date: date.toISOString()})}
                                   className="w-full rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
                                 />
@@ -298,34 +326,14 @@ export default function OfflineSales() {
                                     <span className="text-red-500 ml-1">*</span>
                                   </span>
                                 </Label>
-                                <Select
+                                <select
                                   value={formData.status}
-                                  onValueChange={(v) => setFormData({...formData, status: v as 'pending' | 'paid'})}
+                                  onChange={(e) => setFormData({...formData, status: e.target.value as 'pending' | 'paid'})}
+                                  className="w-full h-11 rounded-lg border border-slate-200 bg-background px-3 py-2 text-sm hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
                                 >
-                                  <SelectTrigger className="w-full h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
-                                    <SelectValue placeholder="Select status" />
-                                  </SelectTrigger>
-                                  <SelectContent className="rounded-lg shadow-lg border border-slate-200">
-                                    <SelectItem 
-                                      value="pending" 
-                                      className="px-4 py-2 hover:bg-slate-50 focus:bg-slate-50"
-                                    >
-                                      <div className="flex items-center gap-3">
-                                        <Clock className="w-4 h-4 text-amber-600" />
-                                        <span>Pending</span>
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem 
-                                      value="paid" 
-                                      className="px-4 py-2 hover:bg-slate-50 focus:bg-slate-50"
-                                    >
-                                      <div className="flex items-center gap-3">
-                                        <CheckCircle className="w-4 h-4 text-green-600" />
-                                        <span>Paid</span>
-                                      </div>
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                  <option value="pending">⏳ Pending</option>
+                                  <option value="paid">✅ Paid</option>
+                                </select>
                               </div>
                             </div>
 
@@ -340,25 +348,18 @@ export default function OfflineSales() {
                                     <span className="text-red-500 ml-1">*</span>
                                   </span>
                                 </Label>
-                                <Select
+                                <select
                                   value={formData.state.toString()}
-                                  onValueChange={v => setFormData({...formData, state: Number(v)})}
+                                  onChange={e => setFormData({...formData, state: Number(e.target.value)})}
+                                  className="w-full h-11 rounded-lg border border-slate-200 bg-background px-3 py-2 text-sm hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
                                 >
-                                  <SelectTrigger className="w-full h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
-                                    <SelectValue placeholder="Select state" />
-                                  </SelectTrigger>
-                                  <SelectContent className="rounded-lg shadow-lg border border-slate-200 max-h-60">
-                                    {states.map(state => (
-                                      <SelectItem 
-                                        key={state.id} 
-                                        value={state.id.toString()}
-                                        className="px-4 py-2 hover:bg-slate-50"
-                                      >
-                                        {state.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                  <option value="0">Select state</option>
+                                  {states.map(state => (
+                                    <option key={state.id} value={state.id.toString()}>
+                                      {state.name}
+                                    </option>
+                                  ))}
+                                </select>
                               </div>
 
                               {/* Products Section */}
@@ -373,39 +374,28 @@ export default function OfflineSales() {
                                 <div className="space-y-4">
                                   {formData.items.map((item, index) => (
                                     <div key={index} className="grid grid-cols-2 gap-4 items-center">
-                                      <Select
+                                      <select
                                         value={item.product.toString()}
-                                        onValueChange={v => {
-                                          const newItems = [...formData.items];
-                                          newItems[index].product = Number(v);
-                                          setFormData({...formData, items: newItems});
-                                        }}
-                                      >
-                                        <SelectTrigger className="h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500">
-                                          <SelectValue placeholder="Select product" />
-                                        </SelectTrigger>
-                                        <SelectContent className="rounded-lg shadow-lg border border-slate-200 max-h-60">
-                                          {products.map(product => (
-                                            <SelectItem 
-                                              key={product.id} 
-                                              value={product.id.toString()}
-                                              className="px-4 py-2 hover:bg-slate-50"
-                                            >
-                                              <div className="flex items-center gap-3">
-                                                <Fuel className="w-4 h-4 text-slate-500" />
-                                                <span>{product.name}</span>
-                                              </div>
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                      <Input
-                                        type="number"
-                                        placeholder="Quantity (Liters)"
-                                        value={item.quantity}
                                         onChange={e => {
                                           const newItems = [...formData.items];
-                                          newItems[index].quantity = e.target.value;
+                                          newItems[index].product = Number(e.target.value);
+                                          setFormData({...formData, items: newItems});
+                                        }}
+                                        className="h-11 w-full rounded-lg border border-slate-200 bg-background px-3 py-2 text-sm hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
+                                      >
+                                        <option value="0">Select product</option>
+                                        {products.map(product => (
+                                          <option key={product.id} value={product.id.toString()}>
+                                            {product.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <CommaInput
+                                        placeholder="Quantity (Liters)"
+                                        value={String(item.quantity)}
+                                        onValueChange={v => {
+                                          const newItems = [...formData.items];
+                                          newItems[index].quantity = v;
                                           setFormData({...formData, items: newItems});
                                         }}
                                         className="h-11 rounded-lg border-slate-200 hover:border-slate-300 focus:ring-2 focus:ring-blue-500"
@@ -539,7 +529,7 @@ export default function OfflineSales() {
                 <TableBody>
                   {(sales || []).map((sale) => (
                     <TableRow key={sale.id}>
-                      <TableCell>{new Date(sale.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell>{new Date(sale.date).toLocaleDateString()}</TableCell>
                       <TableCell>
                         {states.find(s => s.id === sale.state)?.name || 'Unknown State'}
                       </TableCell>

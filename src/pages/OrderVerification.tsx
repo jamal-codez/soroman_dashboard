@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
+import { MobileNav } from "@/components/MobileNav";
+import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FileText, Search, Loader2 } from "lucide-react";
@@ -99,13 +101,15 @@ const OrderVerification = () => {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">Order Verification Dashboard</h1>
-            </div>
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="Order Verification"
+              description="Review flagged orders and confirm verification status for compliance."
+            />
             
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
               <div className="flex flex-col gap-3">

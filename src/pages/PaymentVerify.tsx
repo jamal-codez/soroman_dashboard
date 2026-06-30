@@ -8,18 +8,25 @@ import {
   TableRow 
 } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
-import { apiClient } from '@/api/client';
+import { MobileNav } from '@/components/MobileNav';
+import { apiClient, fetchAllPages } from '@/api/client';
+import { isCurrentUserReadOnly } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, ShieldCheck, Loader2, Download } from 'lucide-react';
-import { useState, useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import * as XLSX from 'xlsx';
+import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, CalendarDays, X, Fuel, Clock, Paperclip, FileText, ImageIcon, Trash2, Plus, FileSearch as FileSearchIcon } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { format, isThisMonth, isThisWeek, isThisYear, isToday } from 'date-fns';
+import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday, isAfter, isBefore, isSameDay, addDays, parseISO } from 'date-fns';
 import { PageHeader } from '@/components/PageHeader';
+import { SummaryCards, type SummaryCard } from '@/components/SummaryCards';
+import { Calendar as CalendarPicker } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { getOrderReference } from '@/lib/orderReference';
 
 interface PaymentOrder {
@@ -38,16 +45,22 @@ interface PaymentOrder {
     last_name?: string;
     phone_number?: string;
     phone?: string;
+    companyName?: string;
+    company_name?: string;
+    company?: string;
   };
   customer?: {
     first_name?: string;
     last_name?: string;
     phone_number?: string;
     phone?: string;
+    companyName?: string;
+    company_name?: string;
+    company?: string;
   };
 
   // Order fields sometimes embedded
-  products?: Array<{ name?: string; unit_price?: string | number; price?: string | number; unitPrice?: string | number }>;
+  products?: Array<{ name?: string; unit_price?: string | number; price?: string | number; unitPrice?: string | number; unit?: string; unit_label?: string }>;
   quantity?: number;
   qty?: number;
   litres?: number;
@@ -106,6 +119,14 @@ interface PaymentOrder {
     depositor_name?: string;
     created_at?: string;
   }>;
+
+  // Company fields sometimes live at the payment/order level
+  companyName?: string;
+  company_name?: string;
+  company?: string;
+  pfi_id?: number | null;
+  pfi?: number | string | null;
+  customer_details?: Record<string, unknown>;
 }
 
 type BankAccount = {
@@ -123,6 +144,16 @@ interface OrderResponse {
   results: PaymentOrder[];
 }
 
+// A single split-payment entry as entered in the Confirm Payment dialog
+type PaymentLineInput = {
+  amount: number;
+  payerName: string;
+  transactionReference: string;
+  bankAccountId?: number;
+  paymentDate: string;
+  statementLineId?: number;
+};
+
 // Replace old PaymentDetailsModal + ConfirmationModal with a single confirm dialog
 function VerifyConfirmModal({
   isOpen,
@@ -130,114 +161,544 @@ function VerifyConfirmModal({
   onConfirm,
   payment,
   bankAccounts,
+  pfiOptions,
+  selectedPfiId,
+  onChangePfiId,
+  isSubmitting,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (
+    narration: string,
+    files: File[],
+    pfiId?: number,
+    bankAccountId?: number,
+    paymentLines?: PaymentLineInput[],
+  ) => void;
   payment: PaymentOrder | null;
   bankAccounts: BankAccount[];
+  pfiOptions: Array<{ id: number; label: string }>;
+  selectedPfiId: number | '';
+  onChangePfiId: (value: number | '') => void;
+  isSubmitting: boolean;
 }) {
   if (!payment) return null;
-  const createdDate = new Date(payment.created_at);
-  const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
-  const { qty, unitPrice } = extractProductInfo(payment);
-  const paidInto = extractPaidInto(payment);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Confirm Payment</DialogTitle>
-        </DialogHeader>
+    <VerifyConfirmModalBody
+      isOpen={isOpen}
+      onClose={onClose}
+      onConfirm={onConfirm}
+      payment={payment}
+      bankAccounts={bankAccounts}
+      pfiOptions={pfiOptions}
+      selectedPfiId={selectedPfiId}
+      onChangePfiId={onChangePfiId}
+      isSubmitting={isSubmitting}
+    />
+  );
+}
 
-        <div className="space-y-3 text-sm">
-          <div className="grid grid-cols-1 sm:grid-cols-1 gap-3">
-            <div>
-              <div className="text-xs text-slate-500">Date</div>
-              <div className="font-medium text-slate-900">
-                {Number.isNaN(createdDate.getTime()) ? '—' : createdDate.toLocaleString('en-GB')}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500">Order Reference</div>
-              <div className="font-medium text-slate-900">{getOrderReference(payment) || payment.order_id}</div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500">Customer</div>
-              <div className="font-medium text-slate-900">{customerName || '—'}</div>
-              {customerPhone ? <div className="text-slate-700">{customerPhone}</div> : null}
-            </div>
+type PaymentLine = {
+  amount: string;
+  payerName: string;
+  bankAccountId: string;
+  transactionReference: string;
+  paymentDate: string;
+  statementLineId?: number;
+};
+
+// A single deposit row pulled from a bank statement upload.
+type StatementLineOption = {
+  id: number;
+  transaction_date: string;
+  depositor_name?: string | null;
+  bank_ref?: string | null;
+  amount: string | number;
+  narration?: string | null;
+};
+
+// Lets finance pick the real deposit row from an uploaded bank statement
+// instead of retyping depositor/amount/ref by hand — selecting a row fills
+// the payment line and locks that row so it can't be picked again elsewhere.
+function StatementPicker({
+  bankAccountId,
+  onPick,
+}: {
+  bankAccountId: string;
+  onPick: (line: StatementLineOption) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['statement-picker-lines', bankAccountId, search],
+    queryFn: () => apiClient.admin.getBankAccountStatementLines(Number(bankAccountId), {
+      status: 'UNMATCHED',
+      search: search || undefined,
+      page_size: 25,
+    }),
+    enabled: !!bankAccountId,
+  });
+
+  const lines: StatementLineOption[] = data?.results || [];
+  const count: number | undefined = typeof data?.count === 'number' ? data.count : undefined;
+
+  if (!bankAccountId) {
+    return (
+      <div className="rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-[11px] text-slate-400">
+        Select a bank account above to pick its deposits from a statement.
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full h-11 flex items-center justify-center gap-2 rounded-lg bg-blue-600 text-white text-sm font-bold shadow-sm hover:bg-blue-700 transition-colors"
+      >
+        <FileSearchIcon size={16} />
+        Pick from Bank Statement
+        {typeof count === 'number' && (
+          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white/20 text-xs font-bold">
+            {count}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1.5 w-full min-w-[320px] rounded-lg border border-slate-300 bg-white shadow-xl">
+          <div className="p-2 border-b border-slate-100">
+            <Input
+              autoFocus
+              placeholder="Search depositor, ref…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-8 text-xs"
+            />
           </div>
-
-          <div>
-            <div className="text-xs text-slate-500">Paid Into</div>
-            <div className="font-semibold text-slate-900">Account Number: {paidInto.account_number || '—'}</div>
-            <div className="text-slate-700">Bank Name: {paidInto.bank_name || '—'}</div>
-            <div className="text-slate-700">Account Name: {paidInto.account_name || '—'}</div>
+          <div className="max-h-64 overflow-y-auto">
+            {isLoading ? (
+              <p className="p-3 text-xs text-slate-400 text-center">Loading…</p>
+            ) : lines.length === 0 ? (
+              <p className="p-3 text-xs text-slate-400 text-center">No unmatched deposits found for this account.</p>
+            ) : (
+              lines.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => { onPick(l); setOpen(false); setSearch(''); }}
+                  className="w-full text-left px-3 py-2.5 border-b border-slate-50 last:border-0 hover:bg-blue-50 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-800">{l.depositor_name || '—'}</span>
+                    <span className="font-bold text-slate-900">₦{Number(l.amount).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-0.5 text-slate-400">
+                    <span className="font-mono">{l.bank_ref || '—'}</span>
+                    <span>{l.transaction_date}</span>
+                  </div>
+                </button>
+              ))
+            )}
           </div>
-
-          {payment.payment_splits && payment.payment_splits.length > 0 ? (
-            <div>
-              <div className="text-xs text-slate-500 mb-1">Customer Says They're Paying From</div>
-              <div className="flex flex-col gap-2">
-                {payment.payment_splits.map((split, i) => {
-                  const splitAmt = parseFloat(String(split.amount || '0'));
-                  return (
-                    <div key={split.id ?? i} className="rounded-md border border-slate-200 p-2 text-sm">
-                      <div className="font-semibold text-slate-900">₦{splitAmt.toLocaleString()}</div>
-                      <div className="text-slate-700">Depositor: {split.depositor_name || '—'}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <div className="text-xs text-slate-500">Price per Litre</div>
-              <div className="font-medium text-slate-900">{unitPrice ? `₦${unitPrice}` : '—'}</div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500">Quantity</div>
-              <div className="font-medium text-slate-900">{qty || '—'} Litres</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <div className="text-xs text-slate-500">Total Amount</div>
-              <div className="font-semibold text-slate-950">₦{parseFloat(payment.amount || '0').toLocaleString()}</div>
-            </div>
+          <div className="p-1.5 border-t border-slate-100 text-right">
+            <button type="button" onClick={() => setOpen(false)} className="text-[11px] text-slate-400 hover:text-slate-600 px-2">
+              Close
+            </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
+function VerifyConfirmModalBody({
+  isOpen,
+  onClose,
+  onConfirm,
+  payment,
+  bankAccounts,
+  pfiOptions,
+  selectedPfiId,
+  onChangePfiId,
+  isSubmitting,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (
+    narration: string,
+    files: File[],
+    pfiId?: number,
+    bankAccountId?: number,
+    paymentLines?: PaymentLineInput[],
+    unitPrice?: number,
+  ) => void;
+  payment: PaymentOrder;
+  bankAccounts: BankAccount[];
+  pfiOptions: Array<{ id: number; label: string }>;
+  selectedPfiId: number | '';
+  onChangePfiId: (value: number | '') => void;
+  isSubmitting: boolean;
+}) {
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [lines, setLines] = useState<PaymentLine[]>([]);
+  const [unitPriceInput, setUnitPriceInput] = useState('');
+
+  const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
+  const originalAmountValue = parseFloat(payment.amount || '0');
+  const paidInto = extractPaidInto(payment);
+  const { qtyNum, unitPriceNum: originalUnitPriceNum } = extractProductInfo(payment);
+
+  const editedUnitPriceNum = unitPriceInput.trim() === '' ? undefined : Number(unitPriceInput.replace(/,/g, ''));
+  const unitPriceChanged =
+    editedUnitPriceNum !== undefined &&
+    Number.isFinite(editedUnitPriceNum) &&
+    editedUnitPriceNum > 0 &&
+    editedUnitPriceNum !== originalUnitPriceNum;
+
+  // The expected sales value live-updates as the unit price is edited, so the
+  // split-payment balance check below always compares against the current total.
+  const expectedAmountValue =
+    unitPriceChanged && qtyNum !== undefined ? editedUnitPriceNum * qtyNum : originalAmountValue;
+
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+
+  // Reset state whenever the modal opens or a different payment is selected.
+  useEffect(() => {
+    if (isOpen) {
+      setAttachedFiles([]);
+      setUnitPriceInput(originalUnitPriceNum !== undefined ? String(originalUnitPriceNum) : '');
+      const matched = bankAccounts.find(
+        (b) => b.acct_no && paidInto.account_number && b.acct_no === paidInto.account_number
+      );
+      setLines([{
+        amount: originalAmountValue > 0 ? String(originalAmountValue) : '',
+        payerName: customerName || '',
+        bankAccountId: matched ? String(matched.id) : '',
+        transactionReference: '',
+        paymentDate: todayStr(),
+      }]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, payment.id]);
+
+  const updateLine = (idx: number, patch: Partial<PaymentLine>) =>
+    setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  const addLine = () =>
+    setLines((prev) => [...prev, { amount: '', payerName: customerName || '', bankAccountId: '', transactionReference: '', paymentDate: todayStr() }]);
+  const removeLine = (idx: number) =>
+    setLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+
+  const totalEntered = lines.reduce((s, l) => s + (parseFloat(l.amount || '0') || 0), 0);
+  const balance = expectedAmountValue - totalEntered;
+
+  const isPending = String(payment.status || '').toLowerCase() === 'pending';
+  // Transaction reference is optional — if provided it must be alphanumeric and unique across lines.
+  const referenceList = lines.map((l) => l.transactionReference.trim().toLowerCase()).filter(Boolean);
+  const referencesAreUnique = new Set(referenceList).size === referenceList.length;
+  const linesValid = lines.length > 0 && lines.every((l) => {
+    const amt = parseFloat(l.amount || '0');
+    const ref = l.transactionReference.trim();
+    const refOk = ref.length === 0 || /^[A-Za-z0-9]+$/.test(ref);
+    return amt > 0 && refOk;
+  });
+  const canConfirm = isPending
+    && typeof selectedPfiId === 'number'
+    && linesValid
+    && referencesAreUnique
+    && !isSubmitting;
+  const createdDate = new Date(payment.created_at);
+  const companyName = extractCompanyName(payment);
+  const { product, qty, unitPrice, unitLabel } = extractProductInfo(payment);
+  const location = extractLocation(payment);
+
+  const createdText = Number.isNaN(createdDate.getTime()) ? '—' : createdDate.toLocaleString('en-GB');
+  const orderRef = getOrderReference(payment) || payment.order_id;
+  const totalAmount = `₦${expectedAmountValue.toLocaleString()}`;
+  const productSummary = [product, qty ? `${qty} ${unitLabel}` : '']
+    .filter(Boolean)
+    .join(' × ')
+    .trim();
+  return (
+    <Dialog open={isOpen} onOpenChange={(v) => (v ? null : onClose())}>
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto p-0 border border-slate-300 shadow-xl">
+        <div className="border-b border-slate-800 bg-black px-6 pt-5 pb-4">
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-lg text-white">Confirm Payment</DialogTitle>
+            <DialogDescription className="text-sm text-slate-300">
+              <span className="font-mono font-semibold text-slate-100">{orderRef}</span> · {totalAmount} sales value
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        <div className="space-y-4 bg-white px-6 py-5 text-sm">
+          {/* Compact order summary */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="grid grid-cols-1 gap-y-1.5 text-xs">
+              <div><span className="text-slate-400">Date:</span> <span className="font-medium text-slate-700">{createdText}</span></div>
+              <div><span className="text-slate-400">Location:</span> <span className="font-medium text-slate-700">{location || '—'}</span></div>
+              <div className="col-span-2"><span className="text-slate-400">Product:</span> <span className="font-medium text-slate-700">{productSummary || '—'}</span></div>
+              <div className="col-span-2"><span className="text-slate-400">Customer:</span> <span className="font-medium text-slate-700">{[companyName, customerName].filter(Boolean).join(' — ') || '—'}</span></div>
+            </div>
+          </div>
+
+          {/* Editable unit price — recomputes the sales total live */}
+          {/* <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex items-end gap-3">
+            <div className="flex-1">
+              <label className="mb-1 block text-[11px] font-medium text-slate-600">
+                Unit Price (₦{qtyNum !== undefined ? ` per ${unitLabel}` : ''})
+              </label>
+              <CommaInput
+                value={unitPriceInput}
+                onValueChange={setUnitPriceInput}
+                placeholder="Unit price"
+                className="h-9 text-sm bg-white"
+              />
+            </div>
+            <div className="text-right">
+              <div className="text-[11px] font-medium text-slate-500">Sales Total</div>
+              <div className={`text-sm font-bold ${unitPriceChanged ? 'text-blue-700' : 'text-slate-800'}`}>
+                ₦{expectedAmountValue.toLocaleString()}
+              </div>
+            </div>
+          </div> */}
+
+          {/* PFI Assignment */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-slate-700 shrink-0">Assign to PFI</label>
+            <select
+              aria-label="Select PFI"
+              required
+              className="flex-1 h-9 px-3 rounded-md border border-slate-300 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              value={selectedPfiId === '' ? '' : String(selectedPfiId)}
+              onChange={(e) => onChangePfiId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">Select PFI</option>
+              {pfiOptions.map((opt) => (
+                <option key={opt.id} value={String(opt.id)}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Split payments — record each installment received for this order */}
+          <div className="space-y-2.5">
+            <label className="text-xs font-semibold text-slate-700">Payments Received</label>
+
+            {lines.map((line, idx) => (
+              <div key={idx} className="rounded-lg border border-slate-300 bg-slate-50 p-3 space-y-2.5">
+                {lines.length > 1 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Payment {idx + 1}</span>
+                    <button type="button" title="Remove this payment" onClick={() => removeLine(idx)} className="text-slate-400 hover:text-red-600">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-slate-600">Bank Account</label>
+                  <select
+                    aria-label="Bank account"
+                    className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={line.bankAccountId}
+                    onChange={(e) => updateLine(idx, { bankAccountId: e.target.value, statementLineId: undefined })}
+                  >
+                    <option value="">{'— Select —'}</option>
+                    {bankAccounts.map((b) => (
+                      <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <StatementPicker
+                  bankAccountId={line.bankAccountId}
+                  onPick={(picked) => updateLine(idx, {
+                    amount: String(picked.amount),
+                    payerName: picked.depositor_name || line.payerName,
+                    transactionReference: (picked.bank_ref || '').replace(/[^A-Za-z0-9]/g, ''),
+                    paymentDate: picked.transaction_date,
+                    statementLineId: picked.id,
+                  })}
+                />
+
+                {line.statementLineId && (
+                  <p className="text-[11px] font-medium text-emerald-700 flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1.5">
+                    <CheckCheck size={13} /> Filled from bank statement — this row will be locked as matched once you confirm.
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-px bg-slate-200" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">or enter manually</span>
+                  <div className="flex-1 h-px bg-slate-200" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Amount (₦)</label>
+                    <CommaInput
+                      value={line.amount}
+                      onValueChange={(v) => updateLine(idx, { amount: v })}
+                      placeholder="e.g. 5,000,000"
+                      className="h-9 text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Date</label>
+                    <Input
+                      type="date"
+                      value={line.paymentDate}
+                      onChange={(e) => updateLine(idx, { paymentDate: e.target.value })}
+                      className="h-9 text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Payer's Name</label>
+                    <Input
+                      value={line.payerName}
+                      onChange={(e) => updateLine(idx, { payerName: e.target.value })}
+                      placeholder="Who sent the money"
+                      className="h-9 text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Transaction Reference</label>
+                    <Input
+                      value={line.transactionReference}
+                      onChange={(e) => updateLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
+                      // placeholder="Alphanumeric, unique if provided"
+                      className="h-9 text-sm font-mono bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addLine}
+              className="w-full h-10 gap-2 border-2 border-dashed border-blue-300 text-blue-700 text-xs uppercase hover:bg-blue-50 hover:border-blue-400 hover:text-blue-800"
+            >
+              <Plus size={16} />
+              Add Another Payment
+            </Button>
+          </div>
+
+          {/* Live running total vs. expected sales value */}
+          <div className={`flex items-center justify-between rounded-lg border px-3.5 py-2.5 ${
+            balance === 0 ? 'border-emerald-300 bg-emerald-100' : balance > 0 ? 'border-amber-300 bg-amber-100' : 'border-blue-300 bg-blue-100'
+          }`}>
+            <span className="text-xs font-semibold text-slate-700">
+              ₦{totalEntered.toLocaleString()} <span className="text-slate-400">of</span> ₦{expectedAmountValue.toLocaleString()}
+            </span>
+            <span className={`text-xs font-bold ${balance === 0 ? 'text-emerald-800' : balance > 0 ? 'text-amber-800' : 'text-blue-800'}`}>
+              {balance === 0 ? 'Complete ✓' : balance > 0 ? `₦${balance.toLocaleString()} remaining` : `₦${Math.abs(balance).toLocaleString()} overpaid`}
+            </span>
+          </div>
+
+          {/* File attachments */}
+          {/* <div>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <Paperclip size={12} /> Payment Proof
+            </label>
+            <label className="flex items-center justify-center gap-2 w-full h-20 border-2 border-dashed border-slate-400 rounded-lg cursor-pointer hover:border-slate-600 hover:bg-slate-100 transition-colors text-sm text-slate-700 bg-slate-50">
+              <Paperclip size={15} className="text-slate-700" />
+              <span className="font-medium">Click to attach payment receipts</span>
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files ?? []);
+                  if (picked.length) setAttachedFiles(prev => [...prev, ...picked]);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            <p className="mt-1 text-xs text-slate-600">You can upload images or PDFs</p>
+            {attachedFiles.length > 0 && (
+              <ul className="mt-2 space-y-1.5">
+                {attachedFiles.map((f, i) => {
+                  const isImage = f.type.startsWith('image/');
+                  return (
+                    <li key={i} className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm">
+                      {isImage ? <ImageIcon size={14} className="shrink-0 text-blue-400" /> : <FileText size={14} className="shrink-0 text-slate-400" />}
+                      <span className="flex-1 truncate text-slate-800 font-medium">{f.name}</span>
+                      <span className="text-xs text-slate-500 shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                      <button type="button" title="Remove file" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="shrink-0 text-slate-500 hover:text-red-600">
+                        <Trash2 size={13} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div> */}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-300 bg-slate-100 px-6 py-4">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            className="gap-1.5 bg-green-700 hover:bg-green-900"
+            disabled={!canConfirm}
+            onClick={() => {
+              // Guard against double-clicks firing this twice before the
+              // parent's mutation flips isSubmitting/disables this button —
+              // each extra click otherwise creates duplicate payment records.
+              if (isSubmitting) return;
+              const prefix = totalEntered > 0 ? `[PAID:${totalEntered}] ` : '';
+              const paymentLines: PaymentLineInput[] = lines.map((l) => ({
+                amount: parseFloat(l.amount || '0'),
+                payerName: l.payerName.trim(),
+                transactionReference: l.transactionReference.trim(),
+                bankAccountId: l.bankAccountId ? Number(l.bankAccountId) : undefined,
+                paymentDate: l.paymentDate || todayStr(),
+                statementLineId: l.statementLineId,
+              }));
+              onConfirm(
+                prefix.trim(),
+                attachedFiles,
+                typeof selectedPfiId === 'number' ? selectedPfiId : undefined,
+                paymentLines[0]?.bankAccountId,
+                paymentLines,
+                unitPriceChanged ? editedUnitPriceNum : undefined,
+              );
+            }}
+          >
+            <CheckCheck size={16} />
+            {isSubmitting ? 'Confirming…' : 'Confirm Payment'}
           </Button>
-          <Button onClick={onConfirm}>Confirm</Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
 
+
 function getStatusClass(status: string): string {
-  switch (status) {
-    case 'paid':
-      return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending':
-      return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'failed':
-      return 'bg-red-50 text-red-700 border-red-200';
-    default:
-      return 'bg-gray-50 text-gray-700 border-gray-200';
+  switch (status.toLowerCase()) {
+    case 'paid':     return 'bg-green-50 text-green-700 border-green-200 ring-1 ring-green-100';
+    case 'pending':  return 'bg-amber-50 text-amber-700 border-amber-200 ring-1 ring-amber-100';
+    case 'released': return 'bg-blue-50 text-blue-700 border-blue-200 ring-1 ring-blue-100';
+    case 'loaded':   return 'bg-violet-50 text-violet-700 border-violet-200 ring-1 ring-violet-100';
+    case 'canceled':
+    case 'failed':   return 'bg-red-50 text-red-700 border-red-200 ring-1 ring-red-100';
+    default:         return 'bg-slate-50 text-slate-600 border-slate-200 ring-1 ring-slate-100';
   }
 }
 
-// Extract account details robustly from possible shapes.
-// Prefer whatever the verify-orders API returns; if missing, fallback to Finance bank accounts.
+// Backends sometimes return variant status strings (or stale states) across different admin endpoints.
+// Treat these as "confirmable" on the frontend, but still allow the confirm endpoint to be the source of truth.
+const isConfirmableStatus = (status: unknown): boolean => {
+  const s = String(status || '').trim().toLowerCase();
+  // Backend confirm-payment currently enforces pending-only; keep frontend aligned to reduce 409 conflicts.
+  return s === 'pending';
+};
+
 function extractAccountDetails(p: PaymentOrder, bankAccounts?: BankAccount[]) {
   const rec = p as unknown as Record<string, unknown>;
   const acctLike = (rec.acct || rec.bank_account || rec.account || {}) as Record<string, unknown>;
@@ -352,7 +813,7 @@ const extractCustomerDisplay = (p: PaymentOrder): { name: string; phone: string 
   return { name, phone };
 };
 
-const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; unitPrice: string } => {
+const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; qtyNum: number | undefined; unitPrice: string; unitPriceNum: number | undefined; unitLabel: string } => {
   const products = Array.isArray(p.products) ? p.products : [];
   const product = products
     .map((x) => x?.name)
@@ -384,38 +845,126 @@ const extractProductInfo = (p: PaymentOrder): { product: string; qty: string; un
   const qty = qtyNum !== undefined ? qtyNum.toLocaleString() : '';
 
   const rawUnit = products?.[0]?.unit_price ?? products?.[0]?.unitPrice ?? products?.[0]?.price;
-  const unitPrice =
-    rawUnit === undefined || rawUnit === null || rawUnit === ''
-      ? ''
-      : (() => {
-          const n = Number(String(rawUnit).replace(/,/g, ''));
-          return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(rawUnit);
-        })();
+  const unitPriceNum = rawUnit === undefined || rawUnit === null || rawUnit === ''
+    ? undefined
+    : (() => {
+        const n = Number(String(rawUnit).replace(/,/g, ''));
+        return Number.isFinite(n) ? n : undefined;
+      })();
+  const unitPrice = unitPriceNum === undefined
+    ? (rawUnit !== undefined && rawUnit !== null ? String(rawUnit) : '')
+    : unitPriceNum.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-  return { product, qty, unitPrice };
+  const unitLabel = products?.[0]?.unit_label || products?.[0]?.unit || 'Litres';
+
+  return { product, qty, qtyNum, unitPrice, unitPriceNum, unitLabel };
+};
+
+const extractCompanyName = (p: PaymentOrder): string => {
+  const rec = p as unknown as Record<string, unknown>;
+  const u = (rec.user as Record<string, unknown> | undefined) || undefined;
+  const c = (rec.customer as Record<string, unknown> | undefined) || undefined;
+  const cd = (rec.customer_details as Record<string, unknown> | undefined) || undefined;
+
+  const v =
+    // Backend: VerifyOrderUserSerializer now exposes this explicitly
+    (typeof u?.company_name === 'string' ? u.company_name : undefined) ||
+    (typeof u?.companyName === 'string' ? u.companyName : undefined) ||
+    (typeof u?.company === 'string' ? u.company : undefined) ||
+    (typeof c?.company_name === 'string' ? c.company_name : undefined) ||
+    (typeof c?.companyName === 'string' ? c.companyName : undefined) ||
+    (typeof c?.company === 'string' ? c.company : undefined) ||
+    (typeof cd?.company_name === 'string' ? (cd.company_name as string) : undefined) ||
+    (typeof cd?.companyName === 'string' ? (cd.companyName as string) : undefined) ||
+    (typeof cd?.company === 'string' ? (cd.company as string) : undefined) ||
+    (typeof rec.company_name === 'string' ? (rec.company_name as string) : undefined) ||
+    (typeof rec.companyName === 'string' ? (rec.companyName as string) : undefined) ||
+    (typeof rec.company === 'string' ? (rec.company as string) : undefined) ||
+    '';
+
+  return String(v || '').trim();
 };
 
 export default function PaymentVerification() {
   const queryClient = useQueryClient();
+  const readOnly = isCurrentUserReadOnly();
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
+  const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
+  const [productFilter, setProductFilter] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentOrder | null>(null);
+  const [selectedPfiId, setSelectedPfiId] = useState<number | ''>('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const { toast } = useToast();
+
+  // Track cancel/delete confirmation
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [paymentToCancel, setPaymentToCancel] = useState<PaymentOrder | null>(null);
+  const [cancelingOrderId, setCancelingOrderId] = useState<number | null>(null);
 
   const { data: apiResponse, isLoading } = useQuery<OrderResponse>({
     queryKey: ['verify-orders', 'all'],
     queryFn: async () => {
-      const response = await apiClient.admin.getVerifyOrders({
-        search: '',
-        page: 1,
-        page_size: 10000,
+      const [verifyRes, allRes] = await Promise.all([
+        fetchAllPages<PaymentOrder>(
+          (p) => apiClient.admin.getVerifyOrders({ status: 'pending', page: p.page, page_size: p.page_size })
+        ).catch(() => ({ count: 0, results: [] as PaymentOrder[] })),
+        fetchAllPages<any>(
+          (p) => apiClient.admin.getAllAdminOrders({ status: 'pending', page: p.page, page_size: p.page_size })
+        ).catch(() => ({ count: 0, results: [] }))
+      ]);
+
+      const map = new Map<number, PaymentOrder>();
+
+      // 1. Populate map with pending orders from general all-orders
+      allRes.results.forEach((item: any) => {
+        if (item && typeof item.id === 'number') {
+          const amount = item.amount || String(item.total_price || '0');
+          map.set(item.id, {
+            ...item,
+            amount,
+            order_id: item.order_id || item.id,
+            status: 'pending' as const,
+            payment_channel: item.payment_channel || '',
+            reference: item.reference || '',
+          });
+        }
       });
-      return response;
+
+      // 2. Overlay or merge with the verify-orders pending items (taking precedence for bank/payment specifics)
+      verifyRes.results.forEach((item: PaymentOrder) => {
+        if (item) {
+          const rawOrderId = item.order_id;
+          const orderId = typeof rawOrderId === 'number'
+            ? rawOrderId
+            : (typeof rawOrderId === 'string' ? parseInt(rawOrderId, 10) : null);
+          const targetId = (orderId && !isNaN(orderId)) ? orderId : (typeof item.id === 'number' ? item.id : null);
+
+          if (typeof targetId === 'number') {
+            const existing = map.get(targetId);
+            const amount = item.amount || (existing ? existing.amount : '0');
+            map.set(targetId, {
+              ...existing,
+              ...item,
+              id: targetId,
+              amount,
+              status: 'pending' as const,
+            });
+          }
+        }
+      });
+
+      const mergedResults = Array.from(map.values());
+      return {
+        count: mergedResults.length,
+        results: mergedResults
+      };
     },
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 
   const allPayments = useMemo(() => apiResponse?.results || [], [apiResponse?.results]);
@@ -428,7 +977,7 @@ export default function PaymentVerification() {
       return res;
     },
     staleTime: 60_000,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
   });
 
   const bankAccounts: BankAccount[] = useMemo(() => {
@@ -437,6 +986,22 @@ export default function PaymentVerification() {
       ? bankAccountsResponse
       : (bankAccountsResponse.results || []);
   }, [bankAccountsResponse]);
+
+  const pfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number?: string | number; pfi_no?: string | number }> } & Record<string, unknown>>({
+    queryKey: ['pfis', 'active'],
+    queryFn: async () => apiClient.admin.getPfis({ status: 'active', page: 1, page_size: 500 }),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const pfiOptions = useMemo(() => {
+    const rec = (pfiQuery.data && typeof pfiQuery.data === 'object') ? (pfiQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
+    const list = (raw || []) as Array<{ id: number; pfi_number?: string | number; pfi_no?: string | number }>;
+    return list
+      .filter((p) => p && typeof p.id === 'number')
+      .map((p) => ({ id: p.id, label: String(p.pfi_number ?? p.pfi_no ?? `PFI-${p.id}`) }));
+  }, [pfiQuery.data]);
 
   const uniqueLocations = useMemo(() => {
     const locs = allPayments
@@ -447,20 +1012,51 @@ export default function PaymentVerification() {
     return Array.from(new Set(locs)).sort();
   }, [allPayments]);
 
+  const uniqueProducts = useMemo(() => {
+    const names = allPayments
+      .flatMap(p => (p.products || []).map(x => x?.name))
+      .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+    return Array.from(new Set(names)).sort();
+  }, [allPayments]);
+
+  const hasActiveFilters = !!(locationFilter || productFilter || filterType || dateRange.from);
+
+  const clearAllFilters = () => {
+    setLocationFilter(null);
+    setProductFilter(null);
+    setFilterType(null);
+    setDateRange({ from: null, to: null });
+    setSearchQuery('');
+  };
+
   const filteredPayments = useMemo(() => {
     return allPayments
-      .filter(p => (p.status || '').toLowerCase() === 'pending')
+      // Only show entries that are likely confirmable; this reduces 409 conflicts caused by mismatched list/status.
+      .filter((p) => isConfirmableStatus(p.status))
       .filter(p => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return true;
+        const orderRef = String(getOrderReference(p) || '').toLowerCase();
+        const orderId = String(p.order_id || '').toLowerCase();
+        const { name: customerName, phone: customerPhone } = extractCustomerDisplay(p);
+        const companyName = extractCompanyName(p);
+        const location = extractLocation(p);
+        const amount = String(p.amount || '');
         return (
-          String(getOrderReference(p) || '').toLowerCase().includes(q)
+          orderRef.includes(q) ||
+          orderId.includes(q) ||
+          customerName.toLowerCase().includes(q) ||
+          customerPhone.toLowerCase().includes(q) ||
+          companyName.toLowerCase().includes(q) ||
+          location.toLowerCase().includes(q) ||
+          amount.includes(q)
         );
       })
       .filter(p => {
         if (!filterType) return true;
         const d = new Date(p.created_at);
         if (filterType === 'today') return isToday(d);
+        if (filterType === 'yesterday') return isYesterday(d);
         if (filterType === 'week') return isThisWeek(d);
         if (filterType === 'month') return isThisMonth(d);
         if (filterType === 'year') return isThisYear(d);
@@ -469,50 +1065,268 @@ export default function PaymentVerification() {
       .filter(p => {
         if (!locationFilter) return true;
         return extractLocation(p) === locationFilter;
+      })
+      .filter(p => {
+        if (!productFilter) return true;
+        const { product } = extractProductInfo(p);
+        return product.includes(productFilter);
+      })
+      .filter(p => {
+        if (dateRange.from && dateRange.to) {
+          const d = new Date(p.created_at);
+          return (isSameDay(d, dateRange.from) || isAfter(d, dateRange.from)) &&
+                 (isSameDay(d, dateRange.to) || isBefore(d, addDays(dateRange.to, 1)));
+        }
+        return true;
       });
-  }, [allPayments, searchQuery, filterType, locationFilter]);
+  }, [allPayments, searchQuery, filterType, locationFilter, productFilter, dateRange]);
 
   const updatePaymentMutation = useMutation({
-    mutationFn: async (orderId: number) => {
-      setUpdatingPaymentId(orderId);
+    mutationFn: async (args: {
+      orderId: number;
+      narration: string;
+      files: File[];
+      pfiId?: number;
+      bankAccount?: BankAccount;
+      paymentLines?: PaymentLineInput[];
+      unitPrice?: number;
+    }) => {
+      setUpdatingPaymentId(args.orderId);
       try {
-        await apiClient.admin.updateOrderStatus({
-          id: orderId,
-          status: 'paid',
+        // Record every split-payment entry FIRST — if any transaction reference
+        // turns out to be a duplicate, this throws and the order is never touched.
+        for (const line of args.paymentLines || []) {
+          await apiClient.admin.addOrderPaymentRecord(args.orderId, {
+            amount: line.amount,
+            payment_date: line.paymentDate || undefined,
+            payer_name: line.payerName || undefined,
+            transaction_reference: line.transactionReference || undefined,
+            bank_account: line.bankAccountId,
+            statement_line_ids: line.statementLineId ? [line.statementLineId] : undefined,
+          });
+        }
+        await apiClient.admin.confirmPayment(args.orderId, {
+          narration: args.narration?.trim() || undefined,
+          pfi_id: args.pfiId,
+          unit_price: args.unitPrice,
         });
+        // Snapshot the (first) bank account used onto the order, for display
+        // in the main orders table.
+        if (args.bankAccount) {
+          await apiClient.admin.patchAdminOrder(args.orderId, {
+            paid_to_bank_name: args.bankAccount.bank_name,
+            paid_to_account_number: args.bankAccount.acct_no,
+            paid_to_account_name: args.bankAccount.name,
+          });
+        }
+        // Upload files after confirming — fire-and-forget if there are any
+        if (args.files.length > 0) {
+          await apiClient.admin.uploadPaymentFiles(args.orderId, args.files);
+        }
       } finally {
         setUpdatingPaymentId(null);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
-      queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
-      toast({ title: 'Success!', description: 'Payment verified successfully!' });
+    onSuccess: async (_data, args) => {
+      // Refresh verify-orders list so the confirmed item disappears.
+      await queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
+      await queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
+
+      // Refresh shared all-orders cache so Confirm Release, Loading Tickets, Payments Report update.
+      queryClient.invalidateQueries({ queryKey: ['all-orders'] });
+
+      // Also refresh audit-related caches so the action timeline updates immediately if open elsewhere.
+      queryClient.invalidateQueries({ queryKey: ['order-audit'] });
+      queryClient.invalidateQueries({ queryKey: ['order-audit-events', args.orderId] });
+
+      toast({
+        title: 'Success ✅',
+        description: 'Payment has been successfully confirmed and order has been released.',
+      });
+    },
+    onError: async (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      const is409 = typeof message === 'string' && message.includes('(409)');
+
+      toast({
+        title: is409 ? 'Already updated' : 'Error',
+        description: message || 'Failed to verify payment',
+        variant: 'destructive',
+      });
+
+      // If state changed elsewhere, refresh the list so UI stays consistent.
+      if (is409) {
+        await queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
+        await queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
+      }
+    },
+  });
+
+  const deleteOrderMutation = useMutation({
+    mutationFn: async (orderId: number) => {
+      setCancelingOrderId(orderId);
+      try {
+        await apiClient.admin.deleteOrder(orderId);
+      } finally {
+        setCancelingOrderId(null);
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['verify-orders'] });
+      await queryClient.invalidateQueries({ queryKey: ['verify-orders', 'all'] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-orders'] });
+
+      toast({
+        title: 'Order cancelled',
+        description: 'The order has been deleted from the system.',
+      });
     },
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       toast({
-        title: 'Error',
-        description: message || 'Failed to verify payment',
+        title: 'Failed to cancel order',
+        description: message || 'Unable to delete order',
         variant: 'destructive',
       });
     },
   });
 
   const handleVerifyClick = (payment: PaymentOrder) => {
+    // Re-check the latest status we have before opening the dialog.
+    if (!isConfirmableStatus(payment.status)) {
+      const s = String(payment.status || '').toLowerCase();
+      toast({
+        title: 'Cannot confirm payment',
+        description: `This order is currently ${s || 'not pending'} and cannot be confirmed.`,
+        variant: 'destructive',
+        duration: 3000,
+      });
+      return;
+    }
+
     setSelectedPayment(payment);
+    setSelectedPfiId(payment.pfi_id && Number.isFinite(Number(payment.pfi_id)) ? Number(payment.pfi_id) : '');
     setIsConfirmModalOpen(true);
   };
 
-  const handleConfirm = async () => {
-    if (!selectedPayment?.id) return;
+  const handleCancelClick = (payment: PaymentOrder) => {
+    setPaymentToCancel(payment);
+    setIsCancelModalOpen(true);
+  };
+
+  const handleConfirm = async (
+    narration: string,
+    files: File[],
+    pfiId?: number,
+    bankAccountId?: number,
+    paymentLines?: PaymentLineInput[],
+    unitPrice?: number,
+  ) => {
+    if (!selectedPayment?.order_id) return;
+    // Defensive re-entrancy guard: never let a second confirm run while one
+    // is still in flight — that's what created duplicate payment records.
+    if (updatePaymentMutation.isPending) return;
+
+    if (!Number.isFinite(Number(pfiId))) {
+      toast({
+        title: 'PFI required',
+        description: 'Select an active PFI before confirming payment.',
+        variant: 'destructive',
+        duration: 3000,
+      });
+      return;
+    }
+
+    if (!paymentLines || paymentLines.length === 0) {
+      toast({
+        title: 'Payment required',
+        description: 'Add at least one payment before confirming.',
+        variant: 'destructive',
+        duration: 3000,
+      });
+      return;
+    }
+
+    const status = String(selectedPayment.status || '').toLowerCase();
+    if (!isConfirmableStatus(status)) {
+      toast({
+        title: 'Cannot confirm payment',
+        description: `This order is already ${status || 'not pending'} and cannot be confirmed again.`,
+        variant: 'destructive',
+        duration: 3000,
+      });
+      setIsConfirmModalOpen(false);
+      setSelectedPayment(null);
+      return;
+    }
+
+    // IMPORTANT: verify-orders rows are OrderPaymentInfo; use order_id (Order.id) for confirm-payment.
+    const orderId = Number(selectedPayment.order_id);
+    if (!Number.isFinite(orderId)) {
+      toast({
+        title: 'Cannot confirm payment',
+        description: 'Invalid order id returned from verify-orders endpoint.',
+        variant: 'destructive',
+        duration: 3000,
+      });
+      setIsConfirmModalOpen(false);
+      setSelectedPayment(null);
+      return;
+    }
+
+    const bankAccount = typeof bankAccountId === 'number' ? bankAccounts.find((b) => b.id === bankAccountId) : undefined;
+
     try {
-      await updatePaymentMutation.mutateAsync(selectedPayment.id);
+      await updatePaymentMutation.mutateAsync({ orderId, narration, files, pfiId: Number(pfiId), bankAccount, paymentLines, unitPrice });
     } finally {
       setIsConfirmModalOpen(false);
       setSelectedPayment(null);
+      setSelectedPfiId('');
     }
   };
+
+  const confirmCancelOrder = async () => {
+    if (!paymentToCancel?.order_id) return;
+
+    const orderId = Number(paymentToCancel.order_id);
+    if (!Number.isFinite(orderId)) {
+      toast({
+        title: 'Cannot cancel order',
+        description: 'Invalid order id returned from verify-orders endpoint.',
+        variant: 'destructive',
+      });
+      setIsCancelModalOpen(false);
+      setPaymentToCancel(null);
+      return;
+    }
+
+    try {
+      await deleteOrderMutation.mutateAsync(orderId);
+    } finally {
+      setIsCancelModalOpen(false);
+      setPaymentToCancel(null);
+    }
+  };
+
+  const summaryCards = useMemo((): SummaryCard[] => {
+    // Reflects the active filters (search/period/location/product/date range) —
+    // not the full unfiltered queue — so the cards match what's actually on screen.
+    const totalQty = filteredPayments.reduce((s, p) => {
+      const { qty } = extractProductInfo(p);
+      const n = parseFloat(qty.replace(/,/g, '') || '0');
+      return s + (Number.isFinite(n) ? n : 0);
+    }, 0);
+    const totalAmt = filteredPayments.reduce((s, p) => {
+      const n = parseFloat(String(p.amount || '0').replace(/,/g, ''));
+      return s + (Number.isFinite(n) ? n : 0);
+    }, 0);
+    return [
+      { title: 'Pending Payments', value: String(filteredPayments.length), icon: <Clock size={20} />, tone: filteredPayments.length > 0 ? 'amber' : 'neutral' },
+      { title: 'Total Volume', value: `${totalQty.toLocaleString(undefined, { maximumFractionDigits: 0 })} L`, icon: <Fuel size={20} />, tone: 'green' },
+      { title: 'Total Amount', value: `₦${totalAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, icon: <DollarSign size={20} />, tone: 'green' },
+    ];
+  }, [filteredPayments]);
 
   const exportToCSV = () => {
     const headers = ['Date', 'Order Reference', 'Paid Into Account No', 'Paid Into Bank', 'Amount', 'Declared Depositor', 'Declared Split Amount', 'Status'];
@@ -544,78 +1358,227 @@ export default function PaymentVerification() {
     document.body.removeChild(link);
   };
 
+  const exportToXLS = () => {
+    const title = 'PENDING PAYMENTS REPORT';
+    const subtitle = `EXPORTED: ${format(new Date(), 'dd/MM/yyyy HH:mm').toUpperCase()}`;
+    const totalRows = `TOTAL RECORDS: ${filteredPayments.length.toLocaleString()}`;
+
+    const headers = ['DATE', 'ORDER REFERENCE', 'FACILITATOR', 'PHONE', 'COMPANY', 'LOCATION', 'PRODUCT', 'QUANTITY (L)', 'UNIT PRICE (₦)', 'AMOUNT (₦)', 'ACCOUNT NO', 'ACCOUNT NAME', 'BANK', 'STATUS'];
+
+    const fmt = (n: string | number | undefined | null) => {
+      const num = parseFloat(String(n ?? '').replace(/,/g, ''));
+      return Number.isFinite(num) && num > 0 ? num.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(n ?? '—').toUpperCase();
+    };
+
+    const rows = filteredPayments.map(p => {
+      const { acct_no, name, bank_name } = extractAccountDetails(p, bankAccounts);
+      const { name: customerName, phone } = extractCustomerDisplay(p);
+      const companyName = extractCompanyName(p);
+      const location = extractLocation(p);
+      const { product, qty, unitPrice } = extractProductInfo(p);
+      const amount = parseFloat(String(p.amount || '0').replace(/,/g, ''));
+      const qtyNum = parseFloat(String(qty).replace(/,/g, ''));
+      const upNum = parseFloat(String(unitPrice).replace(/,/g, ''));
+      return [
+        format(new Date(p.created_at), 'dd/MM/yyyy HH:mm'),
+        String(getOrderReference(p) || p.order_id).toUpperCase(),
+        customerName.toUpperCase(),
+        phone.toUpperCase(),
+        companyName.toUpperCase(),
+        location.toUpperCase(),
+        product.toUpperCase(),
+        Number.isFinite(qtyNum) && qtyNum > 0 ? qtyNum.toLocaleString(undefined, { maximumFractionDigits: 0 }) : (qty || '—'),
+        Number.isFinite(upNum) && upNum > 0 ? upNum.toLocaleString(undefined, { maximumFractionDigits: 2 }) : (unitPrice || '—'),
+        Number.isFinite(amount) ? amount.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(p.amount || '—'),
+        acct_no.toUpperCase(),
+        name.toUpperCase(),
+        bank_name.toUpperCase(),
+        String(p.status || '—').toUpperCase(),
+      ];
+    });
+
+    const totalAmt = filteredPayments.reduce((s, p) => {
+      const n = parseFloat(String(p.amount || '0').replace(/,/g, ''));
+      return s + (Number.isFinite(n) ? n : 0);
+    }, 0);
+
+    const summaryRow = ['', '', '', '', '', '', '', '', 'TOTAL AMOUNT:', `₦${totalAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, '', '', '', ''];
+
+    const aoa = [
+      [title],
+      [subtitle],
+      [totalRows],
+      [],
+      headers,
+      ...rows,
+      [],
+      summaryRow,
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // Merge title cells across all columns
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } },
+    ];
+
+    // Auto column widths (based on headers + data rows)
+    ws['!cols'] = headers.map((h, i) => ({
+      wch: Math.max(h.length, ...rows.map(r => String(r[i] ?? '').length), 10) + 2,
+    }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'PENDING PAYMENTS');
+    XLSX.writeFile(wb, `PENDING_PAYMENTS_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+  };
+
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="Pending Payments"
+              description="Review incoming payment, confirm payments, and track verification status."
+              actions={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={exportToXLS}
+                  disabled={filteredPayments.length === 0}
+                >
+                  <Download size={15} />
+                  Export Excel
+                </Button>
+              }
             />
+
+            <SummaryCards cards={summaryCards} />
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
               <div className="flex flex-col gap-3">
-                <div className="flex flex-col lg:flex-row gap-3">
+                {/* Row 1: Search + quick timeframe buttons */}
+                <div className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <Input
-                      placeholder="Search here..."
+                      placeholder="Search reference, customer, company, product…"
                       className="pl-10"
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={e => setSearchQuery(e.target.value)}
                     />
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {(['today', 'yesterday', 'week', 'month', 'year'] as const).map(tf => (
+                      <Button
+                        key={tf}
+                        size="sm"
+                        variant={filterType === tf ? 'default' : 'outline'}
+                        className="h-9 text-xs capitalize"
+                        onClick={() => {
+                          setFilterType(filterType === tf ? null : tf);
+                          setDateRange({ from: null, to: null });
+                        }}
+                      >
+                        {tf}
+                      </Button>
+                    ))}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3">
-                  <select
-                    aria-label="Timeframe filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={filterType ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value as ''|'today'|'week'|'month'|'year';
-                      setFilterType(v === '' ? null : v);
-                    }}
-                  >
-                    <option value="">All Time</option>
-                    <option value="today">Today</option>
-                    <option value="week">This Week</option>
-                    <option value="month">This Month</option>
-                    <option value="year">This Year</option>
-                  </select>
-                  <select
-                    aria-label="Location filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={locationFilter ?? ''}
-                    onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">All Locations</option>
-                    {uniqueLocations.map((l) => (
-                      <option key={l} value={l}>{l}</option>
-                    ))}
-                  </select>
-                </div>
-               </div>
-             </div>
+                {/* Row 2: Location, Product, Date Range, Clear */}
+                <div className="flex flex-col sm:flex-row gap-3 items-end">
+                  <div className="flex-1 min-w-[160px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Location</label>
+                    <select
+                      aria-label="Location filter"
+                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      value={locationFilter ?? ''}
+                      onChange={e => setLocationFilter(e.target.value || null)}
+                    >
+                      <option value="">All Locations</option>
+                      {uniqueLocations.map(loc => (
+                        <option key={loc} value={loc}>{loc}</option>
+                      ))}
+                    </select>
+                  </div>
 
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200">
-              <Table>
+                  <div className="flex-1 min-w-[160px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Product</label>
+                    <select
+                      aria-label="Product filter"
+                      className="w-full h-9 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      value={productFilter ?? ''}
+                      onChange={e => setProductFilter(e.target.value || null)}
+                    >
+                      <option value="">All Products</option>
+                      {uniqueProducts.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="text-xs font-medium text-slate-500 mb-1 block">Date Range</label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full h-9 justify-start text-left font-normal text-sm">
+                          <CalendarDays className="mr-2 h-4 w-4 text-slate-400" />
+                          {dateRange.from && dateRange.to
+                            ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+                            : 'Pick date range'}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <CalendarPicker
+                          mode="range"
+                          selected={dateRange.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined}
+                          onSelect={(range) => {
+                            setDateRange({ from: range?.from ?? null, to: range?.to ?? null });
+                            if (range?.from) setFilterType(null);
+                          }}
+                          numberOfMonths={2}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {hasActiveFilters && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-9 gap-1 text-slate-500 hover:text-red-600 shrink-0"
+                      onClick={clearAllFilters}
+                    >
+                      <X size={14} />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
+              <Table className="text-sm">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>S/N</TableHead>
-                    <TableHead>Date/Time</TableHead>
-                    {/* <TableHead>Time</TableHead> */}
-                    <TableHead>Order Reference</TableHead>
-                    <TableHead>Customer</TableHead>
+                    <TableHead className="w-10">S/N</TableHead>
+                    <TableHead>Date & Time</TableHead>
+                    <TableHead>Reference</TableHead>
+                    <TableHead>Facilitator</TableHead>
+                    <TableHead>Company</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Product</TableHead>
-                    <TableHead>Qty/Price</TableHead>
+                    <TableHead>Quantity</TableHead>
                     <TableHead>Paid Into</TableHead>
                     <TableHead>Customer Says</TableHead>
-                    <TableHead>Amount Paid</TableHead>
-                    {/* <TableHead>Status</TableHead> */}
+                    <TableHead>Expected Amount</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -623,23 +1586,22 @@ export default function PaymentVerification() {
                   {isLoading ? (
                     [...Array(5)].map((_, index) => (
                       <TableRow key={index}>
-                        <TableCell><Skeleton className="h-4 w-10" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-8" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                        <TableCell><Skeleton className="h-8 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
+                        <TableCell><Skeleton className="h-8 w-28 ml-auto" /></TableCell>
                        </TableRow>
                      ))
                   ) : filteredPayments.length === 0 ? (
                      <TableRow>
-                      <TableCell colSpan={12} className="text-center h-24 text-slate-500">
+                      <TableCell colSpan={11} className="text-center h-24 text-slate-500">
                          No pending payments found
                        </TableCell>
                      </TableRow>
@@ -647,41 +1609,52 @@ export default function PaymentVerification() {
                     filteredPayments.map((payment, idx) => {
                       const created = new Date(payment.created_at);
                       const { name: customerName, phone: customerPhone } = extractCustomerDisplay(payment);
+                      const companyName = extractCompanyName(payment);
                       const location = extractLocation(payment);
-                      const { product, qty, unitPrice } = extractProductInfo(payment);
+                      const { product, qty, unitPrice, unitLabel } = extractProductInfo(payment);
                       const paidInto = extractPaidInto(payment);
                        return (
-                         <TableRow key={payment.id}>
-                          <TableCell className="text-slate-700">{idx + 1}</TableCell>
-                          <TableCell>
-                            {Number.isNaN(created.getTime())
-                              ? '—'
-                              : created.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })} {Number.isNaN(created.getTime()) ? '—' : created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                         <TableRow key={payment.id} className="hover:bg-slate-50/50">
+                          <TableCell className="text-sm text-center text-slate-600">{idx + 1}</TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-slate-600">
+                            <div>{Number.isNaN(created.getTime()) ? '—' : created.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</div>
+                            <div className="text-slate-400 text-xs">{Number.isNaN(created.getTime()) ? '' : created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                           </TableCell>
-                          {/* <TableCell>
-                            {Number.isNaN(created.getTime()) ? '—' : created.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                          </TableCell> */}
                           <TableCell className="font-semibold text-slate-950">
                             {getOrderReference(payment) || payment.order_id}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="font-medium">{customerName || '—'}</span>
-                              <span className="text-slate-600">{customerPhone || ''}</span>
+                              <span className="text-sm uppercase font-medium text-slate-800">{customerName || '—'}</span>
+                              {customerPhone ? (
+                                <a
+                                  href={`tel:${customerPhone}`}
+                                  className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="Call"
+                                >
+                                  <PhoneOutgoing size={11} className="text-green-600" />
+                                  {customerPhone}
+                                </a>
+                              ) : null}
                             </div>
                           </TableCell>
-                          <TableCell>{location || '—'}</TableCell>
-                          <TableCell>{product || '—'}</TableCell>
+                          <TableCell>
+                            <span className="font-medium uppercase text-slate-900">{companyName || '—'}</span>
+                          </TableCell>
+                          
+                          <TableCell className="text-slate-700">{location || '—'}</TableCell>
+                          <TableCell className="text-slate-700">{product || '—'}</TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="font-medium">{qty || '—'} Litres</span>
-                              <span className="text-slate-600">Price: {unitPrice ? `₦${unitPrice}` : '—'}</span>
+                              <span className="font-semibold text-slate-900">{qty || '—'} {unitLabel}</span>
+                              <span className="text-xs text-slate-500">{unitPrice ? `Unit Price: ₦${unitPrice}` : '—'}</span>
                             </div>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
-                              <span className="text-slate-900 font-semibold">{paidInto.account_number || '—'}</span>
-                              <span className="text-slate-700">{paidInto.bank_name || '—'}</span>
+                              <span className="font-semibold text-slate-900">{paidInto.account_number || '—'}</span>
+                              <span className="text-xs text-slate-500">{paidInto.bank_name || '—'}</span>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -702,28 +1675,43 @@ export default function PaymentVerification() {
                               <span className="text-slate-400 text-xs">Single payment</span>
                             )}
                           </TableCell>
-                           <TableCell className="text-right font-semibold text-slate-950">
+                           <TableCell className="text-right font-bold text-slate-950">
                              ₦{parseFloat(String(payment.amount || '0')).toLocaleString()}
                            </TableCell>
-                           {/* <TableCell>
-                             <Badge className={getStatusClass(payment.status.toLowerCase())}>
-                               {payment.status.toLowerCase()}
-                             </Badge>
-                           </TableCell> */}
-                           <TableCell>
-                             <Button
-                               variant="outline"
-                               size="sm"
-                               disabled={updatingPaymentId === payment.id}
-                               onClick={() => handleVerifyClick(payment)}
-                             >
-                               {updatingPaymentId === payment.id ? (
-                                 <Loader2 className="animate-spin mr-2" size={16} />
-                               ) : (
-                                 <ShieldCheck className="mr-1" size={16} />
-                               )}
-                               Confirm
-                             </Button>
+                           <TableCell className="text-left">
+                             {!readOnly && (
+                             <div className="flex items-center justify-end gap-1.5">
+                               <Button
+                                 variant="default"
+                                 size="sm"
+                                 disabled={updatingPaymentId === payment.id}
+                                 onClick={() => handleVerifyClick(payment)}
+                                 className="h-8 gap-1 px-2.5 text-xs"
+                               >
+                                 {updatingPaymentId === payment.id ? (
+                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                 ) : (
+                                   <CheckCheck className="h-3.5 w-3.5" />
+                                 )}
+                                 Confirm
+                               </Button>
+
+                               <Button
+                                 variant="destructive"
+                                 size="sm"
+                                 disabled={cancelingOrderId === Number(payment.order_id)}
+                                 onClick={() => handleCancelClick(payment)}
+                                 className="h-8 gap-1 px-2.5 text-xs"
+                               >
+                                 {cancelingOrderId === Number(payment.order_id) ? (
+                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                 ) : (
+                                   <XCircle className="h-3.5 w-3.5" />
+                                 )}
+                                 Cancel
+                               </Button>
+                             </div>
+                             )}
                            </TableCell>
                          </TableRow>
                        );
@@ -738,11 +1726,60 @@ export default function PaymentVerification() {
               onClose={() => {
                 setIsConfirmModalOpen(false);
                 setSelectedPayment(null);
+                setSelectedPfiId('');
               }}
               onConfirm={handleConfirm}
               payment={selectedPayment}
               bankAccounts={bankAccounts}
+              pfiOptions={pfiOptions}
+              selectedPfiId={selectedPfiId}
+              onChangePfiId={setSelectedPfiId}
+              isSubmitting={updatePaymentMutation.isPending}
             />
+
+            {/* Cancel/Delete confirmation modal */}
+            <Dialog open={isCancelModalOpen} onOpenChange={(v) => (v ? null : (setIsCancelModalOpen(false), setPaymentToCancel(null)))}>
+              <DialogContent className="sm:max-w-[520px]">
+                <DialogHeader>
+                  <DialogTitle className="text-slate-950">Cancel order</DialogTitle>
+                  <DialogDescription className="text-slate-600">
+                    This will permanently delete the order from the system. This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                  <div className="font-medium">You are about to delete:</div>
+                  <div className="mt-1">
+                    <span className="text-red-900/80">Order Ref:</span>{' '}
+                    <span className="font-semibold">{paymentToCancel ? (getOrderReference(paymentToCancel) || String(paymentToCancel.order_id)) : '—'}</span>
+                  </div>
+                  <div className="mt-1">
+                    <span className="text-red-900/80">Amount:</span>{' '}
+                    <span className="font-semibold">{paymentToCancel ? `₦${parseFloat(paymentToCancel.amount || '0').toLocaleString()}` : '—'}</span>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => { setIsCancelModalOpen(false); setPaymentToCancel(null); }}>
+                    Close
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={confirmCancelOrder}
+                    disabled={!!cancelingOrderId}
+                  >
+                    {cancelingOrderId ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Deleting...
+                      </span>
+                    ) : (
+                      'Delete order'
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </div>

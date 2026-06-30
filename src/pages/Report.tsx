@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
+import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { 
   Table,
@@ -20,13 +22,6 @@ import {
   FileText
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
 
 type Period = 'day' | 'week' | 'month';
 
@@ -63,8 +58,7 @@ const Reports = () => {
   ];
 
   const handleCSVExport = (reportType: string) => {
-    // Implement CSV export logic
-    console.log(`Exporting ${reportType} as CSV`);
+    // TODO: Implement CSV export logic
     // Actual implementation would generate CSV data here
   };
 
@@ -82,17 +76,15 @@ const Reports = () => {
       <SidebarNav />
       
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-8">
-            {/* Header Section */}
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Reports Dashboard</h1>
-                <p className="text-slate-600 mt-1">Analytical reports and data exports</p>
-              </div>
-            </div>
+            <PageHeader
+              title="Reports"
+              description="View analytical reports and export operational data for stock and sales."
+            />
 
             {/* Filters Section */}
             <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
@@ -112,17 +104,15 @@ const Reports = () => {
 
                 {/* Row 2: Filters */}
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-                  <Select value={selectedPeriod} onValueChange={(v: Period) => setSelectedPeriod(v)}>
-                    <SelectTrigger className="w-full sm:w-[220px] h-11">
-                      <Calendar className="mr-2 h-4 w-4" />
-                      <SelectValue placeholder="Select period" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="day">Daily</SelectItem>
-                      <SelectItem value="week">Weekly</SelectItem>
-                      <SelectItem value="month">Monthly</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <select
+                    value={selectedPeriod}
+                    onChange={(e) => setSelectedPeriod(e.target.value as Period)}
+                    className="w-full sm:w-[220px] h-11 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="day">Daily</option>
+                    <option value="week">Weekly</option>
+                    <option value="month">Monthly</option>
+                  </select>
                 </div>
               </div>
             </div>

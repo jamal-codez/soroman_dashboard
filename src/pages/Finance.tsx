@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
@@ -35,7 +35,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
 import { apiClient } from '@/api/client';
+import { isCurrentUserReadOnly } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
@@ -82,16 +84,19 @@ interface BankAccount {
   is_active?: boolean;
   is_primary?: boolean;
   location?: number | { id: number; name: string } | null;
+  pfi_id?: number | null;
+  pfi_number?: string | null;
 }
 
 export default function Finance() {
+  const readOnly = isCurrentUserReadOnly();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: '', acct_no: '', bank_name: '', location_id: '' });
+  const [formData, setFormData] = useState({ name: '', acct_no: '', bank_name: '', location_id: '', pfi_id: '' });
   const [submissionStatus, setSubmissionStatus] = useState<'success' | 'error' | null>(null);
   const [localState, setLocalState] = useState<{ [key: number]: StatePrice }>({});
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; productId: number | null; abbrev:string| null; updatedPrice: number | null }>({
@@ -104,13 +109,14 @@ export default function Finance() {
   const [isEditMode, setIsEditMode] = useState(false);
 
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editingBank, setEditingBank] = useState(null);
+  const [editingBank, setEditingBank] = useState<BankAccount | null>(null);
 
   const [editFormData, setEditFormData] = useState({
     name: '',
     acct_no: '',
     bank_name: '',
     location_id: '',
+    pfi_id: '',
   });
 
   const [selectedBankLocationId, setSelectedBankLocationId] = useState<string>('');
@@ -118,15 +124,21 @@ export default function Finance() {
 
   useEffect(() => {
     if (editingBank) {
-      const rec = editingBank as unknown as Record<string, any>;
+      const rec = editingBank as unknown as Record<string, unknown>;
       const loc = rec.location;
-      const locId = typeof loc === 'number' ? loc : (loc && typeof loc.id === 'number' ? loc.id : '');
+      const locId =
+        typeof loc === 'number'
+          ? loc
+          : (loc && typeof loc === 'object' && typeof (loc as Record<string, unknown>).id === 'number'
+              ? (loc as Record<string, unknown>).id
+              : '');
 
       setEditFormData({
-        name: rec.name,
-        acct_no: rec.acct_no,
-        bank_name: rec.bank_name,
+        name: String(rec.name ?? ''),
+        acct_no: String(rec.acct_no ?? ''),
+        bank_name: String(rec.bank_name ?? ''),
         location_id: locId ? String(locId) : '',
+        pfi_id: rec.pfi_id ? String(rec.pfi_id) : '',
       });
     }
   }, [editingBank]);
@@ -142,6 +154,7 @@ export default function Finance() {
     await apiClient.admin.editBankAccount(editingBank.id, {
       ...editFormData,
       location_id: editFormData.location_id ? Number(editFormData.location_id) : null,
+      pfi_id: editFormData.pfi_id ? Number(editFormData.pfi_id) : null,
     });
 
     setShowEditModal(false);
@@ -164,7 +177,11 @@ export default function Finance() {
 
   const productsQuery = useQuery<Product[]>({
     queryKey: ['products'],
-    queryFn: () => apiClient.admin.adminGetProducts(),
+    queryFn: async () => {
+      const res = await apiClient.admin.getProducts({ page_size: 100 });
+      const arr = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
+      return arr as Product[];
+    },
     select: (data) => data.map(product => ({
       ...product,
       updated_at: new Date(product.updated_at).toLocaleDateString('en-US')
@@ -179,14 +196,43 @@ export default function Finance() {
   });
 
   const bankQuery = useQuery<BankAccount[]>({
-    queryKey: ['banks', selectedBankLocationId, showInactiveBankAccounts],
+    queryKey: ['banks', selectedBankLocationId],
     queryFn: () =>
       apiClient.admin.getBankAccounts({
         location_id: selectedBankLocationId || undefined,
-        active: showInactiveBankAccounts ? 'false' : 'true',
       }),
     retry: 2,
   });
+
+  const pfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number?: string | number }> } & Record<string, unknown>>({
+    queryKey: ['pfis', 'active', formData.location_id],
+    queryFn: () => apiClient.admin.getPfis({ status: 'active', location: formData.location_id || undefined, page_size: 500 }),
+    enabled: !!formData.location_id,
+  });
+
+  const editPfiQuery = useQuery<{ results?: Array<{ id: number; pfi_number?: string | number }> } & Record<string, unknown>>({
+    queryKey: ['pfis', 'active', editFormData.location_id],
+    queryFn: () => apiClient.admin.getPfis({ status: 'active', location: editFormData.location_id || undefined, page_size: 500 }),
+    enabled: !!editFormData.location_id,
+  });
+
+  const pfiOptions = useMemo(() => {
+    const rec = (pfiQuery.data && typeof pfiQuery.data === 'object') ? (pfiQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(pfiQuery.data) ? pfiQuery.data : []);
+    const list = (raw || []) as Array<{ id: number; pfi_number?: string | number }>;
+    return list
+      .filter((p) => p && typeof p.id === 'number')
+      .map((p) => ({ id: p.id, label: String(p.pfi_number ?? `PFI-${p.id}`) }));
+  }, [pfiQuery.data]);
+
+  const editPfiOptions = useMemo(() => {
+    const rec = (editPfiQuery.data && typeof editPfiQuery.data === 'object') ? (editPfiQuery.data as Record<string, unknown>) : null;
+    const raw = (rec?.results as unknown) ?? (Array.isArray(editPfiQuery.data) ? editPfiQuery.data : []);
+    const list = (raw || []) as Array<{ id: number; pfi_number?: string | number }>;
+    return list
+      .filter((p) => p && typeof p.id === 'number')
+      .map((p) => ({ id: p.id, label: String(p.pfi_number ?? `PFI-${p.id}`) }));
+  }, [editPfiQuery.data]);
 
   const stateQuery = useQuery<StatePrice[]>({
     queryKey: ['states'],
@@ -232,8 +278,8 @@ export default function Finance() {
   });
 
   const addBankAccountMutation = useMutation({
-    mutationFn: (data: { name: string; acct_no: string; bank_name: string; location_id?: number | null }) =>
-      apiClient.admin.postBankAccount(data as any),
+    mutationFn: (data: { name: string; acct_no: string; bank_name: string; location_id?: number | null; pfi_id?: number | null }) =>
+      apiClient.admin.postBankAccount(data),
     onSuccess: () => {
       setSubmissionStatus('success');
       queryClient.invalidateQueries({ queryKey: ['bank-accounts'] });
@@ -274,6 +320,7 @@ export default function Finance() {
         acct_no: formData.acct_no,
         bank_name: formData.bank_name,
         location_id: formData.location_id ? Number(formData.location_id) : null,
+        pfi_id: formData.pfi_id ? Number(formData.pfi_id) : null,
       },
       {
         onSuccess: () => setSubmissionStatus('success'),
@@ -397,116 +444,136 @@ export default function Finance() {
       <SidebarNav />
       
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
       
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
-              title="Finance Dashboard"
-              // description="Revenue, payments, delivery rates, and bank accounts."
+              title="Bank Accounts"
+              description="List of all bank accounts and assigned locations."
             />
 
-            <div className="pt-1 pb-1">
+            {/* <div className="pt-1 pb-1">
               <SummaryCards cards={summaryCards} />
-            </div>
+            </div> */}
 
             {/* Bank Accounts */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-                <h2 className="text-lg font-semibold">Bank Accounts</h2>
-
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                  <select
-                    aria-label="Filter bank accounts by location"
-                    className="border border-gray-300 rounded px-3 py-2 h-10"
-                    value={selectedBankLocationId}
-                    onChange={(e) => setSelectedBankLocationId(e.target.value)}
-                  >
-                    <option value="">All Locations</option>
-                    {stateQuery.data?.map((s) => (
-                      <option key={s.id} value={String(s.id)}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-slate-600">Show inactive</span>
-                    <Switch
-                      checked={showInactiveBankAccounts}
-                      onCheckedChange={setShowInactiveBankAccounts}
-                    />
-                  </div>
-                </div>
-              </div>
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               {bankQuery.isLoading ? (
-                <div className="space-y-4">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="flex items-center justify-between p-4">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="h-8 w-24" />
-                      <Skeleton className="h-4 w-20" />
-                      <Skeleton className="h-8 w-8" />
-                    </div>
+                <div className="p-6 space-y-4">
+                  {[...Array(4)].map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full rounded" />
                   ))}
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="bg-slate-50/80 [&>th]:whitespace-nowrap [&>th]:px-4 [&>th]:py-3 [&>th]:text-xs [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:uppercase [&>th]:tracking-wider">
                       <TableHead>Location</TableHead>
+                      <TableHead>PFI</TableHead>
                       <TableHead>Bank Name</TableHead>
                       <TableHead>Account Name</TableHead>
                       <TableHead>Account Number</TableHead>
-                      <TableHead>Date Created</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {bankQuery.data?.map((bank) => {
-                      const rec = bank as unknown as Record<string, any>;
-                      const loc = rec.location;
-                      const locName =
-                        (loc && typeof loc === 'object' && typeof loc.name === 'string' ? loc.name : '') ||
-                        '';
-                      const isActive = typeof rec.is_active === 'boolean' ? rec.is_active : !rec.suspended;
+                    {(() => {
+                      const banks = bankQuery.data ?? [];
+                      // Sort: active accounts first, inactive at the bottom
+                      const sorted = [...banks].sort((a, b) => {
+                        const aRec = a as unknown as Record<string, unknown>;
+                        const bRec = b as unknown as Record<string, unknown>;
+                        const aActive = typeof aRec.is_active === 'boolean' ? aRec.is_active : !(typeof aRec.suspended === 'boolean' ? aRec.suspended : false);
+                        const bActive = typeof bRec.is_active === 'boolean' ? bRec.is_active : !(typeof bRec.suspended === 'boolean' ? bRec.suspended : false);
+                        if (aActive === bActive) return 0;
+                        return aActive ? -1 : 1;
+                      });
 
-                      return (
-                        <TableRow key={bank.id}>
-                          <TableCell className="font-medium">{locName || '—'}</TableCell>
-                          <TableCell className="font-medium">{bank.bank_name}</TableCell>
-                          <TableCell className="font-medium">{bank.name}</TableCell>
-                          <TableCell className="font-medium">{bank.acct_no}</TableCell>
-                          <TableCell className="font-medium">{new Date(bank.created_at).toISOString().slice(0, 10)}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-4">
-                              <Switch
-                                checked={isActive}
-                                onCheckedChange={() => handleToggle(bank.id)}
-                                className={`data-[state=unchecked]:bg-red-500 data-[state=checked]:bg-green-500`}
-                              />
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  setEditingBank(bank as any);
-                                  setShowEditModal(true);
-                                }}
-                              >
-                                <Pencil size={16} />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                      if (sorted.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center text-slate-500 py-10">
+                              No bank accounts found.
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+
+                      return sorted.map((bank, idx) => {
+                        const rec = bank as unknown as Record<string, unknown>;
+                        const loc = rec.location;
+                        const locName =
+                          (loc && typeof loc === 'object' && typeof (loc as Record<string, unknown>).name === 'string'
+                            ? String((loc as Record<string, unknown>).name)
+                            : '') || '';
+                        const isActive =
+                          typeof rec.is_active === 'boolean'
+                            ? rec.is_active
+                            : !(typeof rec.suspended === 'boolean' ? rec.suspended : false);
+                        const isEven = idx % 2 === 0;
+
+                        return (
+                          <TableRow key={bank.id} className={`transition-colors ${isActive ? '' : 'opacity-60'} ${isEven ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/40`}>
+                            <TableCell className="px-4 font-medium text-slate-800">{locName || '—'}</TableCell>
+                            <TableCell className="px-4 text-sm text-slate-700">{bank.pfi_number || '—'}</TableCell>
+                            <TableCell className="px-4 text-sm text-slate-700">{bank.bank_name}</TableCell>
+                            <TableCell className="px-4 text-sm text-slate-700">{bank.name}</TableCell>
+                            <TableCell className="px-4 text-sm font-mono text-slate-800">{bank.acct_no}</TableCell>
+                            <TableCell className="px-4">
+                              {isActive ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border bg-green-50 text-green-700 border-green-200">
+                                  <CheckCircle size={11} /> Active
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border bg-red-50 text-red-600 border-red-200">
+                                  <XCircle size={11} /> Inactive
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="px-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {!readOnly && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 px-2 gap-1 text-slate-500 hover:text-slate-700"
+                                    onClick={() => {
+                                      setEditingBank(bank);
+                                      setShowEditModal(true);
+                                    }}
+                                  >
+                                    <Pencil size={14} /> Edit
+                                  </Button>
+                                )}
+                                {!readOnly && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={`h-8 px-2 gap-1 ${isActive ? 'text-red-500 hover:text-red-700 hover:bg-red-50' : 'text-green-600 hover:text-green-800 hover:bg-green-50'}`}
+                                    onClick={() => handleToggle(bank.id)}
+                                  >
+                                    {isActive ? <><XCircle size={14} /> Deactivate</> : <><CheckCircle size={14} /> Activate</>}
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      });
+                    })()}
                   </TableBody>
                 </Table>
               )}
-              <div className="flex justify-end mt-4">
-                <Button onClick={() => setIsModalOpen(true)}>
-                  Add Bank Account
-                </Button>
-              </div>
+              {!readOnly && (
+                <div className="flex justify-end px-4 py-3 border-t border-slate-100">
+                  <Button onClick={() => setIsModalOpen(true)} className="gap-1.5">
+                    <Plus size={15} /> Add Bank Account
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -528,6 +595,20 @@ export default function Finance() {
               {stateQuery.data?.map((s) => (
                 <option key={s.id} value={String(s.id)}>
                   {s.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Linked PFI"
+              className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
+              value={formData.pfi_id}
+              onChange={(e) => setFormData((p) => ({ ...p, pfi_id: e.target.value }))}
+              disabled={!formData.location_id}
+            >
+              <option value="">No PFI (default account for location)</option>
+              {pfiOptions.map((p) => (
+                <option key={p.id} value={String(p.id)}>
+                  {p.label}
                 </option>
               ))}
             </select>
@@ -602,6 +683,20 @@ export default function Finance() {
               {stateQuery.data?.map((s) => (
                 <option key={s.id} value={String(s.id)}>
                   {s.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Linked PFI"
+              className="border border-gray-300 rounded px-3 py-2 h-11 w-full"
+              value={editFormData.pfi_id}
+              onChange={(e) => setEditFormData((p) => ({ ...p, pfi_id: e.target.value }))}
+              disabled={!editFormData.location_id}
+            >
+              <option value="">No PFI (default account for location)</option>
+              {editPfiOptions.map((p) => (
+                <option key={p.id} value={String(p.id)}>
+                  {p.label}
                 </option>
               ))}
             </select>

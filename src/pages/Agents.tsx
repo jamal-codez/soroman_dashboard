@@ -3,6 +3,7 @@ import { format, isThisMonth, isThisWeek, isThisYear, isToday } from "date-fns";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SidebarNav } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
+import { MobileNav } from "@/components/MobileNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -164,8 +165,25 @@ export default function Agents() {
   // --- Released orders stats (best-effort; uses all-orders endpoint) ---
   const { data: ordersRaw } = useQuery<unknown>({
     queryKey: ["all-orders", "agents-stats"],
-    queryFn: () => apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 }),
+    queryFn: async () => {
+      const PAGE = 200;
+      let page = 1;
+      let count = 0;
+      const all: OrderLike[] = [];
+
+      while (page <= 500) {
+        const res = await apiClient.admin.getAllAdminOrders({ page, page_size: PAGE });
+        const results = (res?.results ?? []) as OrderLike[];
+        count = Number(res?.count ?? count);
+        all.push(...results);
+        if (results.length < PAGE || all.length >= count) break;
+        page++;
+      }
+
+      return { count, results: all };
+    },
     retry: 2,
+    staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
 
@@ -332,12 +350,14 @@ export default function Agents() {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
 
         <div className="flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-6">
           <div className="max-w-7xl mx-auto space-y-5">
             <PageHeader
               title="Marketers"
+              description="Manage marketing officers, review assignments, and track released order performance."
               actions={
                 <Button onClick={() => setOpenCreate(true)} className="gap-2">
                   <Plus className="h-4 w-4" />
@@ -373,7 +393,7 @@ export default function Agents() {
                       setAgentStatsFilterType(v === '' ? null : v);
                     }}
                   >
-                    <option value="">All Time</option>
+                    <option value="">Select Timeframe</option>
                     <option value="today">Today</option>
                     <option value="week">This Week</option>
                     <option value="month">This Month</option>
@@ -608,7 +628,7 @@ export default function Agents() {
                   aria-label="Agent type"
                   className="border border-gray-300 rounded px-3 py-2 h-11"
                   value={createType}
-                  onChange={(e) => setCreateType(e.target.value as any)}
+                  onChange={(e) => setCreateType(e.target.value as AgentType)}
                 >
                   <option value="location">Location</option>
                   <option value="general">General</option>
@@ -684,7 +704,7 @@ export default function Agents() {
                   className="border border-gray-300 rounded px-3 py-2 h-11"
                   value={editType}
                   onChange={(e) => {
-                    const t = e.target.value as any;
+                    const t = e.target.value as AgentType;
                     setEditType(t);
                     if (t === 'general') setEditLocationId(null);
                     if (t === 'location' && editLocationId == null) setEditLocationId(selectedLocationId);
@@ -750,3 +770,8 @@ export default function Agents() {
     </div>
   );
 }
+
+// --- EVERYTHING BELOW IS COMMENTED OUT DUE TO REMOVAL OF AGENTS/MARKETERS FEATURE ---
+/*
+// ...entire file content...
+*/

@@ -1,4 +1,5 @@
 import { forwardRef } from "react";
+import { Globe, Phone, PhoneCall } from "lucide-react";
 
 export type ReleaseTicketData = {
   orderReference: string;
@@ -43,13 +44,20 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
     });
 
     return (
-      <div ref={ref} className="bg-white text-slate-900 p-8">
-        <div className="flex items-start justify-between gap-4">
+      <div ref={ref} className="relative flex min-h-[1056px] flex-col bg-white px-8 pt-8 text-slate-900 overflow-hidden">
+        <img
+          src="/logo.png"
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none select-none absolute left-1/2 top-1/2 w-[70%] max-w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.06]"
+        />
+
+        <div className="relative mt-4 flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Soroman" className="h-8 w-8" />
+            <img src="/logo.png" alt="Soroman" className="h-12 w-12" />
             <div>
-              <div className="text-lg font-bold">Soroman Nigeria Limited</div>
-              <div className="text-sm">Release Ticket for {data.location || ""}</div>
+              <div className="text-lg font-bold">Soroman Energy</div>
+              <div className="text-sm"><span className="font-semibold text-green-700">{data.location || ""}</span></div>
             </div>
           </div>
           <div className="text-right">
@@ -58,18 +66,25 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           </div>
         </div>
 
-        <div className="mt-6 border border-slate-300 overflow-hidden">
+        <div className="relative mt-4 bg-green-700 px-6 py-1 text-center text-sm font-semibold uppercase tracking-wide text-white">
+          Waybill &amp; Payment Receipt
+        </div>
+
+        <div className="relative mt-6 border border-slate-300 overflow-hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2">
-            <TicketRow label="Customer Name" value={data.customerName} />
-            <TicketRow label="Company Name" value={data.companyName} />
-            <TicketRow label="Customer Phone" value={data.customerPhone} />
-            <TicketRow label="NMDPRA Number" value={data.nmdrpaNumber} />
+            <TicketRow label="Customer's Name" value={data.customerName} />
+            <TicketRow label="Company's Name" value={data.companyName} />
+            <TicketRow label="Customer's Phone" value={data.customerPhone} />
             <TicketRow label="Product" value={`${data.product} x ${data.qty}`} />
-            {/* <TicketRow label="Quantity" value={data.qty} /> */}
-            {/* <TicketRow label="Unit Price" value={`₦${data.unitPrice}`} /> */}
+            {/* <TicketRow label="Product" value={data.product} />
+            <TicketRow label="Quantity" value={data.qty} /> */}
+            <TicketRow label="Unit Price" value={`₦${data.unitPrice}`} />
+            <TicketRow label="Amount" value={formatAmount(data.qty, data.unitPrice)} />
             <TicketRow label="Truck Number" value={data.truckNumber} />
-            <TicketRow label="Driver's Name" value={data.driverName || " "} />
-            <TicketRow label="Driver's Phone" value={data.driverPhone || " "} />
+            {/* <TicketRow label="Change of Truck" value=" " /> */}
+            <TicketRow label="Driver's Name & Phone" value={`${data.driverName} - ${data.driverPhone}`} />
+            <TicketRow label="NMDPRA Number" value={data.nmdrpaNumber} />
+            {/* <TicketRow label="Driver's Phone" value={data.driverPhone || " "} /> */}
             <div className="p-3 border-t border-slate-300 first:border-t-0 sm:border-t-0 sm:[&:nth-child(n+3)]:border-t sm:border-r sm:[&:nth-child(2n)]:border-r-0 sm:col-span-2">
               <div className="text-xs uppercase tracking-wide text-slate-500">Delivery Address</div>
               <div className="mt-1 text-sm font-semibold text-slate-900 whitespace-pre-wrap">{data.deliveryAddress || " "}</div>
@@ -97,18 +112,37 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
           </div>
         </div>
 
-        <div className="mt-6 space-y-3 text-sm">
+        <div className="relative mt-6 grid grid-cols-2 gap-x-6 gap-y-5 text-sm">
           <SignatureLine label="Loader's Name" />
-          <SignatureLine label="Loader's Phone No." />
-          <SignatureLine label="Finance Clearance" />
-          <SignatureLine label="Commercial Manager" />
-          <SignatureLine label="Depot Manager" />
-          <SignatureLine label="Dispatch Officer" />
-          <SignatureLine label="Security" />
+          <SignatureLine label="Accounts" placeholders />
+          <SignatureLine label="Commercial Manager" placeholders />
+          <SignatureLine label="Depot Manager" placeholders />
+          <SignatureLine label="Dispatch Officer" placeholders />
+          <SignatureLine label="Security" placeholders />
         </div>
 
-        <div className="mt-12 bg-green-900 p-3 text-sm flex items-center justify-center text-white text-center">
-          <div>Contact: 07060659524, 08035370741, 08037367917</div>
+        {/* Contact info + payment notice — pinned to the bottom of the sheet */}
+        <div className="relative mt-6 flex flex-1 flex-col justify-end">
+          <div className="grid grid-cols-2 gap-6 border-t border-slate-200 pt-4 text-xs text-slate-700">
+            <div className="flex flex-col items-start gap-2 text-left">
+              <div className="flex items-center gap-2">
+                <Globe className="h-3 w-3" />
+                <span>
+                  Visit <span className="underline underline-offset-2 font-bold">ordersoroman.com</span> to order fuel online without stress!
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <PhoneCall className="h-3 w-3" />
+                <span className="font-bold">07060659524, 08035370741, 08021215027, 08023982277, 08036360577, 08036711324</span>
+              </div>
+            </div>
+
+            <div className="flex items-center border-l border-slate-200 pl-6 text-left text-slate-600">
+              This waybill and receipt confirm successful payment and authorization for the
+              associated truck transaction. For enquiries, verification or support, kindly contact
+              Soroman Energy.
+            </div>
+          </div>
         </div>
 
       </div>
@@ -117,13 +151,33 @@ export const TicketPrint = forwardRef<HTMLDivElement, { data: ReleaseTicketData 
 );
 TicketPrint.displayName = "TicketPrint";
 
-function SignatureLine({ label }: { label: string }) {
+function SignatureLine({
+  label,
+  placeholders,
+}: {
+  label: string;
+  placeholders?: boolean;
+}) {
   return (
     <div className="flex items-center gap-2">
       <div className="font-semibold">{label}:</div>
-      <div className="flex-1 border-b border-slate-500 h-5" />
+      <div className="flex-1 relative h-5">
+        <div className="absolute inset-x-0 bottom-0 border-b border-slate-500" />
+        {placeholders ? (
+          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-200">          
+            <span className="px-1">Full Name & Signature</span>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
+}
+
+/** Compute qty × unitPrice and format as Naira currency */
+function formatAmount(qty: string, unitPrice: string): string {
+  const n = Number(qty) * Number(unitPrice);
+  if (!qty || !unitPrice || Number.isNaN(n)) return "";
+  return `₦${n.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function TicketRow({ label, value }: { label: string; value: string }) {

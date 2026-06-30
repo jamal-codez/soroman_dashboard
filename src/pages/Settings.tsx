@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
+import { useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -30,31 +33,27 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Search,
   UserPlus,
-  Edit,
-  User,
-  Shield,
   Loader2,
   Users2,
   Ban,
   CheckCircle2,
+  Shield,
+  Mail,
+  Phone,
+  MapPin,
+  Globe,
+  Eye,
+  EyeOff,
+  FileSearch2,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
-import { SummaryCards } from '@/components/SummaryCards';
+import { ROLES } from '@/roles';
 
 type UserType = {
   id: number;
@@ -64,21 +63,60 @@ type UserType = {
   role: number;
   suspended: boolean;
   last_login: string;
+  last_login_ip?: string | null;
+  last_login_user_agent?: string | null;
   label: string;
+  location?: string;
+  locations?: number[];       // scoped state IDs sent in PATCH
+  location_names?: string[];  // resolved names returned by GET — use these for display
+  pfis?: number[];            // scoped PFI IDs sent in PATCH
+  pfi_numbers?: string[];     // resolved PFI numbers returned by GET — use these for display
+  plain_password?: string | null;
 };
 
-const roleMap = {
-  1: 'ADMIN',
-  2: 'FINANCE',
-  3: 'SALES',
-  4: 'RELEASE',
+const roleMap: Record<number, string> = {
+  0: 'Superadmin',
+  1: 'Administration',
+  2: 'Finance',
+  3: 'Sales',
+  4: 'Ticketing',
+  5: 'Security',
+  6: 'Transport',
+  7: 'Release',
+  8: 'Audit',
+  9: 'Marketing',
+  10: 'Location Manager',
+  11: 'LPG Dashboard',
+  12: 'LPG Plants',
+  13: 'LPG Stock',
+  14: 'LPG Sales',
+};
+
+const roleColorMap: Record<number, string> = {
+  1: 'text-purple-600',
+  2: 'text-blue-600',
+  3: 'text-emerald-600',
+  4: 'text-amber-600',
+  5: 'text-red-600',
+  6: 'text-cyan-600',
+  7: 'text-orange-600',
+  8: 'text-slate-500',
+  9: 'text-green-600',
+  10: 'text-teal-600',
+  11: 'text-orange-600',
+  12: 'text-orange-600',
+  13: 'text-orange-600',
+  14: 'text-orange-600',
 };
 
 const Settings = () => {
   const [users, setUsers] = useState<UserType[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [locationFilter, setLocationFilter] = useState<string>('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
+  const [revealedPasswords, setRevealedPasswords] = useState<Set<number>>(new Set());
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -86,6 +124,9 @@ const Settings = () => {
     phone_number: '',
     role: '1',
     suspended: false,
+    location: '',
+    locations: [] as number[], // scoped state IDs
+    pfis: [] as number[], // scoped PFI IDs
   });
   const [errors, setErrors] = useState({
     full_name: '',
@@ -99,12 +140,52 @@ const Settings = () => {
 
   const { toast } = useToast();
 
+  // Current logged-in user role — only SUPERADMIN can manage location scopes
+  const currentUserRole = Number(localStorage.getItem('role') ?? '-1');
+  const isSuperAdmin = currentUserRole === ROLES.SUPERADMIN;
+
+  // Fetch states from API
+  const { data: statesRaw } = useQuery({
+    queryKey: ['states-settings'],
+    queryFn: () => apiClient.admin.getStates(),
+    staleTime: 5 * 60_000,
+  });
+  const statesList: { id: number; name: string }[] = Array.isArray(statesRaw)
+    ? statesRaw
+    : ((statesRaw as { results?: { id: number; name: string }[] })?.results ?? []);
+
+  // Fetch PFIs from API (for PFI scope assignment)
+  const { data: pfisRaw } = useQuery({
+    queryKey: ['pfis-settings'],
+    queryFn: () => apiClient.admin.getPfis({}),
+    staleTime: 5 * 60_000,
+  });
+  type PfiOption = { id: number; pfi_number: string; location_name?: string; product_name?: string };
+  const pfisList: PfiOption[] = Array.isArray(pfisRaw)
+    ? pfisRaw
+    : ((pfisRaw as { results?: PfiOption[] })?.results ?? []);
+
+  const formatLastLogin = (value?: string | null) => {
+    if (!value) return 'N/A';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value; // fallback to raw string if it's not a valid date
+
+    // Example output: "Feb 6, 2026, 1:05 PM"
+    return d.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
   const generatePassword = () => {
     const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    const randomValues = crypto.getRandomValues(new Uint32Array(12));
     let password = "";
     for (let i = 0; i < 12; i++) {
-      const randomIndex = Math.floor(Math.random() * charset.length);
-      password += charset[randomIndex];
+      password += charset[randomValues[i] % charset.length];
     }
     setFormData({ ...formData, password });
   };
@@ -113,10 +194,22 @@ const Settings = () => {
     setSearchQuery(event.target.value.toLowerCase());
   };
 
-  const filteredUsers = users.filter(user =>
-    user.full_name.toLowerCase().includes(searchQuery) ||
-    user.email.toLowerCase().includes(searchQuery)
-  );
+  const LOCATIONS = ['Headquarters', 'Lagos', 'Calabar', 'Port Harcourt', 'Warri'];
+
+  const filteredUsers = users
+    .filter(user => {
+      const matchesSearch =
+        user.full_name.toLowerCase().includes(searchQuery) ||
+        user.email.toLowerCase().includes(searchQuery);
+      const matchesRole = roleFilter === 'all' || String(user.role) === roleFilter;
+      const matchesLocation =
+        locationFilter === 'all' ||
+        (locationFilter === 'none'
+          ? !user.location?.trim()
+          : user.location?.trim().toLowerCase() === locationFilter.toLowerCase());
+      return matchesSearch && matchesRole && matchesLocation;
+    })
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   const validateForm = () => {
     const newErrors = {
@@ -135,10 +228,13 @@ const Settings = () => {
       setFormData({
         full_name: user.full_name,
         email: user.email,
-        password: '********',
+        password: user.plain_password || '',
         phone_number: user.phone_number,
         role: String(user.role),
         suspended: user.suspended,
+        location: user.location || '',
+        locations: user.locations ?? [],
+        pfis: user.pfis ?? [],
       });
     } else {
       setEditingUser(null);
@@ -149,6 +245,9 @@ const Settings = () => {
         phone_number: '',
         role: '1',
         suspended: false,
+        location: '',
+        locations: [],
+        pfis: [],
       });
     }
     setIsDialogOpen(true);
@@ -164,6 +263,9 @@ const Settings = () => {
       phone_number: '',
       role: '1',
       suspended: false,
+      location: '',
+      locations: [],
+      pfis: [],
     });
     setErrors({
       full_name: '',
@@ -186,15 +288,44 @@ const Settings = () => {
           phone_number: formData.phone_number,
           role: parseInt(formData.role),
           suspended: formData.suspended,
+          location: formData.location.trim() || undefined,
+          // Only SUPERADMIN can change location/PFI scope; only send if not a SUPERADMIN target
+          ...(isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+            ? { locations: formData.locations, pfis: formData.pfis }
+            : {}),
         };
 
-        if (formData.password && formData.password !== "********") {
+        if (formData.password) {
           updatedUser.password = formData.password;
         }
 
         const response = await apiClient.admin.updateUser(editingUser.id, updatedUser);
 
-        setUsers(users.map(user => user.id === editingUser.id ? { ...user, ...updatedUser } : user));
+        // Resolve location_names/pfi_numbers from statesList/pfisList for optimistic display
+        const newLocationNames = isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+          ? formData.locations.map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[]
+          : undefined;
+        const newPfiNumbers = isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+          ? formData.pfis.map(id => pfisList.find(p => p.id === id)?.pfi_number).filter(Boolean) as string[]
+          : undefined;
+
+        setUsers(prev => prev.map(user =>
+          user.id === editingUser.id
+            ? {
+                ...user,
+                email: formData.email,
+                full_name: formData.full_name,
+                phone_number: formData.phone_number,
+                role: parseInt(formData.role),
+                suspended: formData.suspended,
+                location: formData.location.trim() || user.location,
+                locations: newLocationNames !== undefined ? formData.locations : user.locations,
+                location_names: newLocationNames !== undefined ? newLocationNames : user.location_names,
+                pfis: newPfiNumbers !== undefined ? formData.pfis : user.pfis,
+                pfi_numbers: newPfiNumbers !== undefined ? newPfiNumbers : user.pfi_numbers,
+              }
+            : user
+        ));
 
         toast({
           title: "User Updated",
@@ -204,6 +335,9 @@ const Settings = () => {
           })(),
           duration: 2000,
         });
+
+        handleCloseDialog();
+        return; // ← don't fall through to fetchUsers() below
       } else {
         const response = await apiClient.admin.registerUser({
           email: formData.email,
@@ -211,6 +345,10 @@ const Settings = () => {
           full_name: formData.full_name,
           phone_number: formData.phone_number,
           role: parseInt(formData.role),
+          location: formData.location.trim() || undefined,
+          ...(isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+            ? { locations: formData.locations, pfis: formData.pfis }
+            : {}),
         });
 
         toast({
@@ -234,7 +372,11 @@ const Settings = () => {
 
         // General API message
         if (apiErrors.message || apiErrors.detail) {
-          errorMessage = apiErrors.message || apiErrors.detail;
+          const msg =
+            (typeof apiErrors.message === 'string' && apiErrors.message) ||
+            (typeof apiErrors.detail === 'string' && apiErrors.detail) ||
+            '';
+          if (msg) errorMessage = msg;
         }
 
         // Field-specific messages
@@ -297,23 +439,30 @@ const Settings = () => {
     }
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const response = await apiClient.admin.getUsers();
-      setUsers(response);
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch users',
-        variant: 'destructive',
-        duration: 1000, // Set toast duration to 1 second
+      const fresh: UserType[] = Array.isArray(response) ? response : (response?.results ?? []);
+      // API now returns `locations` + `location_names` — use them directly.
+      // Fallback: preserve any locally-known locations if the field is still absent.
+      setUsers(prev => {
+        const prevMap = new Map(prev.map(u => [u.id, u]));
+        return fresh.map(u => ({
+          ...u,
+          locations: u.locations ?? prevMap.get(u.id)?.locations ?? [],
+          location_names: u.location_names ?? prevMap.get(u.id)?.location_names ?? [],
+          pfis: u.pfis ?? prevMap.get(u.id)?.pfis ?? [],
+          pfi_numbers: u.pfi_numbers ?? prevMap.get(u.id)?.pfi_numbers ?? [],
+        }));
       });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to fetch users', variant: 'destructive', duration: 1000 });
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [fetchUsers]);
 
   const summary = {
     total: users.length,
@@ -326,13 +475,14 @@ const Settings = () => {
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="mb-5">
               <PageHeader
                 title="Staff Management"
-                // description="Create, edit and manage staff access across the dashboard."
+                description="Create, edit and manage staff access across the dashboard."
                 actions={
                   <Button className="gap-2" onClick={() => handleOpenDialog()}>
                     <UserPlus className="h-4 w-4" />
@@ -342,7 +492,7 @@ const Settings = () => {
               />
             </div>
 
-            <div className="mb-6">
+            {/* <div className="mb-6">
               <SummaryCards
                 cards={[
                   { title: 'Total staff', value: String(summary.total), description: 'All staff accounts', icon: <Users2 className="h-5 w-5" />, tone: 'neutral' },
@@ -351,62 +501,142 @@ const Settings = () => {
                   { title: 'Admins', value: String(summary.admins), description: 'Admin role', icon: <Shield className="h-5 w-5" />, tone: 'neutral' }
                 ]}
               />
-            </div>
+            </div> */}
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
               <div className="p-4 border-b border-slate-200">
-                <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
                     <Input
                       type="text"
-                      placeholder="Search users..."
+                      placeholder="Search by name or email…"
                       className="pl-10"
                       value={searchQuery}
                       onChange={handleSearch}
                     />
                   </div>
+                  <select
+                    aria-label="Filter by role"
+                    value={roleFilter}
+                    onChange={(e) => setRoleFilter(e.target.value)}
+                    className="h-10 w-full sm:w-[170px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="all">All Roles</option>
+                    {Object.entries(roleMap).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter by location"
+                    value={locationFilter}
+                    onChange={(e) => setLocationFilter(e.target.value)}
+                    className="h-10 w-full sm:w-[170px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="all">All Locations</option>
+                    <option value="none">No Location</option>
+                    {statesList.map((s) => (
+                      <option key={s.id} value={s.name}>{s.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Staff</TableHead>
+                  <TableRow className="bg-slate-50/80 [&>th]:px-4 [&>th]:py-3 [&>th]:text-xs [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:uppercase [&>th]:tracking-wider">
+                    <TableHead className="w-[48px]">#</TableHead>
+                    <TableHead className="min-w-[180px]">Name</TableHead>
+                    <TableHead className="min-w-[180px]">Contact</TableHead>
+                    <TableHead className="min-w-[220px]">Location</TableHead>
+                    <TableHead className="min-w-[160px]">PFI Scope</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Last Login</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {/* <TableHead className="min-w-[160px]">Password</TableHead> */}
+                    {/* <TableHead className="min-w-[160px]">Last Login</TableHead> */}
+                    <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div className="flex items-center">
-                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center mr-3">
-                            <User className="text-slate-500" size={16} />
-                          </div>
-                          <div>
-                            <div className="font-medium">{user.full_name}</div>
-                            <div className="text-sm text-slate-500">{user.email}</div>
-                          </div>
-                        </div>
+                  {filteredUsers.map((user, idx) => {
+                    const roleName = roleMap[user.role] || user.label || '';
+                    const displayRole = roleName;
+                    const isSuperAdminUser = user.role === ROLES.SUPERADMIN;
+                    // Prefer location_names (pre-resolved by backend) over local ID lookup
+                    const scopeNames: string[] = user.location_names?.length
+                      ? user.location_names
+                      : (user.locations ?? []).map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[];
+                    const scopePfiNumbers: string[] = user.pfi_numbers?.length
+                      ? user.pfi_numbers
+                      : (user.pfis ?? []).map(id => pfisList.find(p => p.id === id)?.pfi_number).filter(Boolean) as string[];
+                    return (
+                    <TableRow key={user.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                      <TableCell className="px-4 text-slate-400 text-center text-xs">{idx + 1}</TableCell>
+                      <TableCell className="px-4 font-semibold text-slate-800 whitespace-nowrap">
+                        {user.full_name}
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center">
-                          <Shield className={`mr-2 ${user.role === 1 ? 'text-amber-600' : 'text-slate-400'}`} size={16} />
-                          {user.label}
-                        </div>
+                      <TableCell className="px-4">
+                        <a href={`mailto:${user.email}`} className="flex items-center gap-1.5 text-sm text-black hover:text-blue-800 hover:underline" title={user.email}>
+                          <Mail size={14} className="shrink-0 text-green-600" />
+                          {user.email}
+                        </a>
+                        <a href={`tel:${user.phone_number}`} className="flex items-center gap-1.5 text-sm text-black hover:text-slate-800 hover:underline mt-0.5">
+                          <Phone size={13} className="shrink-0 text-green-600" />
+                          {user.phone_number}
+                        </a>
                       </TableCell>
-                      <TableCell>
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          !user.suspended ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                      <TableCell className="px-4 text-sm text-slate-700">
+                        {isSuperAdminUser
+                          ? <span className="text-slate-400">—</span>
+                          : scopeNames.length === 0
+                            ? <span className="text-slate-400">Full Access</span>
+                            : <span>{scopeNames.join(', ')}</span>
+                        }
+                      </TableCell>
+                      <TableCell className="px-4 text-sm text-slate-700">
+                        {isSuperAdminUser
+                          ? <span className="text-slate-400">—</span>
+                          : scopePfiNumbers.length === 0
+                            ? <span className="text-slate-400">Full Access</span>
+                            : <span>{scopePfiNumbers.join(', ')}</span>
+                        }
+                      </TableCell>
+                      <TableCell className={`px-4 text-sm font-medium ${roleColorMap[user.role] || 'text-slate-700'}`}>
+                        {displayRole}
+                      </TableCell>
+                      <TableCell className="px-4">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${
+                          !user.suspended ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
                         }`}>
                           {!user.suspended ? 'Active' : 'Suspended'}
                         </span>
                       </TableCell>
-                      <TableCell>{user.last_login || 'N/A'}</TableCell>
+                      {/* <TableCell className="px-4">
+                        {user.plain_password ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-mono text-slate-700 tracking-wide">
+                              {revealedPasswords.has(user.id) ? user.plain_password : '••••••••'}
+                            </span>
+                            <button
+                              type="button"
+                              className="text-slate-400 hover:text-slate-700 transition-colors"
+                              onClick={() => setRevealedPasswords(prev => {
+                                const next = new Set(prev);
+                                next.has(user.id) ? next.delete(user.id) : next.add(user.id);
+                                return next;
+                              })}
+                            >
+                              {revealedPasswords.has(user.id)
+                                ? <EyeOff size={13} />
+                                : <Eye size={13} />}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </TableCell> */}
+                      {/* <TableCell className="px-4 text-sm text-slate-500 whitespace-nowrap">{formatLastLogin(user.last_login)}</TableCell> */}
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button variant="outline" size="sm" onClick={() => handleOpenDialog(user)}>
@@ -439,95 +669,265 @@ const Settings = () => {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
+            <DialogTitle>{editingUser ? 'Edit Staff' : 'Add New Staff'}</DialogTitle>
             <DialogDescription>
-              {editingUser ? 'Update user details and permissions.' : 'Fill in the information for the new user.'}
+              {editingUser ? 'Update staff details and permissions.' : 'Fill in the information for the new staff.'}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 py-1">
             <div className="grid gap-4">
-              <div className="space-y-2">
+              {/* Full Name */}
+              <div className="space-y-1.5">
                 <Label htmlFor="full_name">Full Name</Label>
-                <Input 
-                  id="full_name" 
-                  value={formData.full_name} 
+                <Input
+                  id="full_name"
+                  value={formData.full_name}
                   onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                   className={errors.full_name ? 'border-red-500' : ''}
-                  required 
+                  required
                 />
                 {errors.full_name && <p className="text-red-500 text-xs">{errors.full_name}</p>}
               </div>
-              <div className="space-y-2">
+
+              {/* Email */}
+              <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
-                <Input 
-                  id="email" 
-                  type="email" 
-                  value={formData.email} 
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className={errors.email ? 'border-red-500' : ''}
-                  required 
+                  required
                 />
                 {errors.email && <p className="text-red-500 text-xs">{errors.email}</p>}
               </div>
-                <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="flex items-center">
+
+              {/* Password */}
+              <div className="space-y-1.5">
+                <Label htmlFor="password">
+                  Password{editingUser ? ' (leave blank to keep current)' : ''}
+                </Label>
+                <div className="flex items-center gap-2">
                   <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"} // Toggle between text and password
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className={errors.password ? "border-red-500" : ""}
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className={errors.password ? 'border-red-500' : ''}
+                    placeholder={editingUser ? 'Enter new password to change' : ''}
                   />
-                  <Button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)} // Toggle visibility
-                  className="ml-2"
-                  >
-                  {showPassword ? "Hide" : "Show"}
+                  <Button type="button" variant="outline" size="sm" onClick={() => setShowPassword(!showPassword)}>
+                    {showPassword ? 'Hide' : 'Show'}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={generatePassword}>
+                    Generate
                   </Button>
                 </div>
-                <p className="text-sm text-gray-500">Password must be alphanumeric and at least 8 characters long</p>
+                <p className="text-xs text-slate-500">Alphanumeric, at least 8 characters</p>
                 {errors.password && <p className="text-red-500 text-xs">{errors.password}</p>}
-                </div>
-              <div className="space-y-2">
+              </div>
+
+              {/* Phone */}
+              <div className="space-y-1.5">
                 <Label htmlFor="phone_number">Phone Number</Label>
-                <Input 
-                  id="phone_number" 
-                  type="tel" 
-                  value={formData.phone_number} 
+                <Input
+                  id="phone_number"
+                  type="tel"
+                  value={formData.phone_number}
                   onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
                   className={errors.phone_number ? 'border-red-500' : ''}
-                  required 
+                  required
                 />
                 {errors.phone_number && <p className="text-red-500 text-xs">{errors.phone_number}</p>}
               </div>
-              <div className="space-y-2">
+
+              {/* Location (text label) */}
+              {/* <div className="space-y-1.5">
+                <Label htmlFor="location">Location Label</Label>
+                <Input
+                  id="location"
+                  value={formData.location}
+                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  placeholder="e.g. Calabar"
+                  className="h-10"
+                />
+                <p className="text-xs text-slate-400">Display-only label shown in the Location column.</p>
+              </div> */}
+
+              {/* Role */}
+              <div className="space-y-1.5">
                 <Label htmlFor="role">Role</Label>
-                <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
-                  <SelectTrigger><SelectValue placeholder="Select a role" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>Available Roles</SelectLabel>
-                      <SelectItem value="1">General Admin</SelectItem>
-                      <SelectItem value="2">Finance Admin</SelectItem>
-                      <SelectItem value="3">Marketing Officer</SelectItem>
-                      <SelectItem value="4">Release Officer</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <select
+                  id="role"
+                  aria-label="Role"
+                  value={formData.role}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select a role</option>
+                  <optgroup label="Available Roles">
+                    <option value="1">Administration</option>
+                    <option value="3">Sales</option>
+                    <option value="9">Marketing</option>
+                    <option value="4">Ticketing</option>
+                    <option value="6">Transport</option>
+                    <option value="7">Release</option>
+                    <option value="2">Finance</option>
+                    <option value="8">Audit</option>
+                    <option value="5">Security</option>
+                    <option value="10">Location Manager</option>
+                  </optgroup>
+                  <optgroup label="LPG Division">
+                    <option value="11">LPG Dashboard</option>
+                    <option value="12">LPG Plants</option>
+                    <option value="13">LPG Stock</option>
+                    <option value="14">LPG Sales</option>
+                  </optgroup>
+                </select>
               </div>
+
+              {/* ── Location Scope (SUPERADMIN only, hidden for SUPERADMIN targets) ── */}
+              {isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN && (
+                <div className="space-y-1.5 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <Label className="text-sm font-semibold text-blue-800 flex items-center gap-1.5">
+                    <MapPin size={13} /> Location Scope
+                  </Label>
+                  <p className="text-xs text-blue-600">
+                    Select which locations this user can see data for.
+                    Leave all unchecked for <strong>Full Access</strong> (sees all locations).
+                  </p>
+
+                  {/* Current scope chips */}
+                  <div className="flex flex-wrap gap-1 min-h-[24px]">
+                    {formData.locations.length === 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                        <Globe size={10} /> Full Access
+                      </span>
+                    ) : (
+                      formData.locations.map(id => {
+                        const state = statesList.find(s => s.id === id);
+                        return state ? (
+                          <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200">
+                            <MapPin size={10} /> {state.name}
+                            <button
+                              type="button"
+                              onClick={() => setFormData(f => ({ ...f, locations: f.locations.filter(l => l !== id) }))}
+                              className="ml-0.5 hover:text-red-600"
+                            >×</button>
+                          </span>
+                        ) : null;
+                      })
+                    )}
+                  </div>
+
+                  {/* Checkboxes for each state */}
+                  <div className="grid grid-cols-2 gap-1.5 mt-2 max-h-40 overflow-y-auto pr-1">
+                    {statesList.map(state => {
+                      const checked = formData.locations.includes(state.id);
+                      return (
+                        <label key={state.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer border transition-colors ${
+                          checked ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setFormData(f => ({
+                                ...f,
+                                locations: checked
+                                  ? f.locations.filter(l => l !== state.id)
+                                  : [...f.locations, state.id],
+                              }));
+                            }}
+                            className="w-3.5 h-3.5 accent-blue-600"
+                          />
+                          {state.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── PFI Scope (SUPERADMIN only, hidden for SUPERADMIN targets) ── */}
+              {isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN && (
+                <div className="space-y-1.5 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                  <Label className="text-sm font-semibold text-purple-800 flex items-center gap-1.5">
+                    <FileSearch2 size={13} /> PFI Scope
+                  </Label>
+                  <p className="text-xs text-purple-600">
+                    Select which PFIs this user can see data for.
+                    Leave all unchecked for <strong>Full Access</strong> (sees all PFIs, within their location scope above if any).
+                  </p>
+
+                  {/* Current scope chips */}
+                  <div className="flex flex-wrap gap-1 min-h-[24px]">
+                    {formData.pfis.length === 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                        <Globe size={10} /> Full Access
+                      </span>
+                    ) : (
+                      formData.pfis.map(id => {
+                        const pfi = pfisList.find(p => p.id === id);
+                        return pfi ? (
+                          <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">
+                            <FileSearch2 size={10} /> {pfi.pfi_number}
+                            <button
+                              type="button"
+                              onClick={() => setFormData(f => ({ ...f, pfis: f.pfis.filter(l => l !== id) }))}
+                              className="ml-0.5 hover:text-red-600"
+                            >×</button>
+                          </span>
+                        ) : null;
+                      })
+                    )}
+                  </div>
+
+                  {/* Checkboxes for each PFI */}
+                  <div className="grid grid-cols-2 gap-1.5 mt-2 max-h-40 overflow-y-auto pr-1">
+                    {pfisList.map(pfi => {
+                      const checked = formData.pfis.includes(pfi.id);
+                      return (
+                        <label key={pfi.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer border transition-colors ${
+                          checked ? 'bg-purple-100 border-purple-300 text-purple-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setFormData(f => ({
+                                ...f,
+                                pfis: checked
+                                  ? f.pfis.filter(l => l !== pfi.id)
+                                  : [...f.pfis, pfi.id],
+                              }));
+                            }}
+                            className="w-3.5 h-3.5 accent-purple-600"
+                          />
+                          <span className="truncate" title={`${pfi.pfi_number}${pfi.location_name ? ` — ${pfi.location_name}` : ''}${pfi.product_name ? ` (${pfi.product_name})` : ''}`}>
+                            {pfi.pfi_number}
+                            {pfi.location_name && <span className="text-slate-400"> — {pfi.location_name}</span>}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             <DialogFooter>

@@ -22,6 +22,8 @@ interface Order {
   products: Array<{
     name: string;
     abbreviation: string;
+    unit?: string;
+    unit_label?: string;
   }>;
   quantity: number;
   created_at: string;
@@ -45,11 +47,11 @@ const getStatusIcon = (status: Order['status']) => {
 
 const getStatusClass = (status: Order['status']) => {
   switch (status) {
-    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
-    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
-    default: return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'paid':     return 'bg-green-50 text-green-700 border-green-200 ring-1 ring-green-100';
+    case 'pending':  return 'bg-amber-50 text-amber-700 border-amber-200 ring-1 ring-amber-100';
+    case 'released': return 'bg-blue-50 text-blue-700 border-blue-200 ring-1 ring-blue-100';
+    case 'canceled': return 'bg-red-50 text-red-700 border-red-200 ring-1 ring-red-100';
+    default:         return 'bg-slate-50 text-slate-600 border-slate-200 ring-1 ring-slate-100';
   }
 };
 
@@ -60,6 +62,25 @@ const statusDisplayMap: Record<Order['status'], string> = {
   canceled: 'Unpaid',
 };
 
+// Helper to extract unit price from order
+const extractUnitPrice = (order: Order): string => {
+  const p = order.products?.[0] as Record<string, unknown> | undefined;
+  const o = order as unknown as Record<string, unknown>;
+  const raw =
+    (p && (p.unit_price ?? p.unitPrice ?? p.price)) ||
+    (o.unit_price as unknown) ||
+    (o.unit_price_per_litre as unknown) ||
+    (o.unit_price_per_liter as unknown) ||
+    (o.price_per_litre as unknown) ||
+    (o.price_per_liter as unknown);
+  if (raw === undefined || raw === null || raw === '') return '';
+  const n = Number(String(raw).replace(/,/g, ''));
+  if (!Number.isFinite(n)) return String(raw);
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+};
+
+/*
+// All code related to assigned_agent, getAssignedAgentSummary, and any UI for marketers/agents is commented out.
 const getAssignedAgentSummary = (order: Order): string => {
   const a = order.assigned_agent as unknown;
   if (!a || typeof a !== 'object') return '';
@@ -69,6 +90,7 @@ const getAssignedAgentSummary = (order: Order): string => {
   const phone = (typeof rec.phone === 'string' ? rec.phone : '') || (typeof rec.phone_number === 'string' ? rec.phone_number : '');
   return [name, phone ? `(${phone})` : ''].filter(Boolean).join(' ');
 };
+*/
 
 export const OrdersTable = () => {
   const { data: orders, isLoading, isError } = useQuery<Order[]>({
@@ -124,10 +146,11 @@ export const OrdersTable = () => {
             <tr className="bg-slate-50">
               <th className="text-left text-xs font-semibold text-slate-500 p-4">REFERENCE</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">CUSTOMER</th>
-              <th className="text-left text-xs font-semibold text-slate-500 p-4">AGENT</th>
+              {/* <th className="text-left text-xs font-semibold text-slate-500 p-4">AGENT</th> */}
               <th className="text-left text-xs font-semibold text-slate-500 p-4">PRODUCT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">QUANTITY</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">DATE</th>
+              <th className="text-left text-xs font-semibold text-slate-500 p-4">UNIT PRICE</th>
               <th className="text-right text-xs font-semibold text-slate-500 p-4">AMOUNT</th>
               <th className="text-left text-xs font-semibold text-slate-500 p-4">STATUS</th>
               <th className="text-center text-xs font-semibold text-slate-500 p-4">Delivery Method</th>
@@ -146,13 +169,13 @@ export const OrdersTable = () => {
                     <div className="text-xs text-slate-500">{order.user.email}</div>
                   </div>
                 </td>
-                <td className="p-4 text-sm text-slate-700">
+                {/* <td className="p-4 text-sm text-slate-700">
                   {getAssignedAgentSummary(order) || '-'}
-                </td>
+                </td> */}
                 <td className="p-4 text-sm text-slate-700">
                   {order.products.map(p => p.abbreviation).join(', ')}
                 </td>
-                <td className="p-4 text-sm text-slate-700">{order.quantity.toLocaleString()} L</td>
+                <td className="p-4 text-sm text-slate-700">{order.quantity.toLocaleString()} {order.products?.[0]?.unit_label || order.products?.[0]?.unit || 'L'}</td>
                 <td className="p-4 text-sm text-slate-700">
                   {new Date(order.created_at).toLocaleDateString('en-GB', {
                     day: 'numeric',
@@ -160,6 +183,7 @@ export const OrdersTable = () => {
                     year: 'numeric'
                   })}
                 </td>
+                <td className="p-4 text-sm text-slate-700">₦{extractUnitPrice(order)}</td>
                 <td className="p-4 text-sm font-medium text-slate-900 text-right">
                   ₦{Number(String(order.total_price).replace(/[^0-9.-]+/g, '') || 0).toLocaleString()}
                 </td>

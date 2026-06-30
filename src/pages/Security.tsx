@@ -1,0 +1,563 @@
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { SidebarNav } from "@/components/SidebarNav";
+import { TopBar } from "@/components/TopBar";
+import { MobileNav } from "@/components/MobileNav";
+import { PageHeader } from "@/components/PageHeader";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { apiClient, fetchAllPages } from "@/api/client";
+import { isCurrentUserReadOnly } from '@/roles';
+import { Search, CheckCircle, CheckIcon, TruckIcon, AlertCircle } from "lucide-react";
+import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
+
+// Local "now" formatted for a <input type="datetime-local"> default value.
+function nowForDateTimeInput(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+type OrderLike = {
+  id: number | string;
+  status?: string | null;
+
+  // Shape used elsewhere in app
+  user?: Record<string, unknown> | null;
+  customer_details?: Record<string, unknown> | null;
+  products?: Array<{ name?: string | null }> | null;
+  quantity?: number | string | null;
+
+  truck_number?: string | null;
+  driver_name?: string | null;
+
+  // Release details (seen in released order payload)
+  company_name?: string | null;
+  dpr_number?: string | null;
+  nmdrpa_number?: string | null;
+  loading_datetime?: string | null;
+
+  assigned_agent?: unknown;
+  agent?: unknown;
+  assignedAgent?: unknown;
+
+  // Fallbacks (in case backend sends flat fields)
+  customer_name?: string | null;
+  customerName?: string | null;
+  companyName?: string | null;
+  phone_number?: string | null;
+  customerPhone?: string | null;
+  assigned_agent_name?: string | null;
+  agentName?: string | null;
+  nmdrpaNumber?: string | null;
+  dprNumber?: string | null;
+  product?: unknown;
+  product_name?: string | null;
+  qty?: number | string | null;
+  truckNumber?: string | null;
+  driverName?: string | null;
+
+  truck_exited?: boolean;
+};
+
+type PagedResponse<T> = { count?: number; results?: T[] };
+
+const norm = (s: unknown) => String(s ?? "").trim();
+const normLower = (s: unknown) => norm(s).toLowerCase();
+
+function getCustomerName(o: OrderLike) {
+  const user = o.user || {};
+  const name = `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim();
+  return name || o.customerName || o.customer_name || "";
+}
+
+function getCompanyName(o: OrderLike) {
+  const cd = o.customer_details || {};
+  const user = o.user || {};
+  return (
+    // Most reliable from sample payload
+    (typeof user.company_name === "string" && user.company_name) ||
+    (typeof o.company_name === "string" && o.company_name) ||
+
+    // Other common places
+    (typeof cd.company_name === "string" && cd.company_name) ||
+    (typeof cd.companyName === "string" && cd.companyName) ||
+    (typeof cd.company === "string" && cd.company) ||
+    (typeof user.companyName === "string" && user.companyName) ||
+    o.companyName ||
+    ""
+  );
+}
+
+function getPhone(o: OrderLike) {
+  const user = o.user || {};
+  return (
+    (typeof user.phone_number === "string" && user.phone_number) ||
+    (typeof user.phone === "string" && user.phone) ||
+    o.customerPhone ||
+    o.phone_number ||
+    ""
+  );
+}
+
+function getDprOrNmdpra(o: OrderLike) {
+  const cd = o.customer_details || {};
+  return (
+    // Top-level (sample payload)
+    (typeof o.dpr_number === "string" && o.dpr_number) ||
+    (typeof o.nmdrpa_number === "string" && o.nmdrpa_number) ||
+
+    // Nested fallbacks
+    (typeof cd.dpr_number === "string" && cd.dpr_number) ||
+    (typeof cd.dprNumber === "string" && cd.dprNumber) ||
+    (typeof cd.nmdrpa_number === "string" && cd.nmdrpa_number) ||
+    (typeof cd.nmdrpaNumber === "string" && cd.nmdrpaNumber) ||
+
+    // Legacy fallbacks
+    o.dprNumber ||
+    o.nmdrpaNumber ||
+    ""
+  );
+}
+
+function getProductName(o: OrderLike) {
+  const fromProducts = (o.products || [])
+    .map((p) => p?.name)
+    .filter((n): n is string => typeof n === "string" && n.length > 0)
+    .join(", ");
+  if (fromProducts) return fromProducts;
+
+  const p = o.product as unknown;
+  const pRec = p && typeof p === 'object' ? (p as Record<string, unknown>) : null;
+  return (
+    o.product_name ||
+    (typeof p === "string" ? p : null) ||
+    (pRec
+      ? (typeof pRec.name === 'string' && pRec.name) ||
+        (typeof pRec.product_name === 'string' && pRec.product_name) ||
+        (typeof pRec.product === 'string' && pRec.product) ||
+        (typeof pRec.type === 'string' && pRec.type)
+      : null) ||
+    ""
+  );
+}
+
+function getQuantity(o: OrderLike) {
+  const raw = o.quantity ?? o.qty;
+  if (raw == null || raw === '') return '';
+
+  const n =
+    typeof raw === 'number'
+      ? raw
+      : Number(String(raw).replace(/,/g, '').trim());
+
+  if (!Number.isFinite(n)) return String(raw);
+  return `${n.toLocaleString()} litres`;
+}
+
+function getTruckNumber(o: OrderLike) {
+  const cd = o.customer_details || {};
+  return (
+    o.truck_number ||
+    (typeof cd.truckNumber === "string" ? cd.truckNumber : "") ||
+    (typeof cd.truck_number === "string" ? cd.truck_number : "") ||
+    o.truckNumber ||
+    ""
+  );
+}
+
+function getDriverName(o: OrderLike) {
+  const cd = o.customer_details || {};
+  return (
+    o.driver_name ||
+    (typeof cd.driverName === "string" ? cd.driverName : "") ||
+    (typeof cd.driver_name === "string" ? cd.driver_name : "") ||
+    o.driverName ||
+    ""
+  );
+}
+
+function formatLoadingDateTime(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return format(d, "dd/MM/yyyy - HH:mm");
+}
+
+function getLoadingDateTime(o: OrderLike) {
+  const cd = o.customer_details || {};
+  const raw =
+    (typeof o.loading_datetime === "string" && o.loading_datetime) ||
+    (typeof cd.loading_datetime === "string" && cd.loading_datetime) ||
+    (typeof cd.loadingDateTime === "string" && cd.loadingDateTime) ||
+    (typeof cd.loading_date_time === "string" && cd.loading_date_time) ||
+    (typeof cd.loadingDate === "string" && cd.loadingDate) ||
+    "";
+
+  return raw ? formatLoadingDateTime(raw) : "";
+}
+
+// Exit is permitted once an order has been released, including after a truck
+// ticket has been generated (which automatically advances status to "loaded").
+const isExitEligible = (status: unknown) => {
+  const s = normLower(status);
+  return s === "released" || s === "loaded";
+};
+
+type ExitTarget =
+  | { kind: "ticket"; ticketId: number; label: string }
+  | { kind: "order"; orderId: string | number; label: string };
+
+type ExitFormState = { exitTime: string; gantry: string; loaderName: string };
+
+const EMPTY_EXIT_FORM: ExitFormState = { exitTime: "", gantry: "", loaderName: "" };
+
+export default function SecurityPage() {
+  const readOnly = isCurrentUserReadOnly();
+  const [query, setQuery] = useState("");
+  const [exiting, setExiting] = useState(false);
+  const [exitedOrderId, setExitedOrderId] = useState<string | number | null>(null);
+  const [exitingTicketId, setExitingTicketId] = useState<number | null>(null);
+  const [exitTarget, setExitTarget] = useState<ExitTarget | null>(null);
+  const [exitForm, setExitForm] = useState<ExitFormState>(EMPTY_EXIT_FORM);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  function openExitDialog(target: ExitTarget) {
+    setExitForm({ exitTime: nowForDateTimeInput(), gantry: "", loaderName: "" });
+    setExitTarget(target);
+  }
+
+  const exitFormValid =
+    exitForm.exitTime.trim() !== "" && exitForm.gantry.trim() !== "" && exitForm.loaderName.trim() !== "";
+
+  // We fetch all orders once (like other pages do) and filter client-side.
+  const { data, isLoading, isError, error, refetch } = useQuery<PagedResponse<OrderLike>>({
+    queryKey: ["all-orders", "security"],
+    queryFn: async () => {
+      return fetchAllPages<OrderLike>(
+        (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size }),
+      );
+    },
+    retry: 2,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const match = useMemo(() => {
+    const q = query.trim();
+    if (!q) return null;
+
+    const list = data?.results || [];
+    const found = list.find((o) => String(o.id) === q);
+    if (!found) return null;
+    if (!isExitEligible(found.status)) return "NOT_RELEASED" as const;
+    return found;
+  }, [data?.results, query]);
+
+  const matchedOrderId = match && match !== "NOT_RELEASED" ? match.id : null;
+
+  // An order can have multiple trucks/tickets — each one exits independently.
+  const ticketsQuery = useQuery({
+    queryKey: ["order-truck-tickets", matchedOrderId],
+    queryFn: () => apiClient.admin.getOrderTickets(Number(matchedOrderId)),
+    enabled: matchedOrderId != null,
+    staleTime: 10_000,
+  });
+  const tickets = ticketsQuery.data ?? [];
+
+  async function confirmTruckExit(orderId: string | number, details: ExitFormState) {
+    setExiting(true);
+    try {
+      await apiClient.admin.confirmTruckExit(orderId, {
+        exit_time: new Date(details.exitTime).toISOString(),
+        gantry: details.gantry.trim(),
+        loader_name: details.loaderName.trim(),
+      });
+      setExitedOrderId(orderId);
+      await refetch(); // Refresh orders to get updated truck_exited status
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({
+        title: 'Unable to confirm truck exit',
+        description: msg,
+        variant: 'destructive',
+      });
+    } finally {
+      setExiting(false);
+    }
+  }
+
+  async function confirmTicketExit(ticketId: number, details: ExitFormState) {
+    setExitingTicketId(ticketId);
+    try {
+      await apiClient.admin.exitTruckTicket(ticketId, {
+        exit_time: new Date(details.exitTime).toISOString(),
+        gantry: details.gantry.trim(),
+        loader_name: details.loaderName.trim(),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["order-truck-tickets", matchedOrderId] });
+      await refetch(); // Picks up the order-level truck_exited rollup once every ticket has exited
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({
+        title: 'Unable to confirm truck exit',
+        description: msg,
+        variant: 'destructive',
+      });
+    } finally {
+      setExitingTicketId(null);
+    }
+  }
+
+  async function handleExitDialogSubmit() {
+    if (!exitTarget || !exitFormValid) return;
+    if (exitTarget.kind === "ticket") {
+      await confirmTicketExit(exitTarget.ticketId, exitForm);
+    } else {
+      await confirmTruckExit(exitTarget.orderId, exitForm);
+    }
+    setExitTarget(null);
+  }
+
+  return (
+    <div className="flex h-screen bg-slate-100">
+      <SidebarNav />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
+        <TopBar />
+
+        <div className="flex-1 overflow-auto p-6">
+          <div className="max-w-4xl mx-auto space-y-5">
+            <PageHeader
+              title="Security Clearance"
+              description="Look up an order to confirm truck exit and validate released deliveries."
+            />
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Order Lookup</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input
+                    className="pl-10 h-11"
+                    placeholder="Enter Order ID to search..."
+                    inputMode="numeric"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </div>
+
+                <div className="mt-4 text-sm">
+                  {isLoading ? (
+                    <div className="text-slate-600">Loading orders…</div>
+                  ) : isError ? (
+                    <div className="text-red-600">
+                      Failed to load orders: {(error as Error)?.message || "Unknown error"}
+                    </div>
+                  ) : !query.trim() ? (
+                    <div className="text-slate-500">Enter an Order ID to view details</div>
+                  ) : match === "NOT_RELEASED" ? (
+                    <div className="text-slate-600">
+                        <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-600" />
+                        <span>
+                          This order is not yet permitted to exit the facility. Please ensure the order has been released before proceeding.
+                        </span>
+                        </div>
+                    </div>
+                  ) : match == null ? (
+                    <div className="text-slate-600">No released order found for that ID</div>
+                  ) : (
+                    <>
+                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <Detail label="Customer Name" value={getCustomerName(match)} />
+                        <Detail label="Company Name" value={getCompanyName(match)} />
+                        <Detail label="Phone Number" value={getPhone(match)} />
+                        <Detail label="Product" value={getProductName(match)} />
+                        <Detail label="Quantity" value={getQuantity(match)} />
+                        {/* <Detail label="NMDPRA Number" value={getDprOrNmdpra(match)} /> */}
+                        {tickets.length <= 1 && (
+                          <>
+                            {/* <Detail label="Driver's Name" value={getDriverName(match)} /> */}
+                            <Detail label="Truck Number" value={getTruckNumber(match)} />
+                          </>
+                        )}
+                        {/* <Detail label="Loading Date & Time" value={getLoadingDateTime(match)} /> */}
+                      </div>
+
+                      {tickets.length > 1 ? (
+                        // Multi-truck order — each truck/ticket clears security independently.
+                        <div className="mt-6 space-y-2.5">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Trucks ({tickets.length})
+                          </div>
+                          {ticketsQuery.isLoading ? (
+                            <div className="text-sm text-slate-500">Loading trucks…</div>
+                          ) : (
+                            tickets.map((t) => {
+                              const exited = !!t.exited_at;
+                              return (
+                                <div
+                                  key={t.id}
+                                  className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3"
+                                >
+                                  <div className="text-sm">
+                                    <div className="font-semibold text-slate-900">
+                                      Truck {t.truck_number}{t.plate_number ? ` — ${t.plate_number}` : ''}
+                                    </div>
+                                    <div className="text-slate-500">
+                                      {t.driver_name || '—'}{t.driver_phone ? ` · ${t.driver_phone}` : ''} · {Number(t.quantity_litres).toLocaleString()} L
+                                    </div>
+                                  </div>
+                                  {exited ? (
+                                    <div className="shrink-0 px-3 py-1.5 rounded bg-green-800 text-white text-xs font-medium flex flex-col items-end gap-0.5">
+                                      <span className="flex items-center gap-1.5">
+                                        <TruckIcon className="w-3.5 h-3.5" />
+                                        Exited{t.exited_by_name ? ` · ${t.exited_by_name}` : ''}
+                                      </span>
+                                      {(t.gantry || t.loader_name) && (
+                                        <span className="text-[11px] font-normal text-green-100">
+                                          {t.gantry ? `Arm ${t.gantry}` : ''}{t.gantry && t.loader_name ? ' · ' : ''}{t.loader_name || ''}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    !readOnly && (
+                                      <button
+                                        type="button"
+                                        className="shrink-0 px-3 py-1.5 rounded bg-red-700 text-white text-xs font-medium hover:bg-red-800 flex items-center gap-1.5 disabled:opacity-60"
+                                        onClick={() => openExitDialog({ kind: "ticket", ticketId: t.id, label: `Truck ${t.truck_number}${t.plate_number ? ` — ${t.plate_number}` : ''}` })}
+                                        disabled={exitingTicketId === t.id}
+                                      >
+                                        <TruckIcon className="w-3.5 h-3.5" />
+                                        {exitingTicketId === t.id ? "Exiting…" : "Confirm Exit"}
+                                      </button>
+                                    )
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      ) : (
+                        <div className="mt-6 flex flex-col items-start">
+                          {(match.truck_exited || exitedOrderId === match.id || tickets[0]?.exited_at) ? (
+                            <div className="p-4 rounded bg-green-800 text-white flex items-center gap-2">
+                              <TruckIcon className="w-4 h-4" />
+                              This truck has been exited!
+                            </div>
+                          ) : (
+                            !readOnly && (
+                            <button
+                              type="button"
+                              className="px-6 py-4 rounded bg-red-700 text-white hover:bg-red-800 mt-2 flex items-center gap-2 disabled:opacity-60"
+                              onClick={() =>
+                                tickets[0]
+                                  ? openExitDialog({ kind: "ticket", ticketId: tickets[0].id, label: `Order #${match.id}` })
+                                  : openExitDialog({ kind: "order", orderId: match.id, label: `Order #${match.id}` })
+                              }
+                              disabled={exiting || exitingTicketId === tickets[0]?.id}
+                            >
+                              <TruckIcon className="w-4 h-4" />
+                              {(exiting || exitingTicketId === tickets[0]?.id) ? "Exiting..." : "Confirm Truck Exit"}
+                            </button>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={!!exitTarget} onOpenChange={(open) => { if (!open) setExitTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Exit{exitTarget ? ` — ${exitTarget.label}` : ''}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="exit-time">Time of Exit</Label>
+              <Input
+                id="exit-time"
+                type="datetime-local"
+                value={exitForm.exitTime}
+                onChange={(e) => setExitForm((f) => ({ ...f, exitTime: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="exit-gantry">Gantry</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500 shrink-0">Arm</span>
+                <Input
+                  id="exit-gantry"
+                  inputMode="numeric"
+                  placeholder="e.g. 3"
+                  value={exitForm.gantry}
+                  onChange={(e) => setExitForm((f) => ({ ...f, gantry: e.target.value.replace(/[^0-9A-Za-z]/g, '') }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="exit-loader">Loader's Name</Label>
+              <Input
+                id="exit-loader"
+                placeholder="Enter loader's name"
+                value={exitForm.loaderName}
+                onChange={(e) => setExitForm((f) => ({ ...f, loaderName: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100"
+              onClick={() => setExitTarget(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-md bg-red-700 text-white text-sm font-medium hover:bg-red-800 disabled:opacity-60 flex items-center gap-2"
+              disabled={!exitFormValid || exiting || exitingTicketId != null}
+              onClick={handleExitDialogSubmit}
+            >
+              <TruckIcon className="w-4 h-4" />
+              {exiting || exitingTicketId != null ? "Confirming…" : "Confirm Exit"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-3">
+      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-slate-900 whitespace-pre-wrap">
+        {value || "—"}
+      </div>
+    </div>
+  );
+}

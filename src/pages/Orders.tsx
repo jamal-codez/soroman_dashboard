@@ -2,8 +2,13 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
+import { MobileNav } from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { format, isThisWeek, isThisMonth, isThisYear, isToday, isYesterday, addDays, isAfter, isBefore, isSameDay, parseISO } from 'date-fns';
+import * as XLSX from 'xlsx';
 import {
   Table,
   TableBody,
@@ -17,13 +22,31 @@ import {
   Search,
   CheckCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  BadgeDollarSign,
+  CheckIcon,
+  FuelIcon,
+  HourglassIcon,
+  Hourglass,
+  DollarSign,
+  Truck,
+  CalendarDays,
+  Phone,
+  PhoneOutgoingIcon,
+  User,
+  UserCircle2,
+  User2,
+  X,
+  DollarSignIcon,
+  XCircleIcon,
+  SendIcon,
+  TruckIcon,
+  HelpCircleIcon,
 } from 'lucide-react';
-import { apiClient } from '@/api/client';
-import { format, isThisWeek, isThisMonth, isThisYear, isToday } from 'date-fns';
+import { apiClient, fetchAllPages } from '@/api/client';
 import { shouldAutoCancel } from '@/lib/orderTimers';
 import { getOrderReference } from '@/lib/orderReference';
-import { getActiveCargoNameForStateAndProduct } from '@/lib/cargoInventory';
+import { PageHeader } from '@/components/PageHeader';
 
 interface Order {
   id: number;
@@ -31,7 +54,7 @@ interface Order {
   total_price?: string | number;
   status: string;
   created_at: string;
-  products: Array<{ name?: string }>;
+  products: Array<{ name?: string; unit?: string; unit_label?: string }>;
   quantity?: number | string;
   release_type?: 'pickup' | 'delivery';
   reference?: string;
@@ -49,6 +72,10 @@ interface Order {
 
   // New serializer fields
   assigned_agent_id?: number | null;
+
+  // Backend PFI fields
+  pfi_id?: number | null;
+  pfi_number?: string | null;
 }
 
 interface OrderResponse {
@@ -57,74 +84,98 @@ interface OrderResponse {
 }
 
 const statusDisplayMap: Record<string, string> = {
-  pending: 'Awaiting Payment',
+  pending: 'Not Paid',
   paid: 'Paid',
-  canceled: 'Unpaid',
-  released: 'Released'
+  canceled: 'Canceled',
+  released: 'Released',
+  loaded: 'Loaded'
 };
 
 const getStatusText = (status: string) => statusDisplayMap[status.toLowerCase()] || status;
 
 const getStatusIcon = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid': return <CheckCircle className="text-green-500" size={14} />;
-    case 'pending': return <Clock className="text-orange-500" size={14} />;
-    case 'canceled': return <AlertCircle className="text-red-500" size={14} />;
-    case 'released': return <CheckCircle className="text-blue-600" size={14} />;
-    default: return <CheckCircle className="text-blue-500" size={14} />;
+    case 'paid': return <DollarSignIcon className="text-green-500" size={14} />;
+    case 'pending': return <HourglassIcon className="text-orange-500" size={14} />;
+    case 'canceled': return <XCircleIcon className="text-red-600" size={14} />;
+    case 'released': return <SendIcon className="text-blue-600" size={14} />;
+    case 'loaded': return <TruckIcon className="text-blue-600" size={14} />;
+    default: return <HelpCircleIcon className="text-blue-500" size={14} />;
   }
 };
 
 const getStatusClass = (status: string) => {
   switch (status.toLowerCase()) {
-    case 'paid': return 'bg-green-50 text-green-700 border-green-200';
-    case 'pending': return 'bg-orange-50 text-orange-700 border-orange-200';
-    case 'canceled': return 'bg-red-50 text-red-700 border-red-200';
-    case 'released': return 'bg-blue-50 text-blue-700 border-blue-200';
-    default: return 'bg-gray-50 text-blue-700 border-blue-200';
+    case 'paid':
+      return 'bg-green-50 text-green-700 border-green-200 ring-1 ring-green-100';
+    case 'pending':
+      return 'bg-amber-50 text-amber-700 border-amber-200 ring-1 ring-amber-100';
+    case 'canceled':
+      return 'bg-red-50 text-red-700 border-red-200 ring-1 ring-red-100';
+    case 'released':
+      return 'bg-blue-50 text-blue-700 border-blue-200 ring-1 ring-blue-100';
+    case 'loaded':
+      return 'bg-violet-50 text-violet-700 border-violet-200 ring-1 ring-violet-100';
+    case 'sold':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200 ring-1 ring-emerald-100';
+    default:
+      return 'bg-slate-50 text-slate-600 border-slate-200 ring-1 ring-slate-100';
   }
 };
 
-const getAssignedAgent = (o: Order): Record<string, unknown> | null => {
-  const rec = o as unknown as Record<string, unknown>;
-  const a = (rec.assigned_agent ?? rec.assignedAgent ?? rec.agent) as unknown;
-  if (!a || typeof a !== 'object') return null;
-  return a as Record<string, unknown>;
-};
+const getUnitLabel = (o: Order): string =>
+  o.products?.[0]?.unit_label || o.products?.[0]?.unit || 'Litres';
 
-const getAssignedAgentName = (o: Order): string => {
-  const aRec = getAssignedAgent(o);
-  if (!aRec) return '';
-  const fullName = [aRec.first_name, aRec.last_name]
-    .filter((v): v is string => typeof v === 'string' && v.length > 0)
-    .join(' ')
-    .trim();
-  return (
-    fullName ||
-    (typeof aRec.name === 'string' ? aRec.name : '') ||
-    (typeof aRec.full_name === 'string' ? aRec.full_name : '') ||
-    (typeof aRec.username === 'string' ? aRec.username : '') ||
-    ''
-  );
+const extractUnitPrice = (order: Order): string => {
+  const p = order.products?.[0] as Record<string, unknown> | undefined;
+  const o = order as unknown as Record<string, unknown>;
+  const raw =
+    (p && (p.unit_price ?? p.unitPrice ?? p.price)) ||
+    (o.unit_price as unknown) ||
+    (o.unit_price_per_litre as unknown) ||
+    (o.unit_price_per_liter as unknown) ||
+    (o.price_per_litre as unknown) ||
+    (o.price_per_liter as unknown);
+  if (raw === undefined || raw === null || raw === '') return '';
+  const n = Number(String(raw).replace(/,/g, ''));
+  if (!Number.isFinite(n)) return String(raw);
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
 const Orders = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'today'|'week'|'month'|'year'|null>(null);
+  const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
   const [productFilter, setProductFilter] = useState<string|null>(null);
   const [locationFilter, setLocationFilter] = useState<string|null>(null);
   const [statusFilter, setStatusFilter] = useState<string|null>(null);
-  const [agentFilter, setAgentFilter] = useState<string|null>(null);
-  const [cargoFilter, setCargoFilter] = useState<string | null>(null);
+  const [pfiFilter, setPfiFilter] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
+
+  const hasAnyFilter = !!(searchQuery || filterType || dateRange.from || productFilter || locationFilter || statusFilter || pfiFilter);
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setFilterType(null);
+    setDateRange({ from: null, to: null });
+    setProductFilter(null);
+    setLocationFilter(null);
+    setStatusFilter(null);
+    setPfiFilter(null);
+  };
+
+  // Keep the Orders table fast on initial load.
+  // Export still uses the full (backend-paginated) dataset.
+  const PAGE_SIZE = 10000;
+  const [page, setPage] = useState(1);
 
   const { data: apiResponse, isLoading, isError, error } = useQuery<OrderResponse>({
     queryKey: ['all-orders'],
     queryFn: async () => {
-      const response = await apiClient.admin.getAllAdminOrders();
-      if (!response.results) throw new Error('Invalid response format');
-      return { count: response.count || 0, results: response.results || [] };
+      return fetchAllPages<Order>(
+        (p) => apiClient.admin.getAllAdminOrders({ page: p.page, page_size: p.page_size }),
+      );
     },
     retry: 2,
+    staleTime: 30_000,
     refetchOnWindowFocus: true,
     // If there are pending orders, poll so backend auto-cancel is reflected quickly.
     refetchInterval: (q) => {
@@ -190,30 +241,16 @@ const Orders = () => {
     return Array.from(new Set(states)).sort();
   }, [apiResponse?.results]);
 
-  const uniqueAgents = useMemo(() => {
-    const list = apiResponse?.results || [];
-    const names = list
-      .map((o) => {
-        const n = getAssignedAgentName(o);
-        return n ? n.trim() : '';
-      })
-      .filter((n): n is string => Boolean(n));
-    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
-  }, [apiResponse?.results]);
+  const pfiLabel = (order: Order): string => {
+    if (order.pfi_number === undefined || order.pfi_number === null) return '';
+    return String(order.pfi_number).trim();
+  };
 
-  const uniqueCargoNames = useMemo(() => {
-    const list = apiResponse?.results || [];
-    const names = list
-      .map((o) => {
-        const location = String(o.state || '').trim();
-        const product = String((o.products?.[0] as any)?.name || '').trim();
-        if (!location || !product) return '';
-        // Orders page only has location name; cargo mapping requires stateId.
-        // We will surface cargo filter once backend provides location_id.
-        return '';
-      })
-      .filter(Boolean) as string[];
-    return Array.from(new Set(names)).sort();
+  const uniquePfis = useMemo(() => {
+    const pfis: string[] = (apiResponse?.results ?? [])
+      .map((o) => pfiLabel(o))
+      .filter((v): v is string => Boolean(v));
+    return Array.from(new Set(pfis)).sort((a, b) => a.localeCompare(b));
   }, [apiResponse?.results]);
 
   const filteredOrders = useMemo(() => {
@@ -239,12 +276,24 @@ const Orders = () => {
         return inId || inName || inProducts || inReleaseType || inState || inRef || inTruck || inDriver;
       })
       .filter(order => {
+        if (dateRange.from && dateRange.to) {
+          const orderDate = new Date(order.created_at);
+          // Inclusive range
+          return (
+            (isSameDay(orderDate, dateRange.from) || isAfter(orderDate, dateRange.from)) &&
+            (isSameDay(orderDate, dateRange.to) || isBefore(orderDate, addDays(dateRange.to, 1)))
+          );
+        }
+        return true;
+      })
+      .filter(order => {
         if (!filterType) return true;
-        const date = new Date(order.created_at);
-        if (filterType === 'today') return isToday(date);
-        if (filterType === 'week') return isThisWeek(date);
-        if (filterType === 'month') return isThisMonth(date);
-        if (filterType === 'year') return isThisYear(date);
+        const d = new Date(order.created_at);
+        if (filterType === 'today') return isToday(d);
+        if (filterType === 'yesterday') return isYesterday(d);
+        if (filterType === 'week') return isThisWeek(d);
+        if (filterType === 'month') return isThisMonth(d);
+        if (filterType === 'year') return isThisYear(d);
         return true;
       })
       .filter(order => {
@@ -259,17 +308,31 @@ const Orders = () => {
         if (!statusFilter) return true;
         return (order.status || '').toLowerCase() === statusFilter.toLowerCase();
       })
-      .filter(order => {
-        if (!agentFilter) return true;
-        const n = getAssignedAgentName(order).trim();
-        return n === agentFilter;
-      })
-      .filter(order => {
-        if (!cargoFilter) return true;
-        // Cannot compute cargo here without location_id from backend. Keep filter non-blocking.
-        return true;
+      .filter((order) => {
+        if (!pfiFilter) return true;
+        return pfiLabel(order) === pfiFilter;
       });
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, statusFilter, agentFilter, cargoFilter]);
+  }, [apiResponse?.results, searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, pfiFilter]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  }, [filteredOrders.length]);
+
+  const pagedOrders = useMemo(() => {
+    const safePage = Math.min(Math.max(page, 1), totalPages);
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredOrders.slice(start, start + PAGE_SIZE);
+  }, [filteredOrders, page, totalPages]);
+
+  // Reset to first page whenever filters/search change (avoids landing on an out-of-range page)
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, filterType, dateRange, productFilter, locationFilter, statusFilter, pfiFilter]);
+
+  // Keep page clamped when totalPages changes (e.g., after filtering)
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(p, 1), totalPages));
+  }, [totalPages]);
 
   const safeParseNumber = (v: unknown) => {
     if (v == null) return 0;
@@ -280,58 +343,19 @@ const Orders = () => {
     return Number.isFinite(n) ? n : 0;
   };
 
-  // Summary totals should respond to the same filters as the table.
-  // We intentionally ignore `statusFilter` so the breakdown still shows
-  // released/canceled counts within the currently filtered dataset.
   const filteredOrdersForSummary = useMemo(() => {
-    const base = apiResponse?.results || [];
-
-    return base
-      .filter((order) => {
-        const query = searchQuery.trim();
-        if (!query) return true;
-        const q = query.toLowerCase();
-        const name = `${order.user?.first_name ?? ''} ${order.user?.last_name ?? ''}`.toLowerCase();
-        const ref = getOrderReference(order).toLowerCase();
-        const truck = String(order.truck_number || order.customer_details?.truckNumber || order.customer_details?.truck_number || '').toLowerCase();
-        const driverName = String(order.driver_name || order.customer_details?.driverName || order.customer_details?.driver_name || '').toLowerCase();
-        const inId = String(order.id).includes(q);
-        const inName = name.includes(q);
-        const inProducts = order.products.some((p) => String(p.name ?? '').toLowerCase().includes(q));
-        const inReleaseType = String(order.release_type ?? '').toLowerCase().includes(q);
-        const inState = order.state ? String(order.state).toLowerCase().includes(q) : false;
-        const inRef = ref.includes(q);
-        const inTruck = truck.includes(q);
-        const inDriver = driverName.includes(q);
-
-        return inId || inName || inProducts || inReleaseType || inState || inRef || inTruck || inDriver;
-      })
-      .filter((order) => {
-        if (!filterType) return true;
-        const date = new Date(order.created_at);
-        if (filterType === 'today') return isToday(date);
-        if (filterType === 'week') return isThisWeek(date);
-        if (filterType === 'month') return isThisMonth(date);
-        if (filterType === 'year') return isThisYear(date);
-        return true;
-      })
-      .filter((order) => {
-        if (!productFilter) return true;
-        return order.products.some((p) => p.name === productFilter);
-      })
-      .filter((order) => {
-        if (!locationFilter) return true;
-        return order.state === locationFilter;
-      })
-      .filter((order) => {
-        if (!agentFilter) return true;
-        const n = getAssignedAgentName(order).trim();
-        return n === agentFilter;
-      });
-  }, [apiResponse?.results, searchQuery, filterType, productFilter, locationFilter, agentFilter]);
+    // Reuse the exact same filters as the main table so totals always match what the user sees,
+    // including PFI/status filters.
+    return filteredOrders;
+  }, [filteredOrders]);
 
   const releasedFilteredOrders = useMemo(() => {
-    return filteredOrdersForSummary.filter((o) => (o.status || '').toLowerCase() === 'released');
+    // Include PAID, RELEASED, and LOADED orders (all confirmed).
+    const s = (v: unknown) => String(v || '').toLowerCase();
+    return filteredOrdersForSummary.filter((o) => {
+      const status = s(o.status);
+      return status === 'paid' || status === 'released' || status === 'loaded';
+    });
   }, [filteredOrdersForSummary]);
 
   const canceledFilteredOrders = useMemo(() => {
@@ -384,43 +408,35 @@ const Orders = () => {
     );
   };
 
+  const getEmail = (o: Order): string => {
+    const cd = o.customer_details as Record<string, unknown> | undefined;
+    const user = o.user as Record<string, unknown> | undefined;
+    return (
+      (cd && typeof cd.email === 'string' ? cd.email : '') ||
+      (user && typeof user.email === 'string' ? user.email : '') ||
+      ''
+    );
+  };
+
   const getTruckNumber = (o: Order) =>
     o.customer_details?.truckNumber || o.customer_details?.truck_number || o.truck_number || '';
 
   const getDriverName = (o: Order) =>
     o.customer_details?.driverName || o.customer_details?.driver_name || o.driver_name || '';
 
-  const getDriverPhone = (o: Order) =>
-    o.customer_details?.driverPhone || o.customer_details?.driver_phone || o.driver_phone || '';
+  const getDriverPhone = (o: Order) => {
+    const rec = o as unknown as Record<string, unknown>;
+    const direct = rec.driver_phone;
+    return (
+      o.customer_details?.driverPhone ||
+      o.customer_details?.driver_phone ||
+      (typeof direct === 'string' ? direct : '') ||
+      ''
+    );
+  };
 
   const getProductsList = (o: Order) =>
     (o.products || []).map(p => p.name).filter(Boolean).join(', ');
-
-  const getAssignedAgentPhone = (o: Order): string => {
-    const aRec = getAssignedAgent(o);
-    if (!aRec) return '';
-    return (
-      (typeof aRec.phone === 'string' ? aRec.phone : '') ||
-      (typeof aRec.phone_number === 'string' ? aRec.phone_number : '') ||
-      ''
-    );
-  };
-
-  const getAssignedAgentType = (o: Order): string => {
-    const aRec = getAssignedAgent(o);
-    if (!aRec) return '';
-    return (typeof aRec.type === 'string' ? aRec.type : '') || '';
-  };
-
-  const getAssignedAgentLocation = (o: Order): string => {
-    const aRec = getAssignedAgent(o);
-    if (!aRec) return '';
-    return (
-      (typeof aRec.location_name === 'string' ? aRec.location_name : '') ||
-      (typeof aRec.locationName === 'string' ? aRec.locationName : '') ||
-      ''
-    );
-  };
 
   const getFilterLabelForFile = () => {
     switch (filterType) {
@@ -429,7 +445,7 @@ const Orders = () => {
       case 'month': return 'this-month';
       case 'year': return 'this-year';
       default: return 'all';
-    }
+    };
   };
 
   const getStatusLabelForFile = () => {
@@ -437,19 +453,19 @@ const Orders = () => {
     return String(statusFilter).toLowerCase().replace(/\s+/g, '-');
   };
 
-  const exportToCSV = () => {
+  const exportToExcel = () => {
     if (!apiResponse?.results) return;
 
     const headers = [
       'S/N',
-      'Date & Time',
+      'Date',
       'Order Reference',
-      'Customer Name',
-      'Phone Number',
-      'Company Name',
+      'Customer',
+      'Customer\'s Contact',
       'Location',
-      'Assigned Marketer',
+      'PFI',
       'Product',
+      'Unit Price',
       'Quantity (L)',
       'Amount Paid (N)',
       'Status',
@@ -459,117 +475,168 @@ const Orders = () => {
 
     const rows = exportList.map((order, idx) => [
       idx + 1,
-      format(new Date(order.created_at), 'dd-MM-yyyy HH:mm'),
+      format(new Date(order.created_at), 'dd-MM-yyyy'),
       getSalesRef(order),
-      getCustomerFullName(order),
-      getPhoneNumber(order),
       getCompanyName(order),
+      getPhoneNumber(order),
       order.state || '-',
-      getAssignedAgentName(order) || '-',
+      pfiLabel(order) || '-',
       getProductsList(order),
+      extractUnitPrice(order),
       safeParseNumber(order.quantity).toLocaleString(),
       safeParseNumber(order.total_price).toLocaleString(),
       getStatusText(order.status),
     ]);
 
-    const summaryBlock = [
-      ['Orders Summary'],
-      [],
-      // ['Filter', getFilterLabelForFile()],
-      // ['Status', statusFilter ? getStatusText(statusFilter) : 'All'],
-      ['Total Released Orders', releasedTotals.totalOrders.toString()],
-      ['Quantity Released (Litres)', releasedTotals.totalQty.toLocaleString()],
-      ['Total Amount Released (N)', releasedTotals.totalAmount.toLocaleString()],
-      ['Total Canceled Orders', canceledTotals.totalOrders.toString()],
-      // ['Quantity Canceled (Litres)', canceledTotals.totalQty.toLocaleString()],
-      // ['Total Amount Canceled (N)', canceledTotals.totalAmount.toLocaleString()],
-      [],
+    const generatedAt = format(new Date(), 'dd-MM-yyyy');
+
+    const locationLabel = locationFilter ? String(locationFilter) : 'All';
+    const pfiLabelForExport = pfiFilter ? String(pfiFilter) : 'All';
+    const productLabel = productFilter ? String(productFilter) : 'All';
+
+    const totalQtyAll = exportList.reduce((acc, o) => acc + safeParseNumber(o.quantity), 0);
+    const totalAmountAll = exportList.reduce((acc, o) => acc + safeParseNumber(o.total_price), 0);
+    const ordersCountAll = exportList.length;
+    const exportUnitLabel = exportList.length > 0 ? getUnitLabel(exportList[0]) : 'Litres';
+
+    // Summary block at the top of the sheet
+    const summaryBlock: (string | number)[][] = [
+      ['Date', generatedAt],
+      ['Location', locationLabel],
+      ['PFI', pfiLabelForExport],
+      ['Product', productLabel],
+      ['Total Orders', ordersCountAll],
+      ['Quantity Sold', `${totalQtyAll.toLocaleString()} ${exportUnitLabel}`],
+      ['Total Amount', `N${totalAmountAll.toLocaleString()}`],
+      [], // empty row separator
     ];
 
-    const csvRows = [...summaryBlock, headers, ...rows];
+    const sheetData = [...summaryBlock, headers, ...rows];
 
-    const csvContent = csvRows
-      .map((row) => row.map((field) => `"${String(field).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Orders');
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.setAttribute(
-      'download',
-      `Orders_Report.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Build filename: ORDERS_REPORT or ORDERS_REPORT_PFI-XXXXX
+    let fileName = 'SALES-REPORT';
+    if (pfiFilter) {
+      const sanitized = String(pfiFilter).replace(/[^A-Za-z0-9_-]/g, '-').toUpperCase();
+      fileName = `REPORT-${sanitized}`;
+    }
+
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
   };
 
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
+
       <div className="flex-1 flex flex-col overflow-hidden">
+        <MobileNav />
         <TopBar />
         <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-800">All Orders</h1>
-              <div className="flex gap-2">
-                <Button onClick={exportToCSV}>
+          <div className="max-w-7xl mx-auto space-y-5">
+            <PageHeader
+              title="All Orders"
+              description="Search, filter and manage all customer orders from creation to release."
+              actions={
+                <Button onClick={exportToExcel}>
                   <Download className="mr-1" size={16} /> Download Report
                 </Button>
-              </div>
-            </div>
+              }
+            />
 
             {/* Summary and Filters */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-              <div className="flex flex-col gap-3">
-
-                <div className="flex flex-col lg:flex-row gap-3">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                    <Input
-                      type="text"
-                      placeholder="Search orders..."
-                      className="pl-10"
-                      value={searchQuery}
-                      onChange={handleSearch}
-                    />
-                  </div>
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6 space-y-3">
+              {/* Row 1: Search */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Input
+                    type="text"
+                    placeholder="Search orders by name, reference, product, location…"
+                    className="pl-10"
+                    value={searchQuery}
+                    onChange={handleSearch}
+                  />
                 </div>
+              </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
+              {/* Row 2: Filter dropdowns */}
+              <div className="flex flex-row gap-3 flex-wrap items-end pt-2 border-t border-slate-100">
+                {/* Timeframe */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Timeframe</label>
                   <select
-                    aria-label="Date filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    aria-label="Timeframe filter"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={filterType ?? ''}
                     onChange={(e) => {
-                      const v = e.target.value as ''|'today'|'week'|'month'|'year';
+                      const v = e.target.value as ''|'today'|'yesterday'|'week'|'month'|'year';
                       setFilterType(v === '' ? null : v);
+                      if (v !== '') setDateRange({ from: null, to: null });
                     }}
                   >
                     <option value="">All Time</option>
                     <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
                     <option value="week">This Week</option>
                     <option value="month">This Month</option>
                     <option value="year">This Year</option>
                   </select>
+                </div>
 
+                {/* Date Range */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Date Range</label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="h-9 justify-start text-left font-normal text-sm min-w-[200px]">
+                        <CalendarDays size={14} className="mr-2 text-slate-400" />
+                        {dateRange.from && dateRange.to
+                          ? `${format(dateRange.from, 'dd MMM')} – ${format(dateRange.to, 'dd MMM yyyy')}`
+                          : 'Pick date range'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="range"
+                        selected={dateRange}
+                        onSelect={(range) => {
+                          setDateRange(range as { from: Date | null; to: Date | null });
+                          if (range?.from) setFilterType(null);
+                        }}
+                        numberOfMonths={2}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* Status */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Status</label>
                   <select
                     aria-label="Status filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={statusFilter ?? ''}
                     onChange={(e) => setStatusFilter(e.target.value === '' ? null : e.target.value)}
                   >
                     <option value="">All Statuses</option>
                     <option value="pending">Pending</option>
                     <option value="paid">Paid</option>
-                    <option value="canceled">Unpaid</option>
                     <option value="released">Released</option>
+                    <option value="loaded">Loaded</option>
+                    <option value="canceled">Canceled</option>
                   </select>
+                </div>
 
+                {/* Product */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Product</label>
                   <select
                     aria-label="Product filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={productFilter ?? ''}
                     onChange={(e) => setProductFilter(e.target.value === '' ? null : e.target.value)}
                   >
@@ -578,10 +645,14 @@ const Orders = () => {
                       <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
+                </div>
 
+                {/* Location */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Location</label>
                   <select
                     aria-label="Location filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={locationFilter ?? ''}
                     onChange={(e) => setLocationFilter(e.target.value === '' ? null : e.target.value)}
                   >
@@ -590,172 +661,205 @@ const Orders = () => {
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                </div>
 
+                {/* PFI */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">PFI</label>
                   <select
-                    aria-label="Agent filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={agentFilter ?? ''}
-                    onChange={(e) => setAgentFilter(e.target.value === '' ? null : e.target.value)}
+                    aria-label="PFI filter"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    value={pfiFilter ?? ''}
+                    onChange={(e) => setPfiFilter(e.target.value === '' ? null : e.target.value)}
                   >
-                    <option value="">All Marketers</option>
-                    {uniqueAgents.map((a) => (
-                      <option key={a} value={a}>{a}</option>
-                    ))}
-                  </select>
-
-                  <select
-                    aria-label="Cargo filter"
-                    className="border border-gray-300 rounded px-3 py-2 h-11"
-                    value={cargoFilter ?? ''}
-                    onChange={(e) => setCargoFilter(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">All Cargos</option>
-                    {uniqueCargoNames.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
+                    <option value="">All PFIs</option>
+                    {uniquePfis.length === 0 ? (
+                      <option value="" disabled>No PFI data yet</option>
+                    ) : (
+                      uniquePfis.map((pfi) => (
+                        <option key={pfi} value={pfi}>{pfi}</option>
+                      ))
+                    )}
                   </select>
                 </div>
+
+                {/* Clear all */}
+                {hasAnyFilter && (
+                  <div className="flex items-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 text-xs text-slate-500 hover:text-slate-700 h-9"
+                      onClick={clearAllFilters}
+                    >
+                      <X size={13} /> Clear all
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {/* Totals (unchanged) */}
-              <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="flex items-center gap-6">
-                  <div>
-                    <div className="text-sm text-slate-500">Released Orders</div>
-                    <div className="text-lg font-semibold text-slate-800">{releasedTotals.totalOrders}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-slate-500">Quantity Released</div>
-                    <div className="text-lg font-semibold text-slate-800">{releasedTotals.totalQty.toLocaleString()} Ltrs</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-slate-500">Total Amount</div>
-                    <div className="text-lg font-semibold text-slate-800">₦{releasedTotals.totalAmount.toLocaleString()}</div>
+              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-1">
+                {/* Released */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-blue-100">
+                        <Truck className="text-blue-700" size={16} />
+                      </span>
+                      Order Summary
+                    </div>
+                    {/* <div className="text-xs text-slate-500">Summary</div> */}
                   </div>
 
-                  <div>
-                    <div className="text-sm text-slate-500">Canceled Orders</div>
-                    <div className="text-lg font-semibold text-slate-800">{canceledTotals.totalOrders}</div>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                    <div className="rounded-md bg-white p-3 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-500">Orders</div>
+                        <CheckCircle className="text-blue-600" size={16} />
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">{releasedTotals.totalOrders}</div>
+                    </div>
+                    <div className="rounded-md bg-white p-3 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-500">Quantity</div>
+                        <FuelIcon className="text-blue-600" size={16} />
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">
+                        {releasedTotals.totalQty.toLocaleString()}{' '}
+                        <span className="text-sm font-medium text-slate-600">Ltrs</span>
+                      </div>
+                    </div>
+                    <div className="rounded-md bg-white p-3 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-500">Amount</div>
+                        <BadgeDollarSign className="text-blue-600" size={16} />
+                      </div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">₦{releasedTotals.totalAmount.toLocaleString()}</div>
+                    </div>
                   </div>
-                  {/* <div>
-                    <div className="text-sm text-slate-500">Quantity Canceled</div>
-                    <div className="text-lg font-semibold text-slate-800">{canceledTotals.totalQty.toLocaleString()} Ltrs</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-slate-500">Amount Canceled</div>
-                    <div className="text-lg font-semibold text-slate-800">₦{canceledTotals.totalAmount.toLocaleString()}</div>
-                  </div> */}
                 </div>
               </div>
+
             </div>
 
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-              <Table className="text-sm">
+              <div className="overflow-x-auto">
+              <Table className="text-sm min-w-[1200px]">
                 <TableHeader>
-                  <TableRow className="[&>th]:py-2 [&>th]:px-2">
-                    <TableHead className="w-[52px]">S/N</TableHead>
-                    <TableHead className="w-[120px]">Date &amp; Time</TableHead>
-                    <TableHead className="w-[120px]">Order Reference</TableHead>
-                    <TableHead className="w-[170px]">Customer Details</TableHead>
-                    <TableHead className="w-[140px]">Company Name</TableHead>
-                    <TableHead className="w-[105px]">Location</TableHead>
-                    <TableHead className="w-[150px]">Assigned Marketer</TableHead>
-                    <TableHead className="w-[150px]">Product</TableHead>
-                    <TableHead className="w-[80px]">Qty (L)</TableHead>
-                    <TableHead className="w-[105px]">Amount</TableHead>
-                    <TableHead className="w-[120px]">Cargo</TableHead>
-                    <TableHead className="w-[110px]">Status</TableHead>
+                  <TableRow className="bg-slate-50/80 [&>th]:whitespace-nowrap [&>th]:px-3 [&>th]:py-2.5 [&>th]:text-sm [&>th]:font-semibold [&>th]:text-slate-600">
+                    <TableHead className="text-center w-[40px]">#</TableHead>
+                    <TableHead className="w-[75px]">Date</TableHead>
+                    <TableHead className="w-[110px]">Reference</TableHead>
+                    <TableHead className="w-[180px]">Customer</TableHead>
+                    <TableHead className="w-[120px]">Contact</TableHead>
+                    <TableHead className="w-[100px]">Location</TableHead>
+                    <TableHead className="w-[110px]">Product</TableHead>
+                    <TableHead className="w-[85px]">Unit Price</TableHead>
+                    <TableHead className="w-[75px]">Quantity</TableHead>
+                    <TableHead className="w-[100px]">Amount</TableHead>
+                    <TableHead className="w-[90px]">PFI</TableHead>
+                    <TableHead className="w-[90px]">Status</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody className="[&>tr>td]:py-2 [&>tr>td]:px-2">
-                  {filteredOrders.map((order, idx) => {
+                <TableBody>
+                  {pagedOrders.map((order, idx) => {
                     const status = (order.status || '').toLowerCase();
                     const autoCanceled =
                       status === 'canceled' &&
                       shouldAutoCancel({ status: 'pending', created_at: order.created_at });
-                    const serial = filteredOrders.length - idx;
-
-                    const marketerName = getAssignedAgentName(order);
-                    const marketerPhone = getAssignedAgentPhone(order);
+                    const serial = filteredOrders.length - ((page - 1) * PAGE_SIZE + idx);
+                    const isEven = idx % 2 === 0;
 
                     return (
-                      <TableRow key={order.id}>
-                        <TableCell className="text-slate-600">{serial}</TableCell>
+                      <TableRow key={order.id} className={`hover:bg-blue-50/40 transition-colors ${isEven ? 'bg-white' : 'bg-slate-50/50'}`}>
+                        <TableCell className="px-3 text-slate-400 text-center text-sm">{serial}</TableCell>
 
-                        <TableCell className="text-slate-700 whitespace-nowrap">
-                          <div className="leading-tight">
-                            <div className="font-medium text-slate-900">
-                              {format(new Date(order.created_at), 'dd/MM/yyyy')}
-                            </div>
-                            <div className="text-[11px] text-slate-500">
-                              {format(new Date(order.created_at), 'HH:mm')}
-                            </div>
+                        <TableCell className="px-3 whitespace-nowrap">
+                          <div className="text-sm font-medium text-slate-900">
+                            {format(new Date(order.created_at), 'dd/MM/yy')}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {format(new Date(order.created_at), 'HH:mm')}
                           </div>
                         </TableCell>
 
-                        <TableCell className="font-semibold text-slate-950 whitespace-nowrap">
+                        <TableCell className="px-3 text-black whitespace-nowrap" title={getSalesRef(order)}>
                           {getSalesRef(order) || '-'}
                         </TableCell>
 
-                        <TableCell>
-                          <div className="leading-tight">
-                            <div className="font-medium text-slate-950 capitalize max-w-[170px]">
-                              {getCustomerFullName(order) || '-'}
+                        <TableCell className="px-3 max-w-[180px]">
+                          <div className="leading-snug">
+                            <div className="font-semibold text-sm text-slate-900 truncate">
+                              {getCompanyName(order) || '-'}
                             </div>
-                            <div className="text-[11px] text-slate-600 whitespace-nowrap">
-                              {getPhoneNumber(order) || '-'}
+                            <div className="inline-flex items-center gap-1 text-xs uppercase text-slate-500">
+                              <User2 size={10} className="text-emerald-500 shrink-0" />
+                              <span>{getCustomerFullName(order) || '-'}</span>
                             </div>
                           </div>
                         </TableCell>
 
-                        <TableCell className="text-slate-800 max-w-[140px]">
-                          {getCompanyName(order) || '-'}
+                        <TableCell className="px-3">
+                          <div>
+                            {getPhoneNumber(order) ? (
+                              <a
+                                href={`tel:${getPhoneNumber(order)}`}
+                                className="inline-flex items-center gap-1 text-sm font-medium text-slate-800 hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <PhoneOutgoingIcon size={10} className="text-emerald-500 shrink-0" />
+                                <span>{getPhoneNumber(order)}</span>
+                              </a>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                            {getEmail(order) ? (
+                              <a
+                                href={`mailto:${getEmail(order)}`}
+                                className="block text-xs text-blue-600 hover:underline truncate max-w-[110px]"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {getEmail(order).toLowerCase()}
+                              </a>
+                            ) : null}
+                          </div>
                         </TableCell>
 
-                        <TableCell className="text-slate-800 truncate whitespace-nowrap max-w-[105px]">
+                        <TableCell className="px-3 text-sm text-slate-600">
                           {order.state || '-'}
                         </TableCell>
 
-                        <TableCell className="text-slate-800 max-w-[150px]">
-                          {(() => {
-                            const parts = [
-                              marketerName ? marketerName.trim() : '',
-                              // marketerPhone ? `(${marketerPhone})` : '',
-                            ].filter(Boolean);
-                            return parts.length ? parts.join(' ') : '-';
-                          })()}
-                        </TableCell>
-
-                        <TableCell className="text-slate-800 truncate max-w-[150px]">
+                        <TableCell className="px-3 text-sm text-slate-600">
                           {getProductsList(order) || '-'}
                         </TableCell>
 
-                        <TableCell className="text-right font-medium text-slate-950 whitespace-nowrap">
-                          {safeParseNumber(order.quantity).toLocaleString()}
+                        <TableCell className="px-3 font-medium text-slate-800 whitespace-nowrap">
+                          ₦{extractUnitPrice(order)}
                         </TableCell>
 
-                        <TableCell className="text-right font-semibold text-slate-950 whitespace-nowrap">
+                        <TableCell className="px-3 font-medium text-slate-800 whitespace-nowrap">
+                          {safeParseNumber(order.quantity).toLocaleString()} {getUnitLabel(order)}
+                        </TableCell>
+
+                        <TableCell className="px-3 font-bold text-slate-900 whitespace-nowrap">
                           ₦{safeParseNumber(order.total_price).toLocaleString()}
                         </TableCell>
 
-                        <TableCell className="text-slate-800 truncate max-w-[120px]">-</TableCell>
+                        <TableCell className="px-3 text-sm text-slate-600 truncate" title={pfiLabel(order) || ''}>
+                          {pfiLabel(order) || '-'}
+                        </TableCell>
 
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] border rounded-full uppercase ${getStatusClass(
-                                order.status
-                              )}`}
-                            >
-                              {getStatusIcon(order.status)}
-                              <span className="whitespace-nowrap">{getStatusText(order.status)}</span>
-                            </span>
-                            {autoCanceled ? (
-                              <span className="text-[11px] text-slate-500">12 hours expired</span>
-                            ) : null}
-                          </div>
+                        <TableCell className="px-3">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 text-sm font-medium border rounded-md whitespace-nowrap ${getStatusClass(order.status)}`}
+                          >
+                            {getStatusIcon(order.status)}
+                            {getStatusText(order.status)}
+                          </span>
+                          {autoCanceled && (
+                            <div className="text-xs text-slate-400 mt-0.5">12h expired</div>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -769,6 +873,47 @@ const Orders = () => {
                   )}
                 </TableBody>
               </Table>
+              </div>
+
+              {/* Pagination */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200 bg-white px-4 py-3">
+                <div className="text-sm text-slate-600">
+                  Showing{' '}
+                  <span className="font-medium text-slate-900">
+                    {filteredOrders.length === 0
+                      ? 0
+                      : (page - 1) * PAGE_SIZE + 1}
+                  </span>
+                  {' '}–{' '}
+                  <span className="font-medium text-slate-900">
+                    {Math.min(page * PAGE_SIZE, filteredOrders.length)}
+                  </span>
+                  {' '}of <span className="font-medium text-slate-900">{filteredOrders.length}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-9"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                  >
+                    Previous
+                  </Button>
+                  <div className="text-sm text-slate-700 whitespace-nowrap">
+                    Page <span className="font-medium text-slate-900">{page}</span> of{' '}
+                    <span className="font-medium text-slate-900">{totalPages}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="h-9"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </div>
 
             {isError && (
