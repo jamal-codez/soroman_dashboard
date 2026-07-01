@@ -76,6 +76,9 @@ interface Order {
   commission_amount?: string | number | null;
   commission_paid_at?: string | null;
   commission_paid_by_name?: string | null;
+  commission_bank_name?: string | null;
+  commission_account_name?: string | null;
+  commission_account_number?: string | null;
   trucks?: Truck[];
 }
 
@@ -240,6 +243,30 @@ const ConfirmPayoutDialog = ({
               <span className="font-bold text-emerald-700">{fmt(amount)}</span>
             </div>
           </div>
+
+          {(order.commission_bank_name || order.commission_account_number) && (
+            <div className="border border-slate-200 rounded-lg p-3 space-y-1.5 bg-slate-50">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pay to (customer's account)</p>
+              {order.commission_bank_name && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">Bank</span>
+                  <span className="font-semibold text-slate-800">{order.commission_bank_name}</span>
+                </div>
+              )}
+              {order.commission_account_name && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">Account Name</span>
+                  <span className="font-semibold text-slate-800">{order.commission_account_name}</span>
+                </div>
+              )}
+              {order.commission_account_number && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">Account Number</span>
+                  <span className="font-mono font-bold text-slate-900">{order.commission_account_number}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           <p className="text-xs text-slate-400">
             This action is recorded against your account and cannot be undone from this page.
@@ -867,6 +894,7 @@ export default function Commissions() {
                         <TableHead className="font-semibold text-slate-700 min-w-[180px]">Trucks</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-right">Qty (L)</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-right">Commission</TableHead>
+                        <TableHead className="font-semibold text-slate-700">Commission A/C</TableHead>
                         <TableHead className="font-semibold text-slate-700">Status</TableHead>
                         <TableHead className="font-semibold text-slate-700 w-[120px]">Action</TableHead>
                       </TableRow>
@@ -934,6 +962,18 @@ export default function Commissions() {
                             <TableCell className="text-right font-semibold text-black">{fmtQty(qty)}</TableCell>
 
                             <TableCell className="text-right font-bold text-emerald-700">{fmt(commission)}</TableCell>
+
+                            <TableCell>
+                              {o.commission_account_number ? (
+                                <div className="flex flex-col text-xs leading-tight">
+                                  <span className="font-mono font-semibold text-slate-900">{o.commission_account_number}</span>
+                                  {o.commission_account_name && <span className="text-slate-600">{o.commission_account_name}</span>}
+                                  {o.commission_bank_name && <span className="text-slate-400">{o.commission_bank_name}</span>}
+                                </div>
+                              ) : (
+                                <span className="text-slate-300 text-xs">—</span>
+                              )}
+                            </TableCell>
 
                             <TableCell>
                               {paid ? (
