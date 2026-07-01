@@ -22,7 +22,7 @@ function landingPageForRole(role: number | string): string {
       return '/payment-verify';
     case 3: // SALES
       return '/delivery-sales-ledger';
-    case 4: // TICKET OFFICER
+    case 4: // TICKET OFFICE
       return '/pickup-processing';
     case 5: // SECURITY
       return '/security';
