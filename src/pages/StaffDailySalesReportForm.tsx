@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { format, parseISO } from 'date-fns';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import jsPDF from 'jspdf';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
@@ -240,6 +241,206 @@ function HistoryRow({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PDF Generator
+// ─────────────────────────────────────────────────────────────────────────────
+function generateStaffDailyReportPDF(
+  form: FormFields,
+  date: string,
+  staffName: string,
+  pfiNumber: string,
+  unitLabel: string,
+) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const W = 210, H = 297, M = 16, CW = W - M * 2;
+  const generatedAt = format(new Date(), 'dd MMM yyyy, HH:mm');
+
+  type RGB = [number, number, number];
+  const NAVY:  RGB = [15, 23, 42];
+  const GREEN: RGB = [5, 150, 105];
+  const DARK:  RGB = [15, 23, 42];
+  const WHITE: RGB = [255, 255, 255];
+  const LBLBG: RGB = [243, 245, 248];
+  const BORDER: RGB = [210, 215, 225];
+
+  const fmt = (v: string, money = false) => {
+    const n = Number((v || '').replace(/,/g, ''));
+    if (!Number.isFinite(n) || n === 0) return 'NIL';
+    const s = n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return money ? `NGN ${s}` : s;
+  };
+
+  // ── Header ─────────────────────────────────────────────────────────
+  doc.setFillColor(...NAVY);
+  doc.rect(0, 0, W, 46, 'F');
+  doc.setFillColor(...GREEN);
+  doc.rect(0, 42, W, 4, 'F');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text('SOROMAN ENERGY LIMITED', M, 14);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(19);
+  doc.setTextColor(...WHITE);
+  doc.text('STAFF DAILY SALES REPORT', M, 30);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`Generated: ${generatedAt}`, M, 39);
+
+  doc.setFillColor(...GREEN);
+  doc.roundedRect(W - M - 50, 14, 50, 16, 3, 3, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...WHITE);
+  doc.text((date || format(new Date(), 'dd MMM yyyy')).toUpperCase(), W - M - 25, 23.5, { align: 'center' });
+
+  // ── Table ─────────────────────────────────────────────────────────
+  const ROW_H  = 7;
+  const SEC_H  = 7;
+  const LABEL_W = 80;
+  const VALUE_W = CW - LABEL_W;
+
+  type TableEntry =
+    | { kind: 'section'; title: string }
+    | { kind: 'row'; label: string; value: string; highlight?: boolean };
+
+  const entries: TableEntry[] = [
+    { kind: 'row', label: 'REPORT DATE',   value: (date || '—').toUpperCase() },
+    { kind: 'row', label: 'LOCATION',      value: (form.location || '—').toUpperCase() },
+    { kind: 'row', label: 'PFI NUMBER',    value: (pfiNumber || '—').toUpperCase() },
+    { kind: 'row', label: 'SUBMITTED BY',  value: staffName.toUpperCase() },
+
+    { kind: 'section', title: `LOADING & OPENING FIGURES` },
+    { kind: 'row', label: `YESTERDAY'S CARRIED OVER (${unitLabel.toUpperCase()})`, value: fmt(form.yesterday_carried_over_loading) },
+    { kind: 'row', label: `PRODUCT BROUGHT FORWARD (${unitLabel.toUpperCase()})`,  value: fmt(form.product_brought_forward), highlight: true },
+
+    { kind: 'section', title: 'SALES FIGURES' },
+    { kind: 'row', label: `QTY SOLD TODAY (${unitLabel.toUpperCase()})`, value: fmt(form.litres_sold_today), highlight: true },
+    { kind: 'row', label: `PRICE PER ${unitLabel.toUpperCase()}`,        value: fmt(form.price, true), highlight: true },
+    { kind: 'row', label: `TANK BALANCE (${unitLabel.toUpperCase()})`,   value: fmt(form.tank_balance) },
+    { kind: 'row', label: 'NO. OF TRUCKS SOLD',                          value: fmt(form.num_trucks_sold) },
+
+    { kind: 'section', title: 'FINANCIAL FIGURES' },
+    { kind: 'row', label: 'AMOUNT PAID',        value: fmt(form.amount_paid, true) },
+    { kind: 'row', label: 'TOTAL SALES AMOUNT', value: fmt(form.total_sales_amount, true), highlight: true },
+    { kind: 'row', label: 'DIFFERENTIALS',      value: fmt(form.differentials, true) },
+    { kind: 'row', label: `LOADING LEFT OVER (${unitLabel.toUpperCase()})`, value: fmt(form.loading_left_over) },
+
+    { kind: 'section', title: 'BANK DETAILS' },
+    { kind: 'row', label: 'BANK NAME',       value: (form.bank_name || '—').toUpperCase() },
+    { kind: 'row', label: 'ACCOUNT NUMBER',  value: (form.account_number || '—').toUpperCase() },
+  ];
+
+  let Y = 52;
+
+  // Draw outer border around all rows
+  const totalH = entries.reduce((sum, e) => sum + (e.kind === 'section' ? SEC_H : ROW_H), 0);
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.3);
+  doc.rect(M, Y, CW, totalH, 'S');
+
+  let rowIdx = 0;
+  entries.forEach((entry, ei) => {
+    const isLast = ei === entries.length - 1;
+
+    if (entry.kind === 'section') {
+      doc.setFillColor(...NAVY);
+      doc.rect(M, Y, CW, SEC_H, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(...WHITE);
+      doc.text(entry.title, M + 4, Y + 4.8);
+      Y += SEC_H;
+      rowIdx = 0;
+    } else {
+      // Label cell
+      doc.setFillColor(...LBLBG);
+      doc.rect(M, Y, LABEL_W, ROW_H, 'F');
+
+      // Value cell
+      doc.setFillColor(...(entry.highlight ? ([236, 253, 245] as RGB) : ([255, 255, 255] as RGB)));
+      doc.rect(M + LABEL_W, Y, VALUE_W, ROW_H, 'F');
+
+      // Divider + bottom rule
+      doc.setDrawColor(...BORDER);
+      doc.setLineWidth(0.2);
+      doc.line(M + LABEL_W, Y, M + LABEL_W, Y + ROW_H);
+      if (!isLast) doc.line(M, Y + ROW_H, M + CW, Y + ROW_H);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(70, 80, 100);
+      doc.text(entry.label, M + 4, Y + 4.8);
+
+      doc.setFont('helvetica', entry.highlight ? 'bold' : 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...(entry.highlight ? GREEN : DARK));
+      doc.text(entry.value, M + LABEL_W + 5, Y + 4.8);
+
+      Y += ROW_H;
+      rowIdx++;
+    }
+  });
+
+  // ── Remarks ────────────────────────────────────────────────────────
+  Y += 12;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(70, 80, 100);
+  doc.text('REMARKS', M, Y);
+  Y += 4;
+
+  const REMARKS_H = 28;
+  doc.setFillColor(249, 250, 251);
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.3);
+  doc.rect(M, Y, CW, REMARKS_H, 'FD');
+
+  if (form.remarks?.trim()) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...DARK);
+    doc.text(doc.splitTextToSize(form.remarks.trim(), CW - 8), M + 4, Y + 7);
+  } else {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8.5);
+    doc.setTextColor(160, 170, 185);
+    doc.text('No remarks provided.', M + 4, Y + 8);
+  }
+
+  Y += REMARKS_H + 14;
+
+  // ── Signatures ─────────────────────────────────────────────────────
+  const SIG_W = (CW - 12) / 2;
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.4);
+  doc.line(M, Y, M + SIG_W, Y);
+  doc.line(M + SIG_W + 12, Y, M + SIG_W + 12 + SIG_W, Y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('STAFF SIGNATURE / DATE', M, Y + 5);
+  doc.text('AUTHORISED BY / DATE', M + SIG_W + 12, Y + 5);
+
+  // ── Footer ─────────────────────────────────────────────────────────
+  doc.setFillColor(...NAVY);
+  doc.rect(0, H - 12, W, 12, 'F');
+  doc.setFillColor(...GREEN);
+  doc.rect(0, H - 12, W, 1.5, 'F');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Soroman Energy Limited — Confidential', M, H - 4.5);
+  doc.text(`Page 1 of 1  •  ${generatedAt}`, W - M, H - 4.5, { align: 'right' });
+
+  const safe = (date || format(new Date(), 'yyyy-MM-dd')).replace(/-/g, '');
+  doc.save(`StaffDailySalesReport_${safe}.pdf`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────────────────────
 export default function StaffDailySalesReportForm() {
@@ -257,6 +458,7 @@ export default function StaffDailySalesReportForm() {
   const [showForm, setShowForm] = useState(false);
   const [editDate, setEditDate] = useState(today);
   const [form, setForm] = useState<FormFields>(EMPTY);
+  const submittedSnapshot = useRef<{ form: FormFields; date: string; pfiNumber: string; unitLabel: string } | null>(null);
   const [histPage, setHistPage] = useState(1);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
@@ -386,6 +588,11 @@ export default function StaffDailySalesReportForm() {
     }),
     onSuccess: () => {
       toast({ title: 'Report saved!', description: `Submitted for ${form.location} on ${editDate}.` });
+      if (submittedSnapshot.current) {
+        const { form: f, date, pfiNumber, unitLabel } = submittedSnapshot.current;
+        generateStaffDailyReportPDF(f, date, staffName, pfiNumber, unitLabel);
+        submittedSnapshot.current = null;
+      }
       setShowForm(false);
       setForm(EMPTY);
       qc.invalidateQueries({ queryKey: ['staff-report-history'] });
@@ -419,6 +626,12 @@ export default function StaffDailySalesReportForm() {
       toast({ title: 'Select a PFI first', description: 'A PFI is required to identify the location.', variant: 'destructive' });
       return;
     }
+    submittedSnapshot.current = {
+      form: { ...form },
+      date: editDate,
+      pfiNumber: pfis.find(p => String(p.pfi_id) === form.pfi_id)?.pfi_number || '',
+      unitLabel: selectedPfiUnitLabel,
+    };
     mutation.mutate();
   };
 

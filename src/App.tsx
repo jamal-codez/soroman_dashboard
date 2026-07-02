@@ -62,6 +62,8 @@ const DailySalesReport = lazy(() => import("./pages/DailySalesReport"));
 const DepotView = lazy(() => import("./pages/DepotView"));
 const Commissions = lazy(() => import("./pages/Commissions"));
 const StaffDailySalesReportForm = lazy(() => import("./pages/StaffDailySalesReportForm"));
+const ProductManagerView = lazy(() => import("./pages/ProductManagerView"));
+const SalesManagerView = lazy(() => import("./pages/SalesManagerView"));
 
 const FeedbackForm = lazy(() => import("./pages/FeedbackForm") as Promise<{ default: React.ComponentType }>);
 const FeedbackDashboard = lazy(() => import("./pages/FeedbackDashboard") as Promise<{ default: React.ComponentType }>);
@@ -151,6 +153,8 @@ const App = () => (
 
               <Route path="/depot-view" element={<Protected><DepotView /></Protected>} />
               <Route path="/commissions" element={<Protected><Commissions /></Protected>} />
+              <Route path="/product-manager-view" element={<Protected><ProductManagerView /></Protected>} />
+              <Route path="/sales-manager-view" element={<Protected><SalesManagerView /></Protected>} />
               <Route path="/feedback-dashboard" element={<Protected><FeedbackDashboard /></Protected>} />
               <Route path="/delivery-pfi-allocations" element={<Navigate to="/delivery-inventory" replace />} />
               <Route path="/offline-sales" element={<Protected><OfflineSales /></Protected>} />

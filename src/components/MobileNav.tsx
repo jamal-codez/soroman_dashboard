@@ -60,9 +60,11 @@ const navCategories: NavCategory[] = [
   {
     category: 'Sales',
     items: [
-      { title: "Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 3, 4, 6, 7, 8, 9, 10] },
+      { title: "Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 3, 4, 6, 7, 8] },
       // { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,4,7,8,9] },
       { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
+      { title: "Orders View", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 1, 8, 10] },
+      { title: "Sales Pipeline", icon: ActivityIcon, path: "/sales-manager-view", allowedRoles: [0, 1, 8, 9] },
       // { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
     ],
   },
@@ -71,9 +73,9 @@ const navCategories: NavCategory[] = [
     items: [
       { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0, 1, 7, 8] },
       { title: "Released Report", icon: ClipboardCheck, path: "/released-orders", allowedRoles: [0, 1, 4, 7, 8] },
-      { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 4, 7, 8] },
+      { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 4, 7, 8, 17] },
       { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 7, 8] },
-      { title: "My Daily Report", icon: ClipboardList, path: "/staff-daily-report", allowedRoles: [0, 1, 7, 10] },
+      { title: "My Daily Report", icon: ClipboardList, path: "/staff-daily-report", allowedRoles: [0, 1, 7] },
 
       // { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
       // { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0] },
@@ -107,7 +109,7 @@ const navCategories: NavCategory[] = [
     items: [
       { title: "Verify Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2, 8] },
       { title: "Finance Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2, 8] },
-      { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 7, 15] },
+      { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 7, 15, 16] },
       { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0, 1, 2, 8] },
       { title: "Bank Statements", icon: FileText, path: "/bank-statements", allowedRoles: [0, 1, 8] },
     ],

@@ -6,6 +6,11 @@ import { TopBar } from "@/components/TopBar";
 import { MobileNav } from "@/components/MobileNav";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -14,8 +19,423 @@ import {
 } from "@/components/ui/table";
 import { apiClient } from "@/api/client";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarDays, FileSpreadsheet, FileText, Loader2, ListChecks, TruckIcon, Fuel, MapPin, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, FileSpreadsheet, FileText, Loader2, ListChecks, TruckIcon, Fuel, MapPin, SlidersHorizontal, ClipboardList, CheckCircle2, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import jsPDF from "jspdf";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Daily Gate Report — form, PDF generator, dialog
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface GateReportForm {
+  location: string;
+  pfi: string;
+  date: string;
+  carriedOverYesterday: string;
+  trucksExitedToday: string;
+  trucksLeftOverToday: string;
+  staffNameAndDate: string;
+  remarks: string;
+}
+
+const readScopedLocations = (): string[] => {
+  try { return JSON.parse(localStorage.getItem("location_names") || "[]") as string[]; }
+  catch { return []; }
+};
+
+const readScopedPfis = (): string[] => {
+  try { return JSON.parse(localStorage.getItem("pfi_numbers") || "[]") as string[]; }
+  catch { return []; }
+};
+
+const buildInitialGateForm = (): GateReportForm => {
+  const fullname = localStorage.getItem("fullname") || "";
+  const today = format(new Date(), "yyyy-MM-dd");
+  return {
+    location: "",
+    pfi: "",
+    date: today,
+    carriedOverYesterday: "",
+    trucksExitedToday: "",
+    trucksLeftOverToday: "",
+    staffNameAndDate: fullname ? `${fullname} — ${format(new Date(), "dd MMM yyyy")}` : "",
+    remarks: "",
+  };
+};
+
+const generateGateReportPDF = (form: GateReportForm) => {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = 210, H = 297, M = 16, CW = W - M * 2;
+  const generatedAt = format(new Date(), "dd MMM yyyy, HH:mm");
+
+  type RGB = [number, number, number];
+  const NAVY:  RGB = [15, 23, 42];
+  const BLUE:  RGB = [37, 99, 235];
+  const DARK:  RGB = [15, 23, 42];
+  const WHITE: RGB = [255, 255, 255];
+  const LBLBG: RGB = [243, 245, 248];
+  const BORDER: RGB = [210, 215, 225];
+
+  // ── Header ─────────────────────────────────────────────────────────
+  doc.setFillColor(...NAVY);
+  doc.rect(0, 0, W, 46, "F");
+  doc.setFillColor(...BLUE);
+  doc.rect(0, 42, W, 4, "F");
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text("SOROMAN ENERGY LIMITED", M, 14);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(...WHITE);
+  doc.text("DAILY GATE REPORT", M, 30);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`Generated: ${generatedAt}`, M, 39);
+
+  const dateStr = form.date
+    ? format(new Date(form.date + "T00:00:00"), "dd MMM yyyy").toUpperCase()
+    : format(new Date(), "dd MMM yyyy").toUpperCase();
+  doc.setFillColor(...BLUE);
+  doc.roundedRect(W - M - 50, 14, 50, 16, 3, 3, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(...WHITE);
+  doc.text(dateStr, W - M - 25, 23.5, { align: "center" });
+
+  // ── Table ─────────────────────────────────────────────────────────
+  let Y = 54;
+  const ROW_H = 8;
+  const LABEL_W = 86;
+  const VALUE_W = CW - LABEL_W;
+
+  const rows: Array<{ label: string; value: string; highlight?: boolean }> = [
+    { label: "LOCATION", value: (form.location || "—").toUpperCase() },
+    { label: "PFI", value: (form.pfi || "—").toUpperCase() },
+    { label: "DATE", value: form.date ? format(new Date(form.date + "T00:00:00"), "dd MMM yyyy").toUpperCase() : "—" },
+    { label: "NO. OF YESTERDAY CARRIED OVER LOADING", value: (form.carriedOverYesterday || "—").toUpperCase(), highlight: true },
+    { label: "NO. OF TRUCKS SOLD / EXITED TODAY", value: (form.trucksExitedToday || "—").toUpperCase(), highlight: true },
+    { label: "NO. OF TRUCKS LOADING LEFT OVER TODAY", value: (form.trucksLeftOverToday || "—").toUpperCase(), highlight: true },
+    { label: "STAFF NAME & DATE", value: (form.staffNameAndDate || "—").toUpperCase() },
+  ];
+
+  // Outer border
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.3);
+  doc.rect(M, Y, CW, rows.length * ROW_H, "S");
+
+  rows.forEach((row, i) => {
+    const isLast = i === rows.length - 1;
+
+    doc.setFillColor(...LBLBG);
+    doc.rect(M, Y, LABEL_W, ROW_H, "F");
+
+    doc.setFillColor(...(row.highlight ? ([235, 242, 255] as RGB) : ([255, 255, 255] as RGB)));
+    doc.rect(M + LABEL_W, Y, VALUE_W, ROW_H, "F");
+
+    doc.setDrawColor(...BORDER);
+    doc.setLineWidth(0.2);
+    doc.line(M + LABEL_W, Y, M + LABEL_W, Y + ROW_H);
+    if (!isLast) doc.line(M, Y + ROW_H, M + CW, Y + ROW_H);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(70, 80, 100);
+    doc.text(row.label, M + 4, Y + 5.5);
+
+    doc.setFont("helvetica", row.highlight ? "bold" : "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...(row.highlight ? BLUE : DARK));
+    doc.text(row.value, M + LABEL_W + 5, Y + 5.5);
+
+    Y += ROW_H;
+  });
+
+  // ── Remarks ────────────────────────────────────────────────────────
+  Y += 14;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(70, 80, 100);
+  doc.text("REMARKS", M, Y);
+  Y += 4;
+
+  const REMARKS_H = 36;
+  doc.setFillColor(249, 250, 251);
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.3);
+  doc.rect(M, Y, CW, REMARKS_H, "FD");
+
+  if (form.remarks.trim()) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...DARK);
+    doc.text(doc.splitTextToSize(form.remarks.trim(), CW - 8), M + 4, Y + 7);
+  } else {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8.5);
+    doc.setTextColor(160, 170, 185);
+    doc.text("No remarks provided.", M + 4, Y + 8);
+  }
+
+  Y += REMARKS_H + 18;
+
+  // ── Signatures ─────────────────────────────────────────────────────
+  const SIG_W = (CW - 12) / 2;
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.4);
+  doc.line(M, Y, M + SIG_W, Y);
+  doc.line(M + SIG_W + 12, Y, M + SIG_W + 12 + SIG_W, Y);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text("PREPARED BY / DATE", M, Y + 5);
+  doc.text("AUTHORISED BY / DATE", M + SIG_W + 12, Y + 5);
+
+  // ── Footer ─────────────────────────────────────────────────────────
+  doc.setFillColor(...NAVY);
+  doc.rect(0, H - 12, W, 12, "F");
+  doc.setFillColor(...BLUE);
+  doc.rect(0, H - 12, W, 1.5, "F");
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor(148, 163, 184);
+  doc.text("Soroman Energy Limited — Confidential", M, H - 4.5);
+  doc.text(`Page 1 of 1  •  ${generatedAt}`, W - M, H - 4.5, { align: "right" });
+
+  const safeDate = form.date || format(new Date(), "yyyy-MM-dd");
+  const safeLoc = (form.location || "REPORT").replace(/[/\\*?:[\]]/g, "-");
+  doc.save(`DAILY GATE REPORT - ${safeLoc} - ${safeDate}.pdf`);
+};
+
+// ── Dialog ───────────────────────────────────────────────────────────────
+
+function DailyGateReportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [form, setForm] = useState<GateReportForm>(buildInitialGateForm);
+  const [submitted, setSubmitted] = useState(false);
+
+  const scopedLocations = readScopedLocations();
+  const scopedPfis = readScopedPfis();
+
+  const set = (field: keyof GateReportForm) => (v: string) =>
+    setForm(f => ({ ...f, [field]: v }));
+
+  const handleSubmit = () => {
+    if (!form.location || !form.date) return;
+    generateGateReportPDF(form);
+    setSubmitted(true);
+  };
+
+  const handleClose = () => {
+    setForm(buildInitialGateForm());
+    setSubmitted(false);
+    onClose();
+  };
+
+  const previewRows: [string, string][] = [
+    ["Location", form.location || "—"],
+    ["PFI", form.pfi || "—"],
+    ["Date", form.date ? format(new Date(form.date + "T00:00:00"), "dd MMM yyyy") : "—"],
+    ["No. of Yesterday Carried Over Loading", form.carriedOverYesterday || "—"],
+    ["No. of Trucks Sold/Exited Today", form.trucksExitedToday || "—"],
+    ["No. of Trucks Loading Left Over Today", form.trucksLeftOverToday || "—"],
+    ["Staff Name & Date", form.staffNameAndDate || "—"],
+  ];
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) handleClose(); }}>
+      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-blue-100">
+              <ClipboardList className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Daily Gate Report</h2>
+              <p className="text-sm font-normal text-slate-500 mt-0.5">
+                {submitted ? "Report ready — download your PDF below." : "Fill in today's gate figures."}
+              </p>
+            </div>
+          </DialogTitle>
+          <DialogDescription className="sr-only">Enter daily gate report details</DialogDescription>
+        </DialogHeader>
+
+        {submitted ? (
+          <div className="space-y-5 py-4">
+            <div className="rounded-xl bg-blue-50 border border-blue-200 p-5 flex flex-col items-center gap-3 text-center">
+              <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                <CheckCircle2 className="text-blue-600" size={24} />
+              </div>
+              <div>
+                <p className="font-semibold text-blue-800">Report Submitted</p>
+                <p className="text-sm text-blue-700 mt-0.5">
+                  {form.location} · {form.date ? format(new Date(form.date + "T00:00:00"), "dd MMM yyyy") : ""}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 text-sm overflow-hidden">
+              {previewRows.map(([label, value]) => (
+                <div key={label} className="flex items-start px-4 py-2.5 gap-3">
+                  <span className="w-52 text-xs font-medium text-slate-500 uppercase tracking-wide shrink-0 pt-0.5">{label}</span>
+                  <span className="font-medium text-slate-800">{value}</span>
+                </div>
+              ))}
+              {form.remarks && (
+                <div className="px-4 py-2.5">
+                  <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Remarks</span>
+                  <span className="text-slate-700 text-sm">{form.remarks}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 py-2">
+
+            {/* Location + PFI */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">
+                  Location <span className="text-red-500">*</span>
+                </Label>
+                <select
+                  aria-label="Location"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.location}
+                  onChange={e => set("location")(e.target.value)}
+                >
+                  <option value="">Select location</option>
+                  {scopedLocations.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+                {scopedLocations.length === 0 && (
+                  <p className="text-xs text-slate-400">No locations assigned to your account.</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">PFI</Label>
+                <select
+                  aria-label="PFI"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.pfi}
+                  onChange={e => set("pfi")(e.target.value)}
+                >
+                  <option value="">Select PFI</option>
+                  {scopedPfis.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+                {scopedPfis.length === 0 && (
+                  <p className="text-xs text-slate-400">No PFIs assigned to your account.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Date */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">
+                Date <span className="text-red-500">*</span>
+              </Label>
+              <Input type="date" value={form.date} onChange={e => set("date")(e.target.value)} />
+            </div>
+
+            <div className="h-px bg-slate-100" />
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Gate Figures</p>
+
+            {/* Truck counts */}
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">
+                  No. of Yesterday Carried Over Loading
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 2"
+                  value={form.carriedOverYesterday}
+                  onChange={e => set("carriedOverYesterday")(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">
+                  No. of Trucks Sold/Exited Today
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 5"
+                  value={form.trucksExitedToday}
+                  onChange={e => set("trucksExitedToday")(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">
+                  No. of Trucks Loading Left Over Today
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 1"
+                  value={form.trucksLeftOverToday}
+                  onChange={e => set("trucksLeftOverToday")(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="h-px bg-slate-100" />
+
+            {/* Staff name — auto-filled */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Staff Name &amp; Date</Label>
+              <Input
+                value={form.staffNameAndDate}
+                readOnly
+                className="bg-slate-50 text-slate-600 cursor-default"
+              />
+              <p className="text-xs text-slate-400">Auto-filled from your login session.</p>
+            </div>
+
+            {/* Remarks */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Remarks</Label>
+              <textarea
+                rows={3}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Any additional notes or observations…"
+                value={form.remarks}
+                onChange={e => set("remarks")(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" onClick={handleClose}>
+            {submitted ? "Close" : "Cancel"}
+          </Button>
+          {submitted ? (
+            <Button
+              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => generateGateReportPDF(form)}
+            >
+              <Download size={15} /> Download PDF
+            </Button>
+          ) : (
+            <Button
+              className="gap-2"
+              onClick={handleSubmit}
+              disabled={!form.location.trim() || !form.date}
+            >
+              <CheckCircle2 size={15} /> Submit Report
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 
 const fmt = (v: string | number) => {
   const n = Number(v);
@@ -49,6 +469,7 @@ export default function SecurityReportPage() {
   const [pfiId, setPfiId] = useState<string>(ALL);
   const [locationId, setLocationId] = useState<string>(ALL);
   const [downloading, setDownloading] = useState<"excel" | "pdf" | null>(null);
+  const [gateReportOpen, setGateReportOpen] = useState(false);
 
   const { dateFrom, dateTo } = useMemo(() => {
     const today = new Date();
@@ -153,6 +574,13 @@ export default function SecurityReportPage() {
               description="List of trucks cleared by security, with a summary for the selected period."
               actions={
                 <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    className="gap-1.5 h-9 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={() => setGateReportOpen(true)}
+                  >
+                    <ClipboardList size={13} /> Enter Report
+                  </Button>
                   <Button
                     variant="default"
                     size="sm"
@@ -393,6 +821,11 @@ export default function SecurityReportPage() {
           </div>
         </div>
       </div>
+
+      <DailyGateReportDialog
+        open={gateReportOpen}
+        onClose={() => setGateReportOpen(false)}
+      />
     </div>
   );
 }

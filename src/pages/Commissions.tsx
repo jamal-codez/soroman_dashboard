@@ -1,5 +1,5 @@
 //
-// COMMISSIONS — ₦1 per litre paid to the order's customer (Facilitator) once
+// COMMISSIONS — ₦1/litre (orders before 1 Jul 2026) or ₦0.50/litre (from 1 Jul 2026) paid to the order's customer (Facilitator) once
 // tickets have been generated for that order. Shows the truck breakdown per
 // order, lets finance confirm payout (with a confirmation dialog so a stray
 // click can't mark something paid), and exports a daily commission report.
@@ -12,8 +12,10 @@ import { MobileNav } from '@/components/MobileNav';
 import { PageHeader } from '@/components/PageHeader';
 import { SummaryCards, type SummaryCard } from '@/components/SummaryCards';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { CommaInput } from '@/components/ui/comma-input';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -24,7 +26,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Search, X, CalendarDays, Truck, Package, Clock, CheckCircle2, XCircle,
-  MapPin, FileText, RefreshCw, AlertTriangle, Banknote,
+  MapPin, FileText, RefreshCw, AlertTriangle, Banknote, ClipboardList, Download,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
@@ -89,7 +91,15 @@ type CommissionStatusFilter = 'all' | 'pending' | 'paid';
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-const COMMISSION_RATE = 1; // ₦1 per litre
+// ₦1/litre before 1 Jul 2026; ₦0.50/litre from 1 Jul 2026 onwards
+const COMMISSION_CUTOFF = new Date('2026-07-01T00:00:00');
+const getCommissionRate = (orderDate: string): number => {
+  try {
+    return parseISO(orderDate) >= COMMISSION_CUTOFF ? 0.5 : 1;
+  } catch {
+    return 1;
+  }
+};
 
 const toNum = (v: unknown): number => {
   const n = Number(String(v ?? '').replace(/,/g, ''));
@@ -136,7 +146,7 @@ const getTotalQty = (o: Order): number => {
 };
 
 const getCommissionAmount = (o: Order): number =>
-  o.commission_paid_at ? toNum(o.commission_amount) : getTotalQty(o) * COMMISSION_RATE;
+  o.commission_paid_at ? toNum(o.commission_amount) : getTotalQty(o) * getCommissionRate(o.created_at);
 
 const isPaid = (o: Order): boolean => Boolean(o.commission_paid_at);
 
@@ -164,6 +174,438 @@ const PRESETS: { key: TimePreset; label: string }[] = [
   { key: 'all', label: 'All Time' },
   { key: 'custom', label: 'Date Range' },
 ];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Daily Commission Report — types & PDF generator
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface DailyReportForm {
+  location: string;
+  pfi: string;
+  date: string;
+  litresSoldToday: string;
+  numberOfTrucks: string;
+  numberOfCustomers: string;
+  numberOfOrders: string;
+  totalCommissionPaid: string;
+  staffNameAndDate: string;
+  remarks: string;
+}
+
+const EMPTY_DAILY_REPORT: DailyReportForm = {
+  location: '',
+  pfi: '',
+  date: format(new Date(), 'yyyy-MM-dd'),
+  litresSoldToday: '',
+  numberOfTrucks: '',
+  numberOfCustomers: '',
+  numberOfOrders: '',
+  totalCommissionPaid: '',
+  staffNameAndDate: '',
+  remarks: '',
+};
+
+const generateDailyReportPDF = (form: DailyReportForm) => {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const W = 210, H = 297, M = 16, CW = W - M * 2;
+  const generatedAt = format(new Date(), 'dd MMM yyyy, HH:mm');
+
+  type RGB = [number, number, number];
+  const NAVY:  RGB = [15, 23, 42];
+  const GREEN: RGB = [5, 150, 105];
+  const DARK:  RGB = [15, 23, 42];
+  const WHITE: RGB = [255, 255, 255];
+  const LBLBG: RGB = [243, 245, 248];
+  const BORDER: RGB = [210, 215, 225];
+
+  // ── Header ─────────────────────────────────────────────────────────
+  doc.setFillColor(...NAVY);
+  doc.rect(0, 0, W, 46, 'F');
+  doc.setFillColor(...GREEN);
+  doc.rect(0, 42, W, 4, 'F');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text('SOROMAN ENERGY LIMITED', M, 14);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.setTextColor(...WHITE);
+  doc.text('DAILY COMMISSION REPORT', M, 30);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`Generated: ${generatedAt}`, M, 39);
+
+  const dateStr = form.date
+    ? format(new Date(form.date + 'T00:00:00'), 'dd MMM yyyy').toUpperCase()
+    : format(new Date(), 'dd MMM yyyy').toUpperCase();
+  doc.setFillColor(...GREEN);
+  doc.roundedRect(W - M - 50, 14, 50, 16, 3, 3, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...WHITE);
+  doc.text(dateStr, W - M - 25, 23.5, { align: 'center' });
+
+  // ── Table ─────────────────────────────────────────────────────────
+  let Y = 54;
+  const ROW_H = 8;
+  const LABEL_W = 72;
+  const VALUE_W = CW - LABEL_W;
+
+  const rows: Array<{ label: string; value: string; highlight?: boolean }> = [
+    { label: 'LOCATION', value: (form.location || '—').toUpperCase() },
+    { label: 'PFI', value: (form.pfi || '—').toUpperCase() },
+    { label: 'DATE', value: form.date ? format(new Date(form.date + 'T00:00:00'), 'dd MMM yyyy').toUpperCase() : '—' },
+    { label: 'LITRES SOLD TODAY', value: form.litresSoldToday ? `${Number(form.litresSoldToday.replace(/,/g, '')).toLocaleString()} LITRES` : '—' },
+    { label: 'NO. OF TRUCKS SOLD', value: (form.numberOfTrucks || '—').toUpperCase() },
+    { label: 'NO. OF CUSTOMERS', value: (form.numberOfCustomers || '—').toUpperCase() },
+    { label: 'NO. OF ORDERS', value: (form.numberOfOrders || '—').toUpperCase() },
+    { label: 'TOTAL COMMISSION PAID', value: form.totalCommissionPaid ? `NGN ${Number(form.totalCommissionPaid.replace(/,/g, '')).toLocaleString('en-NG', { minimumFractionDigits: 2 })}` : '—', highlight: true },
+    { label: 'STAFF NAME & DATE', value: (form.staffNameAndDate || '—').toUpperCase() },
+  ];
+
+  // Outer border
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.3);
+  doc.rect(M, Y, CW, rows.length * ROW_H, 'S');
+
+  rows.forEach((row, i) => {
+    const isLast = i === rows.length - 1;
+
+    // Label cell background
+    doc.setFillColor(...LBLBG);
+    doc.rect(M, Y, LABEL_W, ROW_H, 'F');
+
+    // Value cell background
+    if (row.highlight) {
+      doc.setFillColor(236, 253, 245);
+    } else {
+      doc.setFillColor(255, 255, 255);
+    }
+    doc.rect(M + LABEL_W, Y, VALUE_W, ROW_H, 'F');
+
+    // Vertical divider
+    doc.setDrawColor(...BORDER);
+    doc.setLineWidth(0.2);
+    doc.line(M + LABEL_W, Y, M + LABEL_W, Y + ROW_H);
+
+    // Row bottom border
+    if (!isLast) {
+      doc.line(M, Y + ROW_H, M + CW, Y + ROW_H);
+    }
+
+    // Label text
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(70, 80, 100);
+    doc.text(row.label, M + 4, Y + 5.5);
+
+    // Value text
+    doc.setFont('helvetica', row.highlight ? 'bold' : 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...(row.highlight ? GREEN : DARK));
+    doc.text(row.value, M + LABEL_W + 5, Y + 5.5);
+
+    Y += ROW_H;
+  });
+
+  // ── Remarks ────────────────────────────────────────────────────────
+  Y += 14;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(70, 80, 100);
+  doc.text('REMARKS', M, Y);
+  Y += 4;
+
+  const REMARKS_H = 36;
+  doc.setFillColor(249, 250, 251);
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.3);
+  doc.rect(M, Y, CW, REMARKS_H, 'FD');
+
+  if (form.remarks.trim()) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...DARK);
+    doc.text(doc.splitTextToSize(form.remarks.trim(), CW - 8), M + 4, Y + 7);
+  } else {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8.5);
+    doc.setTextColor(160, 170, 185);
+    doc.text('No remarks provided.', M + 4, Y + 8);
+  }
+
+  Y += REMARKS_H + 18;
+
+  // ── Signatures ─────────────────────────────────────────────────────
+  const SIG_W = (CW - 12) / 2;
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.4);
+  doc.line(M, Y, M + SIG_W, Y);
+  doc.line(M + SIG_W + 12, Y, M + SIG_W + 12 + SIG_W, Y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('PREPARED BY / DATE', M, Y + 5);
+  doc.text('AUTHORISED BY / DATE', M + SIG_W + 12, Y + 5);
+
+  // ── Footer ─────────────────────────────────────────────────────────
+  doc.setFillColor(...NAVY);
+  doc.rect(0, H - 12, W, 12, 'F');
+  doc.setFillColor(...GREEN);
+  doc.rect(0, H - 12, W, 1.5, 'F');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Soroman Energy Limited — Confidential', M, H - 4.5);
+  doc.text(`Page 1 of 1  •  ${generatedAt}`, W - M, H - 4.5, { align: 'right' });
+
+  const safeDate = form.date || format(new Date(), 'yyyy-MM-dd');
+  const safeLoc = (form.location || 'REPORT').replace(/[/\\*?:[\]]/g, '-');
+  doc.save(`DAILY COMMISSION REPORT - ${safeLoc} - ${safeDate}.pdf`);
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Daily Report Entry Dialog
+// ═══════════════════════════════════════════════════════════════════════════
+
+const readScopedLocations = (): string[] => {
+  try { return JSON.parse(localStorage.getItem('location_names') || '[]') as string[]; }
+  catch { return []; }
+};
+
+const readScopedPfis = (): string[] => {
+  try { return JSON.parse(localStorage.getItem('pfi_numbers') || '[]') as string[]; }
+  catch { return []; }
+};
+
+const buildInitialForm = (): DailyReportForm => {
+  const fullname = localStorage.getItem('fullname') || '';
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const staffLine = fullname ? `${fullname} — ${format(new Date(), 'dd MMM yyyy')}` : '';
+  return { ...EMPTY_DAILY_REPORT, date: today, staffNameAndDate: staffLine };
+};
+
+const DailyReportDialog = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+  const [form, setForm] = useState<DailyReportForm>(buildInitialForm);
+  const [submitted, setSubmitted] = useState(false);
+
+  const scopedLocations = readScopedLocations();
+  const scopedPfis = readScopedPfis();
+
+  const set = (field: keyof DailyReportForm) => (v: string) =>
+    setForm(f => ({ ...f, [field]: v }));
+
+  const handleSubmit = () => {
+    if (!form.location || !form.date) return;
+    generateDailyReportPDF(form);
+    setSubmitted(true);
+  };
+
+  const handleDownload = () => {
+    generateDailyReportPDF(form);
+  };
+
+  const handleClose = () => {
+    setForm(buildInitialForm());
+    setSubmitted(false);
+    onClose();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) handleClose(); }}>
+      <DialogContent className="sm:max-w-[580px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-emerald-100">
+              <ClipboardList className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Daily Commission Report</h2>
+              <p className="text-sm font-normal text-slate-500 mt-0.5">
+                {submitted ? 'Report ready — download your PDF below.' : 'Fill in the report details for today.'}
+              </p>
+            </div>
+          </DialogTitle>
+          <DialogDescription className="sr-only">Enter daily commission report details</DialogDescription>
+        </DialogHeader>
+
+        {submitted ? (
+          <div className="space-y-5 py-4">
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-5 flex flex-col items-center gap-3 text-center">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                <CheckCircle2 className="text-emerald-600" size={24} />
+              </div>
+              <div>
+                <p className="font-semibold text-emerald-800">Report Submitted</p>
+                <p className="text-sm text-emerald-700 mt-0.5">
+                  {form.location} · {form.date ? format(new Date(form.date + 'T00:00:00'), 'dd MMM yyyy') : ''}
+                </p>
+              </div>
+            </div>
+
+            {/* Summary preview */}
+            <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 text-sm overflow-hidden">
+              {[
+                ['Location', form.location || '—'],
+                ['PFI', form.pfi || '—'],
+                ['Date', form.date ? format(new Date(form.date + 'T00:00:00'), 'dd MMM yyyy') : '—'],
+                ['Litres Sold Today', form.litresSoldToday ? `${Number(form.litresSoldToday.replace(/,/g, '')).toLocaleString()} L` : '—'],
+                ['No. of Trucks Sold', form.numberOfTrucks || '—'],
+                ['No. of Customers', form.numberOfCustomers || '—'],
+                ['No. of Orders', form.numberOfOrders || '—'],
+                ['Total Commission Paid', form.totalCommissionPaid ? `₦${Number(form.totalCommissionPaid.replace(/,/g, '')).toLocaleString('en-NG', { minimumFractionDigits: 2 })}` : '—'],
+                ['Staff Name & Date', form.staffNameAndDate || '—'],
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-center px-4 py-2.5">
+                  <span className="w-44 text-xs font-medium text-slate-500 uppercase tracking-wide shrink-0">{label}</span>
+                  <span className={`font-medium ${label === 'Total Commission Paid' ? 'text-emerald-700' : 'text-slate-800'}`}>{value}</span>
+                </div>
+              ))}
+              {form.remarks && (
+                <div className="px-4 py-2.5">
+                  <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Remarks</span>
+                  <span className="text-slate-700 text-sm">{form.remarks}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 py-2">
+
+            {/* Location + PFI */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">
+                  Location <span className="text-red-500">*</span>
+                </Label>
+                <select
+                  aria-label="Location"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.location}
+                  onChange={e => set('location')(e.target.value)}
+                >
+                  <option value="">Select location</option>
+                  {scopedLocations.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+                {scopedLocations.length === 0 && (
+                  <p className="text-xs text-slate-400">No locations assigned to your account.</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">PFI</Label>
+                <select
+                  aria-label="PFI"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.pfi}
+                  onChange={e => set('pfi')(e.target.value)}
+                >
+                  <option value="">Select PFI</option>
+                  {scopedPfis.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+                {scopedPfis.length === 0 && (
+                  <p className="text-xs text-slate-400">No PFIs assigned to your account.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Date */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">
+                Date <span className="text-red-500">*</span>
+              </Label>
+              <Input type="date" value={form.date} onChange={e => set('date')(e.target.value)} />
+            </div>
+
+            <div className="h-px bg-slate-100" />
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Daily Figures</p>
+
+            {/* Quantities */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">Litres Sold Today</Label>
+                <CommaInput placeholder="e.g. 45,000" value={form.litresSoldToday} onValueChange={set('litresSoldToday')} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">No. of Trucks Sold</Label>
+                <Input type="number" min="0" placeholder="e.g. 3" value={form.numberOfTrucks} onChange={e => set('numberOfTrucks')(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">No. of Customers</Label>
+                <Input type="number" min="0" placeholder="e.g. 5" value={form.numberOfCustomers} onChange={e => set('numberOfCustomers')(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">No. of Orders</Label>
+                <Input type="number" min="0" placeholder="e.g. 8" value={form.numberOfOrders} onChange={e => set('numberOfOrders')(e.target.value)} />
+              </div>
+            </div>
+
+            {/* Commission */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Total Commission Paid (₦)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₦</span>
+                <CommaInput
+                  className="pl-7"
+                  placeholder="e.g. 45,000.00"
+                  value={form.totalCommissionPaid}
+                  onValueChange={set('totalCommissionPaid')}
+                />
+              </div>
+            </div>
+
+            {/* Staff name & date — auto-filled from logged-in user */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Staff Name &amp; Date</Label>
+              <Input
+                value={form.staffNameAndDate}
+                readOnly
+                className="bg-slate-50 text-slate-600 cursor-default"
+              />
+              <p className="text-xs text-slate-400">Auto-filled from your login session.</p>
+            </div>
+
+            <div className="h-px bg-slate-100" />
+
+            {/* Remarks */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Remarks</Label>
+              <textarea
+                rows={3}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Any additional notes or observations…"
+                value={form.remarks}
+                onChange={e => set('remarks')(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" onClick={handleClose}>
+            {submitted ? 'Close' : 'Cancel'}
+          </Button>
+          {submitted ? (
+            <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleDownload}>
+              <Download size={15} /> Download PDF
+            </Button>
+          ) : (
+            <Button
+              className="gap-2"
+              onClick={handleSubmit}
+              disabled={!form.location.trim() || !form.date}
+            >
+              <CheckCircle2 size={15} /> Submit Report
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Confirm Payout Dialog
@@ -239,7 +681,7 @@ const ConfirmPayoutDialog = ({
               <span className="font-semibold text-slate-800">{fmtQty(qty)} L</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">Commission (₦{COMMISSION_RATE}/L)</span>
+              <span className="text-slate-500">Commission (₦{getCommissionRate(order.created_at)}/L)</span>
               <span className="font-bold text-emerald-700">{fmt(amount)}</span>
             </div>
           </div>
@@ -311,6 +753,7 @@ export default function Commissions() {
   const [pfiFilter, setPfiFilter] = useState('all');
 
   const [payoutOrder, setPayoutOrder] = useState<Order | null>(null);
+  const [dailyReportOpen, setDailyReportOpen] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -667,9 +1110,12 @@ export default function Commissions() {
 
             <PageHeader
               title="Commissions"
-              description="₦1/litre commission owed to facilitators on ticket-generated orders — confirm payouts and export daily reports."
+              description="Commission per litre paid to facilitators: ₦1/L before 1 Jul 2026, ₦0.50/L from 1 Jul 2026 onwards."
               actions={
                 <div className="flex items-center gap-2">
+                  <Button size="sm" className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setDailyReportOpen(true)}>
+                    <ClipboardList size={15} /> Enter Report
+                  </Button>
                   <Button variant="outline" size="sm" className="gap-2" onClick={handleExportExcel} disabled={filteredOrders.length === 0}>
                     <FileText size={15} /> Export Excel
                   </Button>
@@ -695,7 +1141,7 @@ export default function Commissions() {
                   onChange={e => setSearchQuery(e.target.value)}
                 />
                 {searchQuery && (
-                  <button title="Clear search" onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <button type="button" title="Clear search" onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                     <X size={14} />
                   </button>
                 )}
@@ -710,6 +1156,7 @@ export default function Commissions() {
                 <div className="flex flex-wrap gap-1.5">
                   {PRESETS.filter(p => p.key !== 'custom').map(({ key, label }) => (
                     <button
+                      type="button"
                       key={key}
                       onClick={() => { setTimePreset(key); setCustomFrom(''); setCustomTo(''); setCalRange({}); }}
                       className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${timePreset === key
@@ -722,6 +1169,7 @@ export default function Commissions() {
                   <Popover open={calOpen} onOpenChange={setCalOpen}>
                     <PopoverTrigger asChild>
                       <button
+                        type="button"
                         title="Pick a custom date range"
                         onClick={() => setTimePreset('custom')}
                         className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all flex items-center gap-1.5 ${timePreset === 'custom'
@@ -813,31 +1261,31 @@ export default function Commissions() {
                       {timePreset === 'custom' && calRange.from
                         ? calRange.to ? `${format(calRange.from, 'dd MMM')} – ${format(calRange.to, 'dd MMM yyyy')}` : format(calRange.from, 'dd MMM yyyy')
                         : PRESETS.find(p => p.key === timePreset)?.label}
-                      <button onClick={() => { setTimePreset('month'); setCustomFrom(''); setCustomTo(''); setCalRange({}); }} title="Remove date filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
+                      <button type="button" onClick={() => { setTimePreset('month'); setCustomFrom(''); setCustomTo(''); setCalRange({}); }} title="Remove date filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
                     </span>
                   )}
                   {statusFilter !== 'all' && (
                     <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full">
                       {statusFilter === 'paid' ? 'Paid' : 'Pending'}
-                      <button onClick={() => setStatusFilter('all')} title="Remove status filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
+                      <button type="button" onClick={() => setStatusFilter('all')} title="Remove status filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
                     </span>
                   )}
                   {locationFilter !== 'all' && (
                     <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full">
                       <MapPin size={10} />{locationFilter}
-                      <button onClick={() => setLocationFilter('all')} title="Remove location filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
+                      <button type="button" onClick={() => setLocationFilter('all')} title="Remove location filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
                     </span>
                   )}
                   {pfiFilter !== 'all' && (
                     <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full">
                       <FileText size={10} />{pfiFilter}
-                      <button onClick={() => setPfiFilter('all')} title="Remove PFI filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
+                      <button type="button" onClick={() => setPfiFilter('all')} title="Remove PFI filter" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
                     </span>
                   )}
                   {searchQuery && (
                     <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full">
                       <Search size={10} />"{searchQuery}"
-                      <button onClick={() => setSearchQuery('')} title="Clear search" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
+                      <button type="button" onClick={() => setSearchQuery('')} title="Clear search" className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
                     </span>
                   )}
                 </div>
@@ -1025,6 +1473,11 @@ export default function Commissions() {
         open={!!payoutOrder}
         onClose={() => setPayoutOrder(null)}
         onConfirmed={handlePayoutConfirmed}
+      />
+
+      <DailyReportDialog
+        open={dailyReportOpen}
+        onClose={() => setDailyReportOpen(false)}
       />
     </div>
   );
