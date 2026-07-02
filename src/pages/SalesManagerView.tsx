@@ -18,24 +18,32 @@ import {
 } from '@/components/ui/table';
 import { apiClient, fetchAllPages } from '@/api/client';
 import {
-  CheckCircle2, XCircle, FileText, Loader2, Clock,
+  CheckCircle2, XCircle, FileText, Loader2,
   Truck, Package, ShieldCheck, DollarSign, Activity,
   CalendarDays, MapPin, ArrowUpDown, RefreshCw, X,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
+import { DailyReportPanel } from '@/components/DailyReportPanel';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Types & helpers
+// Types
 // ─────────────────────────────────────────────────────────────────────────────
 interface Order {
   id: number;
-  user?: { first_name?: string; last_name?: string; email?: string };
+  user?: {
+    first_name?: string; last_name?: string; email?: string;
+    companyName?: string; company_name?: string;
+  };
   companyName?: string;
   company_name?: string;
+  customer?: { companyName?: string; company_name?: string };
   location_name?: string;
+  state?: string;
   pfi_number?: string;
-  products?: Array<{ name?: string }>;
+  products?: Array<{ name?: string; unit_price?: number | string; unitPrice?: number | string; price?: number | string }>;
   quantity?: number | string;
+  total_price?: number | string;
+  truck_tickets_qty?: number | string;
   status: string;
   created_at: string;
   updated_at?: string;
@@ -62,9 +70,26 @@ const toNum = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-const customerName = (o: Order) => {
+const fmtQty = (n: number) => n.toLocaleString('en-NG', { maximumFractionDigits: 0 });
+
+const fmt = (n: number) =>
+  `N${n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const getLocation = (o: Order) => o.location_name || o.state || '—';
+
+const getCustomerName = (o: Order) => {
   const full = `${o.user?.first_name ?? ''} ${o.user?.last_name ?? ''}`.trim();
   return full || o.companyName || o.company_name || o.user?.email || '—';
+};
+
+const getCompanyName = (o: Order) =>
+  o.user?.companyName || o.user?.company_name ||
+  o.companyName || o.company_name ||
+  o.customer?.companyName || o.customer?.company_name || '—';
+
+const getUnitPrice = (o: Order) => {
+  const p = o.products?.[0] as Record<string, unknown> | undefined;
+  return toNum(p?.unit_price ?? p?.unitPrice ?? p?.price);
 };
 
 const fmtDateTime = (iso?: string | null) => {
@@ -112,7 +137,7 @@ const Tick = ({ done }: { done: boolean }) =>
     ? <CheckCircle2 size={14} className="text-emerald-500 mx-auto" />
     : <XCircle      size={13} className="text-slate-200 mx-auto" />;
 
-// Pipeline step column definitions
+// Pipeline columns
 const STEPS: Array<{ key: string; colLabel: string; check: (o: Order) => boolean }> = [
   { key: 'pending',  colLabel: 'PENDING',       check: () => true },
   { key: 'paid',     colLabel: 'PAID',          check: o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['paid'] },
@@ -156,10 +181,9 @@ export default function SalesManagerView() {
 
   const allOrders: Order[] = data?.results ?? [];
 
-  // Derive scoped filter options
   const uniqueLocations = useMemo(() => {
     const s = new Set<string>();
-    allOrders.forEach(o => { if (o.location_name) s.add(o.location_name); });
+    allOrders.forEach(o => { const l = getLocation(o); if (l !== '—') s.add(l); });
     return Array.from(s).filter(l => scopedLocations.length === 0 || scopedLocations.includes(l)).sort();
   }, [allOrders, scopedLocations]);
 
@@ -175,45 +199,42 @@ export default function SalesManagerView() {
     return Array.from(s).sort();
   }, [allOrders]);
 
-  // Base = scoped + date + location + PFI filtered (for summary cards, ignores status filter)
-  const base = useMemo(() => {
-    return allOrders.filter(o => {
-      if (scopedLocations.length > 0 && !scopedLocations.includes(o.location_name ?? '')) return false;
-      if (scopedPfis.length     > 0 && !scopedPfis.includes(o.pfi_number ?? ''))          return false;
-      if (!matchesPreset(o.created_at, preset, customFrom, customTo))                      return false;
-      if (locFilter !== 'all' && o.location_name !== locFilter) return false;
-      if (pfiFilter !== 'all' && o.pfi_number    !== pfiFilter) return false;
-      return true;
-    });
-  }, [allOrders, scopedLocations, scopedPfis, preset, customFrom, customTo, locFilter, pfiFilter]);
-
-  // Table rows = base + status filter + sort
   const filtered = useMemo(() => {
-    return base
-      .filter(o => statFilter === 'all' || o.status?.toLowerCase() === statFilter)
+    return allOrders
+      .filter(o => {
+        const loc = getLocation(o);
+        if (scopedLocations.length > 0 && !scopedLocations.includes(loc)) return false;
+        if (scopedPfis.length > 0 && !scopedPfis.includes(o.pfi_number ?? ''))  return false;
+        if (!matchesPreset(o.created_at, preset, customFrom, customTo))          return false;
+        if (locFilter  !== 'all' && loc !== locFilter)                           return false;
+        if (pfiFilter  !== 'all' && o.pfi_number !== pfiFilter)                  return false;
+        if (statFilter !== 'all' && o.status?.toLowerCase() !== statFilter)      return false;
+        return true;
+      })
       .sort((a, b) =>
         sortDir === 'desc'
           ? b.created_at.localeCompare(a.created_at)
           : a.created_at.localeCompare(b.created_at),
       );
-  }, [base, statFilter, sortDir]);
+  }, [allOrders, scopedLocations, scopedPfis, preset, customFrom, customTo, locFilter, pfiFilter, statFilter, sortDir]);
 
   const summaryCards = useMemo((): SummaryCard[] => {
-    const total    = base.length;
-    const pending  = base.filter(o => o.status === 'pending').length;
-    const paid     = base.filter(o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['paid']).length;
-    const released = base.filter(o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['released']).length;
-    const ticketed = base.filter(o => (o.truck_tickets_count ?? 0) > 0).length;
-    const exited   = base.filter(o => o.status === 'sold').length;
-    const trucks   = base.reduce((s, o) => s + (o.truck_tickets_count ?? 0), 0);
+    const total    = filtered.length;
+    const pending  = filtered.filter(o => o.status === 'pending').length;
+    const paid     = filtered.filter(o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['paid']).length;
+    const released = filtered.filter(o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['released']).length;
+    const ticketed = filtered.filter(o => (o.truck_tickets_count ?? 0) > 0).length;
+    const exited   = filtered.filter(o => o.status === 'sold').length;
+    const trucks   = filtered.reduce((s, o) => s + (o.truck_tickets_count ?? 0), 0);
     return [
       { title: 'Total Orders',      value: String(total),    icon: <Activity      size={20} />, tone: 'neutral', description: `${pending} pending payment` },
       { title: 'Paid',              value: String(paid),     icon: <DollarSign    size={20} />, tone: 'green',   description: 'cumulative' },
       { title: 'Released',          value: String(released), icon: <ShieldCheck   size={20} />, tone: 'blue',    description: 'cumulative' },
-      { title: 'Tickets Generated', value: String(ticketed), icon: <Package       size={20} />, tone: 'neutral', description: `${trucks} trucks total` },
+      { title: 'Tickets Generated', value: String(ticketed), icon: <Package       size={20} />, tone: 'neutral', description: 'orders with ticket' },
       { title: 'Security Exit',     value: String(exited),   icon: <CheckCircle2  size={20} />, tone: 'green',   description: 'marked sold' },
+      { title: 'Trucks Total',      value: String(trucks),   icon: <Truck         size={20} />, tone: 'neutral', description: 'truck tickets generated' },
     ];
-  }, [base]);
+  }, [filtered]);
 
   const clearFilters = () => {
     setPreset('all'); setCustomFrom(''); setCustomTo(''); setCalRange({});
@@ -230,41 +251,197 @@ export default function SalesManagerView() {
     return 'Custom Range';
   };
 
+  // ── Excel export ──────────────────────────────────────────────────────────
   const handleExport = async () => {
     if (!filtered.length) return;
     setExporting(true);
     try {
-      const NAVY = 'FF1E293B'; const WHITE = 'FFFFFFFF'; const BAND = 'FFEFF3F8';
-      const thin = { style: 'thin' as const, color: { argb: 'FFB0C4DE' } };
+      const NAVY   = 'FF1E293B';
+      const WHITE  = 'FFFFFFFF';
+      const LIGHT  = 'FFF5F8FC';
+      const BAND   = 'FFEFF3F8';
+      const TOTBG  = 'FFE2E8F0';
+      const thin   = { style: 'thin' as const, color: { argb: 'FFB0C4DE' } };
       const borders = { top: thin, left: thin, bottom: thin, right: thin };
+
       const wb = new ExcelJS.Workbook();
+      wb.creator = 'Soroman Dashboard';
       const ws = wb.addWorksheet('Sales Pipeline', { views: [{ showGridLines: false }] });
-      const hdrs = ['#','DATE PLACED','REFERENCE','CUSTOMER','LOCATION','PFI','PRODUCT','QTY','TRUCKS','STATUS','PENDING','PAID','RELEASED','TICKET GEN','SECURITY EXIT','LAST UPDATED'];
-      const widths = [6,22,20,28,22,16,18,14,10,14,10,10,10,12,14,22];
-      ws.mergeCells('A1:P1');
-      const t = ws.getCell('A1');
-      t.value = 'SALES PIPELINE'; t.font = { name: 'Calibri', bold: true, size: 14, color: { argb: WHITE } };
-      t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
-      t.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      // ── Heading meta ─────────────────────────────────────────────────
+      const locationLabel = locFilter !== 'all' ? locFilter
+        : scopedLocations.length > 0 ? scopedLocations.join(', ')
+        : 'ALL LOCATIONS';
+      const pfiLabel = pfiFilter !== 'all' ? pfiFilter
+        : scopedPfis.length > 0 ? scopedPfis.join(', ')
+        : 'ALL PFIS';
+      const periodLabel = preset === 'custom' && calRange.from
+        ? calRange.to
+          ? `${format(calRange.from, 'dd MMM yyyy')} – ${format(calRange.to, 'dd MMM yyyy')}`
+          : format(calRange.from, 'dd MMM yyyy')
+        : PRESETS.find(p => p.key === preset)?.label ?? 'ALL TIME';
+
+      const totalOrders  = filtered.length;
+      const totalQtyOrd  = filtered.reduce((s, o) => s + toNum(o.quantity), 0);
+      const totalAmount  = filtered.reduce((s, o) => s + toNum(o.total_price), 0);
+      const totalTrucks  = filtered.reduce((s, o) => s + (o.truck_tickets_count ?? 0), 0);
+      const totalQtyLoad = filtered.reduce((s, o) => s + toNum(o.truck_tickets_qty), 0);
+      const totalQtyRel  = filtered
+        .filter(o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['released'])
+        .reduce((s, o) => s + toNum(o.quantity), 0);
+      const totalExited  = filtered.filter(o => o.status === 'sold').length;
+
+      const meta: Array<[string, string, string, string]> = [
+        ['Report Generated', format(new Date(), 'dd MMM yyyy, HH:mm'), 'Period', periodLabel.toUpperCase()],
+        ['Location', locationLabel.toUpperCase(), 'PFI', pfiLabel.toUpperCase()],
+        ['Total Orders', String(totalOrders), 'Total Trucks', String(totalTrucks)],
+        ['Total Amount', `N${totalAmount.toLocaleString()}`, 'Security Exits', String(totalExited)],
+      ];
+
+      const COL_COUNT = 18;
+      const lastLetter = ws.getColumn(COL_COUNT).letter;
+      ws.mergeCells(`A1:${lastLetter}1`);
+      const titleCell = ws.getCell('A1');
+      titleCell.value = 'SALES PIPELINE REPORT';
+      titleCell.font  = { name: 'Calibri', bold: true, size: 16, color: { argb: WHITE } };
+      titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       ws.getRow(1).height = 26;
-      const hRow = ws.getRow(3); hRow.height = 20;
-      hdrs.forEach((h, i) => { const c = hRow.getCell(i + 1); c.value = h; c.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } }; c.border = borders; c.alignment = { vertical: 'middle', horizontal: 'center' }; });
-      filtered.forEach((o, i) => {
-        const r = ws.getRow(i + 4); r.height = 16;
-        const rank = STATUS_RANK[o.status] ?? -1;
-        const vals = [i+1, fmtDateTime(o.created_at), o.reference??`ORD-${o.id}`, customerName(o).toUpperCase(), (o.location_name??'—').toUpperCase(), (o.pfi_number??'—').toUpperCase(), (o.products?.[0]?.name??'—').toUpperCase(), toNum(o.quantity), o.truck_tickets_count??0, o.status.toUpperCase(), '✓', rank>=STATUS_RANK['paid']?'✓':'—', rank>=STATUS_RANK['released']?'✓':'—', (o.truck_tickets_count??0)>0?'✓':'—', o.status==='sold'?'✓':'—', fmtDateTime(o.updated_at)];
-        vals.forEach((v, ci) => { const c = r.getCell(ci+1); c.value = v; c.font = { name: 'Calibri', size: 9.5 }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: i%2===0?WHITE:BAND } }; c.border = borders; c.alignment = { vertical: 'middle', horizontal: [7,8].includes(ci)?'right':'left' }; });
+
+      let r = 3;
+      meta.forEach(([l1, v1, l2, v2]) => {
+        const row = ws.getRow(r); row.height = 18;
+        ([[1, l1, true], [2, v1, false], [3, l2, true], [4, v2, false]] as const).forEach(([col, val, isLabel]) => {
+          const c = row.getCell(col);
+          c.value = val;
+          c.font  = { name: 'Calibri', bold: isLabel, size: 10, color: { argb: 'FF1E3A5F' } };
+          c.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: isLabel ? LIGHT : WHITE } };
+          c.border = borders;
+          c.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        });
+        r++;
       });
-      widths.forEach((w, i) => { ws.getColumn(i+1).width = w; });
-      ws.views = [{ state: 'frozen', ySplit: 3, showGridLines: false }];
+      ws.getColumn(1).width = 24; ws.getColumn(2).width = 28;
+      ws.getColumn(3).width = 24; ws.getColumn(4).width = 28;
+
+      r = 8;
+      const hdrs = [
+        '#', 'DATE PLACED', 'REFERENCE', 'CUSTOMER', 'COMPANY', 'LOCATION', 'PFI',
+        'PRODUCT', 'RATE (N/L)', 'QTY (L)', 'TOTAL AMOUNT', 'TRUCKS',
+        'STATUS', 'PENDING', 'PAID', 'RELEASED', 'TICKET GEN', 'SECURITY EXIT',
+      ];
+      const hRow = ws.getRow(r); hRow.height = 22;
+      hdrs.forEach((h, i) => {
+        const c = hRow.getCell(i + 1);
+        c.value = h;
+        c.font  = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+        c.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+        c.border = borders;
+        c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      });
+      r++;
+
+      const ALIGN: Array<'left'|'center'|'right'> = [
+        'center','left','left','left','left','left','left',
+        'left','right','right','right','center',
+        'center','center','center','center','center','center',
+      ];
+
+      filtered.forEach((o, i) => {
+        const row  = ws.getRow(r); row.height = 16;
+        const rank = STATUS_RANK[o.status] ?? -1;
+        const rate = getUnitPrice(o);
+        const qty  = toNum(o.quantity);
+        const amt  = toNum(o.total_price) || (rate > 0 ? rate * qty : 0);
+        const vals: (string | number)[] = [
+          i + 1,
+          fmtDateTime(o.created_at),
+          (o.reference ?? `ORD-${o.id}`).toUpperCase(),
+          getCustomerName(o).toUpperCase(),
+          getCompanyName(o).toUpperCase(),
+          getLocation(o).toUpperCase(),
+          (o.pfi_number ?? '—').toUpperCase(),
+          (o.products?.[0]?.name ?? '—').toUpperCase(),
+          rate > 0 ? rate : '—',
+          qty,
+          amt > 0 ? amt : '—',
+          o.truck_tickets_count ?? 0,
+          o.status.toUpperCase(),
+          '✓',
+          rank >= STATUS_RANK['paid']     ? '✓' : '—',
+          rank >= STATUS_RANK['released'] ? '✓' : '—',
+          (o.truck_tickets_count ?? 0) > 0 ? '✓' : '—',
+          o.status === 'sold'             ? '✓' : '—',
+        ];
+        vals.forEach((v, ci) => {
+          const c = row.getCell(ci + 1);
+          c.value = v;
+          c.font  = { name: 'Calibri', size: 9.5 };
+          c.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: i % 2 === 0 ? WHITE : BAND } };
+          c.border = borders;
+          c.alignment = { vertical: 'middle', horizontal: ALIGN[ci] };
+          if (ci === 8 && typeof v === 'number') c.numFmt = '#,##0.00';
+          if (ci === 9 && typeof v === 'number') c.numFmt = '#,##0';
+          if (ci === 10 && typeof v === 'number') c.numFmt = '#,##0.00';
+        });
+        r++;
+      });
+
+      // ── Summary block ────────────────────────────────────────────────
+      r++;
+      ws.mergeCells(`A${r}:D${r}`);
+      const secHdr = ws.getCell(`A${r}`);
+      secHdr.value = 'PIPELINE SUMMARY';
+      secHdr.font  = { name: 'Calibri', bold: true, size: 11, color: { argb: WHITE } };
+      secHdr.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      secHdr.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+      ws.getRow(r).height = 20;
+      r++;
+
+      const summaryRows: Array<[string, string]> = [
+        ['TOTAL ORDERS',            String(totalOrders)],
+        ['TOTAL QTY ORDERED (L)',   fmtQty(totalQtyOrd)],
+        ['TOTAL QTY RELEASED (L)',  fmtQty(totalQtyRel)],
+        ['TOTAL QTY LOADED (L)',    fmtQty(totalQtyLoad)],
+        ['TOTAL TRUCKS LOADED',     String(totalTrucks)],
+        ['TOTAL AMOUNT',            `N${totalAmount.toLocaleString('en-NG', { minimumFractionDigits: 2 })}`],
+        ['SECURITY EXITS',          String(totalExited)],
+      ];
+
+      summaryRows.forEach(([label, value]) => {
+        const row = ws.getRow(r); row.height = 18;
+        const lc = row.getCell(1);
+        lc.value = label;
+        lc.font  = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF1E3A5F' } };
+        lc.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: LIGHT } };
+        lc.border = borders;
+        lc.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        ws.mergeCells(`B${r}:D${r}`);
+        const vc = row.getCell(2);
+        vc.value = value;
+        vc.font  = { name: 'Calibri', bold: true, size: 10 };
+        vc.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTBG } };
+        vc.border = borders;
+        vc.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        r++;
+      });
+
+      const widths = [6, 22, 20, 26, 26, 22, 16, 18, 14, 14, 18, 10, 12, 9, 9, 10, 12, 14];
+      widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+      ws.views = [{ state: 'frozen', ySplit: 8, showGridLines: false }];
+
       const buf = await wb.xlsx.writeBuffer();
+      const safeLabel = locationLabel.replace(/[/\\*?:[\]]/g, '-');
       const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-      Object.assign(document.createElement('a'), { href: url, download: `Sales_Pipeline_${format(new Date(),'ddMMyy')}.xlsx` }).click();
+      Object.assign(document.createElement('a'), {
+        href: url,
+        download: `SALES PIPELINE ${safeLabel} - ${format(new Date(), 'ddMMyy')}.xlsx`,
+      }).click();
       URL.revokeObjectURL(url);
     } finally { setExporting(false); }
   };
 
-  // ── Render ──────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen bg-slate-100">
       <SidebarNav />
@@ -276,7 +453,11 @@ export default function SalesManagerView() {
 
             <PageHeader
               title="Sales Pipeline"
-              description={scopedLocations.length > 0 ? `Scoped to: ${scopedLocations.join(', ')}` : 'Track orders through each stage of the sales pipeline.'}
+              description={
+                scopedLocations.length > 0
+                  ? `Scoped to: ${scopedLocations.join(', ')}${scopedPfis.length > 0 ? ` — PFI: ${scopedPfis.join(', ')}` : ''}`
+                  : 'Track orders through each stage of the sales pipeline.'
+              }
               actions={
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()} disabled={isFetching}>
@@ -289,38 +470,30 @@ export default function SalesManagerView() {
               }
             />
 
-            <SummaryCards cards={summaryCards} gridClassName="grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" />
+            <SummaryCards cards={summaryCards} gridClassName="grid-cols-2 sm:grid-cols-3" />
 
             {/* ── Filter Panel ── */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-4">
-
-              {/* Date presets + calendar */}
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                   <CalendarDays size={12} /> Date Period
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {PRESETS.map(({ key, label }) => (
-                    <button
-                      key={key}
-                      type="button"
+                    <button key={key} type="button"
                       onClick={() => { setPreset(key); setCustomFrom(''); setCustomTo(''); setCalRange({}); }}
                       className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${preset === key
                         ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}
-                    >
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}>
                       {label}
                     </button>
                   ))}
                   <Popover open={calOpen} onOpenChange={setCalOpen}>
                     <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => setPreset('custom')}
+                      <button type="button" onClick={() => setPreset('custom')}
                         className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all flex items-center gap-1.5 ${preset === 'custom'
                           ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}
-                      >
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}>
                         <CalendarDays size={11} />
                         {preset === 'custom' && calRange.from
                           ? calRange.to
@@ -330,19 +503,15 @@ export default function SalesManagerView() {
                       </button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="range"
-                        selected={{ from: calRange.from, to: calRange.to }}
-                        onSelect={r => {
-                          setCalRange(r ?? {});
+                      <Calendar mode="range" selected={{ from: calRange.from, to: calRange.to }}
+                        onSelect={rv => {
+                          setCalRange(rv ?? {});
                           setPreset('custom');
-                          if (r?.from) setCustomFrom(format(r.from, 'yyyy-MM-dd'));
-                          if (r?.to)   setCustomTo(format(r.to, 'yyyy-MM-dd'));
-                          if (r?.from && r?.to) setCalOpen(false);
+                          if (rv?.from) setCustomFrom(format(rv.from, 'yyyy-MM-dd'));
+                          if (rv?.to)   setCustomTo(format(rv.to, 'yyyy-MM-dd'));
+                          if (rv?.from && rv?.to) setCalOpen(false);
                         }}
-                        initialFocus
-                        numberOfMonths={2}
-                      />
+                        initialFocus numberOfMonths={2} />
                     </PopoverContent>
                   </Popover>
                 </div>
@@ -350,61 +519,39 @@ export default function SalesManagerView() {
 
               <div className="border-t border-slate-100" />
 
-              {/* Location, PFI, Status dropdowns */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <MapPin size={12} /> Location
-                  </p>
-                  <select
-                    aria-label="Filter by location"
-                    value={locFilter}
-                    onChange={e => setLocFilter(e.target.value)}
-                    className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
-                  >
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><MapPin size={12} /> Location</p>
+                  <select aria-label="Filter by location" value={locFilter} onChange={e => setLocFilter(e.target.value)}
+                    className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300">
                     <option value="all">All Locations</option>
                     {uniqueLocations.map(l => <option key={l} value={l}>{l}</option>)}
                   </select>
                 </div>
-
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <FileText size={12} /> PFI
-                  </p>
-                  <select
-                    aria-label="Filter by PFI"
-                    value={pfiFilter}
-                    onChange={e => setPfiFilter(e.target.value)}
-                    className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
-                  >
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><FileText size={12} /> PFI</p>
+                  <select aria-label="Filter by PFI" value={pfiFilter} onChange={e => setPfiFilter(e.target.value)}
+                    className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300">
                     <option value="all">All PFIs</option>
                     {uniquePfis.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
-
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <CheckCircle2 size={12} /> Status
-                  </p>
-                  <select
-                    aria-label="Filter by status"
-                    value={statFilter}
-                    onChange={e => setStatFilter(e.target.value)}
-                    className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
-                  >
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><CheckCircle2 size={12} /> Status</p>
+                  <select aria-label="Filter by status" value={statFilter} onChange={e => setStatFilter(e.target.value)}
+                    className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300">
                     <option value="all">All Statuses</option>
                     {uniqueStatuses.map(s => <option key={s} value={s}>{STATUS_MAP[s]?.label ?? s}</option>)}
                   </select>
                 </div>
               </div>
 
-              {/* Active chips + clear */}
               <div className="flex items-center justify-between pt-1 border-t border-slate-100">
                 <div className="flex items-center gap-2 flex-wrap">
                   {preset !== 'all' && (
                     <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full">
                       <CalendarDays size={11} /> {presetLabel()}
-                      <button type="button" title="Remove date filter" onClick={() => { setPreset('today'); setCustomFrom(''); setCustomTo(''); setCalRange({}); }} className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
+                      <button type="button" title="Remove date filter" onClick={() => { setPreset('all'); setCustomFrom(''); setCustomTo(''); setCalRange({}); }} className="ml-0.5 hover:text-slate-900"><X size={10} /></button>
                     </span>
                   )}
                   {locFilter !== 'all' && (
@@ -428,9 +575,7 @@ export default function SalesManagerView() {
                   <span className="text-xs text-slate-400">{filtered.length} order{filtered.length !== 1 ? 's' : ''}</span>
                 </div>
                 {hasFilters && (
-                  <button type="button" onClick={clearFilters} className="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-2">
-                    Clear filters
-                  </button>
+                  <button type="button" onClick={clearFilters} className="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-2">Clear filters</button>
                 )}
               </div>
             </div>
@@ -443,21 +588,21 @@ export default function SalesManagerView() {
                     <TableRow className="bg-slate-50 border-b border-slate-200 [&>th]:py-3 [&>th]:px-3 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:uppercase [&>th]:tracking-wider [&>th]:whitespace-nowrap">
                       <TableHead className="w-8 text-center">#</TableHead>
                       <TableHead>
-                        <button
-                          type="button"
-                          title={sortDir === 'desc' ? 'Sort oldest first' : 'Sort newest first'}
+                        <button type="button" title={sortDir === 'desc' ? 'Sort oldest first' : 'Sort newest first'}
                           onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
-                          className="flex items-center gap-1 hover:text-slate-800 transition-colors"
-                        >
-                          Date Placed <ArrowUpDown size={11} className={sortDir === 'asc' ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                          className="flex items-center gap-1 hover:text-slate-800 transition-colors">
+                          Date Placed <ArrowUpDown size={11} />
                         </button>
                       </TableHead>
                       <TableHead>Reference</TableHead>
                       <TableHead>Customer</TableHead>
+                      <TableHead>Company</TableHead>
                       <TableHead>Location</TableHead>
                       <TableHead>PFI</TableHead>
                       <TableHead>Product</TableHead>
+                      <TableHead className="text-right">Rate (N/L)</TableHead>
                       <TableHead className="text-right">Qty (L)</TableHead>
+                      <TableHead className="text-right">Total Amount</TableHead>
                       <TableHead className="text-center">Trucks</TableHead>
                       <TableHead>Status</TableHead>
                       {STEPS.map(s => (
@@ -470,14 +615,14 @@ export default function SalesManagerView() {
                     {isLoading ? (
                       Array.from({ length: 7 }).map((_, i) => (
                         <TableRow key={i}>
-                          {Array.from({ length: 16 }).map((__, j) => (
+                          {Array.from({ length: 19 }).map((__, j) => (
                             <TableCell key={j} className="px-3 py-2.5"><Skeleton className="h-4 w-full" /></TableCell>
                           ))}
                         </TableRow>
                       ))
                     ) : isError ? (
                       <TableRow>
-                        <TableCell colSpan={16} className="text-center py-16 text-slate-400">
+                        <TableCell colSpan={19} className="text-center py-16 text-slate-400">
                           <XCircle size={32} className="mx-auto mb-2 text-red-300" />
                           <p className="font-medium text-slate-600">Failed to load orders</p>
                           <button type="button" onClick={() => refetch()} className="mt-3 text-sm text-slate-500 underline hover:text-slate-800">Try again</button>
@@ -485,41 +630,56 @@ export default function SalesManagerView() {
                       </TableRow>
                     ) : filtered.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={16} className="text-center py-16 text-slate-400">
+                        <TableCell colSpan={19} className="text-center py-16 text-slate-400">
                           <Package size={30} className="mx-auto mb-2 text-slate-200" />
                           <p className="font-medium">{allOrders.length > 0 ? 'No orders match the current filters.' : 'No orders in the system yet.'}</p>
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filtered.map((o, i) => (
-                        <TableRow key={o.id} className={`text-sm ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-blue-50/40 transition-colors`}>
-                          <TableCell className="px-3 py-2.5 text-center text-xs text-slate-400">{i + 1}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-xs text-slate-600 whitespace-nowrap">{fmtDateTime(o.created_at)}</TableCell>
-                          <TableCell className="px-3 py-2.5 font-mono text-xs text-slate-700">{o.reference ?? `ORD-${o.id}`}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-sm text-slate-800 max-w-[160px] truncate">{customerName(o)}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-xs text-slate-600 whitespace-nowrap">{o.location_name ?? '—'}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-xs font-medium text-slate-700">{o.pfi_number ?? '—'}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-xs text-slate-600">{o.products?.[0]?.name ?? '—'}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-right text-xs font-medium text-slate-700">{toNum(o.quantity).toLocaleString()}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-center">
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700">
-                              <Truck size={11} className="text-slate-400" />{o.truck_tickets_count ?? 0}
-                            </span>
-                          </TableCell>
-                          <TableCell className="px-3 py-2.5"><StatusBadge status={o.status} /></TableCell>
-                          {STEPS.map(s => (
-                            <TableCell key={s.key} className="px-3 py-2.5 text-center">
-                              <Tick done={s.check(o)} />
+                      filtered.map((o, i) => {
+                        const rank  = STATUS_RANK[o.status] ?? -1;
+                        const rate  = getUnitPrice(o);
+                        const qty   = toNum(o.quantity);
+                        const amt   = toNum(o.total_price) || (rate > 0 ? rate * qty : 0);
+                        return (
+                          <TableRow key={o.id} className={`text-sm ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-blue-50/40 transition-colors`}>
+                            <TableCell className="px-3 py-2.5 text-center text-xs text-slate-400">{i + 1}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-xs text-slate-600 whitespace-nowrap">{fmtDateTime(o.created_at)}</TableCell>
+                            <TableCell className="px-3 py-2.5 font-mono text-xs text-slate-700">{o.reference ?? `ORD-${o.id}`}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-sm text-slate-800 max-w-[140px] truncate">{getCustomerName(o)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-xs text-slate-600 max-w-[140px] truncate">{getCompanyName(o)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-xs text-slate-600 whitespace-nowrap">{getLocation(o)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-xs font-medium text-slate-700">{o.pfi_number ?? '—'}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-xs text-slate-600">{o.products?.[0]?.name ?? '—'}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right text-xs font-medium text-slate-700">
+                              {rate > 0 ? `N${rate.toLocaleString()}` : '—'}
                             </TableCell>
-                          ))}
-                          <TableCell className="px-3 py-2.5 text-xs text-slate-400 whitespace-nowrap">{fmtDateTime(o.updated_at)}</TableCell>
-                        </TableRow>
-                      ))
+                            <TableCell className="px-3 py-2.5 text-right text-xs font-medium text-slate-700">{fmtQty(qty)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right text-xs font-semibold text-slate-800">
+                              {amt > 0 ? fmt(amt) : '—'}
+                            </TableCell>
+                            <TableCell className="px-3 py-2.5 text-center">
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700">
+                                <Truck size={11} className="text-slate-400" />{o.truck_tickets_count ?? 0}
+                              </span>
+                            </TableCell>
+                            <TableCell className="px-3 py-2.5"><StatusBadge status={o.status} /></TableCell>
+                            {STEPS.map(s => (
+                              <TableCell key={s.key} className="px-3 py-2.5 text-center">
+                                <Tick done={s.check(o)} />
+                              </TableCell>
+                            ))}
+                            <TableCell className="px-3 py-2.5 text-xs text-slate-400 whitespace-nowrap">{fmtDateTime(o.updated_at)}</TableCell>
+                          </TableRow>
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>
               </div>
             </div>
+
+            <DailyReportPanel pageRole="SALES_MANAGER" />
 
           </div>
         </div>

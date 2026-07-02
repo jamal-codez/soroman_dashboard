@@ -2,6 +2,7 @@ import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
+import ExcelJS from 'exceljs';
 
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -98,6 +99,9 @@ const historyKey = `${STORAGE_PREFIX}/history`;
 const draftKey = (date: string) => `${STORAGE_PREFIX}/draft/${date}`;
 const snapshotKey = (date: string) => `${STORAGE_PREFIX}/snapshot/${date}`;
 const ALIASES_KEY = `${STORAGE_PREFIX}/aliases`;
+
+const TAG_RE = /\s*\[([A-Z_]+)\]$/;
+const stripTag = (name: string) => name.replace(TAG_RE, '').trim();
 
 const DEFAULT_MANUAL: ManualLocationInputs = {
   amountPaid: '',
@@ -658,6 +662,133 @@ export default function DailySalesReport() {
     }
   };
 
+  const [isSMDownloading, setIsSMDownloading] = useState(false);
+  const [isPMDownloading, setIsPMDownloading] = useState(false);
+
+  const downloadGroupExcel = async (
+    reports: Record<string, unknown>[],
+    groupLabel: string,
+    date: string,
+    setDownloading: (v: boolean) => void,
+  ) => {
+    if (reports.length === 0) return;
+    setDownloading(true);
+    try {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet(groupLabel);
+
+      // Heading block
+      const COLS = 16;
+      const merge = (r: number, text: string, bold = false) => {
+        ws.mergeCells(r, 1, r, COLS);
+        const cell = ws.getCell(r, 1);
+        cell.value = text;
+        cell.font = { bold, size: bold ? 13 : 11 };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      };
+      ws.getRow(1).height = 22;
+      merge(1, `${groupLabel} — Daily Report`, true);
+      ws.getRow(2).height = 18;
+      merge(2, `Date: ${date}`);
+
+      // Header row
+      const HDR_ROW = 4;
+      const headers = [
+        '#', 'Location', 'PFI', 'Carried Over', 'Opening Qty', 'Qty Sold (L)',
+        'Price (₦/L)', 'Tank Balance', 'Trucks', 'Amt Paid (₦)', 'Total Sales (₦)',
+        'Differentials', 'Leftover', 'Bank', 'Account No.', 'Submitted By',
+      ];
+      const hdrRow = ws.getRow(HDR_ROW);
+      hdrRow.values = ['', ...headers];
+      hdrRow.eachCell({ includeEmpty: true }, (cell, col) => {
+        if (col === 1) return;
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
+      });
+      hdrRow.height = 28;
+      ws.views = [{ state: 'frozen', ySplit: HDR_ROW }];
+
+      // Data rows
+      const KEYS = [
+        'location', 'pfi_number', 'yesterday_carried_over_loading', 'product_brought_forward',
+        'litres_sold_today', 'price', 'tank_balance', 'num_trucks_sold', 'amount_paid',
+        'total_sales_amount', 'differentials', 'loading_left_over', 'bank_name', 'account_number',
+        'submitted_by_name',
+      ];
+      reports.forEach((rpt, i) => {
+        const r = ws.getRow(HDR_ROW + 1 + i);
+        const isEven = i % 2 === 0;
+        r.values = [
+          '', i + 1,
+          String(rpt.location || '—'),
+          String(rpt.pfi_number || '—'),
+          Number(rpt.yesterday_carried_over_loading) || 0,
+          Number(rpt.product_brought_forward) || 0,
+          Number(rpt.litres_sold_today) || 0,
+          Number(rpt.price) || 0,
+          Number(rpt.tank_balance) || 0,
+          Number(rpt.num_trucks_sold) || 0,
+          Number(rpt.amount_paid) || 0,
+          Number(rpt.total_sales_amount) || 0,
+          Number(rpt.differentials) || 0,
+          Number(rpt.loading_left_over) || 0,
+          String(rpt.bank_name || ''),
+          String(rpt.account_number || ''),
+          stripTag(String(rpt.submitted_by_name || '')),
+        ];
+        if (isEven) {
+          r.eachCell({ includeEmpty: true }, (cell, col) => {
+            if (col > 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+          });
+        }
+        r.height = 20;
+      });
+
+      // Totals row
+      const sum = (key: string) => reports.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+      const totalsRow = ws.getRow(HDR_ROW + 1 + reports.length);
+      totalsRow.values = [
+        '', 'TOTAL', '', '',
+        sum('yesterday_carried_over_loading'),
+        sum('product_brought_forward'),
+        sum('litres_sold_today'),
+        '—',
+        sum('tank_balance'),
+        sum('num_trucks_sold'),
+        sum('amount_paid'),
+        sum('total_sales_amount'),
+        sum('differentials'),
+        sum('loading_left_over'),
+        '', '', '',
+      ];
+      totalsRow.eachCell({ includeEmpty: true }, (cell, col) => {
+        if (col <= 1) return;
+        cell.font = { bold: true };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F0FF' } };
+      });
+      totalsRow.height = 22;
+
+      // Column widths
+      const widths = [3, 4, 18, 14, 16, 16, 16, 14, 16, 10, 18, 20, 16, 14, 20, 18, 20];
+      widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${groupLabel.replace(/\s+/g, '_')}_${date}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast({ title: 'Export failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   // ── Cell renderers ─────────────────────────────────────────────────
   // NOTE: All input rendering is done inline (not as sub-components) to
   // prevent React from unmounting/remounting inputs on every render,
@@ -814,138 +945,9 @@ export default function DailySalesReport() {
               }
             />
 
-            {/* Report Confirmation & Dispatch Control */}
-            {(() => {
-              const statusData = approvalStatusQuery.data;
-              const isStatusLoading = approvalStatusQuery.isLoading;
-
-              if (isStatusLoading) {
-                return (
-                  <div className="bg-white/80 backdrop-blur-md border border-slate-200/60 shadow-sm rounded-xl p-5">
-                    <div className="flex items-center gap-3">
-                      <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-                      <span className="text-sm text-slate-500">Checking dispatch approval status...</span>
-                    </div>
-                  </div>
-                );
-              }
-
-              if (!statusData) return null;
-
-              const { approved, approved_at, approved_by_name, sent, sent_at, sent_log } = statusData;
-
-              // Determine status presentation
-              let statusText = "Pending";
-              let statusDesc = `The daily orders report for ${selectedDateKey} has not been approved yet. The 9:00PM schedule will skip sending it unless it's approved before then.`;
-              let badgeCls = "bg-amber-50 text-amber-700 border-amber-200";
-              let iconWrapCls = "bg-amber-50 border-amber-200";
-              let iconEl = <Info className="h-4.5 w-4.5 text-amber-600" />;
-
-              if (sent) {
-                statusText = "Sent";
-                statusDesc = `The daily orders report for ${selectedDateKey} has been sent to all admin and finance team members.`;
-                badgeCls = "bg-slate-100 text-slate-700 border-slate-300";
-                iconWrapCls = "bg-slate-100 border-slate-300";
-                iconEl = <Mail className="h-4.5 w-4.5 text-slate-600" />;
-              } else if (approved) {
-                statusText = "Approved";
-                statusDesc = `The daily orders report for ${selectedDateKey} is approved and will automatically be sent at 9:00PM tonight.`;
-                badgeCls = "bg-emerald-50 text-emerald-700 border-emerald-200";
-                iconWrapCls = "bg-emerald-50 border-emerald-200";
-                iconEl = <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600" />;
-              }
-
-              return (
-                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  {/* Header: status + description */}
-                  <div className="p-5 space-y-4">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full border", iconWrapCls)}>
-                        {iconEl}
-                      </span>
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm font-semibold text-slate-800">Today's Orders Report</h3>
-                          <span className={cn("px-2 py-0.5 rounded-full text-xs font-semibold border", badgeCls)}>
-                            {statusText}
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-600 leading-relaxed max-w-2xl">{statusDesc}</p>
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-2.5 pl-12">
-                      {!sent && !approved && (
-                        <Button
-                          size="sm"
-                          onClick={handleApprove}
-                          disabled={isMutating}
-                          className="bg-green-600 hover:bg-green-700 text-white font-semibold shadow-sm h-9 gap-1.5 px-4"
-                        >
-                          {isMutating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                          Approve Report
-                        </Button>
-                      )}
-
-                      <Button
-                        size="sm"
-                        onClick={handleSendImmediately}
-                        disabled={isMutating}
-                        className={cn(
-                          "font-semibold shadow-sm h-9 gap-1.5 px-4",
-                          sent
-                            ? "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
-                            : "bg-slate-900 hover:bg-slate-800 text-white"
-                        )}
-                      >
-                        {isMutating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                        {sent ? "Resend Now" : "Send Now"}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Meta footer: approval / dispatch details */}
-                  {(approved || sent) && (
-                    <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-3 space-y-2.5">
-                      {approved && (
-                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                          <span className="font-semibold text-slate-700">Approved by</span>
-                          <span>{approved_by_name || "System"}</span>
-                          <span className="text-slate-300">•</span>
-                          <span>{approved_at ? format(parseISO(approved_at), 'dd MMM yyyy, HH:mm') : '—'}</span>
-                        </div>
-                      )}
-
-                      {sent && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                            <span className="font-semibold text-slate-700">Sent at</span>
-                            <span>{sent_at ? format(parseISO(sent_at), 'dd MMM yyyy, HH:mm') : '—'}</span>
-                          </div>
-
-                          {sent_log && (
-                            <details className="group">
-                              <summary className="cursor-pointer text-xs font-medium text-slate-500 hover:text-slate-700 select-none">
-                                Dispatch logs
-                              </summary>
-                              <pre className={cn(
-                                "mt-1.5 font-mono text-xs p-3 rounded-lg border max-w-full overflow-x-auto max-h-[150px] leading-relaxed",
-                                sent_log.toLowerCase().includes("fail") || sent_log.toLowerCase().includes("error")
-                                  ? "bg-rose-50/70 text-rose-700 border-rose-200"
-                                  : "bg-slate-900 text-slate-200 border-slate-800"
-                              )}>
-                                {sent_log}
-                              </pre>
-                            </details>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            {/* Report Confirmation & Dispatch Control — commented out
+            {(() => { ... })()}
+            */}
 
             {/* Main table */}
             {/* <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -1017,199 +1019,205 @@ export default function DailySalesReport() {
             </div> */}
 
 
-            {/* ── Staff Submissions Panel ─────────────────────────── */}
+            {/* ── Sales Manager & Product Manager Reports ─────────── */}
             {(() => {
               const staffListQuery_data = staffDailyListQuery.data;
-              const staffReports: Record<string, unknown>[] = staffListQuery_data?.reports ?? [];
-              const staffCount: number = staffListQuery_data?.count ?? 0;
+              const allStaffReports: Record<string, unknown>[] = staffListQuery_data?.reports ?? [];
               const isStaffLoading = staffDailyListQuery.isLoading;
 
-              return (
-                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  {/* Header */}
-                  <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-5 py-3 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100">
-                        <Users size={14} className="text-blue-600" />
-                      </span>
-                      <h3 className="text-sm font-semibold text-slate-800">Staff Daily Reports</h3>
-                      {/* <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                        {isStaffLoading ? '…' : staffCount} location{staffCount !== 1 ? 's' : ''} submitted
-                      </span> */}
-                    </div>
-                    <div className="flex items-center gap-2">
+              const smReports = allStaffReports.filter(r => TAG_RE.exec(String(r.submitted_by_name ?? ''))?.[1] === 'SALES_MANAGER');
+              const pmReports = allStaffReports.filter(r => TAG_RE.exec(String(r.submitted_by_name ?? ''))?.[1] === 'PRODUCT_MANAGER');
+
+              const renderReportsPanel = (
+                reports: Record<string, unknown>[],
+                label: string,
+                accentCls: string,
+                iconCls: string,
+                isDownloading: boolean,
+                onDownload: () => void,
+              ) => {
+                const sum = (key: string) => reports.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+                return (
+                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-5 py-3 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className={`flex h-7 w-7 items-center justify-center rounded-lg ${iconCls}`}>
+                          <Users size={14} className={accentCls} />
+                        </span>
+                        <h3 className="text-sm font-semibold text-slate-800">{label}</h3>
+                        <span className="text-xs text-slate-400">{isStaffLoading ? '…' : reports.length} entr{reports.length === 1 ? 'y' : 'ies'}</span>
+                      </div>
                       <Button
                         variant="default"
                         size="sm"
-                        className="gap-1.5 h-8 text-xs text-white hover:bg-green-500"
-                        disabled={staffCount === 0 || !!isStaffDownloading}
-                        onClick={handleDownloadStaffExcel}
+                        className="gap-1.5 h-8 text-xs text-white bg-emerald-600 hover:bg-emerald-700"
+                        disabled={reports.length === 0 || isDownloading}
+                        onClick={onDownload}
                       >
-                        {isStaffDownloading === 'excel'
+                        {isDownloading
                           ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
-                          : <><FileSpreadsheet size={13} /> Excel</>
-                        }
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5 h-8 text-xs"
-                        disabled={staffCount === 0 || !!isStaffDownloading}
-                        onClick={handleDownloadStaffPdf}
-                      >
-                        {isStaffDownloading === 'pdf'
-                          ? <><Loader2 size={13} className="animate-spin" /> Generating…</>
-                          : <><FileText size={13} /> PDF</>
+                          : <><FileSpreadsheet size={13} /> Download Excel</>
                         }
                       </Button>
                     </div>
-                  </div>
 
-                  {/* Content */}
-                  {isStaffLoading ? (
-                    <div className="flex items-center gap-3 px-5 py-6 text-sm text-slate-400">
-                      <Loader2 size={15} className="animate-spin" /> Loading staff submissions…
-                    </div>
-                  ) : staffReports.length === 0 ? (
-                    <div className="flex flex-col items-center gap-2 px-5 py-10 text-center">
-                      <ClipboardCheck size={28} className="text-slate-200" />
-                      <p className="text-sm text-slate-400">No staff reports submitted for {selectedDateKey} yet.</p>
-                      <p className="text-xs text-slate-300">Staff can submit via the <strong className="text-slate-500">My Daily Report</strong> page.</p>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                            <th className="px-4 py-2.5 text-left">S/N</th>
-                            <th className="px-4 py-2.5 text-left">Location</th>
-                            <th className="px-4 py-2.5 text-left">PFI</th>
-                            <th className="px-4 py-2.5 text-right">Carried Over</th>
-                            <th className="px-4 py-2.5 text-right">Opening Qty</th>
-                            <th className="px-4 py-2.5 text-right">Qty Sold</th>
-                            <th className="px-4 py-2.5 text-right">Price</th>
-                            <th className="px-4 py-2.5 text-right">Tank Balance</th>
-                            <th className="px-4 py-2.5 text-right">Trucks</th>
-                            <th className="px-4 py-2.5 text-right">Amt Paid</th>
-                            <th className="px-4 py-2.5 text-right">Total Sales</th>
-                            <th className="px-4 py-2.5 text-right">Differentials</th>
-                            <th className="px-4 py-2.5 text-right">Leftover</th>
-                            <th className="px-4 py-2.5 text-left">Bank</th>
-                            <th className="px-4 py-2.5 text-left">Submitted By</th>
-                            <th className="px-4 py-2.5 text-right">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {staffReports.map((rpt, idx) => {
-                            const fmtN = (v: unknown) => {
-                              const n = Number(v);
-                              if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
-                              return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-                            };
-                            const fmtM = (v: unknown, decimal = false) => {
-                              const n = Number(v);
-                              if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
-                              return `₦${n.toLocaleString(undefined, { maximumFractionDigits: decimal ? 4 : 0 })}`;
-                            };
-                            const rowUnit = pfiUnitByNumber.get(String(rpt.pfi_number || '')) || 'Litres';
-                            const fmtQ = (v: unknown) => {
-                              const n = Number(v);
-                              if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
-                              return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${rowUnit}`;
-                            };
-                            return (
-                              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
-                                <td className="px-4 py-2.5 text-slate-400 text-xs">{idx + 1}</td>
-                                <td className="px-4 py-2.5 font-semibold text-slate-800">{String(rpt.location || '—')}</td>
-                                <td className="px-4 py-2.5 text-slate-600">{String(rpt.pfi_number || '—')}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtQ(rpt.yesterday_carried_over_loading)}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtQ(rpt.product_brought_forward)}</td>
-                                <td className="px-4 py-2.5 text-right font-medium text-slate-700">{fmtQ(rpt.litres_sold_today)}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtM(rpt.price, true)}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtQ(rpt.tank_balance)}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.num_trucks_sold)}</td>
-                                <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.amount_paid)}</td>
-                                <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.total_sales_amount)}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.differentials)}</td>
-                                <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.loading_left_over)}</td>
-                                <td className="px-4 py-2.5 text-xs text-slate-600">
-                                  {rpt.bank_name || rpt.account_number
-                                    ? `${rpt.bank_name || '—'}${rpt.account_number ? ` (${rpt.account_number})` : ''}`
-                                    : <span className="text-slate-300">NIL</span>}
-                                </td>
-                                <td className="px-4 py-2.5 text-xs text-slate-500">{String(rpt.submitted_by_name || '—')}</td>
-                                <td className="px-4 py-2.5 text-right">
-                                  {confirmDeleteId === Number(rpt.id) ? (
-                                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                                      <span className="text-xs text-red-600 font-medium">Delete?</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => deleteStaffReportMutation.mutate(Number(rpt.id))}
-                                        className="text-xs font-semibold text-red-600 hover:text-red-800"
-                                      >
-                                        Yes
-                                      </button>
-                                      <span className="text-slate-300">|</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setConfirmDeleteId(null)}
-                                        className="text-xs font-medium text-slate-500 hover:text-slate-700"
-                                      >
-                                        No
-                                      </button>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => openEditDialog(rpt)}
-                                        className="inline-flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-600"
-                                      >
-                                        <Pencil size={12} /> Edit
-                                      </button>
-                                      <span className="text-slate-200">|</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setConfirmDeleteId(Number(rpt.id))}
-                                        className="inline-flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600"
-                                      >
-                                        <Trash2 size={12} /> Delete
-                                      </button>
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                        {/* Totals row */}
-                        {staffReports.length > 0 && (() => {
-                          const sum = (key: string) => staffReports.reduce((s, r) => s + (Number(r[key]) || 0), 0);
-                          return (
-                            <tfoot>
-                              <tr className="border-t-2 border-slate-200 bg-blue-50/60 font-bold text-slate-800 text-xs">
-                                <td className="px-4 py-3 uppercase" colSpan={3}>Total</td>
-                                <td className="px-4 py-3 text-right">{sum('yesterday_carried_over_loading').toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right">{sum('product_brought_forward').toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right">{sum('litres_sold_today').toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right">—</td>
-                                <td className="px-4 py-3 text-right">{sum('tank_balance').toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right">{sum('num_trucks_sold').toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right text-emerald-700">₦{sum('amount_paid').toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right text-emerald-700">₦{sum('total_sales_amount').toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right">{sum('differentials').toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right">{sum('loading_left_over').toLocaleString()}</td>
-                                <td className="px-4 py-3"></td>
-                                <td className="px-4 py-3"></td>
-                                <td className="px-4 py-3"></td>
-                              </tr>
-                            </tfoot>
-                          );
-                        })()}
-                      </table>
-                    </div>
+                    {isStaffLoading ? (
+                      <div className="flex items-center gap-3 px-5 py-6 text-sm text-slate-400">
+                        <Loader2 size={15} className="animate-spin" /> Loading reports…
+                      </div>
+                    ) : reports.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 px-5 py-8 text-center">
+                        <ClipboardCheck size={24} className="text-slate-200" />
+                        <p className="text-sm text-slate-400">No {label.toLowerCase()} submitted for {selectedDateKey}.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              <th className="px-4 py-2.5 text-left">S/N</th>
+                              <th className="px-4 py-2.5 text-left">Location</th>
+                              <th className="px-4 py-2.5 text-left">PFI</th>
+                              <th className="px-4 py-2.5 text-right">Carried Over</th>
+                              <th className="px-4 py-2.5 text-right">Opening Qty</th>
+                              <th className="px-4 py-2.5 text-right">Qty Sold</th>
+                              <th className="px-4 py-2.5 text-right">Price</th>
+                              <th className="px-4 py-2.5 text-right">Tank Balance</th>
+                              <th className="px-4 py-2.5 text-right">Trucks</th>
+                              <th className="px-4 py-2.5 text-right">Amt Paid</th>
+                              <th className="px-4 py-2.5 text-right">Total Sales</th>
+                              <th className="px-4 py-2.5 text-right">Differentials</th>
+                              <th className="px-4 py-2.5 text-right">Leftover</th>
+                              <th className="px-4 py-2.5 text-left">Bank</th>
+                              <th className="px-4 py-2.5 text-left">Submitted By</th>
+                              <th className="px-4 py-2.5 text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {reports.map((rpt, idx) => {
+                              const fmtN = (v: unknown) => {
+                                const n = Number(v);
+                                if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
+                                return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+                              };
+                              const fmtM = (v: unknown, decimal = false) => {
+                                const n = Number(v);
+                                if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
+                                return `₦${n.toLocaleString(undefined, { maximumFractionDigits: decimal ? 4 : 0 })}`;
+                              };
+                              const rowUnit = pfiUnitByNumber.get(String(rpt.pfi_number || '')) || 'Litres';
+                              const fmtQ = (v: unknown) => {
+                                const n = Number(v);
+                                if (!Number.isFinite(n) || n === 0) return <span className="text-slate-300">NIL</span>;
+                                return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${rowUnit}`;
+                              };
+                              return (
+                                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                                  <td className="px-4 py-2.5 text-slate-400 text-xs">{idx + 1}</td>
+                                  <td className="px-4 py-2.5 font-semibold text-slate-800">{String(rpt.location || '—')}</td>
+                                  <td className="px-4 py-2.5 text-slate-600">{String(rpt.pfi_number || '—')}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-600">{fmtQ(rpt.yesterday_carried_over_loading)}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-600">{fmtQ(rpt.product_brought_forward)}</td>
+                                  <td className="px-4 py-2.5 text-right font-medium text-slate-700">{fmtQ(rpt.litres_sold_today)}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-600">{fmtM(rpt.price, true)}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-600">{fmtQ(rpt.tank_balance)}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.num_trucks_sold)}</td>
+                                  <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.amount_paid)}</td>
+                                  <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtM(rpt.total_sales_amount)}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.differentials)}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-600">{fmtN(rpt.loading_left_over)}</td>
+                                  <td className="px-4 py-2.5 text-xs text-slate-600">
+                                    {rpt.bank_name || rpt.account_number
+                                      ? `${rpt.bank_name || '—'}${rpt.account_number ? ` (${rpt.account_number})` : ''}`
+                                      : <span className="text-slate-300">NIL</span>}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-xs text-slate-500">{stripTag(String(rpt.submitted_by_name || '—'))}</td>
+                                  <td className="px-4 py-2.5 text-right">
+                                    {confirmDeleteId === Number(rpt.id) ? (
+                                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                        <span className="text-xs text-red-600 font-medium">Delete?</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => deleteStaffReportMutation.mutate(Number(rpt.id))}
+                                          className="text-xs font-semibold text-red-600 hover:text-red-800"
+                                        >
+                                          Yes
+                                        </button>
+                                        <span className="text-slate-300">|</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmDeleteId(null)}
+                                          className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                                        >
+                                          No
+                                        </button>
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => openEditDialog(rpt)}
+                                          className="inline-flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-600"
+                                        >
+                                          <Pencil size={12} /> Edit
+                                        </button>
+                                        <span className="text-slate-200">|</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmDeleteId(Number(rpt.id))}
+                                          className="inline-flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600"
+                                        >
+                                          <Trash2 size={12} /> Delete
+                                        </button>
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t-2 border-slate-200 bg-blue-50/60 font-bold text-slate-800 text-xs">
+                              <td className="px-4 py-3 uppercase" colSpan={3}>Total</td>
+                              <td className="px-4 py-3 text-right">{sum('yesterday_carried_over_loading').toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right">{sum('product_brought_forward').toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right">{sum('litres_sold_today').toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right">—</td>
+                              <td className="px-4 py-3 text-right">{sum('tank_balance').toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right">{sum('num_trucks_sold').toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right text-emerald-700">₦{sum('amount_paid').toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right text-emerald-700">₦{sum('total_sales_amount').toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right">{sum('differentials').toLocaleString()}</td>
+                              <td className="px-4 py-3 text-right">{sum('loading_left_over').toLocaleString()}</td>
+                              <td className="px-4 py-3" colSpan={3}></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              };
+
+              return (
+                <>
+                  {renderReportsPanel(
+                    smReports,
+                    'Sales Manager Reports',
+                    'text-indigo-600',
+                    'bg-indigo-100',
+                    isSMDownloading,
+                    () => downloadGroupExcel(smReports, 'Sales_Manager_Reports', selectedDateKey, setIsSMDownloading),
                   )}
-                </div>
+                  {renderReportsPanel(
+                    pmReports,
+                    'Product Manager Reports',
+                    'text-teal-600',
+                    'bg-teal-100',
+                    isPMDownloading,
+                    () => downloadGroupExcel(pmReports, 'Product_Manager_Reports', selectedDateKey, setIsPMDownloading),
+                  )}
+                </>
               );
             })()}
 

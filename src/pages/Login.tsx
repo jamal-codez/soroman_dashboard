@@ -38,6 +38,8 @@ function landingPageForRole(role: number | string): string {
       return '/staff-daily-report';
     case 15: // COMMISSION OFFICER
       return '/commissions';
+    case 18: // IT COMPLIANCE
+      return '/depot-view';
     default:
       return '/dashboard';
   }

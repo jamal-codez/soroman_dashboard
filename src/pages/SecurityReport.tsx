@@ -213,12 +213,21 @@ const generateGateReportPDF = (form: GateReportForm) => {
 
 // ── Dialog ───────────────────────────────────────────────────────────────
 
-function DailyGateReportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function DailyGateReportDialog({
+  open, onClose,
+  locations: propLocations,
+  pfis: propPfis,
+}: {
+  open: boolean;
+  onClose: () => void;
+  locations?: string[];
+  pfis?: string[];
+}) {
   const [form, setForm] = useState<GateReportForm>(buildInitialGateForm);
   const [submitted, setSubmitted] = useState(false);
 
-  const scopedLocations = readScopedLocations();
-  const scopedPfis = readScopedPfis();
+  const scopedLocations = propLocations?.length ? propLocations : readScopedLocations();
+  const scopedPfis = propPfis?.length ? propPfis : readScopedPfis();
 
   const set = (field: keyof GateReportForm) => (v: string) =>
     setForm(f => ({ ...f, [field]: v }));
@@ -825,6 +834,8 @@ export default function SecurityReportPage() {
       <DailyGateReportDialog
         open={gateReportOpen}
         onClose={() => setGateReportOpen(false)}
+        locations={locationOptions.map(l => l.name)}
+        pfis={pfiOptions.map(p => p.pfi_number)}
       />
     </div>
   );

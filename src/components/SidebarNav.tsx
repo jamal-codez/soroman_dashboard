@@ -70,6 +70,25 @@ type OrdersResults = { results?: Array<{ status?: string | null }> };
 //   LPG_STOCK: 13,  LPG Stock
 //   LPG_SALES: 14,  LPG Sales
 //   COMMISSIONS: 15,  Commissions
+//   SUPERADMIN: 0,            // Support
+//   ADMIN: 1,                 // Administration
+//   FINANCE: 2,               // Finance
+//   SALES: 3,                 // Sales
+//   RELEASE: 4,               // Ticketing
+//   SECURITY: 5,              // Security
+//   TRANSPORT: 6,             // Transport
+//   RELEASE_OFFICER: 7,       // Release
+//   AUDITOR: 8,               // Audit
+//   SALES_MANAGER: 9,         // Sales Manager
+//   PRODUCT_MANAGER: 10,      // Product Manager
+// // LPG_DASHBOARD: 11,  LPG Dashboard
+//   LPG_PLANTS: 12,  LPG Plants
+//   LPG_STOCK: 13,  LPG Stock
+//   LPG_SALES: 14,  LPG Sales
+//   COMMISSIONS: 15,          // Commissions
+//   COMMISSION_OFFICER: 16,   // Commission Officer
+//   DISPATCH: 17,             // Dispatch
+//   IT_COMPLIANCE: 18,        // IT Compliance (depot view read-only)
 
 type NavItem = { title: string; icon: React.ComponentType<{ size?: string | number; className?: string }>; path: string; allowedRoles: number[] };
 type NavCategory = { category: string; items: NavItem[] };
@@ -84,23 +103,23 @@ const navCategories: NavCategory[] = [
   {
     category: 'Sales',
     items: [
-      { title: "Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 3, 4, 6, 7, 8] },
+      { title: "Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 8, 18] },
       // { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,4,7,8,9] },
-      { title: "Pickup Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
-      { title: "Orders View", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 1, 8, 10] },
-      { title: "Sales Pipeline", icon: ActivityIcon, path: "/sales-manager-view", allowedRoles: [0, 1, 8, 9] },
+      { title: "Customers Data", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
+      { title: "Product Manager", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 8, 10] },
+      { title: "Sales Manager", icon: ActivityIcon, path: "/sales-manager-view", allowedRoles: [0, 1, 2, 9] },
+      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 7, 8] },
       // { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
     ],
   },
   {
     category: 'Dispatch',
     items: [
-      { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0, 1, 7, 8] },
-      { title: "Released Report", icon: ClipboardCheck, path: "/released-orders", allowedRoles: [0, 1, 4, 7, 8] },
+      // { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0, 1, 7, 8] },
+      // { title: "Released Report", icon: ClipboardCheck, path: "/released-orders", allowedRoles: [0, 1, 4, 7, 8] },
       { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 4, 7, 8, 17] },
-      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 7, 8] },
-      { title: "My Daily Report", icon: ClipboardList, path: "/staff-daily-report", allowedRoles: [0, 1, 7] },
-
+      // { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 7, 8] },
+      // { title: "My Daily Report", icon: ClipboardList, path: "/staff-daily-report", allowedRoles: [0, 1, 7] },
       // { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
       // { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0] },
       // { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0] },
@@ -138,16 +157,16 @@ const navCategories: NavCategory[] = [
       { title: "Bank Statements", icon: FileText, path: "/bank-statements", allowedRoles: [0, 1, 8] },
     ],
   },
-  {
-    category: 'LPG Division',
-    items: [
-      { title: "LPG Division", icon: Flame, path: "/lpg", allowedRoles: [0, 1, 8, 11, 12, 13, 14] },
-      { title: "LPG Dashboard", icon: Flame, path: "/lpg/dashboard", allowedRoles: [0, 1, 8, 11] },
-      { title: "LPG Plants", icon: Flame, path: "/lpg/plants", allowedRoles: [0, 1, 8, 12] },
-      { title: "LPG Stock Register", icon: Flame, path: "/lpg/stock", allowedRoles: [0, 1, 8, 13] },
-      { title: "LPG Sales Register", icon: Flame, path: "/lpg/sales", allowedRoles: [0, 1, 8, 14] },
-    ],
-  },
+  // {
+  //   category: 'LPG Division',
+  //   items: [
+  //     { title: "LPG Division", icon: Flame, path: "/lpg", allowedRoles: [0, 1, 8, 11, 12, 13, 14] },
+  //     { title: "LPG Dashboard", icon: Flame, path: "/lpg/dashboard", allowedRoles: [0, 1, 8, 11] },
+  //     { title: "LPG Plants", icon: Flame, path: "/lpg/plants", allowedRoles: [0, 1, 8, 12] },
+  //     { title: "LPG Stock Register", icon: Flame, path: "/lpg/stock", allowedRoles: [0, 1, 8, 13] },
+  //     { title: "LPG Sales Register", icon: Flame, path: "/lpg/sales", allowedRoles: [0, 1, 8, 14] },
+  //   ],
+  // },
   {
     category: 'Admin',
     items: [

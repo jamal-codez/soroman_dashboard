@@ -389,12 +389,21 @@ const buildInitialForm = (): DailyReportForm => {
   return { ...EMPTY_DAILY_REPORT, date: today, staffNameAndDate: staffLine };
 };
 
-const DailyReportDialog = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+const DailyReportDialog = ({
+  open, onClose,
+  locations: propLocations,
+  pfis: propPfis,
+}: {
+  open: boolean;
+  onClose: () => void;
+  locations?: string[];
+  pfis?: string[];
+}) => {
   const [form, setForm] = useState<DailyReportForm>(buildInitialForm);
   const [submitted, setSubmitted] = useState(false);
 
-  const scopedLocations = readScopedLocations();
-  const scopedPfis = readScopedPfis();
+  const scopedLocations = propLocations?.length ? propLocations : readScopedLocations();
+  const scopedPfis = propPfis?.length ? propPfis : readScopedPfis();
 
   const set = (field: keyof DailyReportForm) => (v: string) =>
     setForm(f => ({ ...f, [field]: v }));
@@ -1483,6 +1492,8 @@ export default function Commissions() {
       <DailyReportDialog
         open={dailyReportOpen}
         onClose={() => setDailyReportOpen(false)}
+        locations={uniqueLocations}
+        pfis={uniquePfis}
       />
     </div>
   );
