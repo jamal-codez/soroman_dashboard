@@ -91,8 +91,8 @@ type CommissionStatusFilter = 'all' | 'pending' | 'paid';
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ₦1/litre before 1 Jul 2026; ₦0.50/litre from 1 Jul 2026 onwards
-const COMMISSION_CUTOFF = new Date('2026-07-01T00:00:00');
+// ₦1/litre before 30 Jun 2026; ₦0.50/litre from 30 Jun 2026 onwards
+const COMMISSION_CUTOFF = new Date('2026-06-30T00:00:00');
 const getCommissionRate = (orderDate: string): number => {
   try {
     return parseISO(orderDate) >= COMMISSION_CUTOFF ? 0.5 : 1;
@@ -875,6 +875,7 @@ export default function Commissions() {
     const headers = [
       'Reference', 'Date', 'Facilitator', 'Phone', 'Location', 'PFI',
       'Trucks', 'Qty (L)', 'Commission', 'Status', 'Paid By',
+      'Bank Name', 'Account Name', 'Account Number',
     ];
 
     const rows = sortedOrders.map(o => {
@@ -893,12 +894,15 @@ export default function Commissions() {
         `N${getCommissionAmount(o).toLocaleString()}`,
         isPaid(o) ? 'PAID' : 'PENDING',
         o.commission_paid_by_name || '—',
+        o.commission_bank_name || '—',
+        o.commission_account_name || '—',
+        o.commission_account_number || '—',
       ].map(v => String(v).toUpperCase());
     });
 
     const totalsRow = [
       'TOTAL', '', '', '', '', '', '',
-      totalQty.toLocaleString(), `N${totalCommission.toLocaleString()}`, '', '',
+      totalQty.toLocaleString(), `N${totalCommission.toLocaleString()}`, '', '', '', '', '',
     ];
 
     const safeLabel = String(periodLabel).replace(/[/\\*?:[\]]/g, '-');
@@ -909,6 +913,7 @@ export default function Commissions() {
 
   const COLUMN_ALIGN: Array<'left' | 'center' | 'right'> = [
     'left', 'left', 'left', 'left', 'left', 'left', 'left', 'right', 'right', 'left', 'left',
+    'left', 'left', 'left',
   ];
 
   const handleExportExcel = async () => {
@@ -1001,7 +1006,7 @@ export default function Commissions() {
         cell.alignment = { vertical: 'middle', horizontal: COLUMN_ALIGN[ci] || 'left' };
       });
 
-      const widths = [18, 18, 22, 16, 16, 14, 30, 12, 14, 12, 18];
+      const widths = [18, 18, 22, 16, 16, 14, 30, 12, 14, 12, 18, 20, 24, 18];
       widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
       ws.views = [{ state: 'frozen', ySplit: headerRowIdx, showGridLines: false }];
 
@@ -1053,7 +1058,7 @@ export default function Commissions() {
         },
       });
 
-      const colWidthsMm = [20, 20, 26, 18, 18, 16, 40, 14, 16, 14, 22];
+      const colWidthsMm = [20, 20, 26, 18, 18, 16, 40, 14, 16, 14, 22, 22, 28, 22];
       const columnStyles: Record<number, { cellWidth: number; halign: 'left' | 'center' | 'right' }> = {};
       colWidthsMm.forEach((w, i) => { columnStyles[i] = { cellWidth: w, halign: COLUMN_ALIGN[i] || 'left' }; });
 
@@ -1110,7 +1115,7 @@ export default function Commissions() {
 
             <PageHeader
               title="Commissions"
-              description="Commission per litre paid to facilitators: ₦1/L before 1 Jul 2026, ₦0.50/L from 1 Jul 2026 onwards."
+              description="Commission per litre paid to facilitators: ₦1/L before 30 Jun 2026, ₦0.50/L from 30 Jun 2026 onwards."
               actions={
                 <div className="flex items-center gap-2">
                   <Button size="sm" className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setDailyReportOpen(true)}>
