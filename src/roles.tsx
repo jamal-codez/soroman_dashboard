@@ -14,6 +14,7 @@ export const ROLES = {
   COMMISSIONS: 15,          // Commissions
   COMMISSION_OFFICER: 16,   // Commission Officer
   DISPATCH: 17,             // Dispatch
+  IT_COMPLIANCE: 18,        // IT Compliance (depot view read-only)
 };
 
 /**

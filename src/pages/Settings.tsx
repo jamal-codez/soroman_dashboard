@@ -84,12 +84,16 @@ const roleMap: Record<number, string> = {
   6: 'Transport',
   7: 'Release',
   8: 'Audit',
-  9: 'Marketing',
-  10: 'Location Manager',
+  9: 'Sales Manager',
+  10: 'Product Manager',
   11: 'LPG Dashboard',
   12: 'LPG Plants',
   13: 'LPG Stock',
   14: 'LPG Sales',
+  15: 'Commissions',
+  16: 'Commission Officer',
+  17: 'Dispatch',
+  18: 'IT Compliance',
 };
 
 const roleColorMap: Record<number, string> = {
@@ -101,12 +105,16 @@ const roleColorMap: Record<number, string> = {
   6: 'text-cyan-600',
   7: 'text-orange-600',
   8: 'text-slate-500',
-  9: 'text-green-600',
+  9: 'text-indigo-600',
   10: 'text-teal-600',
   11: 'text-orange-600',
   12: 'text-orange-600',
   13: 'text-orange-600',
   14: 'text-orange-600',
+  15: 'text-emerald-700',
+  16: 'text-green-700',
+  17: 'text-sky-600',
+  18: 'text-slate-600',
 };
 
 const Settings = () => {
