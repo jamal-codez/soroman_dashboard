@@ -103,7 +103,7 @@ const navCategories: NavCategory[] = [
   {
     category: 'Sales',
     items: [
-      { title: "Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 8, 17, 18] },
+      { title: "Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 4, 8, 17, 18] },
       // { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,4,7,8,9] },
       { title: "Customers Data", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
       { title: "Product Manager", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 8, 10] },

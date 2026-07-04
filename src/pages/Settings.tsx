@@ -787,24 +787,35 @@ const Settings = () => {
                   className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
                   <option value="">Select a role</option>
-                  <optgroup label="Available Roles">
+                  <optgroup label="Administration">
                     <option value="1">Administration</option>
-                    <option value="3">Sales</option>
-                    <option value="9">Marketing</option>
-                    <option value="4">Ticketing</option>
-                    <option value="6">Transport</option>
-                    <option value="7">Release</option>
-                    <option value="2">Finance</option>
                     <option value="8">Audit</option>
-                    <option value="5">Security</option>
-                    <option value="10">Location Manager</option>
+                  </optgroup>
+                  <optgroup label="Sales">
+                    <option value="9">Sales Manager</option>
+                    <option value="10">Product Manager</option>
+                    <option value="3">Sales</option>
+                  </optgroup>
+                  <optgroup label="Finance">
+                    <option value="2">Finance</option>
                     <option value="15">Commissions</option>
+                    <option value="16">Commission Officer</option>
+                  </optgroup>
+                  <optgroup label="Operations">
+                    <option value="4">Ticketing</option>
+                    <option value="7">Release</option>
+                    <option value="17">Dispatch</option>
+                    <option value="5">Security</option>
+                    <option value="6">Transport</option>
                   </optgroup>
                   <optgroup label="LPG Division">
                     <option value="11">LPG Dashboard</option>
                     <option value="12">LPG Plants</option>
                     <option value="13">LPG Stock</option>
                     <option value="14">LPG Sales</option>
+                  </optgroup>
+                  <optgroup label="Other">
+                    <option value="18">IT Compliance</option>
                   </optgroup>
                 </select>
               </div>
