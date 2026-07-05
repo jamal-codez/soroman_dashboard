@@ -10,7 +10,7 @@ import { CommaInput } from '@/components/ui/comma-input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus, Wallet, ArrowLeftRight, CheckCircle2 } from 'lucide-react';
+import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus, Wallet, ArrowLeftRight, CheckCircle2, Flag, RotateCcw, Clock, Ban, AlertTriangle, CheckCheck } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -103,6 +103,10 @@ interface PaymentOrder {
   ticket_generated_at?: string | null;
   ticket_generated_by_name?: string | null;
 
+  // Overpayment resolution state
+  overpayment_flagged?: boolean;
+  overpayment_status?: 'flagged' | 'refund_requested' | 'refunded' | 'transfer_requested' | 'transferred' | null;
+
   // Bank snapshot fields
   paid_to_account_number?: string;
   paid_to_account_name?: string;
@@ -117,6 +121,21 @@ interface PaymentOrder {
 interface OrderResponse {
   count: number;
   results: PaymentOrder[];
+}
+
+interface OverpaymentRequest {
+  id: number;
+  source_order_id: number;
+  source_order_reference?: string;
+  target_order_id: number;
+  target_order_reference?: string;
+  amount: string;
+  narration?: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  requested_by_name?: string;
+  created_at: string;
+  reviewed_by_name?: string | null;
+  reviewed_at?: string | null;
 }
 
 const safeToNumber = (v: unknown): number => {
@@ -188,10 +207,28 @@ const parseAmountPaid = (narration: string | null | undefined): number | null =>
   return null;
 };
 
-/** Strip the [PAID:xxx] and [STATUS:xxx] prefixes from narration */
+/** Strip the [PAID:xxx], [STATUS:xxx], [OVP:xxx] prefixes from narration */
 const cleanNarration = (narration: string | null | undefined): string => {
   if (!narration) return '';
-  return narration.replace(/\[PAID:[\d.]+\]\s*/g, '').replace(/\[STATUS:[^\]]*\]\s*/g, '').trim();
+  return narration
+    .replace(/\[PAID:[\d.]+\]\s*/g, '')
+    .replace(/\[STATUS:[^\]]*\]\s*/g, '')
+    .replace(/\[OVP:[^\]]*\]\s*/g, '')
+    .trim();
+};
+
+const parseOvpStatus = (narration: string | null | undefined): string | null => {
+  if (!narration) return null;
+  const m = narration.match(/\[OVP:([^\]]+)\]/);
+  return m ? m[1] : null;
+};
+
+const isOverpaymentFlagged = (p: PaymentOrder): boolean => {
+  if (p.overpayment_flagged) return true;
+  const ovpStatus = p.overpayment_status;
+  if (ovpStatus && ovpStatus !== null) return true;
+  const narStatus = parseOvpStatus(p.payment_narration ?? p.narration);
+  return narStatus !== null;
 };
 
 /** Parse explicit status tag from narration */
@@ -448,11 +485,27 @@ export default function ConfirmedPayments() {
     },
   });
 
-  // ── Transfer overpayment to another order ──────────────────────────────
+  // ── Overpayment resolution flow ───────────────────────────────────────
+  const userRole = parseInt(localStorage.getItem('role') || '-1');
+  const isAdmin = userRole === 0 || userRole === 1;
+
+  // Flag dialog
+  const [flagSource, setFlagSource] = useState<PaymentOrder | null>(null);
+
+  // Refund dialog
+  const [refundSource, setRefundSource] = useState<PaymentOrder | null>(null);
+  const [refundNarration, setRefundNarration] = useState('');
+
+  // Request Transfer dialog (replaces direct transfer — needs admin approval)
   const [transferSource, setTransferSource] = useState<PaymentOrder | null>(null);
   const [transferTargetId, setTransferTargetId] = useState('');
   const [transferAmount, setTransferAmount] = useState('');
   const [transferNarration, setTransferNarration] = useState('');
+
+  // Admin pending requests panel
+  const [showRequestsPanel, setShowRequestsPanel] = useState(false);
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   const openTransferDialog = (p: PaymentOrder) => {
     const overpaid = Math.abs(Math.min(0, getOrderPaymentTotals(p).balance));
@@ -462,29 +515,116 @@ export default function ConfirmedPayments() {
     setTransferNarration('');
   };
 
-  const transferOverpaymentMutation = useMutation({
+  const openRefundDialog = (p: PaymentOrder) => {
+    const overpaid = Math.abs(Math.min(0, getOrderPaymentTotals(p).balance));
+    setRefundSource(p);
+    setRefundNarration('');
+    // pre-fill amount on the refund dialog via the refundSource
+    void overpaid; // used in dialog via closure
+  };
+
+  // Flag mutation
+  const flagOverpaymentMutation = useMutation({
+    mutationFn: async (p: PaymentOrder) => {
+      return apiClient.admin.flagOverpayment(p.id);
+    },
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['confirmed-payments-orders'] });
+      toast({ title: 'Overpayment flagged', description: 'The overpayment has been flagged for resolution.' });
+      setFlagSource(null);
+      setEditOrder(null);
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Flag failed', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  // Refund mutation
+  const [refundAmount, setRefundAmount] = useState('');
+  const refundOverpaymentMutation = useMutation({
+    mutationFn: async () => {
+      if (!refundSource) throw new Error('No source order');
+      const amt = parseFloat(refundAmount || '0');
+      if (!(amt > 0)) throw new Error('Enter an amount greater than zero');
+      return apiClient.admin.refundOverpayment(refundSource.id, {
+        amount: amt,
+        narration: refundNarration.trim() || undefined,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['confirmed-payments-orders'] });
+      toast({ title: 'Refund recorded', description: 'The overpayment refund has been recorded.' });
+      setRefundSource(null);
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Refund failed', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  // Request Transfer mutation (creates pending request, admin must approve)
+  const requestTransferMutation = useMutation({
     mutationFn: async () => {
       if (!transferSource) throw new Error('No source order selected');
       const targetId = Number(transferTargetId);
-      if (!Number.isFinite(targetId)) throw new Error('Enter a valid target order ID');
+      if (!Number.isFinite(targetId) || targetId <= 0) throw new Error('Enter a valid target order ID');
       const amt = parseFloat(transferAmount || '0');
       if (!(amt > 0)) throw new Error('Enter an amount greater than zero');
-      return apiClient.admin.transferOverpayment(transferSource.id, {
+      return apiClient.admin.requestOverpaymentTransfer(transferSource.id, {
         target_order_id: targetId,
         amount: amt,
         narration: transferNarration.trim() || undefined,
       });
     },
-    onSuccess: async (res) => {
+    onSuccess: async () => {
       await queryClient.refetchQueries({ queryKey: ['confirmed-payments-orders'] });
       toast({
-        title: 'Overpayment transferred',
-        description: `₦${parseFloat(res.amount).toLocaleString()} moved to order #${res.target_order_id}. New balances — source: ₦${parseFloat(res.source_balance).toLocaleString()}, target: ₦${parseFloat(res.target_balance).toLocaleString()}.`,
+        title: 'Transfer request submitted',
+        description: 'The request is pending admin approval. You\'ll be notified once approved.',
       });
       setTransferSource(null);
     },
     onError: (err: Error) => {
-      toast({ title: 'Transfer failed', description: err.message, variant: 'destructive' });
+      toast({ title: 'Request failed', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  // Admin: load pending transfer requests
+  const requestsQuery = useQuery({
+    queryKey: ['overpayment-requests', 'pending'],
+    queryFn: () => apiClient.admin.listOverpaymentRequests({ status: 'pending' }),
+    enabled: isAdmin,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+  const pendingRequests: OverpaymentRequest[] = (requestsQuery.data?.results ?? []) as OverpaymentRequest[];
+
+  // Admin: approve transfer request
+  const approveRequestMutation = useMutation({
+    mutationFn: (id: number) => apiClient.admin.approveOverpaymentRequest(id),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['overpayment-requests'] }),
+        queryClient.refetchQueries({ queryKey: ['confirmed-payments-orders'] }),
+      ]);
+      toast({ title: 'Transfer approved', description: 'The overpayment has been transferred successfully.' });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Approval failed', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  // Admin: reject transfer request
+  const rejectRequestMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      apiClient.admin.rejectOverpaymentRequest(id, reason),
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['overpayment-requests'] });
+      toast({ title: 'Request rejected', description: 'The transfer request has been rejected.' });
+      setRejectingId(null);
+      setRejectReason('');
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Rejection failed', description: err.message, variant: 'destructive' });
     },
   });
 
@@ -1290,18 +1430,36 @@ export default function ConfirmedPayments() {
               title="Payments Report"
               description="View all paid and released orders, with filters, totals, and export."
               actions={
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="default" className="gap-2">
-                      <Download className="h-4 w-4" />
-                      Download Report
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2 border-amber-300 text-amber-800 hover:bg-amber-50"
+                      onClick={() => setShowRequestsPanel(true)}
+                    >
+                      <Clock size={15} />
+                      Transfer Requests
+                      {pendingRequests.length > 0 && (
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
+                          {pendingRequests.length}
+                        </span>
+                      )}
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={exportToXLS}>Export as Excel (.xlsx)</DropdownMenuItem>
-                    <DropdownMenuItem onClick={exportToPDF}>Export as PDF</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  )}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="default" className="gap-2">
+                        <Download className="h-4 w-4" />
+                        Download Report
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={exportToXLS}>Export as Excel (.xlsx)</DropdownMenuItem>
+                      <DropdownMenuItem onClick={exportToPDF}>Export as PDF</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               }
             />
 
@@ -1988,25 +2146,80 @@ export default function ConfirmedPayments() {
                               {bal === 0 ? 'Complete' : bal > 0 ? `₦${bal.toLocaleString()} remaining` : `₦${Math.abs(bal).toLocaleString()} overpaid`}
                             </span>
                           </div>
-                          {bal < -0.01 && editOrder && (
-                            <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-blue-300 bg-blue-50 px-3.5 py-2.5">
-                              <span className="text-sm text-blue-900">
-                                This order is overpaid by <span className="font-bold">₦{Math.abs(bal).toLocaleString()}</span>. Transfer it to another order?
-                              </span>
-                              <Button
-                                type="button"
-                                size="sm"
-                                className="gap-1.5 shrink-0 bg-blue-600 hover:bg-blue-700"
-                                onClick={() => {
-                                  const source = editOrder;
-                                  setEditOrder(null);
-                                  openTransferDialog(source);
-                                }}
-                              >
-                                <ArrowLeftRight size={14} /> Transfer
-                              </Button>
-                            </div>
-                          )}
+                          {bal < -0.01 && editOrder && (() => {
+                            const flagged = isOverpaymentFlagged(editOrder);
+                            const ovpStatus = editOrder.overpayment_status ?? parseOvpStatus(editOrder.payment_narration ?? editOrder.narration);
+                            const resolved = ovpStatus === 'refunded' || ovpStatus === 'transferred';
+                            const requested = ovpStatus === 'transfer_requested';
+                            const refunded = ovpStatus === 'refunded';
+                            if (resolved) {
+                              return (
+                                <div className="mt-2 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5">
+                                  <CheckCheck size={14} className="text-emerald-600 shrink-0" />
+                                  <span className="text-sm text-emerald-800 font-medium">
+                                    Overpayment {refunded ? 'refunded' : 'transferred'} — resolved.
+                                  </span>
+                                </div>
+                              );
+                            }
+                            if (requested) {
+                              return (
+                                <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5">
+                                  <Clock size={14} className="text-amber-600 shrink-0" />
+                                  <span className="text-sm text-amber-800 font-medium">
+                                    Transfer request pending admin approval.
+                                  </span>
+                                </div>
+                              );
+                            }
+                            if (flagged) {
+                              return (
+                                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-3 space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+                                    <span className="text-sm font-semibold text-amber-900">
+                                      Overpaid ₦{Math.abs(bal).toLocaleString()} — flagged for resolution
+                                    </span>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="flex-1 gap-1.5 border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+                                      onClick={() => { const src = editOrder; setEditOrder(null); openRefundDialog(src); setRefundAmount(String(Math.abs(bal))); }}
+                                    >
+                                      <RotateCcw size={13} /> Refund
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      className="flex-1 gap-1.5 bg-blue-600 hover:bg-blue-700"
+                                      onClick={() => { const src = editOrder; setEditOrder(null); openTransferDialog(src); }}
+                                    >
+                                      <ArrowLeftRight size={13} /> Request Transfer
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-blue-300 bg-blue-50 px-3.5 py-2.5">
+                                <span className="text-sm text-blue-900">
+                                  Overpaid by <span className="font-bold">₦{Math.abs(bal).toLocaleString()}</span>. Flag to begin resolution.
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-1.5 shrink-0 border-amber-400 text-amber-800 hover:bg-amber-50"
+                                  onClick={() => setFlagSource(editOrder)}
+                                >
+                                  <Flag size={13} /> Flag
+                                </Button>
+                              </div>
+                            );
+                          })()}
                         </>
                       );
                     })()}
@@ -2178,16 +2391,106 @@ export default function ConfirmedPayments() {
               </DialogContent>
             </Dialog>
 
-            {/* ── Transfer Overpayment dialog ──────────────────────────────── */}
+            {/* ── Flag Overpayment confirmation ───────────────────────────── */}
+            <Dialog open={!!flagSource} onOpenChange={(v) => { if (!v) setFlagSource(null); }}>
+              <DialogContent className="sm:max-w-[420px]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-slate-950">
+                    <Flag size={18} className="text-amber-500" /> Flag Overpayment
+                  </DialogTitle>
+                  <DialogDescription className="text-slate-600">
+                    Flagging marks this overpayment as needing resolution. You can then choose to refund it or request a transfer to another order.
+                  </DialogDescription>
+                </DialogHeader>
+                {flagSource && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <div><span className="text-amber-800/70">Order:</span>{' '}
+                      <span className="font-semibold font-mono">{getOrderReference(flagSource) || flagSource.id}</span>
+                    </div>
+                    <div className="mt-1"><span className="text-amber-800/70">Overpaid by:</span>{' '}
+                      <span className="font-bold">₦{Math.abs(Math.min(0, getOrderPaymentTotals(flagSource).balance)).toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setFlagSource(null)}>Cancel</Button>
+                  <Button
+                    type="button"
+                    className="gap-2 bg-amber-500 hover:bg-amber-600 text-white"
+                    disabled={flagOverpaymentMutation.isPending}
+                    onClick={() => flagSource && flagOverpaymentMutation.mutate(flagSource)}
+                  >
+                    {flagOverpaymentMutation.isPending ? 'Flagging…' : <><Flag size={14} /> Flag Overpayment</>}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* ── Refund Overpayment dialog ────────────────────────────────── */}
+            <Dialog open={!!refundSource} onOpenChange={(v) => { if (!v) setRefundSource(null); }}>
+              <DialogContent className="sm:max-w-[440px]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-slate-950">
+                    <RotateCcw size={18} className="text-emerald-600" /> Record Refund
+                  </DialogTitle>
+                  <DialogDescription className="text-slate-600">
+                    Record that the overpayment was returned to the customer.
+                  </DialogDescription>
+                </DialogHeader>
+                {refundSource && (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                    <div><span className="text-emerald-800/70">Order:</span>{' '}
+                      <span className="font-semibold font-mono">{getOrderReference(refundSource) || refundSource.id}</span>
+                    </div>
+                    <div className="mt-1"><span className="text-emerald-800/70">Overpaid by:</span>{' '}
+                      <span className="font-bold">₦{Math.abs(Math.min(0, getOrderPaymentTotals(refundSource).balance)).toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Refund Amount (₦)</label>
+                    <CommaInput
+                      value={refundAmount}
+                      onValueChange={setRefundAmount}
+                      placeholder="Enter amount refunded"
+                      className="h-10 border-slate-300 text-slate-900 font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Narration (optional)</label>
+                    <Textarea
+                      value={refundNarration}
+                      onChange={(e) => setRefundNarration(e.target.value)}
+                      placeholder="e.g. Refunded via bank transfer on 04 Jul 2026"
+                      className="border-slate-300 text-slate-900"
+                      rows={2}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setRefundSource(null)}>Cancel</Button>
+                  <Button
+                    type="button"
+                    disabled={refundOverpaymentMutation.isPending || !refundAmount}
+                    className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                    onClick={() => refundOverpaymentMutation.mutate()}
+                  >
+                    {refundOverpaymentMutation.isPending ? 'Recording…' : <><RotateCcw size={14} /> Record Refund</>}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* ── Request Transfer dialog (pending admin approval) ─────────── */}
             <Dialog open={!!transferSource} onOpenChange={(v) => { if (!v) setTransferSource(null); }}>
               <DialogContent className="sm:max-w-[480px]">
                 <DialogHeader>
                   <DialogTitle className="text-slate-950 flex items-center gap-2">
-                    <ArrowLeftRight size={18} className="text-blue-600" /> Transfer Overpayment
+                    <ArrowLeftRight size={18} className="text-blue-600" /> Request Overpayment Transfer
                   </DialogTitle>
                   <DialogDescription className="text-slate-600">
-                    Move part or all of this order's overpayment onto another order's balance.
-                    Neither order's sales value changes — this just records a transfer between them.
+                    Submit a transfer request for admin approval. The transfer will execute once an admin approves it.
                   </DialogDescription>
                 </DialogHeader>
 
@@ -2257,17 +2560,139 @@ export default function ConfirmedPayments() {
                   </div>
                 </div>
 
+                <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+                  <Clock size={13} className="mt-0.5 shrink-0 text-slate-400" />
+                  This creates a pending request. An admin must approve it before the transfer executes.
+                </div>
+
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setTransferSource(null)}>Cancel</Button>
+                  <Button type="button" variant="outline" onClick={() => setTransferSource(null)}>Cancel</Button>
                   <Button
-                    disabled={transferOverpaymentMutation.isPending || !transferTargetId || !transferAmount}
-                    onClick={() => transferOverpaymentMutation.mutate()}
+                    type="button"
+                    disabled={requestTransferMutation.isPending || !transferTargetId || !transferAmount}
+                    onClick={() => requestTransferMutation.mutate()}
                   >
-                    {transferOverpaymentMutation.isPending ? 'Transferring...' : 'Transfer'}
+                    {requestTransferMutation.isPending ? 'Submitting…' : 'Submit Request'}
                   </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+
+            {/* ── Admin: Pending Transfer Requests panel ───────────────────── */}
+            {isAdmin && (
+              <Dialog open={showRequestsPanel} onOpenChange={(v) => { if (!v) setShowRequestsPanel(false); }}>
+                <DialogContent className="sm:max-w-[640px] max-h-[80vh] flex flex-col p-0">
+                  <div className="border-b border-slate-200 bg-slate-900 px-5 py-4 shrink-0 rounded-t-lg">
+                    <DialogHeader>
+                      <DialogTitle className="text-white flex items-center gap-2">
+                        <Clock size={16} className="text-amber-400" /> Overpayment Transfer Requests
+                      </DialogTitle>
+                      <DialogDescription className="text-slate-400">
+                        Review and approve or reject pending overpayment transfer requests.
+                      </DialogDescription>
+                    </DialogHeader>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-5 space-y-3">
+                    {requestsQuery.isLoading ? (
+                      <div className="flex items-center justify-center py-10 text-slate-400 text-sm gap-2">
+                        <span className="animate-spin inline-block w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full" />
+                        Loading requests…
+                      </div>
+                    ) : pendingRequests.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+                        <CheckCheck size={32} className="opacity-30" />
+                        <p className="text-sm">No pending transfer requests.</p>
+                      </div>
+                    ) : (
+                      pendingRequests.map((req) => (
+                        <div key={req.id} className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1 text-sm">
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-500">From:</span>
+                                <span className="font-semibold font-mono text-slate-800">
+                                  {req.source_order_reference ?? `#${req.source_order_id}`}
+                                </span>
+                                <ArrowLeftRight size={12} className="text-slate-400" />
+                                <span className="text-slate-500">To:</span>
+                                <span className="font-semibold font-mono text-slate-800">
+                                  {req.target_order_reference ?? `#${req.target_order_id}`}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-slate-500">
+                                <span>Amount: <span className="font-bold text-blue-700">₦{parseFloat(req.amount).toLocaleString()}</span></span>
+                                {req.requested_by_name && <span>By: {req.requested_by_name}</span>}
+                                <span>{format(new Date(req.created_at), 'dd MMM yyyy, HH:mm')}</span>
+                              </div>
+                              {req.narration && (
+                                <div className="text-xs text-slate-600 italic">"{req.narration}"</div>
+                              )}
+                            </div>
+                            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                              pending
+                            </span>
+                          </div>
+
+                          {rejectingId === req.id ? (
+                            <div className="space-y-2">
+                              <Input
+                                value={rejectReason}
+                                onChange={(e) => setRejectReason(e.target.value)}
+                                placeholder="Reason for rejection (optional)"
+                                className="h-9 text-sm border-slate-300"
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex-1"
+                                  onClick={() => { setRejectingId(null); setRejectReason(''); }}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  className="flex-1 gap-1.5"
+                                  disabled={rejectRequestMutation.isPending}
+                                  onClick={() => rejectRequestMutation.mutate({ id: req.id, reason: rejectReason })}
+                                >
+                                  <Ban size={13} /> {rejectRequestMutation.isPending ? 'Rejecting…' : 'Confirm Reject'}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="flex-1 gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                                onClick={() => { setRejectingId(req.id); setRejectReason(''); }}
+                              >
+                                <Ban size={13} /> Reject
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="flex-1 gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                                disabled={approveRequestMutation.isPending}
+                                onClick={() => approveRequestMutation.mutate(req.id)}
+                              >
+                                <CheckCheck size={13} /> {approveRequestMutation.isPending ? 'Approving…' : 'Approve & Transfer'}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
 
             {/* ── File Viewer Dialog ── */}
             <Dialog open={!!filesOrder} onOpenChange={(v) => { if (!v) { setFilesOrder(null); setFetchedFiles([]); } }}>

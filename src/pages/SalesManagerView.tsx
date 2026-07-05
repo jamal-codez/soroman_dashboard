@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   format, parseISO, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear,
@@ -150,6 +151,10 @@ const STEPS: Array<{ key: string; colLabel: string; check: (o: Order) => boolean
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 export default function SalesManagerView() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const autoOpenReport = new URLSearchParams(location.search).get('report') === 'true';
+
   const [preset,     setPreset]     = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo,   setCustomTo]   = useState('');
@@ -679,7 +684,7 @@ export default function SalesManagerView() {
               </div>
             </div>
 
-            <DailyReportPanel pageRole="SALES_MANAGER" />
+            <DailyReportPanel pageRole="SALES_MANAGER" initialOpen={autoOpenReport} />
 
           </div>
         </div>

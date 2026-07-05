@@ -58,15 +58,13 @@ const navCategories: NavCategory[] = [
     ],
   },
   {
-    category: 'Sales',
+    category: 'Orders',
     items: [
-      { title: "Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 8, 18] },
-      // { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,4,7,8,9] },
-      { title: "Customers Data", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
-      { title: "Product Manager", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 8, 10] },
-      { title: "Sales Manager", icon: ActivityIcon, path: "/sales-manager-view", allowedRoles: [0, 1, 2, 9] },
-      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 7, 8] },
-      // { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
+      { title: "All Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 4, 7, 8, 15, 16, 17, 18] },
+      { title: "Orders", icon: ActivityIcon, path: "/sales-manager-view", allowedRoles: [0, 9] },
+      { title: "Orders", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 10] },
+      { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
+      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 8] },
     ],
   },
   {

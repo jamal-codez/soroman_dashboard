@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   format, parseISO, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear,
@@ -142,6 +143,10 @@ const Tick = ({ done }: { done: boolean }) =>
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ProductManagerView() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const autoOpenReport = new URLSearchParams(location.search).get('report') === 'true';
+
   const [preset,     setPreset]     = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo,   setCustomTo]   = useState('');
@@ -723,7 +728,7 @@ export default function ProductManagerView() {
               </div>
             </div>
 
-            <DailyReportPanel pageRole="PRODUCT_MANAGER" />
+            <DailyReportPanel pageRole="PRODUCT_MANAGER" initialOpen={autoOpenReport} />
 
           </div>
         </div>

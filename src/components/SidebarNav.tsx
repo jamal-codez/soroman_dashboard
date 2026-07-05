@@ -93,6 +93,9 @@ type OrdersResults = { results?: Array<{ status?: string | null }> };
 type NavItem = { title: string; icon: React.ComponentType<{ size?: string | number; className?: string }>; path: string; allowedRoles: number[] };
 type NavCategory = { category: string; items: NavItem[] };
 
+// Every active role number — used for pages visible to all staff
+const ALL_ROLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+
 const navCategories: NavCategory[] = [
   {
     category: '',
@@ -101,95 +104,66 @@ const navCategories: NavCategory[] = [
     ],
   },
   {
-    category: 'Sales',
+    category: 'Orders',
     items: [
-      { title: "Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 4, 8, 17, 18] },
-      // { title: "Orders", icon: ClipboardCheck, path: "/orders", allowedRoles: [0,1,2,4,7,8,9] },
-      { title: "Customers Data", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
-      { title: "Product Manager", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 8, 10] },
-      { title: "Sales Manager", icon: ActivityIcon, path: "/sales-manager-view", allowedRoles: [0, 1, 2, 9] },
-      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 7, 8] },
-      // { title: "Delivery Customers", icon: UserCheck, path: "/buyers-list", allowedRoles: [0,1,3] },
+      { title: "All Orders", icon: FileArchiveIcon, path: "/depot-view", allowedRoles: [0, 1, 2, 4, 7, 8, 15, 16, 17, 18] },
+      { title: "Orders", icon: ActivityIcon, path: "/sales-manager-view", allowedRoles: [0, 9] },
+      { title: "Orders", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 10] },
+      { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
+      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 8] },
     ],
   },
   {
-    category: 'Dispatch',
+    category: 'My Reports',
     items: [
-      // { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0, 1, 7, 8] },
-      // { title: "Released Report", icon: ClipboardCheck, path: "/released-orders", allowedRoles: [0, 1, 4, 7, 8] },
-      { title: "Loading Tickets", icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 4, 7, 8, 17] },
-      // { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 7, 8] },
-      // { title: "My Daily Report", icon: ClipboardList, path: "/staff-daily-report", allowedRoles: [0, 1, 7] },
-      // { title: "Truck-Out Orders", icon: Truck, path: "/in-house-create", allowedRoles: [0,4] },
-      // { title: "Truck-Outs & Deliveries", icon: ClipboardCheck, path: "/in-house-records", allowedRoles: [0] },
-      // { title: "Record Sale", icon: Banknote, path: "/in-house-sales", allowedRoles: [0] },
+      // Each role sees one "My Report" item that goes to the dedicated report page
+      { title: "My Report", icon: ClipboardList, path: "/my-report", allowedRoles: [0, 5, 9, 10, 15, 16, 18] },
+    ],
+  },
+  {
+    category: 'Operations',
+    items: [
+      { title: "Loading Tickets",   icon: FileBadge2Icon, path: "/pickup-processing", allowedRoles: [0, 1, 4, 7, 8, 17] },
+      { title: "Security Clearance", icon: ShieldCheck,   path: "/security",          allowedRoles: [0, 1, 5, 8] },
+      { title: "Security Report",   icon: FileSearch2,    path: "/security-report",   allowedRoles: [0, 1, 5, 8] },
+    ],
+  },
+  {
+    category: 'Finance',
+    items: [
+      { title: "Verify Payments", icon: HourglassIcon,      path: "/payment-verify",     allowedRoles: [0, 1, 2, 8] },
+      { title: "Finance Report",  icon: FileBarChart2Icon,  path: "/confirmed-payments", allowedRoles: [0, 1, 2, 8] },
+      { title: "Commissions",     icon: Banknote,           path: "/commissions",        allowedRoles: [0, 1, 15, 16] },
+      { title: "Bank Accounts",   icon: LandmarkIcon,       path: "/finance",            allowedRoles: [0, 1, 2, 8] },
+      { title: "Bank Statements", icon: FileText,           path: "/bank-statements",    allowedRoles: [0, 1, 8] },
     ],
   },
   {
     category: 'Transport',
     items: [
-      { title: "Fleet Directory", icon: Truck, path: "/fleet-trucks", allowedRoles: [0, 1, 6, 8] },
-      { title: "Trucks Expense Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0, 1, 6, 8] },
+      { title: "Fleet Directory",     icon: Truck,    path: "/fleet-trucks", allowedRoles: [0, 1, 6, 8] },
+      { title: "Fleet Expense Ledger", icon: Banknote, path: "/fleet-ledger", allowedRoles: [0, 1, 6, 8] },
     ],
   },
   {
-    category: 'Truck Deliveries',
+    category: 'Truck Sales',
     items: [
-      { title: "Delivery Inventory", icon: Package, path: "/delivery-inventory", allowedRoles: [0, 1, 3, 6, 8] },
-      { title: "Delivery Customers", icon: UserCheck, path: "/delivery-customers-db", allowedRoles: [0, 1, 3, 6, 8] },
-      { title: "Sales Ledger", icon: ClipboardList, path: "/delivery-sales-ledger", allowedRoles: [0, 1, 3, 8] },
-      { title: "Filling Stations", icon: Fuel, path: "/filling-stations", allowedRoles: [0, 1, 3, 8] },
+      { title: "Delivery Inventory", icon: Package,     path: "/delivery-inventory",    allowedRoles: [0, 1, 3, 6, 8] },
+      { title: "Delivery Customers", icon: UserCheck,   path: "/delivery-customers-db", allowedRoles: [0, 1, 3, 6, 8] },
+      { title: "Sales Ledger",       icon: ClipboardList, path: "/delivery-sales-ledger", allowedRoles: [0, 1, 3, 8] },
+      { title: "Filling Stations",   icon: Fuel,        path: "/filling-stations",      allowedRoles: [0, 1, 3, 8] },
     ],
   },
-  // {
-  //   category: 'Location',
-  //   items: [
-  //     { title: "Orders Overview", icon: FileArchive, path: "/depot-view", allowedRoles: [0,10] },
-  //   ],
-  // },
-  {
-    category: 'Finance',
-    items: [
-      { title: "Verify Payments", icon: HourglassIcon, path: "/payment-verify", allowedRoles: [0, 1, 2, 8] },
-      { title: "Finance Report", icon: FileBarChart2Icon, path: "/confirmed-payments", allowedRoles: [0, 1, 2, 8] },
-      { title: "Commissions", icon: Banknote, path: "/commissions", allowedRoles: [0, 1, 7, 15, 16] },
-      { title: "Bank Accounts", icon: LandmarkIcon, path: "/finance", allowedRoles: [0, 1, 2, 8] },
-      { title: "Bank Statements", icon: FileText, path: "/bank-statements", allowedRoles: [0, 1, 8] },
-    ],
-  },
-  // {
-  //   category: 'LPG Division',
-  //   items: [
-  //     { title: "LPG Division", icon: Flame, path: "/lpg", allowedRoles: [0, 1, 8, 11, 12, 13, 14] },
-  //     { title: "LPG Dashboard", icon: Flame, path: "/lpg/dashboard", allowedRoles: [0, 1, 8, 11] },
-  //     { title: "LPG Plants", icon: Flame, path: "/lpg/plants", allowedRoles: [0, 1, 8, 12] },
-  //     { title: "LPG Stock Register", icon: Flame, path: "/lpg/stock", allowedRoles: [0, 1, 8, 13] },
-  //     { title: "LPG Sales Register", icon: Flame, path: "/lpg/sales", allowedRoles: [0, 1, 8, 14] },
-  //   ],
-  // },
   {
     category: 'Admin',
     items: [
-      { title: "Assign PFI", icon: TicketPlusIcon, path: "/orders-pfi", allowedRoles: [0] },
-      { title: "Product Pricing", icon: Tag, path: "/pricing", allowedRoles: [0, 1] },
-      { title: "PFI Tracking", icon: FileSearch2, path: "/pfi", allowedRoles: [0, 1, 2, 7, 8] },
-      { title: "Stock Management", icon: DropletIcon, path: "/inventory", allowedRoles: [0] },
-      { title: "Users Actions Log", icon: ActivityIcon, path: "/order-audit", allowedRoles: [0, 1, 8] },
-      { title: "Manage Users", icon: Users2Icon, path: "/users-management", allowedRoles: [0, 1, 8] },
-    ],
-  },
-  // {
-  //   category: 'Records',
-  //   items: [
-  //     { title: "Submit Record/Request", icon: FileText, path: "/documents", allowedRoles: [0,1,2,3,4,5,6,7,8,9] },
-  //     { title: "Records & Requests", icon: FileSearch2, path: "/records", allowedRoles: [0,1,2,7,8] },
-  //   ],
-  // },
-  {
-    category: 'Security',
-    items: [
-      { title: "Security Clearance", icon: ShieldCheck, path: "/security", allowedRoles: [0, 1, 5, 8] },
-      { title: "Security Report", icon: FileSearch2, path: "/security-report", allowedRoles: [0, 1, 5, 8] },
+      { title: "Reports Hub",      icon: FileBarChart2Icon, path: "/admin-reports",   allowedRoles: [0, 1, 8] },
+      { title: "Assign PFI",       icon: TicketPlusIcon,  path: "/orders-pfi",       allowedRoles: [0] },
+      { title: "Product Pricing",  icon: Tag,             path: "/pricing",          allowedRoles: [0, 1] },
+      { title: "PFI Tracking",     icon: FileSearch2,     path: "/pfi",              allowedRoles: [0, 1, 2, 7, 8] },
+      { title: "Stock Management", icon: DropletIcon,     path: "/inventory",        allowedRoles: [0] },
+      { title: "Users Log",        icon: ActivityIcon,    path: "/order-audit",      allowedRoles: [0, 1, 8] },
+      { title: "Manage Users",     icon: Users2Icon,      path: "/users-management", allowedRoles: [0, 1, 8] },
     ],
   },
   {
@@ -344,8 +318,9 @@ export const SidebarNav = React.memo(function SidebarNav() {
                 )}
 
                 {visibleItems.map((item) => {
-                  const isActive = location.pathname === item.path;
-                  const badgeCount = getBadgeCount(item.path);
+                  const itemPathname = item.path.split('?')[0];
+                  const isActive = location.pathname === itemPathname && !item.path.includes('?');
+                  const badgeCount = getBadgeCount(itemPathname);
 
                   return (
                     <a

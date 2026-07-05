@@ -78,7 +78,7 @@ const roleMap: Record<number, string> = {
   0: 'Superadmin',
   1: 'Administration',
   2: 'Finance',
-  3: 'Sales',
+  3: 'Truck Sales',
   4: 'Ticketing',
   5: 'Security',
   6: 'Transport',
@@ -794,7 +794,7 @@ const Settings = () => {
                   <optgroup label="Sales">
                     <option value="9">Sales Manager</option>
                     <option value="10">Product Manager</option>
-                    <option value="3">Sales</option>
+                    <option value="3">Truck Sales</option>
                   </optgroup>
                   <optgroup label="Finance">
                     <option value="2">Finance</option>

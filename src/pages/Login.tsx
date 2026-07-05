@@ -14,32 +14,44 @@ import {
 /** Map user role to their default landing page after login. */
 function landingPageForRole(role: number | string): string {
   switch (Number(role)) {
-    case 0: // SUPERADMIN
+    case 0:  // SUPERADMIN
       return '/dashboard';
-    case 1: // ADMIN
+    case 1:  // ADMIN
       return '/dashboard';
-    case 2: // FINANCE
+    case 2:  // FINANCE
       return '/payment-verify';
-    case 3: // SALES
+    case 3:  // TRUCK SALES
       return '/delivery-sales-ledger';
-    case 4: // TICKET OFFICE
+    case 4:  // TICKETING
       return '/pickup-processing';
-    case 5: // SECURITY
-      return '/security';
-    case 6: // TRANSPORT
+    case 5:  // SECURITY
+      return '/my-report';
+    case 6:  // TRANSPORT
       return '/fleet-ledger';
-    case 7: // RELEASE OFFICER
-      return '/confirm-release';
-    case 8: // AUDITOR (read-only)
+    case 7:  // RELEASE OFFICER
+      return '/pickup-processing';
+    case 8:  // AUDITOR
       return '/dashboard';
-    case 9: // MARKETING
-      return '/depot-view';
-    case 10: // LOCATION MANAGER
-      return '/staff-daily-report';
-    case 15: // COMMISSION OFFICER
+    case 9:  // SALES MANAGER
+      return '/sales-manager-view';
+    case 10: // PRODUCT MANAGER
+      return '/product-manager-view';
+    case 11: // LPG DASHBOARD
+      return '/lpg/dashboard';
+    case 12: // LPG PLANTS
+      return '/lpg/plants';
+    case 13: // LPG STOCK
+      return '/lpg/stock';
+    case 14: // LPG SALES
+      return '/lpg/sales';
+    case 15: // COMMISSIONS
       return '/commissions';
+    case 16: // COMMISSION OFFICER
+      return '/commissions';
+    case 17: // DISPATCH
+      return '/pickup-processing';
     case 18: // IT COMPLIANCE
-      return '/depot-view';
+      return '/my-report';
     default:
       return '/dashboard';
   }

@@ -717,6 +717,106 @@ export const apiClient = {
       }>;
     },
 
+    // POST /api/admin/orders/<orderId>/flag-overpayment/
+    flagOverpayment: async (orderId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/flag-overpayment/`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        throw new Error(String(body.error ?? body.detail ?? 'Failed to flag overpayment'));
+      }
+      return response.json();
+    },
+
+    // POST /api/admin/orders/<orderId>/refund-overpayment/
+    refundOverpayment: async (
+      orderId: number | string,
+      payload: { amount: number | string; narration?: string },
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/refund-overpayment/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        throw new Error(String(body.error ?? body.detail ?? 'Failed to record refund'));
+      }
+      return response.json();
+    },
+
+    // POST /api/admin/orders/<orderId>/request-transfer/ — creates a pending
+    // transfer request for admin approval instead of immediately executing.
+    requestOverpaymentTransfer: async (
+      sourceOrderId: number | string,
+      payload: { target_order_id: number | string; amount: number | string; narration?: string },
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${sourceOrderId}/request-transfer/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        throw new Error(String(body.error ?? body.detail ?? 'Failed to submit transfer request'));
+      }
+      return response.json() as Promise<{ id: number; status: string; message?: string }>;
+    },
+
+    // GET /api/admin/overpayment-requests/ — list transfer requests
+    listOverpaymentRequests: async (params?: { status?: string }) => {
+      const url = new URL(`${ADMIN_BASE}/overpayment-requests/`);
+      if (params?.status) url.searchParams.set('status', params.status);
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error('Failed to load overpayment requests');
+      return response.json() as Promise<{
+        count: number;
+        results: Array<{
+          id: number;
+          source_order_id: number;
+          source_order_reference?: string;
+          target_order_id: number;
+          target_order_reference?: string;
+          amount: string;
+          narration?: string | null;
+          status: 'pending' | 'approved' | 'rejected';
+          requested_by_name?: string;
+          created_at: string;
+          reviewed_by_name?: string | null;
+          reviewed_at?: string | null;
+        }>;
+      }>;
+    },
+
+    // POST /api/admin/overpayment-requests/<id>/approve/
+    approveOverpaymentRequest: async (requestId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/overpayment-requests/${requestId}/approve/`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        throw new Error(String(body.error ?? body.detail ?? 'Failed to approve request'));
+      }
+      return response.json();
+    },
+
+    // POST /api/admin/overpayment-requests/<id>/reject/
+    rejectOverpaymentRequest: async (requestId: number | string, reason?: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/overpayment-requests/${requestId}/reject/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ reason: reason ?? '' }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({} as Record<string, unknown>))) as Record<string, unknown>;
+        throw new Error(String(body.error ?? body.detail ?? 'Failed to reject request'));
+      }
+      return response.json();
+    },
+
     // Upload payment proof files for an order
     // POST /api/admin/orders/<orderId>/payment-files/  (multipart/form-data, field: "files")
     uploadPaymentFiles: async (orderId: number | string, files: File[]) => {
@@ -1594,6 +1694,8 @@ export const apiClient = {
       from?: string;
       to?: string;
       location?: string;
+      product?: string;
+      pfi?: string;
     }) => {
       const url = new URL(`${ADMIN_BASE}/order-audit/`);
       if (params) {

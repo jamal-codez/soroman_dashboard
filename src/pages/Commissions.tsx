@@ -5,6 +5,7 @@
 // click can't mark something paid), and exports a daily commission report.
 //
 import React, { useState, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -751,6 +752,9 @@ const ConfirmPayoutDialog = ({
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function Commissions() {
+  const routeLocation = useLocation();
+  const autoOpenReport = new URLSearchParams(routeLocation.search).get('report') === 'true';
+
   const [timePreset, setTimePreset] = useState<TimePreset>('month');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -762,7 +766,7 @@ export default function Commissions() {
   const [pfiFilter, setPfiFilter] = useState('all');
 
   const [payoutOrder, setPayoutOrder] = useState<Order | null>(null);
-  const [dailyReportOpen, setDailyReportOpen] = useState(false);
+  const [dailyReportOpen, setDailyReportOpen] = useState(autoOpenReport);
 
   const queryClient = useQueryClient();
 

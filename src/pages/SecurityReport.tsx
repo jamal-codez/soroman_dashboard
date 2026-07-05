@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { format, startOfWeek, startOfMonth, startOfYear, subDays } from "date-fns";
 import { SidebarNav } from "@/components/SidebarNav";
@@ -468,7 +469,9 @@ const PERIOD_OPTIONS: [Period, string][] = [
 
 export default function SecurityReportPage() {
   const { toast } = useToast();
+  const routeLocation = useLocation();
   const todayKey = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+  const autoOpenReport = new URLSearchParams(routeLocation.search).get("report") === "true";
 
   const [period, setPeriod] = useState<Period>("today");
   const [customMode, setCustomMode] = useState<CustomMode>("day");
@@ -478,7 +481,7 @@ export default function SecurityReportPage() {
   const [pfiId, setPfiId] = useState<string>(ALL);
   const [locationId, setLocationId] = useState<string>(ALL);
   const [downloading, setDownloading] = useState<"excel" | "pdf" | null>(null);
-  const [gateReportOpen, setGateReportOpen] = useState(false);
+  const [gateReportOpen, setGateReportOpen] = useState(autoOpenReport);
 
   const { dateFrom, dateTo } = useMemo(() => {
     const today = new Date();

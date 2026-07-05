@@ -328,7 +328,7 @@ const PAGE_LABELS: Record<string, string> = {
   SALES_MANAGER:   'Sales Manager Reports',
 };
 
-export function DailyReportPanel({ pageRole }: { pageRole: 'PRODUCT_MANAGER' | 'SALES_MANAGER' }) {
+export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT_MANAGER' | 'SALES_MANAGER'; initialOpen?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const today = format(new Date(), 'yyyy-MM-dd');
@@ -340,7 +340,7 @@ export function DailyReportPanel({ pageRole }: { pageRole: 'PRODUCT_MANAGER' | '
   // Name stored with page role tag for filtering
   const taggedName = `${staffName} [${pageRole}]`;
 
-  const [showForm, setShowForm]             = useState(false);
+  const [showForm, setShowForm]             = useState(!!initialOpen);
   const [editDate, setEditDate]             = useState(today);
   const [form, setForm]                     = useState<FormFields>(EMPTY);
   const [histPage, setHistPage]             = useState(1);
