@@ -66,6 +66,8 @@ const ProductManagerView = lazy(() => import("./pages/ProductManagerView"));
 const SalesManagerView = lazy(() => import("./pages/SalesManagerView"));
 const MyReportPage = lazy(() => import("./pages/MyReportPage"));
 const AdminReportsPage = lazy(() => import("./pages/AdminReportsPage"));
+const OverpaymentRequests = lazy(() => import("./pages/OverpaymentRequests"));
+const OverpaymentRefunds = lazy(() => import("./pages/OverpaymentRefunds"));
 
 const FeedbackForm = lazy(() => import("./pages/FeedbackForm") as Promise<{ default: React.ComponentType }>);
 const FeedbackDashboard = lazy(() => import("./pages/FeedbackDashboard") as Promise<{ default: React.ComponentType }>);
@@ -170,6 +172,8 @@ const App = () => (
               {/* All authenticated routes */}
               <Route path="/pfi" element={<Protected><PFIPage /></Protected>} />
               <Route path="/confirmed-payments" element={<Protected><ConfirmedPayments /></Protected>} />
+              <Route path="/overpayment-requests" element={<Protected><OverpaymentRequests /></Protected>} />
+              <Route path="/overpayment-refunds" element={<Protected><OverpaymentRefunds /></Protected>} />
               <Route path="/users-management" element={<Protected><Settings /></Protected>} />
               <Route path="/agents" element={<Protected><Agents /></Protected>} />
               <Route path="/order-audit" element={<Protected><OrderAudit /></Protected>} />

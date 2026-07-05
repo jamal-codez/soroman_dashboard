@@ -47,6 +47,8 @@ import {
   FileArchive,
   FileArchiveIcon,
   Flame,
+  RotateCcw,
+  ArrowLeftRight,
 } from "lucide-react";
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
@@ -110,7 +112,7 @@ const navCategories: NavCategory[] = [
       { title: "Orders", icon: ActivityIcon, path: "/sales-manager-view", allowedRoles: [0, 9] },
       { title: "Orders", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 10] },
       { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
-      { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 8] },
+      // { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 8] },
     ],
   },
   {
@@ -132,8 +134,10 @@ const navCategories: NavCategory[] = [
     category: 'Finance',
     items: [
       { title: "Verify Payments", icon: HourglassIcon,      path: "/payment-verify",     allowedRoles: [0, 1, 2, 8] },
-      { title: "Finance Report",  icon: FileBarChart2Icon,  path: "/confirmed-payments", allowedRoles: [0, 1, 2, 8] },
-      { title: "Commissions",     icon: Banknote,           path: "/commissions",        allowedRoles: [0, 1, 15, 16] },
+      { title: "Finance Report",       icon: FileBarChart2Icon, path: "/confirmed-payments",    allowedRoles: [0, 1, 2, 8] },
+      { title: "Overpayment Refunds",  icon: RotateCcw,         path: "/overpayment-refunds",   allowedRoles: [0, 1, 2, 8, 15, 16] },
+      { title: "Transfer Requests",    icon: ArrowLeftRight,    path: "/overpayment-requests",  allowedRoles: [0, 1, 2, 8] },
+      { title: "Commissions",          icon: Banknote,          path: "/commissions",           allowedRoles: [0, 1, 15, 16] },
       { title: "Bank Accounts",   icon: LandmarkIcon,       path: "/finance",            allowedRoles: [0, 1, 2, 8] },
       { title: "Bank Statements", icon: FileText,           path: "/bank-statements",    allowedRoles: [0, 1, 8] },
     ],
