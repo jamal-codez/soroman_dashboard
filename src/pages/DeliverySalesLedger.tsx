@@ -1027,6 +1027,14 @@ export default function DeliverySalesLedger() {
       const isMultiCustomer = byCustomer.size > 1;
 
       if (isMultiCustomer) {
+        const loadingTotalQty = toNum(loading.quantity_allocated);
+
+        // First pass: raw max quantity per customer from their payment records
+        const rawQtyMap = new Map<number | null, number>();
+        byCustomer.forEach((cPayments, cid) => {
+          rawQtyMap.set(cid, cPayments.reduce((mx, s) => Math.max(mx, toNum(s.quantity)), 0));
+        });
+
         byCustomer.forEach((customerPayments, custId) => {
           const customerObj = custId ? customerMap.get(custId) : null;
           const firstPayment = customerPayments[0];
@@ -1037,7 +1045,20 @@ export default function DeliverySalesLedger() {
           // All payment rows for the same customer on one truck load carry the
           // same allocated qty (e.g. Musa Bauchi 30,000L across 2 payment rows).
           // Summing would incorrectly double-count; max gives the true allocation.
-          const quantity = customerPayments.reduce((max, sale) => Math.max(max, toNum(sale.quantity)), 0);
+          let quantity = rawQtyMap.get(custId) ?? 0;
+
+          // If this customer's recorded quantity equals the entire loading allocation,
+          // the operator likely left the auto-filled truck total instead of entering
+          // their actual share. Infer the real allocation as the remainder after
+          // subtracting all other customers' quantities.
+          if (loadingTotalQty > 0 && quantity >= loadingTotalQty) {
+            const othersTotal = Array.from(rawQtyMap.entries())
+              .filter(([k]) => k !== custId)
+              .reduce((s, [, q]) => s + q, 0);
+            if (othersTotal > 0 && othersTotal < loadingTotalQty) {
+              quantity = loadingTotalQty - othersTotal;
+            }
+          }
 
           groups.push({
             key: `loading:${loading.id}:${custId ?? 'none'}`,
@@ -1148,7 +1169,76 @@ export default function DeliverySalesLedger() {
       });
     });
 
-    return groups;
+    // ── Post-processing: absorb orphan groups into their parent loading ──
+    // If a sale's date_loaded differs slightly from loading.date_allocated (a common
+    // data-entry inconsistency), the sale ends up as an orphan despite belonging to
+    // the same physical truck load. When there is exactly ONE loading group for the
+    // truck and the dates are within 60 days of each other, fold the orphan in.
+    const singleLoadingGroupByTruck = new Map<string, LedgerGroup>();
+    const multiLoadingTrucks = new Set<string>();
+    groups.forEach(g => {
+      // Only consider single-customer loading groups (key = "loading:X" not "loading:X:Y")
+      if (!g.key.startsWith('loading:')) return;
+      const parts = g.key.split(':');
+      if (parts.length !== 2) return; // skip multi-customer rows (loading:id:custId)
+      const truck = g.truckNumber.toUpperCase();
+      if (singleLoadingGroupByTruck.has(truck)) {
+        multiLoadingTrucks.add(truck);
+        singleLoadingGroupByTruck.delete(truck);
+      } else if (!multiLoadingTrucks.has(truck)) {
+        singleLoadingGroupByTruck.set(truck, g);
+      }
+    });
+
+    const absorbedKeys = new Set<string>();
+    const extraGroups: LedgerGroup[] = [];
+    const parentQuantityFixes = new Map<string, number>(); // loading group key → corrected qty
+
+    groups.forEach(orphan => {
+      if (!orphan.key.startsWith('sale:')) return;
+      const truck = orphan.truckNumber.toUpperCase();
+      const parent = singleLoadingGroupByTruck.get(truck);
+      if (!parent) return;
+
+      // Date-proximity check: only absorb when within 60 days
+      if (parent.dateLoaded && orphan.dateLoaded) {
+        try {
+          const d1 = parseISO(parent.dateLoaded).getTime();
+          const d2 = parseISO(orphan.dateLoaded).getTime();
+          if (Math.abs(d1 - d2) > 60 * 24 * 60 * 60 * 1000) return;
+        } catch { /* missing/invalid date — absorb anyway */ }
+      }
+
+      absorbedKeys.add(orphan.key);
+
+      // Add a new per-customer loading row for the absorbed orphan
+      extraGroups.push({
+        ...orphan,
+        key: `loading:${parent.loadingId}:${orphan.customerId ?? 'none'}`,
+        loadingId: parent.loadingId,
+        pfiNumber: parent.pfiNumber,
+        allocationCode: orphan.allocationCode || parent.allocationCode,
+        code: orphan.allocationCode || parent.allocationCode,
+        dateLoaded: parent.dateLoaded || orphan.dateLoaded,
+        depot: orphan.depot || parent.depot,
+      });
+
+      // Fix the parent's quantity: switch from loading.quantity_allocated to
+      // the sales-derived quantity (max across that customer's payment records)
+      const salesQty = parent.payments.reduce((mx, s) => Math.max(mx, toNum(s.quantity)), 0);
+      if (salesQty > 0) parentQuantityFixes.set(parent.key, salesQty);
+    });
+
+    const finalGroups = groups
+      .filter(g => !absorbedKeys.has(g.key))
+      .map(g => {
+        const fixedQty = parentQuantityFixes.get(g.key);
+        if (fixedQty === undefined) return g;
+        return { ...g, quantity: fixedQty };
+      });
+    finalGroups.push(...extraGroups);
+
+    return finalGroups;
   }, [allLoadings, allSales, customerMap, getLoadingPfiNumber]);
 
   const filteredLedgerGroups = useMemo(() => {
@@ -1333,32 +1423,30 @@ export default function DeliverySalesLedger() {
 
       const bal = toNum(group.balance);
       const isExpectedPositive = toNum(group.expected) > 0;
-      // A group with a truck number represents a real loaded truck — count it
-      // in the paid/pending split even when no payment has been recorded yet
-      // (e.g. filling-station trucks awaiting reconciliation), so it doesn't
-      // silently disappear from the summary and confuse reconciliation.
       const isLoadedTruck = !!group.truckNumber;
       const isFullyPaid = isExpectedPositive && bal <= 0;
-      const isSold = !!group.customerId;
       const hasPaymentEntered = toNum(group.totalPaid) > 0;
+      // "No payment yet" — nothing recorded at all
+      const hasNoPayout = group.payments.length === 0 || !hasPaymentEntered;
+      // Partially paid — has at least one payment but still has an outstanding balance
       const hasBalanceWithPayment = hasPaymentEntered && bal > 0;
 
       if (isLoadedTruck) {
         if (isFullyPaid) {
           fullyPaidCount += 1;
-        } else {
-          pendingPaymentCount += 1;
-        }
-
-        if (isSold) {
           soldCount += 1;
           const dayKey = (group.dateLoaded || '').split('T')[0];
           if (dayKey) dailySoldMap[dayKey] = (dailySoldMap[dayKey] || 0) + 1;
         } else {
-          notSoldCount += 1;
+          pendingPaymentCount += 1;
         }
 
-        if (hasBalanceWithPayment) withBalanceCount += 1;
+        // Not Sold = no payment recorded yet; With Balance = partial payment
+        if (hasNoPayout) {
+          notSoldCount += 1;
+        } else if (hasBalanceWithPayment) {
+          withBalanceCount += 1;
+        }
       }
 
       if (bal > 0) totalOutstanding += bal;
@@ -1379,13 +1467,11 @@ export default function DeliverySalesLedger() {
         if (group.truckNumber) sumObj.truckSet.add(group.truckNumber);
 
         if (isLoadedTruck) {
-          if (isFullyPaid) sumObj.fullyPaidCount += 1;
+          if (isFullyPaid) { sumObj.fullyPaidCount += 1; sumObj.soldCount += 1; }
           else sumObj.pendingCount += 1;
 
-          if (isSold) sumObj.soldCount += 1;
-          else sumObj.notSoldCount += 1;
-
-          if (hasBalanceWithPayment) sumObj.withBalanceCount += 1;
+          if (hasNoPayout) sumObj.notSoldCount += 1;
+          else if (hasBalanceWithPayment) sumObj.withBalanceCount += 1;
         }
       }
     });
@@ -3393,7 +3479,7 @@ export default function DeliverySalesLedger() {
                         <TableRow>
                           <TableHead className="font-semibold text-slate-700 w-[160px]">PFI Code</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[150px]">Qty Loaded</TableHead>
-                          <TableHead className="font-semibold text-slate-700 w-[110px]">Sold</TableHead>
+                          <TableHead className="font-semibold text-slate-700 w-[110px]">Fully Paid</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[150px]">With Balance</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[120px]">Not Sold</TableHead>
                           <TableHead className="font-semibold text-slate-700 w-[150px]">Expected Revenue</TableHead>
@@ -3442,7 +3528,7 @@ export default function DeliverySalesLedger() {
             )}
 
             {/* ── Trucks Sold/Assigned Per Day ─────────────────────────── */}
-            {activeView === 'ledger' && totals.dailySoldCounts.length > 0 && (
+            {/* {activeView === 'ledger' && totals.dailySoldCounts.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
                 <div>
                   <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5 uppercase">
@@ -3476,7 +3562,7 @@ export default function DeliverySalesLedger() {
                   </Table>
                 </div>
               </div>
-            )}
+            )} */}
 
             {/* ── Truck Ledger Table ───────────────────────────────── */}
             {activeView === 'ledger' && <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
@@ -3525,15 +3611,32 @@ export default function DeliverySalesLedger() {
                         let serial = 0;
                         const rows: React.ReactNode[] = [];
 
+                        // Identify loadingIds that have more than one customer group
+                        // so we can visually group them as "same truck" sub-rows.
+                        const multiCustCounts = new Map<number, number>();
+                        filteredLedgerGroups.forEach(g => {
+                          if (g.loadingId && g.key.split(':').length === 3) {
+                            multiCustCounts.set(g.loadingId, (multiCustCounts.get(g.loadingId) ?? 0) + 1);
+                          }
+                        });
+                        const multiCustLoadingIds = new Set(
+                          Array.from(multiCustCounts.entries()).filter(([, c]) => c > 1).map(([id]) => id)
+                        );
+                        const renderedMultiLoadings = new Set<number>();
+
                         filteredLedgerGroups.forEach(group => {
                           const theme = getCodeTheme(group.code);
                           const hasSetupDetails = !!(group.customerId && group.location && group.quantity && (group.expected > 0 || group.isFillingStation));
+
+                          const isMultiCustGroup = group.loadingId != null && multiCustLoadingIds.has(group.loadingId);
+                          const isFirstInMultiGroup = isMultiCustGroup && !renderedMultiLoadings.has(group.loadingId!);
+                          if (isMultiCustGroup) renderedMultiLoadings.add(group.loadingId!);
 
                           serial += 1;
                           rows.push(
                             <TableRow
                               key={`${group.key}-main`}
-                              className={`cursor-pointer hover:bg-slate-50/80 border-b border-slate-200/70 border-l-[3px] transition-colors ${theme ? theme.row : 'border-l-transparent'} ${expandedGroupKeys.has(group.key) ? 'bg-slate-50/50' : ''}`}
+                              className={`cursor-pointer hover:bg-slate-50/80 border-b border-slate-200/70 border-l-[3px] transition-colors ${isMultiCustGroup ? 'border-l-blue-400 bg-blue-50/10' : (theme ? theme.row : 'border-l-transparent')} ${expandedGroupKeys.has(group.key) ? 'bg-slate-50/50' : ''}`}
                               onClick={() => toggleGroupExpanded(group.key)}
                             >
                               <TableCell className="text-slate-500 text-center w-[48px] min-w-[48px] whitespace-nowrap">{serial}</TableCell>
@@ -3548,10 +3651,22 @@ export default function DeliverySalesLedger() {
                                 ) : <span className="text-slate-300">—</span>}
                               </TableCell>
                               <TableCell className="font-semibold text-slate-900 w-[120px] min-w-[120px] whitespace-nowrap">
-                                <div className="flex items-center gap-1.5">
-                                  <Truck size={13} className="text-amber-700" />
-                                  {group.truckNumber || '—'}
-                                </div>
+                                {isMultiCustGroup && !isFirstInMultiGroup ? (
+                                  <div className="flex items-center gap-1 pl-2 text-slate-500">
+                                    <span className="text-blue-400 font-bold text-base leading-none">↳</span>
+                                    <span className="text-xs text-slate-400 italic">same truck</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5">
+                                    <Truck size={13} className="text-amber-700" />
+                                    {group.truckNumber || '—'}
+                                    {isFirstInMultiGroup && (
+                                      <span className="ml-0.5 text-[10px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded-full border border-blue-200 whitespace-nowrap">
+                                        {multiCustCounts.get(group.loadingId!)} customers
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </TableCell>
                               <TableCell className="font-semibold text-slate-900 uppercase w-[180px] min-w-[180px] whitespace-nowrap">{group.customerName || '—'}</TableCell>
                               <TableCell className="text-slate-700 text-sm w-[150px] min-w-[150px] uppercase whitespace-nowrap">{group.location || '—'}</TableCell>
@@ -3807,29 +3922,29 @@ export default function DeliverySalesLedger() {
                         });
 
                         // Add Grand Totals Footer Row
-                        rows.push(
-                          <TableRow key="grand-totals-footer" className="bg-slate-100/90 font-bold border-t-2 border-slate-300 hover:bg-slate-100/90">
-                            <TableCell className="text-center font-bold text-slate-800">Σ</TableCell>
-                            <TableCell colSpan={5} className="font-bold text-slate-800 uppercase tracking-wider text-left pl-4">
-                              TOTALS ({filteredLedgerGroups.length} Cycles)
-                            </TableCell>
-                            <TableCell className="font-extrabold text-slate-900 whitespace-nowrap">
-                              {totals.totalQty > 0 ? `${fmtQty(totals.totalQty)} Ltrs` : '—'}
-                            </TableCell>
-                            <TableCell className="text-right text-slate-400">—</TableCell>
-                            <TableCell className="text-right font-extrabold text-slate-900 whitespace-nowrap">
-                              {totals.totalExpected > 0 ? fmt(totals.totalExpected) : '—'}
-                            </TableCell>
-                            <TableCell className="text-right font-extrabold text-emerald-800 whitespace-nowrap">
-                              {fmt(totals.totalPaid)}
-                            </TableCell>
-                            <TableCell className={`text-right font-extrabold whitespace-nowrap ${totals.outstanding > 0 ? 'text-red-700' : totals.outstanding < 0 ? 'text-blue-700' : 'text-emerald-700'
-                              }`}>
-                              {totals.outstanding === 0 ? '₦0' : totals.outstanding > 0 ? fmt(totals.outstanding) : `+${fmt(Math.abs(totals.outstanding))}`}
-                            </TableCell>
-                            <TableCell colSpan={4}></TableCell>
-                          </TableRow>
-                        );
+                        // rows.push(
+                        //   <TableRow key="grand-totals-footer" className="bg-slate-100/90 font-bold border-t-2 border-slate-300 hover:bg-slate-100/90">
+                        //     <TableCell className="text-center font-bold text-slate-800">Σ</TableCell>
+                        //     <TableCell colSpan={5} className="font-bold text-slate-800 uppercase tracking-wider text-left pl-4">
+                        //       TOTALS ({filteredLedgerGroups.length} Cycles)
+                        //     </TableCell>
+                        //     <TableCell className="font-extrabold text-slate-900 whitespace-nowrap">
+                        //       {totals.totalQty > 0 ? `${fmtQty(totals.totalQty)} Ltrs` : '—'}
+                        //     </TableCell>
+                        //     <TableCell className="text-right text-slate-400">—</TableCell>
+                        //     <TableCell className="text-right font-extrabold text-slate-900 whitespace-nowrap">
+                        //       {totals.totalExpected > 0 ? fmt(totals.totalExpected) : '—'}
+                        //     </TableCell>
+                        //     <TableCell className="text-right font-extrabold text-emerald-800 whitespace-nowrap">
+                        //       {fmt(totals.totalPaid)}
+                        //     </TableCell>
+                        //     <TableCell className={`text-right font-extrabold whitespace-nowrap ${totals.outstanding > 0 ? 'text-red-700' : totals.outstanding < 0 ? 'text-blue-700' : 'text-emerald-700'
+                        //       }`}>
+                        //       {totals.outstanding === 0 ? '₦0' : totals.outstanding > 0 ? fmt(totals.outstanding) : `+${fmt(Math.abs(totals.outstanding))}`}
+                        //     </TableCell>
+                        //     <TableCell colSpan={4}></TableCell>
+                        //   </TableRow>
+                        // );
 
                         return rows;
                       })()}

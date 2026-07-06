@@ -825,7 +825,7 @@ function ComplianceReportPanel() {
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label>PFI (optional)</Label>
+                <Label>PFI</Label>
                 <select aria-label="PFI" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   value={form.pfi} onChange={e => set('pfi')(e.target.value)}>
                   <option value="">All PFIs</option>

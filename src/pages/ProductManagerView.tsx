@@ -225,15 +225,14 @@ export default function ProductManagerView() {
     const total    = filtered.length;
     const pending  = filtered.filter(o => o.status === 'pending').length;
     const released = filtered.filter(o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['released']).length;
-    const trucks   = filtered.reduce((s, o) => s + (o.truck_tickets_count ?? 0), 0);
     const qty      = filtered.reduce((s, o) => s + toNum(o.quantity), 0);
     const amount   = filtered.reduce((s, o) => s + toNum(o.total_price), 0);
     const loaded   = filtered.filter(o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['loaded']).length;
     return [
-      { title: 'Total Orders',     value: String(total),    icon: <ClipboardList size={20} />, tone: 'neutral', description: `${pending} pending payment` },
-      { title: 'Pending Payment',  value: String(pending),  icon: <Clock        size={20} />, tone: 'amber',   description: 'awaiting payment' },
-      { title: 'Released',         value: String(released), icon: <ShieldCheck  size={20} />, tone: 'blue',    description: 'cumulative' },
-      { title: 'Loaded / Sold',    value: String(loaded),   icon: <Truck        size={20} />, tone: 'neutral', description: `${trucks} trucks total` },
+      { title: 'Total Orders',     value: String(total),    icon: <ClipboardList size={20} />, tone: 'neutral' },
+      { title: 'Pending Payment',  value: String(pending),  icon: <Clock        size={20} />, tone: 'amber'   },
+      { title: 'Released',         value: String(released), icon: <ShieldCheck  size={20} />, tone: 'blue'    },
+      { title: 'Loaded / Sold',    value: String(loaded),   icon: <Truck        size={20} />, tone: 'neutral' },
       { title: 'Total Qty (L)',    value: fmtQty(qty),      icon: <Package      size={20} />, tone: 'neutral' },
       { title: 'Total Amount',     value: amount > 0 ? `N${Math.round(amount).toLocaleString()}` : 'N0', icon: <DollarSign size={20} />, tone: 'green' },
     ];

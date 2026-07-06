@@ -225,19 +225,18 @@ export default function SalesManagerView() {
 
   const summaryCards = useMemo((): SummaryCard[] => {
     const total    = filtered.length;
-    const pending  = filtered.filter(o => o.status === 'pending').length;
     const paid     = filtered.filter(o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['paid']).length;
     const released = filtered.filter(o => (STATUS_RANK[o.status] ?? -1) >= STATUS_RANK['released']).length;
     const ticketed = filtered.filter(o => (o.truck_tickets_count ?? 0) > 0).length;
     const exited   = filtered.filter(o => o.status === 'sold').length;
     const trucks   = filtered.reduce((s, o) => s + (o.truck_tickets_count ?? 0), 0);
     return [
-      { title: 'Total Orders',      value: String(total),    icon: <Activity      size={20} />, tone: 'neutral', description: `${pending} pending payment` },
-      { title: 'Paid',              value: String(paid),     icon: <DollarSign    size={20} />, tone: 'green',   description: 'cumulative' },
-      { title: 'Released',          value: String(released), icon: <ShieldCheck   size={20} />, tone: 'blue',    description: 'cumulative' },
-      { title: 'Tickets Generated', value: String(ticketed), icon: <Package       size={20} />, tone: 'neutral', description: 'orders with ticket' },
-      { title: 'Security Exit',     value: String(exited),   icon: <CheckCircle2  size={20} />, tone: 'green',   description: 'marked sold' },
-      { title: 'Trucks Total',      value: String(trucks),   icon: <Truck         size={20} />, tone: 'neutral', description: 'truck tickets generated' },
+      { title: 'Total Orders',      value: String(total),    icon: <Activity      size={20} />, tone: 'neutral' },
+      { title: 'Paid',              value: String(paid),     icon: <DollarSign    size={20} />, tone: 'green'   },
+      { title: 'Released',          value: String(released), icon: <ShieldCheck   size={20} />, tone: 'blue'    },
+      { title: 'Tickets Generated', value: String(ticketed), icon: <Package       size={20} />, tone: 'neutral' },
+      { title: 'Security Exit',     value: String(exited),   icon: <CheckCircle2  size={20} />, tone: 'green'   },
+      { title: 'Trucks Total',      value: String(trucks),   icon: <Truck         size={20} />, tone: 'neutral' },
     ];
   }, [filtered]);
 
@@ -457,7 +456,7 @@ export default function SalesManagerView() {
           <div className="max-w-[1600px] mx-auto space-y-5">
 
             <PageHeader
-              title="Sales Pipeline"
+              title="Orders View"
               description={
                 scopedLocations.length > 0
                   ? `Scoped to: ${scopedLocations.join(', ')}${scopedPfis.length > 0 ? ` — PFI: ${scopedPfis.join(', ')}` : ''}`
