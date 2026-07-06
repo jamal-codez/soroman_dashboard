@@ -73,6 +73,16 @@ type BackendPfi = {
   security_exit_officer_name?: string | null;
   commission_officer?: number | null;
   commission_officer_name?: string | null;
+  sales_manager?: number | null;
+  sales_manager_name?: string | null;
+  // Closure data
+  closure_date?: string | null;
+  total_inflow?: number | string | null;
+  closure_bank?: string | null;
+  purchase_cost?: number | string | null;
+  aggregate_expenses?: number | string | null;
+  closure_handler?: string | null;
+  closure_remarks?: string | null;
   vessel_broker?: string | null;
   vessel_name?: string | null;
   surveyor_name?: string | null;
@@ -145,10 +155,21 @@ const EMPTY_CREATE_FORM = {
   itComplianceOfficer: '',
   securityExitOfficer: '',
   commissionOfficer: '',
+  salesManager: '',
   vesselBroker: '',
   vesselName: '',
   surveyorName: '',
   surveyorPhone: '',
+};
+
+const EMPTY_CLOSURE_FORM = {
+  closureDate: '',
+  totalInflow: '',
+  bank: '',
+  purchaseCost: '',
+  aggregateExpenses: '',
+  handler: '',
+  remarks: '',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -210,6 +231,14 @@ export default function PFIPage() {
   // ── Finish confirm ─────────────────────────────────────────────────
   const [finishConfirm, setFinishConfirm] = useState<FinishConfirmState>({ open: false });
   const [finishing, setFinishing] = useState(false);
+
+  // ── Closure form ───────────────────────────────────────────────────
+  const [closureTarget, setClosureTarget] = useState<BackendPfi | null>(null);
+  const [closureForm, setClosureForm] = useState(EMPTY_CLOSURE_FORM);
+  const [closureSaving, setClosureSaving] = useState(false);
+
+  // ── Detail view (click row) ────────────────────────────────────────
+  const [viewTarget, setViewTarget] = useState<(typeof enriched)[number] | null>(null);
 
   // ── Edit PFI ──────────────────────────────────────────────────────
   const [editTarget, setEditTarget] = useState<BackendPfi | null>(null);
@@ -435,6 +464,7 @@ export default function PFIPage() {
     it_compliance_officer: form.itComplianceOfficer ? Number(form.itComplianceOfficer) : null,
     security_exit_officer: form.securityExitOfficer ? Number(form.securityExitOfficer) : null,
     commission_officer: form.commissionOfficer ? Number(form.commissionOfficer) : null,
+    sales_manager: form.salesManager ? Number(form.salesManager) : null,
     vessel_broker: form.vesselBroker.trim() || undefined,
     vessel_name: form.vesselName.trim() || undefined,
     surveyor_name: form.surveyorName.trim() || undefined,
@@ -530,6 +560,7 @@ export default function PFIPage() {
       itComplianceOfficer: p.it_compliance_officer != null ? String(p.it_compliance_officer) : '',
       securityExitOfficer: p.security_exit_officer != null ? String(p.security_exit_officer) : '',
       commissionOfficer: p.commission_officer != null ? String(p.commission_officer) : '',
+      salesManager: p.sales_manager != null ? String(p.sales_manager) : '',
       vesselBroker: p.vessel_broker ?? '',
       vesselName: p.vessel_name ?? '',
       surveyorName: p.surveyor_name ?? '',
@@ -590,6 +621,44 @@ export default function PFIPage() {
     }
   }, [editTarget, editForm, editAllowedLocations, queryClient, toast]);
 
+  const openClosureForm = (p: BackendPfi) => {
+    setClosureTarget(p);
+    setClosureForm({
+      closureDate: new Date().toISOString().split('T')[0],
+      totalInflow: p.total_inflow != null ? String(p.total_inflow) : '',
+      bank: p.closure_bank ?? '',
+      purchaseCost: p.purchase_cost != null ? String(p.purchase_cost) : '',
+      aggregateExpenses: p.aggregate_expenses != null ? String(p.aggregate_expenses) : '',
+      handler: p.closure_handler ?? '',
+      remarks: p.closure_remarks ?? '',
+    });
+  };
+
+  const submitClosure = useCallback(async () => {
+    if (!closureTarget) return;
+    setClosureSaving(true);
+    try {
+      await apiClient.admin.updatePfi(closureTarget.id, {
+        closure_date: closureForm.closureDate || undefined,
+        total_inflow: closureForm.totalInflow ? Number(closureForm.totalInflow.replace(/,/g, '')) : undefined,
+        closure_bank: closureForm.bank.trim() || undefined,
+        purchase_cost: closureForm.purchaseCost ? Number(closureForm.purchaseCost.replace(/,/g, '')) : undefined,
+        aggregate_expenses: closureForm.aggregateExpenses ? Number(closureForm.aggregateExpenses.replace(/,/g, '')) : undefined,
+        closure_handler: closureForm.handler.trim() || undefined,
+        closure_remarks: closureForm.remarks.trim() || undefined,
+      });
+      await apiClient.admin.finishPfi(closureTarget.id);
+      await queryClient.invalidateQueries({ queryKey: ['pfis'] });
+      toast({ title: 'PFI closed', description: `${closureTarget.pfi_number} has been marked as finished.` });
+      setClosureTarget(null);
+      setViewTarget(null);
+    } catch (e) {
+      toast({ title: 'Failed to close PFI', description: (e as Error)?.message || 'Request failed', variant: 'destructive' });
+    } finally {
+      setClosureSaving(false);
+    }
+  }, [closureTarget, closureForm, queryClient, toast]);
+
   const selectedFinishPfi = useMemo(
     () => enriched.find(p => p.id === finishConfirm.pfiId),
     [finishConfirm.pfiId, enriched],
@@ -615,6 +684,7 @@ export default function PFIPage() {
       'IT Compliance Officer': p.it_compliance_officer_name ?? '',
       'Security Exit Officer': p.security_exit_officer_name ?? '',
       'Commission Officer': p.commission_officer_name ?? '',
+      'Sales Manager': p.sales_manager_name ?? '',
       'Vessel Broker': p.vessel_broker ?? '',
       'Vessel Name': p.vessel_name ?? '',
       'Surveyor Name': p.surveyor_name ?? '',
@@ -723,6 +793,7 @@ export default function PFIPage() {
           <StaffSelect id="itComplianceOfficer" label="IT Compliance Officer" value={form.itComplianceOfficer} onChange={sel('itComplianceOfficer')} options={staffOptions} />
           <StaffSelect id="securityExitOfficer" label="Security Exit Officer" value={form.securityExitOfficer} onChange={sel('securityExitOfficer')} options={staffOptions} />
           <StaffSelect id="commissionOfficer" label="Commission Officer" value={form.commissionOfficer} onChange={sel('commissionOfficer')} options={staffOptions} />
+          <StaffSelect id="salesManager" label="Sales Manager" value={form.salesManager} onChange={sel('salesManager')} options={staffOptions} />
         </div>
 
         <div className="h-px bg-slate-100" />
@@ -854,6 +925,7 @@ export default function PFIPage() {
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">IT Compliance</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Security Exit</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Commission Offr.</TableHead>
+                        <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Sales Manager</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Vessel Broker</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Vessel Name</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Surveyor</TableHead>
@@ -894,7 +966,8 @@ export default function PFIPage() {
                         return (
                           <TableRow
                             key={p.id}
-                            className={isActive ? 'hover:bg-slate-50/60 transition-colors' : 'bg-red-50/60 hover:bg-red-100/60 transition-colors'}
+                            className={`cursor-pointer ${isActive ? 'hover:bg-slate-50/60 transition-colors' : 'bg-red-50/60 hover:bg-red-100/60 transition-colors'}`}
+                            onClick={() => setViewTarget(p)}
                           >
                             <TableCell className={isActive ? 'text-slate-500' : 'text-red-400'}>{idx + 1}</TableCell>
                             <TableCell className={`text-xs whitespace-nowrap ${cell}`}>
@@ -923,6 +996,7 @@ export default function PFIPage() {
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.it_compliance_officer_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.security_exit_officer_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.commission_officer_name || dash}</TableCell>
+                            <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.sales_manager_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.vessel_broker || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.vessel_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.surveyor_name || dash}</TableCell>
@@ -951,10 +1025,10 @@ export default function PFIPage() {
                                 {isActive ? 'Active' : 'Finished'}
                               </span>
                             </TableCell>
-                            <TableCell>
+                            <TableCell onClick={e => e.stopPropagation()}>
                               <div className="flex items-center gap-2">
                                 <Button size="sm" variant={isActive ? 'default' : 'outline'} disabled={!isActive}
-                                  onClick={() => setFinishConfirm({ open: true, pfiId: p.id })} className="text-xs">
+                                  onClick={() => openClosureForm(p)} className="text-xs">
                                   Close
                                 </Button>
                                 <Button size="sm" variant="outline" className="text-xs gap-1" onClick={() => openEditPfi(p)}>
@@ -1052,34 +1126,222 @@ export default function PFIPage() {
       </Dialog>
 
       {/* ══════════════════════════════════════════════════════════════ */}
-      {/* Finish PFI Confirmation                                       */}
+      {/* PFI Detail View (click row)                                  */}
       {/* ══════════════════════════════════════════════════════════════ */}
-      <Dialog open={finishConfirm.open} onOpenChange={open => setFinishConfirm(s => ({ ...s, open }))}>
-        <DialogContent className="sm:max-w-[420px]">
+      <Dialog open={!!viewTarget} onOpenChange={open => { if (!open) setViewTarget(null); }}>
+        <DialogContent className="sm:max-w-[680px] max-h-[90vh] overflow-y-auto">
+          {viewTarget && (() => {
+            const isActive = viewTarget.status === 'active';
+            const dash = <span className="text-slate-300">—</span>;
+            const Row = ({ label, value }: { label: string; value: React.ReactNode }) => (
+              <div className="flex gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                <span className="w-44 shrink-0 text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</span>
+                <span className="text-sm text-slate-800">{value || dash}</span>
+              </div>
+            );
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${isActive ? 'bg-emerald-100' : 'bg-rose-100'}`}>
+                      <FileSearch2 className={`w-5 h-5 ${isActive ? 'text-emerald-600' : 'text-rose-600'}`} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold">{viewTarget.pfi_number}</h2>
+                      <p className="text-sm font-normal text-slate-500 mt-0.5">
+                        {viewTarget.productLabel} · {viewTarget.locationLabel}
+                        <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${isActive ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-700 bg-rose-50 border-rose-200'}`}>
+                          {isActive ? 'Active' : 'Finished'}
+                        </span>
+                      </p>
+                    </div>
+                  </DialogTitle>
+                  <DialogDescription className="sr-only">PFI detail view</DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-5 py-2">
+                  {/* Quantities */}
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Quantities</p>
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { label: 'Starting', value: `${fmtQty(viewTarget.starting)} L` },
+                        { label: 'Sold', value: `${fmtQty(viewTarget.sold)} L` },
+                        { label: 'Remaining', value: `${fmtQty(viewTarget.remaining)} L` },
+                      ].map(c => (
+                        <div key={c.label} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
+                          <p className="text-xs text-slate-400 font-semibold uppercase">{c.label}</p>
+                          <p className="text-base font-bold text-slate-800 mt-0.5">{c.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Officers */}
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Officers</p>
+                    <div className="rounded-lg border border-slate-200 divide-y divide-slate-100">
+                      <Row label="Audit Officer" value={viewTarget.audit_officer_name} />
+                      <Row label="Product Officer" value={viewTarget.product_officer_name} />
+                      <Row label="IT Compliance" value={viewTarget.it_compliance_officer_name} />
+                      <Row label="Security Exit" value={viewTarget.security_exit_officer_name} />
+                      <Row label="Commission Offr." value={viewTarget.commission_officer_name} />
+                      <Row label="Sales Manager" value={viewTarget.sales_manager_name} />
+                    </div>
+                  </div>
+
+                  {/* Vessel */}
+                  {(viewTarget.vessel_name || viewTarget.vessel_broker || viewTarget.surveyor_name) && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Vessel &amp; Surveyor</p>
+                      <div className="rounded-lg border border-slate-200 divide-y divide-slate-100">
+                        <Row label="Vessel Broker" value={viewTarget.vessel_broker} />
+                        <Row label="Vessel Name" value={viewTarget.vessel_name} />
+                        <Row label="Surveyor" value={viewTarget.surveyor_name} />
+                        <Row label="Surveyor Phone" value={viewTarget.surveyor_phone} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Closure data (finished PFIs) */}
+                  {!isActive && (viewTarget.closure_date || viewTarget.total_inflow || viewTarget.closure_remarks) && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-rose-400 mb-1">Closure Summary</p>
+                      <div className="rounded-lg border border-rose-200 divide-y divide-rose-100 bg-rose-50/30">
+                        <Row label="Closed Date" value={viewTarget.closure_date ? new Date(viewTarget.closure_date).toLocaleDateString() : null} />
+                        <Row label="Total Inflow" value={viewTarget.total_inflow ? fmtCurrency(coerceNumber(viewTarget.total_inflow)) : null} />
+                        <Row label="Bank" value={viewTarget.closure_bank} />
+                        <Row label="Purchase Cost" value={viewTarget.purchase_cost ? fmtCurrency(coerceNumber(viewTarget.purchase_cost)) : null} />
+                        <Row label="Aggregate Exp." value={viewTarget.aggregate_expenses ? fmtCurrency(coerceNumber(viewTarget.aggregate_expenses)) : null} />
+                        <Row label="Officer/Handler" value={viewTarget.closure_handler} />
+                        <Row label="Remarks" value={viewTarget.closure_remarks} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter className="gap-2 sm:gap-0">
+                  <Button variant="outline" onClick={() => setViewTarget(null)}>Close</Button>
+                  <Button variant="outline" className="gap-1" onClick={() => { setViewTarget(null); openEditPfi(viewTarget); }}>
+                    <Pencil size={13} /> Edit
+                  </Button>
+                  {isActive && (
+                    <Button className="gap-1 bg-rose-600 hover:bg-rose-700" onClick={() => { setViewTarget(null); openClosureForm(viewTarget); }}>
+                      <CheckCircle2 size={13} /> Close PFI
+                    </Button>
+                  )}
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* PFI Closure Form                                              */}
+      {/* ══════════════════════════════════════════════════════════════ */}
+      <Dialog open={!!closureTarget} onOpenChange={open => { if (!open) setClosureTarget(null); }}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className="bg-amber-100 p-2 rounded-lg">
-                <FileSearch2 className="w-5 h-5 text-amber-600" />
+              <div className="bg-rose-100 p-2 rounded-lg">
+                <CheckCircle2 className="w-5 h-5 text-rose-600" />
               </div>
-              <span>Close PFI?</span>
+              <div>
+                <h2 className="text-lg font-semibold">PFI Closure &amp; Submission Form</h2>
+                <p className="text-sm font-normal text-slate-500 mt-0.5">{closureTarget?.pfi_number}</p>
+              </div>
             </DialogTitle>
-            <DialogDescription className="pt-2 text-slate-600">
-              This will mark the PFI as <strong>finished</strong>. This action cannot be undone.
-            </DialogDescription>
+            <DialogDescription className="sr-only">PFI closure form</DialogDescription>
           </DialogHeader>
 
-          {selectedFinishPfi && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-1">
-              <p className="font-semibold text-slate-900">{selectedFinishPfi.pfi_number}</p>
-              <p className="text-sm text-slate-700">{selectedFinishPfi.productLabel} · {selectedFinishPfi.locationLabel}</p>
-              <div className="flex gap-4 mt-2 text-xs text-slate-600">
-                <span>Starting: <strong>{fmtQty(selectedFinishPfi.starting)} L</strong></span>
-                <span>Sold: <strong>{fmtQty(selectedFinishPfi.sold)} L</strong></span>
-                <span>Remaining: <strong>{fmtQty(selectedFinishPfi.remaining)} L</strong></span>
+          {closureTarget && (
+            <div className="space-y-4 py-1">
+              {/* Read-only header fields */}
+              <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div>
+                  <p className="text-xs text-slate-400 font-semibold uppercase">PFI No</p>
+                  <p className="text-sm font-bold text-slate-800">{closureTarget.pfi_number}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 font-semibold uppercase">Start Date</p>
+                  <p className="text-sm font-semibold text-slate-700">
+                    {closureTarget.pfi_date
+                      ? new Date(closureTarget.pfi_date).toLocaleDateString()
+                      : (closureTarget.created_at ? new Date(closureTarget.created_at).toLocaleDateString() : '—')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Editable fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-700">Date</Label>
+                  <Input type="date" value={closureForm.closureDate} onChange={e => setClosureForm(f => ({ ...f, closureDate: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-700">Closed Date</Label>
+                  <Input type="date" value={closureForm.closureDate} onChange={e => setClosureForm(f => ({ ...f, closureDate: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-700">Total Inflow (₦)</Label>
+                  <CommaInput placeholder="e.g. 50,000,000" value={closureForm.totalInflow} onValueChange={v => setClosureForm(f => ({ ...f, totalInflow: v }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-700">Bank</Label>
+                  <Input placeholder="Bank name" value={closureForm.bank} onChange={e => setClosureForm(f => ({ ...f, bank: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-700">Purchase Cost (₦)</Label>
+                  <CommaInput placeholder="e.g. 40,000,000" value={closureForm.purchaseCost} onValueChange={v => setClosureForm(f => ({ ...f, purchaseCost: v }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-700">Aggregate Expenses (₦)</Label>
+                  <CommaInput placeholder="e.g. 2,500,000" value={closureForm.aggregateExpenses} onValueChange={v => setClosureForm(f => ({ ...f, aggregateExpenses: v }))} />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">Officer / Handler</Label>
+                <Input placeholder="Name of handling officer" value={closureForm.handler} onChange={e => setClosureForm(f => ({ ...f, handler: e.target.value }))} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">Remarks</Label>
+                <Input placeholder="Any closing remarks or notes" value={closureForm.remarks} onChange={e => setClosureForm(f => ({ ...f, remarks: e.target.value }))} />
+              </div>
+
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                This will permanently mark <strong>{closureTarget.pfi_number}</strong> as finished. This action cannot be undone.
               </div>
             </div>
           )}
 
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setClosureTarget(null)} disabled={closureSaving}>Cancel</Button>
+            <Button onClick={submitClosure} disabled={closureSaving} className="gap-2 bg-rose-600 hover:bg-rose-700">
+              {closureSaving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+              {closureSaving ? 'Closing…' : 'Submit & Close PFI'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Legacy finish confirm kept for fallback — not triggered from UI */}
+      <Dialog open={finishConfirm.open} onOpenChange={open => setFinishConfirm(s => ({ ...s, open }))}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Close PFI?</DialogTitle>
+            <DialogDescription className="pt-2 text-slate-600">
+              This will mark the PFI as <strong>finished</strong>. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setFinishConfirm({ open: false })} disabled={finishing}>Cancel</Button>
             <Button
@@ -1087,8 +1349,7 @@ export default function PFIPage() {
                 if (finishConfirm.pfiId) void finishPfi(finishConfirm.pfiId);
                 setFinishConfirm({ open: false });
               }}
-              disabled={finishing}
-              className="gap-2"
+              disabled={finishing} className="gap-2"
             >
               {finishing ? <Loader2 size={16} className="animate-spin" /> : null}
               {finishing ? 'Finishing…' : 'Yes, close PFI'}
