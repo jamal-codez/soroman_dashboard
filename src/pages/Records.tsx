@@ -7,6 +7,7 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { getCurrentUserRoles } from '@/roles';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
@@ -193,8 +194,7 @@ const getPresetRange = (preset: TimePreset): { from: Date | null; to: Date | nul
 export default function Records() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const role = parseInt(localStorage.getItem('role') || '10');
-  const isAdmin = role <= 1;
+  const isAdmin = getCurrentUserRoles().some((r) => r <= 1);
 
   // ── Filters ────────────────────────────────────────────────────────
   const [timePreset, setTimePreset] = useState<TimePreset>('month');

@@ -13,6 +13,7 @@ import { ArrowLeftRight, CheckCircle2, Ban, Clock, Search, X } from 'lucide-reac
 import { format } from 'date-fns';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
+import { getCurrentUserRoles } from '@/roles';
 
 type OvpRequest = {
   id: number;
@@ -38,8 +39,7 @@ const STATUS_STYLE: Record<string, string> = {
 export default function OverpaymentRequests() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const userRole = parseInt(localStorage.getItem('role') || '-1');
-  const canAct = userRole === 0 || userRole === 1 || userRole === 8;
+  const canAct = getCurrentUserRoles().some((r) => r === 0 || r === 1 || r === 8);
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [search, setSearch] = useState('');

@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
+import { getCurrentUserRoles } from '@/roles';
 
 type PagedCount = { count?: number };
 type OrdersResults = { results?: Array<{ status?: string | null }> };
@@ -182,12 +183,13 @@ export const SidebarNav = React.memo(function SidebarNav() {
   const [expanded, setExpanded] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
-  const role = parseInt(localStorage.getItem('role') || '-1');
+  const userRoles = getCurrentUserRoles();
 
   const handleLogout = async () => {
     try { await apiClient.admin.logoutUser(); } catch { /* ignore — clear locally regardless */ }
     localStorage.removeItem('token');
     localStorage.removeItem('role');
+    localStorage.removeItem('roles');
     localStorage.removeItem('fullname');
     localStorage.removeItem('label');
     navigate('/login');
@@ -305,7 +307,7 @@ export const SidebarNav = React.memo(function SidebarNav() {
         <div className={cn("space-y-1", expanded ? "px-2" : "px-1")}>
           {navCategories.map((group) => {
             // Only show the category if at least one item is visible to this role
-            const visibleItems = group.items.filter((item) => item.allowedRoles.includes(role));
+            const visibleItems = group.items.filter((item) => item.allowedRoles.some((r) => userRoles.includes(r)));
             if (visibleItems.length === 0) return null;
 
             return (

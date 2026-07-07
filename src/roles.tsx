@@ -27,10 +27,29 @@ export function isReadOnlyRole(role?: number | string | null): boolean {
   return r === ROLES.AUDITOR || r === ROLES.SALES_MANAGER;
 }
 
-/** Convenience: read the role from localStorage and check */
+/**
+ * Reads the full set of roles assigned to the current user from localStorage.
+ * Falls back to the single legacy `role` value for sessions logged in before
+ * multi-role support existed (or if `roles` was never set).
+ */
+export function getCurrentUserRoles(): number[] {
+  try {
+    const raw = localStorage.getItem('roles');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(Number);
+    }
+  } catch {
+    // fall through to legacy single-role fallback
+  }
+  const legacy = Number(localStorage.getItem('role'));
+  return Number.isFinite(legacy) ? [legacy] : [];
+}
+
+/** Convenience: read the role(s) from localStorage and check if ANY of them are read-only. */
 export function isCurrentUserReadOnly(): boolean {
   try {
-    return isReadOnlyRole(localStorage.getItem('role'));
+    return getCurrentUserRoles().some(isReadOnlyRole);
   } catch {
     return false;
   }

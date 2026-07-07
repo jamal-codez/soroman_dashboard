@@ -4,7 +4,7 @@
  * Excel: one sheet per location. PDF: per-location sections.
  * Summary cards show global totals for the filtered period.
  */
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { format, subDays } from 'date-fns';
 import { useQuery } from '@tanstack/react-query';
 import jsPDF from 'jspdf';
@@ -20,9 +20,10 @@ import { apiClient } from '@/api/client';
 import {
   Loader2, CalendarDays, FileSpreadsheet, FileText,
   MapPin, Fuel, X, Package, FileBarChart2,
-  ShieldCheck, BarChart2, Banknote, TrendingUp, Monitor,
+  ShieldCheck, BarChart2, Banknote, TrendingUp, Monitor, Mail,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -542,6 +543,10 @@ export default function AdminReportsPage() {
   const [pfiFilter, setPfi]             = useState('all');
   const [exportingPDF, setExportingPDF] = useState(false);
   const [exportingXLS, setExportingXLS] = useState(false);
+  const [showEmailComposer, setShowEmailComposer] = useState(false);
+  const [recipientEmails, setRecipientEmails] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const { toast } = useToast();
 
   const selectedDate = useMemo(() => {
     if (period === 'today')     return todayStr();
@@ -640,6 +645,37 @@ export default function AdminReportsPage() {
   const pfiLabel  = pfiFilter === 'all' ? 'All PFIs' : pfiFilter;
   const hasFilters = locationFilter !== 'all' || pfiFilter !== 'all';
 
+  const handleSendEmail = async () => {
+    const recipients = recipientEmails
+      .split(/[\n,]+/)
+      .map(address => address.trim())
+      .filter(Boolean);
+
+    if (recipients.length === 0) {
+      toast({ title: 'Add recipients', description: 'Enter at least one email address before sending.', variant: 'destructive' });
+      return;
+    }
+
+    if (allEntries.length === 0) {
+      toast({ title: 'No report data', description: 'There is nothing to email for this date yet.', variant: 'destructive' });
+      return;
+    }
+
+    setSendingEmail(true);
+    try {
+      const res = await apiClient.admin.sendStaffDailyReportEmail(selectedDate, recipients);
+      toast({
+        title: 'Report Sent',
+        description: res.message || `The daily report for ${dateLabel} was emailed to ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}.`,
+      });
+      setShowEmailComposer(false);
+    } catch (error: any) {
+      toast({ title: 'Send Failed', description: error.message || 'Could not send the report.', variant: 'destructive' });
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   const handlePDF = async () => {
     setExportingPDF(true);
     try { await exportPDF(locationSections, dateLabel, locLabel, pfiLabel); }
@@ -676,6 +712,11 @@ export default function AdminReportsPage() {
                       : <FileText size={14} />}
                     Export PDF
                   </Button> */}
+                  <Button variant="outline" size="sm" className="gap-2"
+                    onClick={() => setShowEmailComposer(v => !v)}>
+                    <Mail size={14} />
+                    {showEmailComposer ? 'Hide Email' : 'Email Report'}
+                  </Button>
                   <Button variant="default" size="sm" className="gap-2"
                     onClick={handleExcel}
                     disabled={exportingXLS || filteredEntries.length === 0 || isLoading}>
@@ -687,6 +728,40 @@ export default function AdminReportsPage() {
                 </div>
               }
             />
+
+            {showEmailComposer && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Send this report by email</p>
+                    <p className="text-xs text-slate-500">
+                      Enter recipients (comma or new-line separated) and we'll email the full report for {dateLabel}.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="report-recipients" className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Recipients</label>
+                  <textarea
+                    id="report-recipients"
+                    rows={4}
+                    value={recipientEmails}
+                    onChange={e => setRecipientEmails(e.target.value)}
+                    placeholder="name@company.com, another@company.com"
+                    className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-slate-300"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end">
+                  <Button size="sm" className="gap-2" onClick={handleSendEmail} disabled={sendingEmail}>
+                    {sendingEmail
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Mail size={14} />}
+                    {sendingEmail ? 'Sending…' : 'Send Report'}
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {/* ── Filter panel ── */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-4">

@@ -29,7 +29,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { apiClient, fetchAllPages } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
-import { isCurrentUserReadOnly } from '@/roles';
+import { isCurrentUserReadOnly, getCurrentUserRoles } from '@/roles';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -177,13 +177,10 @@ export default function ConfirmRelease() {
   const [actionNotes, setActionNotes] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
-  const userRole = useMemo(() => {
-    try {
-      const r = localStorage.getItem('role');
-      return r !== null ? Number(r) : null;
-    } catch { return null; }
-  }, []);
-  const isAuthorized = userRole !== null && [0, 1, 7, 8].includes(userRole);
+  const isAuthorized = useMemo(
+    () => getCurrentUserRoles().some((r) => [0, 1, 7, 8].includes(r)),
+    [],
+  );
   const readOnly = isCurrentUserReadOnly();
 
   // ═══════════════════════════════════════════════════════════════════

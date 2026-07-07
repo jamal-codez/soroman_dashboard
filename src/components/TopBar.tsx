@@ -1,17 +1,16 @@
 import React from 'react';
 import { MapPin } from 'lucide-react';
-import { ROLES } from '@/roles';
+import { ROLES, getCurrentUserRoles } from '@/roles';
 
 export const TopBar = React.memo(function TopBar() {
   const fullName = (localStorage.getItem('fullname') || '').trim();
-  const role = Number(localStorage.getItem('role') ?? '-1');
 
   // location_names stored at login — pre-resolved names, no API call needed
   const scopeNames: string[] = (() => {
     try { return JSON.parse(localStorage.getItem('location_names') || '[]'); } catch { return []; }
   })();
 
-  const isSuperAdmin = role === ROLES.SUPERADMIN;
+  const isSuperAdmin = getCurrentUserRoles().includes(ROLES.SUPERADMIN);
 
   const handleLogout = async () => {
     try {
@@ -20,6 +19,7 @@ export const TopBar = React.memo(function TopBar() {
     } catch { /* ignore */ }
     localStorage.removeItem('token');
     localStorage.removeItem('role');
+    localStorage.removeItem('roles');
     localStorage.removeItem('fullname');
     localStorage.removeItem('label');
     localStorage.removeItem('locations');

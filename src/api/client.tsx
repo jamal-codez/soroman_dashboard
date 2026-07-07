@@ -39,6 +39,7 @@ const handleSessionExpired = () => {
   _sessionExpiredFired = true;
   localStorage.removeItem('token');
   localStorage.removeItem('role');
+  localStorage.removeItem('roles');
   localStorage.removeItem('fullname');
   localStorage.removeItem('label');
   window.location.href = '/login';
@@ -132,6 +133,7 @@ export const apiClient = {
       full_name: string;
       phone_number: string;
       role?: number;
+      roles?: number[];
       suspended?: boolean;
       location?: string;
       locations?: number[];
@@ -1617,7 +1619,16 @@ export const apiClient = {
       URL.revokeObjectURL(blobUrl);
     },
 
-
+    /** POST /api/admin/reports/staff/send-email/ — backend emails the full staff report to the given recipients */
+    sendStaffDailyReportEmail: async (date: string, recipients: string[]) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/staff/send-email/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ date, recipients }),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{ message: string; recipients: string[] }>;
+    },
 
     updateUser: async (userId: number, data: Record<string, unknown>) => {
       const response = await safeFetch(`${ADMIN_BASE}/users/${userId}/`, {

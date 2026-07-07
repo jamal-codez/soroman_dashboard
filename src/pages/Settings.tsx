@@ -53,7 +53,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
-import { ROLES } from '@/roles';
+import { ROLES, getCurrentUserRoles } from '@/roles';
 
 type UserType = {
   id: number;
@@ -61,6 +61,7 @@ type UserType = {
   email: string;
   phone_number: string;
   role: number;
+  roles?: number[];
   suspended: boolean;
   last_login: string;
   last_login_ip?: string | null;
@@ -96,6 +97,17 @@ const roleMap: Record<number, string> = {
   18: 'IT Compliance',
 };
 
+// Grouped role options for the multi-select role picker — same grouping the
+// old single-select optgroups used.
+const ROLE_GROUPS: { label: string; roles: number[] }[] = [
+  { label: 'Administration', roles: [1, 8] },
+  { label: 'Sales', roles: [9, 10, 3] },
+  { label: 'Finance', roles: [2, 15, 16] },
+  { label: 'Operations', roles: [4, 7, 17, 5, 6] },
+  { label: 'LPG Division', roles: [11, 12, 13, 14] },
+  { label: 'Other', roles: [18] },
+];
+
 const roleColorMap: Record<number, string> = {
   1: 'text-purple-600',
   2: 'text-blue-600',
@@ -130,7 +142,8 @@ const Settings = () => {
     email: '',
     password: '',
     phone_number: '',
-    role: '1',
+    roles: [1] as number[],  // all assigned roles
+    primaryRole: '1',        // which of `roles` drives login redirect / report panel
     suspended: false,
     location: '',
     locations: [] as number[], // scoped state IDs
@@ -148,9 +161,8 @@ const Settings = () => {
 
   const { toast } = useToast();
 
-  // Current logged-in user role — only SUPERADMIN can manage location scopes
-  const currentUserRole = Number(localStorage.getItem('role') ?? '-1');
-  const isSuperAdmin = currentUserRole === ROLES.SUPERADMIN;
+  // Current logged-in user's roles — only SUPERADMIN can manage location scopes
+  const isSuperAdmin = getCurrentUserRoles().includes(ROLES.SUPERADMIN);
 
   // Fetch states from API
   const { data: statesRaw } = useQuery({
@@ -204,12 +216,17 @@ const Settings = () => {
 
   const LOCATIONS = ['Headquarters', 'Lagos', 'Calabar', 'Port Harcourt', 'Warri'];
 
+  // A user's full role set — falls back to the single primary role for
+  // accounts that predate multi-role support (empty/missing `roles`).
+  const userRoleList = (user: UserType): number[] =>
+    user.roles && user.roles.length > 0 ? user.roles : [user.role];
+
   const filteredUsers = users
     .filter(user => {
       const matchesSearch =
         user.full_name.toLowerCase().includes(searchQuery) ||
         user.email.toLowerCase().includes(searchQuery);
-      const matchesRole = roleFilter === 'all' || String(user.role) === roleFilter;
+      const matchesRole = roleFilter === 'all' || userRoleList(user).includes(Number(roleFilter));
       const matchesLocation =
         locationFilter === 'all' ||
         (locationFilter === 'none'
@@ -238,7 +255,8 @@ const Settings = () => {
         email: user.email,
         password: user.plain_password || '',
         phone_number: user.phone_number,
-        role: String(user.role),
+        roles: userRoleList(user),
+        primaryRole: String(user.role),
         suspended: user.suspended,
         location: user.location || '',
         locations: user.locations ?? [],
@@ -251,7 +269,8 @@ const Settings = () => {
         email: '',
         password: '',
         phone_number: '',
-        role: '1',
+        roles: [1],
+        primaryRole: '1',
         suspended: false,
         location: '',
         locations: [],
@@ -269,7 +288,8 @@ const Settings = () => {
       email: '',
       password: '',
       phone_number: '',
-      role: '1',
+      roles: [1],
+      primaryRole: '1',
       suspended: false,
       location: '',
       locations: [],
@@ -287,6 +307,13 @@ const Settings = () => {
     e.preventDefault();
     if (!validateForm()) return;
 
+    // The primary role must always be one of the assigned roles — fall back to
+    // the first checked role if the picked primary somehow isn't among them.
+    const primaryRoleNum = formData.roles.includes(Number(formData.primaryRole))
+      ? Number(formData.primaryRole)
+      : formData.roles[0];
+    const hasSuperAdminRole = formData.roles.includes(ROLES.SUPERADMIN);
+
     setIsLoading(true);
     try {
       if (editingUser) {
@@ -294,11 +321,12 @@ const Settings = () => {
           email: formData.email,
           full_name: formData.full_name,
           phone_number: formData.phone_number,
-          role: parseInt(formData.role),
+          role: primaryRoleNum,
+          roles: formData.roles,
           suspended: formData.suspended,
           location: formData.location.trim() || undefined,
-          // Only SUPERADMIN can change location/PFI scope; only send if not a SUPERADMIN target
-          ...(isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+          // Only SUPERADMIN can change location/PFI scope; only send if the user isn't a SUPERADMIN
+          ...(isSuperAdmin && !hasSuperAdminRole
             ? { locations: formData.locations, pfis: formData.pfis }
             : {}),
         };
@@ -310,10 +338,10 @@ const Settings = () => {
         const response = await apiClient.admin.updateUser(editingUser.id, updatedUser);
 
         // Resolve location_names/pfi_numbers from statesList/pfisList for optimistic display
-        const newLocationNames = isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+        const newLocationNames = isSuperAdmin && !hasSuperAdminRole
           ? formData.locations.map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[]
           : undefined;
-        const newPfiNumbers = isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+        const newPfiNumbers = isSuperAdmin && !hasSuperAdminRole
           ? formData.pfis.map(id => pfisList.find(p => p.id === id)?.pfi_number).filter(Boolean) as string[]
           : undefined;
 
@@ -324,7 +352,8 @@ const Settings = () => {
                 email: formData.email,
                 full_name: formData.full_name,
                 phone_number: formData.phone_number,
-                role: parseInt(formData.role),
+                role: primaryRoleNum,
+                roles: formData.roles,
                 suspended: formData.suspended,
                 location: formData.location.trim() || user.location,
                 locations: newLocationNames !== undefined ? formData.locations : user.locations,
@@ -352,9 +381,10 @@ const Settings = () => {
           password: formData.password,
           full_name: formData.full_name,
           phone_number: formData.phone_number,
-          role: parseInt(formData.role),
+          role: primaryRoleNum,
+          roles: formData.roles,
           location: formData.location.trim() || undefined,
-          ...(isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN
+          ...(isSuperAdmin && !hasSuperAdminRole
             ? { locations: formData.locations, pfis: formData.pfis }
             : {}),
         });
@@ -476,7 +506,7 @@ const Settings = () => {
     total: users.length,
     active: users.filter(u => !u.suspended).length,
     suspended: users.filter(u => u.suspended).length,
-    admins: users.filter(u => u.role === 1).length
+    admins: users.filter(u => userRoleList(u).includes(1)).length
   };
 
   return (
@@ -568,9 +598,8 @@ const Settings = () => {
                 </TableHeader>
                 <TableBody>
                   {filteredUsers.map((user, idx) => {
-                    const roleName = roleMap[user.role] || user.label || '';
-                    const displayRole = roleName;
-                    const isSuperAdminUser = user.role === ROLES.SUPERADMIN;
+                    const userRoles = userRoleList(user);
+                    const isSuperAdminUser = userRoles.includes(ROLES.SUPERADMIN);
                     // Prefer location_names (pre-resolved by backend) over local ID lookup
                     const scopeNames: string[] = user.location_names?.length
                       ? user.location_names
@@ -610,8 +639,20 @@ const Settings = () => {
                             : <span>{scopePfiNumbers.join(', ')}</span>
                         }
                       </TableCell>
-                      <TableCell className={`px-4 text-sm font-medium ${roleColorMap[user.role] || 'text-slate-700'}`}>
-                        {displayRole}
+                      <TableCell className="px-4">
+                        <div className="flex flex-wrap gap-1">
+                          {userRoles.map(r => (
+                            <span
+                              key={r}
+                              title={r === user.role ? 'Primary role' : undefined}
+                              className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 ${roleColorMap[r] || 'text-slate-700'} ${
+                                r === user.role ? 'ring-1 ring-inset ring-current' : ''
+                              }`}
+                            >
+                              {roleMap[r] || user.label || r}
+                            </span>
+                          ))}
+                        </div>
                       </TableCell>
                       <TableCell className="px-4">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${
@@ -776,52 +817,91 @@ const Settings = () => {
                 <p className="text-xs text-slate-400">Display-only label shown in the Location column.</p>
               </div> */}
 
-              {/* Role */}
+              {/* Roles — a user can hold more than one */}
               <div className="space-y-1.5">
-                <Label htmlFor="role">Role</Label>
+                <Label>Roles</Label>
+                <p className="text-xs text-slate-500">
+                  Select every role this user should have. Pick one as the <strong>primary role</strong> below —
+                  it drives their default landing page after login.
+                </p>
+
+                {/* Selected role chips */}
+                <div className="flex flex-wrap gap-1 min-h-[24px]">
+                  {formData.roles.map(r => (
+                    <span key={r} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 border border-indigo-200">
+                      {roleMap[r] || r}
+                      {formData.roles.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData(f => {
+                            const roles = f.roles.filter(x => x !== r);
+                            const primaryRole = roles.includes(Number(f.primaryRole)) ? f.primaryRole : String(roles[0]);
+                            return { ...f, roles, primaryRole };
+                          })}
+                          className="ml-0.5 hover:text-red-600"
+                        >×</button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Checkboxes grouped the same way the old single-select was */}
+                <div className="grid gap-2 mt-2 max-h-52 overflow-y-auto pr-1">
+                  {ROLE_GROUPS.map(group => (
+                    <div key={group.label}>
+                      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{group.label}</p>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {group.roles.map(r => {
+                          const checked = formData.roles.includes(r);
+                          return (
+                            <label key={r} className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer border transition-colors ${
+                              checked ? 'bg-indigo-100 border-indigo-300 text-indigo-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setFormData(f => {
+                                    if (checked) {
+                                      // Don't allow unchecking the last remaining role.
+                                      if (f.roles.length === 1) return f;
+                                      const roles = f.roles.filter(x => x !== r);
+                                      const primaryRole = roles.includes(Number(f.primaryRole)) ? f.primaryRole : String(roles[0]);
+                                      return { ...f, roles, primaryRole };
+                                    }
+                                    return { ...f, roles: [...f.roles, r] };
+                                  });
+                                }}
+                                className="w-3.5 h-3.5 accent-indigo-600"
+                              />
+                              {roleMap[r]}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Primary role — must be one of the selected roles above */}
+              <div className="space-y-1.5">
+                <Label htmlFor="primaryRole">Primary Role</Label>
                 <select
-                  id="role"
-                  aria-label="Role"
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                  id="primaryRole"
+                  aria-label="Primary Role"
+                  value={formData.primaryRole}
+                  onChange={(e) => setFormData({ ...formData, primaryRole: e.target.value })}
                   className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
-                  <option value="">Select a role</option>
-                  <optgroup label="Administration">
-                    <option value="1">Administration</option>
-                    <option value="8">Audit</option>
-                  </optgroup>
-                  <optgroup label="Sales">
-                    <option value="9">Sales Manager</option>
-                    <option value="10">Product Manager</option>
-                    <option value="3">Truck Sales</option>
-                  </optgroup>
-                  <optgroup label="Finance">
-                    <option value="2">Finance</option>
-                    <option value="15">Commissions</option>
-                    <option value="16">Commission Officer</option>
-                  </optgroup>
-                  <optgroup label="Operations">
-                    <option value="4">Ticketing</option>
-                    <option value="7">Release</option>
-                    <option value="17">Dispatch</option>
-                    <option value="5">Security</option>
-                    <option value="6">Transport</option>
-                  </optgroup>
-                  <optgroup label="LPG Division">
-                    <option value="11">LPG Dashboard</option>
-                    <option value="12">LPG Plants</option>
-                    <option value="13">LPG Stock</option>
-                    <option value="14">LPG Sales</option>
-                  </optgroup>
-                  <optgroup label="Other">
-                    <option value="18">IT Compliance</option>
-                  </optgroup>
+                  {formData.roles.map(r => (
+                    <option key={r} value={r}>{roleMap[r] || r}</option>
+                  ))}
                 </select>
               </div>
 
               {/* ── Location Scope (SUPERADMIN only, hidden for SUPERADMIN targets) ── */}
-              {isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN && (
+              {isSuperAdmin && !formData.roles.includes(ROLES.SUPERADMIN) && (
                 <div className="space-y-1.5 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <Label className="text-sm font-semibold text-blue-800 flex items-center gap-1.5">
                     <MapPin size={13} /> Location Scope
@@ -884,7 +964,7 @@ const Settings = () => {
               )}
 
               {/* ── PFI Scope (SUPERADMIN only, hidden for SUPERADMIN targets) ── */}
-              {isSuperAdmin && Number(formData.role) !== ROLES.SUPERADMIN && (
+              {isSuperAdmin && !formData.roles.includes(ROLES.SUPERADMIN) && (
                 <div className="space-y-1.5 p-3 bg-purple-50 border border-purple-200 rounded-lg">
                   <Label className="text-sm font-semibold text-purple-800 flex items-center gap-1.5">
                     <FileSearch2 size={13} /> PFI Scope

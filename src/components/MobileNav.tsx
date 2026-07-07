@@ -33,6 +33,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { apiClient } from '@/api/client';
+import { getCurrentUserRoles } from '@/roles';
 
 type LucideIcon = React.ComponentType<{ className?: string; size?: number | string }>;
 type PagedCount = { count?: number };
@@ -158,7 +159,7 @@ const navCategories: NavCategory[] = [
 export const MobileNav = React.memo(function MobileNav() {
   const navigate = useNavigate();
   const location = useLocation();
-  const role = parseInt(localStorage.getItem('role') || '10');
+  const userRoles = getCurrentUserRoles();
   const [open, setOpen] = useState(false);
 
   const { data: pendingVerifyResponse } = useQuery({
@@ -207,16 +208,17 @@ export const MobileNav = React.memo(function MobileNav() {
     navCategories
       .map((group) => ({
         ...group,
-        items: group.items.filter((i) => i.allowedRoles.includes(role)),
+        items: group.items.filter((i) => i.allowedRoles.some((r) => userRoles.includes(r))),
       }))
       .filter((group) => group.items.length > 0),
-    [role]
+    [userRoles]
   );
 
   const handleLogout = async () => {
     try { await apiClient.admin.logoutUser(); } catch { /* ignore — clear locally regardless */ }
     localStorage.removeItem('token');
     localStorage.removeItem('role');
+    localStorage.removeItem('roles');
     localStorage.removeItem('fullname');
     localStorage.removeItem('label');
     navigate('/login');

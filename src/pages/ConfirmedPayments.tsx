@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import { getCurrentUserRoles } from '@/roles';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -486,8 +487,7 @@ export default function ConfirmedPayments() {
   });
 
   // ── Overpayment resolution flow ───────────────────────────────────────
-  const userRole = parseInt(localStorage.getItem('role') || '-1');
-  const isAdmin = userRole === 0 || userRole === 1;
+  const isAdmin = getCurrentUserRoles().some((r) => r === 0 || r === 1);
 
   // Unified resolve dialog (replaces separate flag / refund / transfer dialogs)
   const [resolveSource, setResolveSource] = useState<PaymentOrder | null>(null);
