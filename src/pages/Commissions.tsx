@@ -74,6 +74,8 @@ interface Order {
   reference?: string;
   pfi_id?: number | null;
   pfi_number?: string | null;
+  payment_confirmed_at?: string | null;
+  payment_confirmed_by_name?: string | null;
   ticket_generated_at?: string | null;
   ticket_generated_by_name?: string | null;
   commission_amount?: string | number | null;
@@ -779,11 +781,8 @@ export default function Commissions() {
     refetchOnWindowFocus: true,
   });
 
-  // Eligibility: only orders that have had tickets generated.
-  const eligibleOrders: Order[] = useMemo(
-    () => (data?.results ?? []).filter(o => Boolean(o.ticket_generated_at)),
-    [data],
-  );
+  // No eligibility gate — every order shows up here as soon as it's created.
+  const eligibleOrders: Order[] = useMemo(() => data?.results ?? [], [data]);
 
   const uniqueLocations = useMemo(() => {
     const s = new Set<string>();
@@ -1128,7 +1127,7 @@ export default function Commissions() {
 
             <PageHeader
               title="Commissions"
-              description="Commission per litre paid to facilitators: ₦1/L before 30 Jun 2026, ₦0.50/L from 30 Jun 2026 onwards."
+              description="₦0.50 Commission per litre paid to facilitators."
               actions={
                 <div className="flex items-center gap-2">
                   <Button size="sm" className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setDailyReportOpen(true)}>
@@ -1137,12 +1136,12 @@ export default function Commissions() {
                   <Button variant="outline" size="sm" className="gap-2" onClick={handleExportExcel} disabled={filteredOrders.length === 0}>
                     <FileText size={15} /> Export Excel
                   </Button>
-                  <Button variant="outline" size="sm" className="gap-2" onClick={handleExportPDF} disabled={filteredOrders.length === 0}>
+                  {/* <Button variant="outline" size="sm" className="gap-2" onClick={handleExportPDF} disabled={filteredOrders.length === 0}>
                     <FileText size={15} /> Export PDF
-                  </Button>
-                  <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()} disabled={isFetching}>
+                  </Button> */}
+                  {/* <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()} disabled={isFetching}>
                     <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} /> Refresh
-                  </Button>
+                  </Button> */}
                 </div>
               }
             />
