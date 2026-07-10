@@ -204,6 +204,24 @@ function StaffSelect({
   );
 }
 
+// Wrapping <label> element for a single form field. Hoisted to module scope —
+// defining this inside renderFormFields() gave it a new function identity on
+// every keystroke, which made React remount the wrapped <Input> (and drop
+// focus) after every character typed.
+function Field({ label, required, children, error }: {
+  label: string; required?: boolean; children: React.ReactNode; error?: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5 cursor-text">
+      <span className="text-sm font-medium text-slate-700">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </span>
+      {children}
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </label>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════════════════════════════
@@ -715,20 +733,6 @@ export default function PFIPage() {
   ) => {
     const sel = (field: keyof typeof EMPTY_CREATE_FORM) => (v: string) =>
       setForm(f => ({ ...f, [field]: v }));
-
-    // Use wrapping <label> elements to avoid duplicate id warnings when this
-    // shared form is rendered inside two different dialogs simultaneously.
-    const Field = ({ label, required, children, error }: {
-      label: string; required?: boolean; children: React.ReactNode; error?: string;
-    }) => (
-      <label className="flex flex-col gap-1.5 cursor-text">
-        <span className="text-sm font-medium text-slate-700">
-          {label}{required && <span className="text-red-500 ml-0.5">*</span>}
-        </span>
-        {children}
-        {error && <span className="text-xs text-red-600">{error}</span>}
-      </label>
-    );
 
     return (
       <div className="space-y-4 py-2">
