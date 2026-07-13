@@ -452,6 +452,25 @@ export const apiClient = {
       return response.json();
     },
 
+    /** POST /api/admin/commissions/groups/confirm/ — pay commission for every pending order a customer placed at one location on one day, in one go. Rate is resolved from the customer's cumulative litres that day. */
+    confirmCommissionGroupPayment: async (userId: number, locationId: number, date: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/commissions/groups/confirm/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ user_id: userId, location_id: locationId, date }),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        message: string;
+        order_ids: number[];
+        date: string;
+        rate_per_litre: string;
+        group_qty: string;
+        paid_qty: string;
+        paid_total: string;
+      }>;
+    },
+
     // ── Bank Statements ───────────────────────────────────────────────
     /** POST /api/admin/bank-accounts/<id>/statement-mapping/preview/ — upload a sample file, get back headers + preview rows */
     previewStatementMapping: async (bankAccountId: number | string, file: File, headerRow?: number) => {

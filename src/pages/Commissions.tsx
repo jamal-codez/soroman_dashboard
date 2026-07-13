@@ -55,6 +55,7 @@ interface Truck {
 interface Order {
   id: number;
   user: {
+    id?: number;
     first_name?: string;
     last_name?: string;
     email?: string;
@@ -154,13 +155,73 @@ const getTotalQty = (o: Order): number => {
   return toNum(o.quantity);
 };
 
-const getCommissionAmount = (rates: RatesByLocation, o: Order): number => {
-  if (o.commission_paid_at) return toNum(o.commission_amount);
-  const qty = getTotalQty(o);
-  return qty * getCommissionRate(rates, getLocation(o), qty);
+const isPaid = (o: Order): boolean => Boolean(o.commission_paid_at);
+
+const dateKeyOf = (iso: string): string => {
+  try { return format(parseISO(iso), 'yyyy-MM-dd'); } catch { return iso; }
 };
 
-const isPaid = (o: Order): boolean => Boolean(o.commission_paid_at);
+// A commission rate tier is resolved per (customer, location, day), not per
+// order — most individual truck orders never reach the 500k/1m thresholds
+// on their own, but a customer's cumulative daily volume often does.
+interface CommissionGroup {
+  key: string;
+  userId: number;
+  locationName: string;
+  locationId: number | null;
+  date: string;
+  orders: Order[];
+  totalQty: number;        // every order in the group, paid or pending
+  pendingOrders: Order[];
+  pendingQty: number;
+  rate: number;             // tier resolved from totalQty
+}
+
+const groupKeyOf = (o: Order): string | null => {
+  const userId = o.user?.id;
+  if (userId == null) return null;
+  return `${userId}|${getLocation(o)}|${dateKeyOf(o.created_at)}`;
+};
+
+const buildCommissionGroups = (
+  orders: Order[],
+  rates: RatesByLocation,
+  locationNameToId: Record<string, number>,
+): Map<string, CommissionGroup> => {
+  const map = new Map<string, CommissionGroup>();
+  orders.forEach(o => {
+    const key = groupKeyOf(o);
+    if (!key) return;
+    const locationName = getLocation(o);
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        key, userId: o.user!.id!, locationName,
+        locationId: locationNameToId[locationName] ?? null,
+        date: dateKeyOf(o.created_at),
+        orders: [], totalQty: 0, pendingOrders: [], pendingQty: 0, rate: 0,
+      };
+      map.set(key, g);
+    }
+    const qty = getTotalQty(o);
+    g.orders.push(o);
+    g.totalQty += qty;
+    if (!isPaid(o)) {
+      g.pendingOrders.push(o);
+      g.pendingQty += qty;
+    }
+  });
+  map.forEach(g => { g.rate = getCommissionRate(rates, g.locationName, g.totalQty); });
+  return map;
+};
+
+const getCommissionAmount = (groups: Map<string, CommissionGroup>, rates: RatesByLocation, o: Order): number => {
+  if (o.commission_paid_at) return toNum(o.commission_amount);
+  const qty = getTotalQty(o);
+  const key = groupKeyOf(o);
+  const rate = (key && groups.get(key)?.rate) ?? getCommissionRate(rates, getLocation(o), qty);
+  return qty * rate;
+};
 
 const matchesPreset = (iso: string, preset: TimePreset): boolean => {
   try {
@@ -633,33 +694,35 @@ const DailyReportDialog = ({
 // ═══════════════════════════════════════════════════════════════════════════
 
 const ConfirmPayoutDialog = ({
-  order,
+  group,
   open,
   onClose,
   onConfirmed,
-  rates,
 }: {
-  order: Order | null;
+  group: CommissionGroup | null;
   open: boolean;
   onClose: () => void;
   onConfirmed: () => void;
-  rates: RatesByLocation;
 }) => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!order) return null;
+  if (!group) return null;
 
-  const ref = getOrderReference(order);
-  const amount = getCommissionAmount(rates, order);
-  const qty = getTotalQty(order);
-  const rate = getCommissionRate(rates, getLocation(order), qty);
+  const sample = group.pendingOrders[0] ?? group.orders[0];
+  const customerName = getCustomerName(sample);
+  const pendingCommission = group.pendingQty * group.rate;
+  const dateLabel = (() => { try { return format(parseISO(group.date), 'dd MMM yyyy'); } catch { return group.date; } })();
 
   const handleConfirm = async () => {
+    if (!group.locationId) {
+      setError('Could not resolve this location — try refreshing the page.');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
-      await apiClient.admin.confirmCommissionPayment(order.id);
+      await apiClient.admin.confirmCommissionGroupPayment(group.userId, group.locationId, group.date);
       onConfirmed();
       onClose();
     } catch (err: unknown) {
@@ -671,7 +734,7 @@ const ConfirmPayoutDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v && !submitting) onClose(); }}>
-      <DialogContent className="sm:max-w-[460px]">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-amber-100">
@@ -680,11 +743,11 @@ const ConfirmPayoutDialog = ({
             <div>
               <h2 className="text-lg font-semibold">Confirm Commission Payout</h2>
               <p className="text-sm font-normal text-slate-500 mt-0.5">
-                Ref: <span className="font-mono font-semibold text-amber-700">{ref}</span>
+                {customerName} · {group.locationName} · {dateLabel}
               </p>
             </div>
           </DialogTitle>
-          <DialogDescription className="sr-only">Confirm commission payout for this order</DialogDescription>
+          <DialogDescription className="sr-only">Confirm commission payout for this customer's orders on this day</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 py-2">
@@ -697,38 +760,54 @@ const ConfirmPayoutDialog = ({
 
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2">
             <p className="text-sm text-slate-700">
-              You're about to mark this order's commission as <span className="font-semibold">paid</span> to{' '}
-              <span className="font-semibold">{getCustomerName(order)}</span>.
+              You're about to mark <span className="font-semibold">{group.pendingOrders.length}</span> order{group.pendingOrders.length !== 1 ? 's' : ''} as{' '}
+              <span className="font-semibold">paid</span> for <span className="font-semibold">{customerName}</span> on {dateLabel}.
             </p>
             <div className="flex items-center justify-between text-sm pt-1 border-t border-amber-200">
-              <span className="text-slate-500">Total Quantity</span>
-              <span className="font-semibold text-slate-800">{fmtQty(qty)} L</span>
+              <span className="text-slate-500">Customer's Total for the Day</span>
+              <span className="font-semibold text-slate-800">{fmtQty(group.totalQty)} L</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">Commission (₦{rate}/L)</span>
-              <span className="font-bold text-emerald-700">{fmt(amount)}</span>
+              <span className="text-slate-500">Being Paid Now</span>
+              <span className="font-semibold text-slate-800">{fmtQty(group.pendingQty)} L</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500">Rate (₦{group.rate}/L)</span>
+              <span className="font-bold text-emerald-700">{fmt(pendingCommission)}</span>
             </div>
           </div>
 
-          {(order.commission_bank_name || order.commission_account_number) && (
+          {group.pendingOrders.length > 1 && (
+            <div className="border border-slate-200 rounded-lg p-3 space-y-1.5 bg-slate-50">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Orders in this payout</p>
+              {group.pendingOrders.map(o => (
+                <div key={o.id} className="flex items-center justify-between text-xs">
+                  <span className="font-mono text-slate-600">{getOrderReference(o)}</span>
+                  <span className="text-slate-500">{fmtQty(getTotalQty(o))} L</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(sample.commission_bank_name || sample.commission_account_number) && (
             <div className="border border-slate-200 rounded-lg p-3 space-y-1.5 bg-slate-50">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pay to (customer's account)</p>
-              {order.commission_bank_name && (
+              {sample.commission_bank_name && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">Bank</span>
-                  <span className="font-semibold text-slate-800">{order.commission_bank_name}</span>
+                  <span className="font-semibold text-slate-800">{sample.commission_bank_name}</span>
                 </div>
               )}
-              {order.commission_account_name && (
+              {sample.commission_account_name && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">Account Name</span>
-                  <span className="font-semibold text-slate-800">{order.commission_account_name}</span>
+                  <span className="font-semibold text-slate-800">{sample.commission_account_name}</span>
                 </div>
               )}
-              {order.commission_account_number && (
+              {sample.commission_account_number && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">Account Number</span>
-                  <span className="font-mono font-bold text-slate-900">{order.commission_account_number}</span>
+                  <span className="font-mono font-bold text-slate-900">{sample.commission_account_number}</span>
                 </div>
               )}
             </div>
@@ -747,7 +826,7 @@ const ConfirmPayoutDialog = ({
             size="sm"
             className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
             onClick={handleConfirm}
-            disabled={submitting}
+            disabled={submitting || !group.locationId}
           >
             {submitting ? (
               <><RefreshCw size={13} className="animate-spin" /> Confirming…</>
@@ -927,7 +1006,7 @@ export default function Commissions() {
   const [locationFilter, setLocationFilter] = useState('all');
   const [pfiFilter, setPfiFilter] = useState('all');
 
-  const [payoutOrder, setPayoutOrder] = useState<Order | null>(null);
+  const [payoutGroup, setPayoutGroup] = useState<CommissionGroup | null>(null);
   const [dailyReportOpen, setDailyReportOpen] = useState(autoOpenReport);
 
   const queryClient = useQueryClient();
@@ -961,8 +1040,23 @@ export default function Commissions() {
     return map;
   }, [ratesQuery.data]);
 
+  const locationNameToId: Record<string, number> = useMemo(() => {
+    const map: Record<string, number> = {};
+    (ratesQuery.data?.results ?? []).forEach(r => { map[r.location_name] = r.location_id; });
+    return map;
+  }, [ratesQuery.data]);
+
   // No eligibility gate — every order shows up here as soon as it's created.
   const eligibleOrders: Order[] = useMemo(() => data?.results ?? [], [data]);
+
+  // Groups drive tier resolution and payouts (customer + location + day).
+  // Built from every eligible order (not just the currently-filtered ones) so
+  // a customer's cumulative daily total is correct regardless of the active
+  // status/search/location filters.
+  const commissionGroups = useMemo(
+    () => buildCommissionGroups(eligibleOrders, ratesByLocation, locationNameToId),
+    [eligibleOrders, ratesByLocation, locationNameToId],
+  );
 
   const uniqueLocations = useMemo(() => {
     const s = new Set<string>();
@@ -1021,8 +1115,8 @@ export default function Commissions() {
     const totalQty = filteredOrders.reduce((s, o) => s + getTotalQty(o), 0);
     const paidOrders = filteredOrders.filter(isPaid);
     const pendingOrders = filteredOrders.filter(o => !isPaid(o));
-    const totalPaid = paidOrders.reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
-    const totalPending = pendingOrders.reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
+    const totalPaid = paidOrders.reduce((s, o) => s + getCommissionAmount(commissionGroups, ratesByLocation, o), 0);
+    const totalPending = pendingOrders.reduce((s, o) => s + getCommissionAmount(commissionGroups, ratesByLocation, o), 0);
 
     return [
       { title: 'Eligible Orders', value: String(totalOrders), icon: <FileText size={20} />, tone: 'neutral', description: `${totalTrucks} truck${totalTrucks !== 1 ? 's' : ''}` },
@@ -1030,7 +1124,7 @@ export default function Commissions() {
       { title: 'Commission Pending', value: fmt(totalPending), icon: <Clock size={20} />, tone: pendingOrders.length > 0 ? 'amber' : 'neutral', description: `${pendingOrders.length} order${pendingOrders.length !== 1 ? 's' : ''}` },
       { title: 'Commission Paid', value: fmt(totalPaid), icon: <Banknote size={20} />, tone: 'green', description: `${paidOrders.length} order${paidOrders.length !== 1 ? 's' : ''}` },
     ];
-  }, [filteredOrders, ratesByLocation]);
+  }, [filteredOrders, ratesByLocation, commissionGroups]);
 
   const handlePayoutConfirmed = () => {
     queryClient.invalidateQueries({ queryKey: ['commissions-orders'] });
@@ -1048,9 +1142,9 @@ export default function Commissions() {
     const sortedOrders = [...filteredOrders].sort((a, b) => a.created_at.localeCompare(b.created_at));
 
     const totalQty = filteredOrders.reduce((s, o) => s + getTotalQty(o), 0);
-    const totalCommission = filteredOrders.reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
-    const totalPaid = filteredOrders.filter(isPaid).reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
-    const totalPending = filteredOrders.filter(o => !isPaid(o)).reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
+    const totalCommission = filteredOrders.reduce((s, o) => s + getCommissionAmount(commissionGroups, ratesByLocation, o), 0);
+    const totalPaid = filteredOrders.filter(isPaid).reduce((s, o) => s + getCommissionAmount(commissionGroups, ratesByLocation, o), 0);
+    const totalPending = filteredOrders.filter(o => !isPaid(o)).reduce((s, o) => s + getCommissionAmount(commissionGroups, ratesByLocation, o), 0);
 
     const headingBlock: Array<[string, string]> = [
       ['Report Generated', generatedAt],
@@ -1083,7 +1177,7 @@ export default function Commissions() {
         getPfiNumber(o),
         trucks || '—',
         fmtQty(getTotalQty(o)),
-        `N${getCommissionAmount(ratesByLocation, o).toLocaleString()}`,
+        `N${getCommissionAmount(commissionGroups, ratesByLocation, o).toLocaleString()}`,
         isPaid(o) ? 'PAID' : 'PENDING',
         o.commission_paid_by_name || '—',
         o.commission_bank_name || '—',
@@ -1552,10 +1646,13 @@ export default function Commissions() {
                         const ref = getOrderReference(o);
                         const trucks = getTrucks(o);
                         const qty = getTotalQty(o);
-                        const commission = getCommissionAmount(ratesByLocation, o);
+                        const commission = getCommissionAmount(commissionGroups, ratesByLocation, o);
                         const paid = isPaid(o);
                         const company = getCompanyName(o);
                         const name = getCustomerName(o);
+                        const groupKey = groupKeyOf(o);
+                        const group = groupKey ? commissionGroups.get(groupKey) : undefined;
+                        const groupSize = group?.pendingOrders.length ?? 1;
 
                         return (
                           <TableRow key={o.id} className="hover:bg-slate-50/60 transition-colors">
@@ -1644,9 +1741,10 @@ export default function Commissions() {
                                 variant={paid ? 'ghost' : 'outline'}
                                 className={paid ? 'h-8 text-slate-400 cursor-default' : 'h-8 gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50'}
                                 disabled={paid}
-                                onClick={() => setPayoutOrder(o)}
+                                title={!paid && groupSize > 1 ? `Pays all ${groupSize} of this customer's pending orders for this day` : undefined}
+                                onClick={() => group && setPayoutGroup(group)}
                               >
-                                {paid ? 'Paid' : <><Banknote size={13} /> Confirm Pay</>}
+                                {paid ? 'Paid' : <><Banknote size={13} /> Confirm Pay{groupSize > 1 ? ` (${groupSize})` : ''}</>}
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -1669,11 +1767,10 @@ export default function Commissions() {
       </div>
 
       <ConfirmPayoutDialog
-        order={payoutOrder}
-        open={!!payoutOrder}
-        onClose={() => setPayoutOrder(null)}
+        group={payoutGroup}
+        open={!!payoutGroup}
+        onClose={() => setPayoutGroup(null)}
         onConfirmed={handlePayoutConfirmed}
-        rates={ratesByLocation}
       />
 
       <CommissionRatesDialog
