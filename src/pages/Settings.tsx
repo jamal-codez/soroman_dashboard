@@ -50,6 +50,9 @@ import {
   Eye,
   EyeOff,
   FileSearch2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
@@ -134,6 +137,8 @@ const Settings = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [locationFilter, setLocationFilter] = useState<string>('all');
+  const [sortKey, setSortKey] = useState<'name' | 'location' | 'role'>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
   const [revealedPasswords, setRevealedPasswords] = useState<Set<number>>(new Set());
@@ -221,6 +226,26 @@ const Settings = () => {
   const userRoleList = (user: UserType): number[] =>
     user.roles && user.roles.length > 0 ? user.roles : [user.role];
 
+  // Sortable text values — mirror what's actually shown in each column.
+  const getLocationSortLabel = (user: UserType): string => {
+    if (userRoleList(user).includes(ROLES.SUPERADMIN)) return '';
+    const names = user.location_names?.length
+      ? user.location_names
+      : (user.locations ?? []).map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[];
+    return names.length ? names.join(', ') : 'Full Access';
+  };
+  const getRoleSortLabel = (user: UserType): string => roleMap[user.role] || user.label || '';
+
+  const toggleSort = (key: 'name' | 'location' | 'role') => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+
+  const SortIcon = ({ col }: { col: 'name' | 'location' | 'role' }) => {
+    if (sortKey !== col) return <ArrowUpDown size={13} className="text-slate-400" />;
+    return sortDir === 'asc' ? <ArrowUp size={13} className="text-slate-700" /> : <ArrowDown size={13} className="text-slate-700" />;
+  };
+
   const filteredUsers = users
     .filter(user => {
       const matchesSearch =
@@ -234,7 +259,14 @@ const Settings = () => {
           : user.location?.trim().toLowerCase() === locationFilter.toLowerCase());
       return matchesSearch && matchesRole && matchesLocation;
     })
-    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+    .sort((a, b) => {
+      const cmp = sortKey === 'location'
+        ? getLocationSortLabel(a).localeCompare(getLocationSortLabel(b))
+        : sortKey === 'role'
+          ? getRoleSortLabel(a).localeCompare(getRoleSortLabel(b))
+          : a.full_name.localeCompare(b.full_name);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
 
   const validateForm = () => {
     const newErrors = {
@@ -585,11 +617,23 @@ const Settings = () => {
                 <TableHeader>
                   <TableRow className="bg-slate-50/80 [&>th]:px-4 [&>th]:py-3 [&>th]:text-xs [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:uppercase [&>th]:tracking-wider">
                     <TableHead className="w-[48px]">#</TableHead>
-                    <TableHead className="min-w-[180px]">Name</TableHead>
+                    <TableHead className="min-w-[180px]">
+                      <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort('name')}>
+                        Name <SortIcon col="name" />
+                      </button>
+                    </TableHead>
                     <TableHead className="min-w-[180px]">Contact</TableHead>
-                    <TableHead className="min-w-[220px]">Location</TableHead>
+                    <TableHead className="min-w-[220px]">
+                      <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort('location')}>
+                        Location <SortIcon col="location" />
+                      </button>
+                    </TableHead>
                     <TableHead className="min-w-[160px]">PFI Scope</TableHead>
-                    <TableHead>Role</TableHead>
+                    <TableHead>
+                      <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort('role')}>
+                        Role <SortIcon col="role" />
+                      </button>
+                    </TableHead>
                     <TableHead>Status</TableHead>
                     {/* <TableHead className="min-w-[160px]">Password</TableHead> */}
                     {/* <TableHead className="min-w-[160px]">Last Login</TableHead> */}
@@ -639,20 +683,18 @@ const Settings = () => {
                             : <span>{scopePfiNumbers.join(', ')}</span>
                         }
                       </TableCell>
-                      <TableCell className="px-4">
-                        <div className="flex flex-wrap gap-1">
-                          {userRoles.map(r => (
+                      <TableCell className="px-4 text-sm">
+                        {userRoles.map((r, i) => (
+                          <span key={r}>
                             <span
-                              key={r}
                               title={r === user.role ? 'Primary role' : undefined}
-                              className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 ${roleColorMap[r] || 'text-slate-700'} ${
-                                r === user.role ? 'ring-1 ring-inset ring-current' : ''
-                              }`}
+                              className={`${roleColorMap[r] || 'text-slate-700'} ${r === user.role ? 'font-semibold' : ''}`}
                             >
                               {roleMap[r] || user.label || r}
                             </span>
-                          ))}
-                        </div>
+                            {i < userRoles.length - 1 && <span className="text-slate-400">, </span>}
+                          </span>
+                        ))}
                       </TableCell>
                       <TableCell className="px-4">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${
