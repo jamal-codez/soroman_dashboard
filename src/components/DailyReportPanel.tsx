@@ -46,6 +46,17 @@ interface FormFields {
   remarks: string;
 }
 
+// A day's sales can happen at more than one price (e.g. different loads sold
+// at different rates). litres_sold_today/price/total_sales_amount on
+// FormFields are derived from these — total litres, weighted average price,
+// and total sales — so every downstream consumer of those three scalar
+// fields (PDF, history table, admin exports) keeps working unchanged.
+interface PriceBand {
+  price: string;
+  litres: string;
+}
+const EMPTY_BAND: PriceBand = { price: '', litres: '' };
+
 interface ReportEntry {
   id: number;
   date?: string;
@@ -55,6 +66,7 @@ interface ReportEntry {
   product_brought_forward?: unknown;
   litres_sold_today?: unknown;
   price?: unknown;
+  price_bands?: Array<{ price: unknown; litres: unknown }>;
   tank_balance?: unknown;
   num_trucks_sold?: unknown;
   amount_paid?: unknown;
@@ -85,6 +97,27 @@ const getPfiUnitLabel = (p?: PFIOption | null) =>
 const rawNum = (s: string) => s.replace(/,/g, '').trim();
 const toNum  = (s: string) => { const n = Number(rawNum(s)); return Number.isFinite(n) ? n : 0; };
 
+/** Bands from a saved entry, falling back to a single band from the legacy
+ * scalar price/litres_sold_today for reports submitted before bands existed. */
+const bandsFromEntry = (entry: { price_bands?: Array<{ price: unknown; litres: unknown }>; price?: unknown; litres_sold_today?: unknown }): PriceBand[] => {
+  if (entry.price_bands && entry.price_bands.length > 0) {
+    return entry.price_bands.map(b => ({
+      price: numVal(b.price, true),
+      litres: numVal(b.litres),
+    }));
+  }
+  const price = numVal(entry.price, true);
+  const litres = numVal(entry.litres_sold_today);
+  return price || litres ? [{ price, litres }] : [{ ...EMPTY_BAND }];
+};
+
+const bandsToText = (bands: PriceBand[]): string => {
+  const parts = bands
+    .filter(b => toNum(b.price) > 0 || toNum(b.litres) > 0)
+    .map(b => `₦${toNum(b.price).toLocaleString()}×${toNum(b.litres).toLocaleString()}L`);
+  return parts.length > 1 ? parts.join(', ') : '—';
+};
+
 const numVal = (v: unknown, decimal = false): string => {
   const n = Number(String(v ?? '').replace(/,/g, ''));
   if (!Number.isFinite(n) || n === 0) return '';
@@ -101,7 +134,7 @@ const display = (v: unknown, money = false): string => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PDF
 // ─────────────────────────────────────────────────────────────────────────────
-function generatePDF(form: FormFields, date: string, staffName: string, pfiNumber: string, unitLabel: string) {
+function generatePDF(form: FormFields, date: string, staffName: string, pfiNumber: string, unitLabel: string, priceBands: PriceBand[] = []) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W = 210, H = 297, M = 16, CW = W - M * 2;
   const generatedAt = format(new Date(), 'dd MMM yyyy, HH:mm');
@@ -146,7 +179,16 @@ function generatePDF(form: FormFields, date: string, staffName: string, pfiNumbe
     { kind: 'row', label: `PRODUCT BROUGHT FORWARD (${unitLabel.toUpperCase()})`,  value: fmt(form.product_brought_forward), highlight: true },
     { kind: 'section', title: 'SALES FIGURES' },
     { kind: 'row', label: `QTY SOLD TODAY (${unitLabel.toUpperCase()})`, value: fmt(form.litres_sold_today), highlight: true },
-    { kind: 'row', label: `PRICE PER ${unitLabel.toUpperCase()}`,        value: fmt(form.price, true), highlight: true },
+    { kind: 'row', label: `AVG. PRICE PER ${unitLabel.toUpperCase()}`,   value: fmt(form.price, true), highlight: true },
+    ...(priceBands.length > 1
+      ? priceBands
+          .filter(b => Number(rawNum(b.price)) > 0 || Number(rawNum(b.litres)) > 0)
+          .map((b, i): TableEntry => ({
+            kind: 'row',
+            label: `  PRICE ${i + 1} (${unitLabel.toUpperCase()})`,
+            value: `${fmt(b.litres)} @ ${fmt(b.price, true)}`,
+          }))
+      : []),
     { kind: 'row', label: `TANK BALANCE (${unitLabel.toUpperCase()})`,   value: fmt(form.tank_balance) },
     { kind: 'row', label: 'NO. OF TRUCKS SOLD',                          value: fmt(form.num_trucks_sold) },
     { kind: 'section', title: 'FINANCIAL FIGURES' },
@@ -278,7 +320,8 @@ function ViewDialog({ entry, onClose, onRedownload }: { entry: ReportEntry | nul
     ['Yesterday Carryover', display(entry.yesterday_carried_over_loading)],
     ['Product Brought Fwd', display(entry.product_brought_forward)],
     ['Qty Sold Today',   display(entry.litres_sold_today)],
-    ['Price Per Litre',  display(entry.price, true)],
+    ['Avg. Price Per Litre', display(entry.price, true)],
+    ['Price Breakdown',  bandsToText(bandsFromEntry(entry))],
     ['Tank Balance',     display(entry.tank_balance)],
     ['No. Trucks Sold',  display(entry.num_trucks_sold)],
     ['Amount Paid',      display(entry.amount_paid, true)],
@@ -343,13 +386,20 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
   const [showForm, setShowForm]             = useState(!!initialOpen);
   const [editDate, setEditDate]             = useState(today);
   const [form, setForm]                     = useState<FormFields>(EMPTY);
+  const [priceBands, setPriceBands]         = useState<PriceBand[]>([{ ...EMPTY_BAND }]);
   const [histPage, setHistPage]             = useState(1);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [viewEntry, setViewEntry]           = useState<ReportEntry | null>(null);
-  const submittedSnapshot = useRef<{ form: FormFields; date: string; pfiNumber: string; unitLabel: string } | null>(null);
+  const submittedSnapshot = useRef<{ form: FormFields; priceBands: PriceBand[]; date: string; pfiNumber: string; unitLabel: string } | null>(null);
 
   const set = useCallback((key: keyof FormFields) => (value: string) =>
     setForm(prev => ({ ...prev, [key]: value })), []);
+
+  const updateBand = useCallback((idx: number, key: keyof PriceBand) => (value: string) =>
+    setPriceBands(prev => prev.map((b, i) => (i === idx ? { ...b, [key]: value } : b))), []);
+  const addBand = useCallback(() => setPriceBands(prev => [...prev, { ...EMPTY_BAND }]), []);
+  const removeBand = useCallback((idx: number) =>
+    setPriceBands(prev => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)), []);
 
   const pfiQuery = useQuery({
     queryKey: ['staff-pfi-data', editDate],
@@ -371,7 +421,9 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
   const selectedPfi = pfis.find(p => String(p.pfi_id) === form.pfi_id);
   const unitLabel = getPfiUnitLabel(selectedPfi);
 
-  // Auto-fill when PFI selected
+  // Auto-fill when PFI selected — seeds a single starting price band, which
+  // the staff member can then split into more bands if today's sales
+  // happened at more than one price.
   useEffect(() => {
     if (!form.pfi_id) return;
     const pfi = pfis.find(p => String(p.pfi_id) === form.pfi_id);
@@ -380,28 +432,30 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
       ...prev,
       location: pfi.location_name,
       product_brought_forward: numVal(pfi.remaining_balance),
-      litres_sold_today: numVal(pfi.sold_today),
-      price: numVal(pfi.price, true),
     }));
+    setPriceBands([{ price: numVal(pfi.price, true), litres: numVal(pfi.sold_today) }]);
   }, [form.pfi_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-calculate
+  // Auto-calculate — litres_sold_today/price/total_sales_amount are derived
+  // from the price bands: total litres, weighted average price, total sales.
   useEffect(() => {
-    const litres = toNum(form.litres_sold_today);
-    const price  = toNum(form.price);
+    const litres = priceBands.reduce((s, b) => s + toNum(b.litres), 0);
+    const totalSales = priceBands.reduce((s, b) => s + toNum(b.litres) * toNum(b.price), 0);
+    const price = litres > 0 ? totalSales / litres : 0;
     const opening = toNum(form.product_brought_forward);
     const carryover = toNum(form.yesterday_carried_over_loading);
     const amountPaid = toNum(form.amount_paid);
-    const totalSales = litres * price;
     const tankBalance = opening + carryover - litres;
     const differentials = amountPaid - totalSales;
     setForm(prev => ({
       ...prev,
+      litres_sold_today: litres > 0 ? litres.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '',
+      price: price > 0 ? price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '',
       total_sales_amount: totalSales > 0 ? totalSales.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '',
       tank_balance: tankBalance > 0 ? tankBalance.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '',
       differentials: (amountPaid > 0 || totalSales > 0) ? differentials.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '',
     }));
-  }, [form.litres_sold_today, form.price, form.product_brought_forward, form.yesterday_carried_over_loading, form.amount_paid]);
+  }, [priceBands, form.product_brought_forward, form.yesterday_carried_over_loading, form.amount_paid]);
 
   const openEdit = (rpt: ReportEntry) => {
     setEditDate(String(rpt.date ?? today));
@@ -423,6 +477,7 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
       account_number: String(rpt.account_number ?? ''),
       remarks: String(rpt.remarks ?? ''),
     });
+    setPriceBands(bandsFromEntry(rpt));
     setShowForm(true);
   };
 
@@ -445,7 +500,7 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
       remarks: String(rpt.remarks ?? ''),
     };
     const cleanName = staffName.replace(TAG_RE, '').trim();
-    generatePDF(f, String(rpt.date ?? ''), cleanName, String(rpt.pfi_number ?? ''), 'Litres');
+    generatePDF(f, String(rpt.date ?? ''), cleanName, String(rpt.pfi_number ?? ''), 'Litres', bandsFromEntry(rpt));
   };
 
   const mutation = useMutation({
@@ -458,6 +513,9 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
       product_brought_forward: rawNum(form.product_brought_forward) || '0',
       litres_sold_today: rawNum(form.litres_sold_today) || '0',
       price: rawNum(form.price) || '0',
+      price_bands: priceBands
+        .filter(b => toNum(b.price) > 0 || toNum(b.litres) > 0)
+        .map(b => ({ price: rawNum(b.price) || '0', litres: rawNum(b.litres) || '0' })),
       tank_balance: rawNum(form.tank_balance) || '0',
       num_trucks_sold: rawNum(form.num_trucks_sold) || '0',
       amount_paid: rawNum(form.amount_paid) || '0',
@@ -471,12 +529,13 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
     onSuccess: () => {
       toast({ title: 'Report saved!', description: `Submitted for ${form.location} on ${editDate}.` });
       if (submittedSnapshot.current) {
-        const { form: f, date, pfiNumber, unitLabel: ul } = submittedSnapshot.current;
-        generatePDF(f, date, staffName.replace(TAG_RE, '').trim(), pfiNumber, ul);
+        const { form: f, priceBands: bands, date, pfiNumber, unitLabel: ul } = submittedSnapshot.current;
+        generatePDF(f, date, staffName.replace(TAG_RE, '').trim(), pfiNumber, ul, bands);
         submittedSnapshot.current = null;
       }
       setShowForm(false);
       setForm(EMPTY);
+      setPriceBands([{ ...EMPTY_BAND }]);
       qc.invalidateQueries({ queryKey: ['staff-report-history'] });
     },
     onError: (err: Error) => {
@@ -505,6 +564,7 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
     }
     submittedSnapshot.current = {
       form: { ...form },
+      priceBands: priceBands.map(b => ({ ...b })),
       date: editDate,
       pfiNumber: pfis.find(p => String(p.pfi_id) === form.pfi_id)?.pfi_number || '',
       unitLabel,
@@ -527,7 +587,7 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
       <ViewDialog entry={viewEntry} onClose={() => setViewEntry(null)} onRedownload={handleRedownload} />
 
       {/* Form dialog */}
-      <Dialog open={showForm} onOpenChange={open => { if (!open) { setShowForm(false); setForm(EMPTY); } }}>
+      <Dialog open={showForm} onOpenChange={open => { if (!open) { setShowForm(false); setForm(EMPTY); setPriceBands([{ ...EMPTY_BAND }]); } }}>
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto p-0">
           <div className="bg-gradient-to-r from-green-600 to-green-700 px-5 py-4 rounded-t-lg">
             <DialogHeader>
@@ -612,9 +672,51 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
 
                 <fieldset className="rounded-xl border border-slate-200 p-4 space-y-4">
                   <legend className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Sales Figures</legend>
+
+                  {/* Price bands — a day can have sales at more than one price */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                        Prices &amp; Litres Sold Today
+                      </label>
+                      <button type="button" onClick={addBand}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-800 shrink-0">
+                        <Plus size={12} /> Add Price
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {priceBands.map((band, idx) => (
+                        <div key={idx} className="flex items-end gap-2">
+                          <span className="mb-2.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
+                            {idx + 1}
+                          </span>
+                          <div className="flex-1">
+                            <Field label={`Price per ${unitLabel}`} value={band.price} onChange={updateBand(idx, 'price')} prefix="₦" highlight decimal />
+                          </div>
+                          <div className="flex-1">
+                            <Field label="Litres at this Price" value={band.litres} onChange={updateBand(idx, 'litres')} suffix={unitLabel} highlight />
+                          </div>
+                          <button type="button" onClick={() => removeBand(idx)} disabled={priceBands.length === 1}
+                            title="Remove this price"
+                            className="mb-2.5 shrink-0 text-red-400 hover:text-red-600 disabled:text-slate-200 disabled:cursor-not-allowed transition-colors">
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 text-xs bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                      <span className="text-slate-600">
+                        Total Qty Sold: <strong className="text-slate-800">{form.litres_sold_today || '0'} {unitLabel}</strong>
+                      </span>
+                      <span className="text-slate-600">
+                        Total Sales: <strong className="text-emerald-700">₦{form.total_sales_amount || '0'}</strong>
+                      </span>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Qty Sold Today" value={form.litres_sold_today} onChange={set('litres_sold_today')} suffix={unitLabel} highlight />
-                    <Field label={`Price per ${unitLabel}`} value={form.price} onChange={set('price')} prefix="₦" highlight decimal />
                     <Field label="Tank Balance" value={form.tank_balance} onChange={set('tank_balance')} suffix={unitLabel} highlight />
                     <Field label="No. of Trucks Sold" value={form.num_trucks_sold} onChange={set('num_trucks_sold')} />
                   </div>
@@ -645,7 +747,7 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
             )}
 
             <div className="flex items-center justify-end gap-3 pt-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => { setShowForm(false); setForm(EMPTY); }}>
+              <Button type="button" variant="outline" size="sm" onClick={() => { setShowForm(false); setForm(EMPTY); setPriceBands([{ ...EMPTY_BAND }]); }}>
                 <X size={13} className="mr-1" /> Cancel
               </Button>
               <Button type="submit" size="sm" disabled={mutation.isPending || !form.pfi_id}
@@ -670,7 +772,7 @@ export function DailyReportPanel({ pageRole, initialOpen }: { pageRole: 'PRODUCT
           <Button
             size="sm"
             className="gap-1.5 bg-green-600 hover:bg-green-700 text-white shadow-sm"
-            onClick={() => { setEditDate(today); setForm(EMPTY); setShowForm(true); }}
+            onClick={() => { setEditDate(today); setForm(EMPTY); setPriceBands([{ ...EMPTY_BAND }]); setShowForm(true); }}
           >
             <Plus size={13} /> Enter Report
           </Button>

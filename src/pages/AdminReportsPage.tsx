@@ -55,6 +55,18 @@ const pdfSafe = (s: string) =>
 const getTag = (r: Entry) =>
   TAG_RE.exec(String(r.submitted_by_name ?? ''))?.[1] ?? '';
 
+// Only worth showing when there's more than one band — a single band is
+// already fully represented by the "Price / L" column.
+const fmtPriceBands = (r: Entry): string => {
+  const bands = Array.isArray(r.price_bands) ? r.price_bands as Array<{ price: unknown; litres: unknown }> : [];
+  if (bands.length <= 1) return '—';
+  const parts = bands
+    .map(b => ({ price: toNum(b.price), litres: toNum(b.litres) }))
+    .filter(b => b.price > 0 || b.litres > 0)
+    .map(b => `₦${b.price.toLocaleString()}×${b.litres.toLocaleString()}L`);
+  return parts.length > 1 ? parts.join(', ') : '—';
+};
+
 type Entry = Record<string, unknown> & { id: number };
 type RoleTag = 'SALES_MANAGER' | 'PRODUCT_MANAGER' | 'SECURITY' | 'COMMISSIONS' | 'IT_COMPLIANCE';
 
@@ -97,6 +109,7 @@ const SM_PM_COLS: ColDef[] = [
   { header: 'Submitted By',  excelWidth: 22, pdfWidth: 26, cell: r => String(r.submitted_by_name ?? '').replace(TAG_RE, '').trim() || '—' },
   { header: 'Qty Sold (L)',  excelWidth: 14, pdfWidth: 16, right: true, cell: r => fmt(r.litres_sold_today) },
   { header: 'Price / L',     excelWidth: 12, pdfWidth: 14, right: true, cell: r => fmt(r.price, true) },
+  { header: 'Price Breakdown', excelWidth: 26, pdfWidth: 30, cell: r => fmtPriceBands(r) },
   { header: 'Total Sales',   excelWidth: 18, pdfWidth: 20, right: true, cell: r => fmt(r.total_sales_amount, true) },
   { header: 'Amt Paid',      excelWidth: 18, pdfWidth: 20, right: true, cell: r => fmt(r.amount_paid, true) },
   { header: 'Differentials', excelWidth: 16, pdfWidth: 18, right: true, cell: r => fmt(r.differentials, true) },

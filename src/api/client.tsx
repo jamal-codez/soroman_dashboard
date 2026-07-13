@@ -1483,6 +1483,8 @@ export const apiClient = {
       product_brought_forward?: string | number;
       litres_sold_today?: string | number;
       price?: string | number;
+      /** Multiple price/litres pairs for a day with more than one selling price — server sums these into litres_sold_today/price/total_sales_amount. */
+      price_bands?: Array<{ price: string | number; litres: string | number }>;
       tank_balance?: string | number;
       num_trucks_sold?: string | number;
       amount_paid?: string | number;
