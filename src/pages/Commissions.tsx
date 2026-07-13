@@ -28,6 +28,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Search, X, CalendarDays, Truck, Package, Clock, CheckCircle2, XCircle,
   MapPin, FileText, RefreshCw, AlertTriangle, Banknote, ClipboardList, Download,
+  Loader2, Settings2,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
@@ -94,14 +95,19 @@ type CommissionStatusFilter = 'all' | 'pending' | 'paid';
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ₦1/litre before 30 Jun 2026; ₦0.50/litre from 30 Jun 2026 onwards
-const COMMISSION_CUTOFF = new Date('2026-06-30T00:00:00');
-const getCommissionRate = (orderDate: string): number => {
-  try {
-    return parseISO(orderDate) >= COMMISSION_CUTOFF ? 0.5 : 1;
-  } catch {
-    return 1;
-  }
+// Per-location, tiered ₦/litre commission rate — mirrors
+// LocationCommissionRate.rate_for_qty() on the backend, which is the source
+// of truth once a commission is actually confirmed. A location with no
+// configured rate falls back to the flat ₦0.5/litre default.
+type LocationRate = { below: number; mid: number; above: number };
+type RatesByLocation = Record<string, LocationRate>;
+const DEFAULT_RATE: LocationRate = { below: 0.5, mid: 0.5, above: 0.5 };
+
+const getCommissionRate = (rates: RatesByLocation, locationName: string, qtyLitres: number): number => {
+  const rate = rates[locationName] || DEFAULT_RATE;
+  if (qtyLitres >= 1_000_000) return rate.above;
+  if (qtyLitres >= 500_000) return rate.mid;
+  return rate.below;
 };
 
 const toNum = (v: unknown): number => {
@@ -148,8 +154,11 @@ const getTotalQty = (o: Order): number => {
   return toNum(o.quantity);
 };
 
-const getCommissionAmount = (o: Order): number =>
-  o.commission_paid_at ? toNum(o.commission_amount) : getTotalQty(o) * getCommissionRate(o.created_at);
+const getCommissionAmount = (rates: RatesByLocation, o: Order): number => {
+  if (o.commission_paid_at) return toNum(o.commission_amount);
+  const qty = getTotalQty(o);
+  return qty * getCommissionRate(rates, getLocation(o), qty);
+};
 
 const isPaid = (o: Order): boolean => Boolean(o.commission_paid_at);
 
@@ -628,11 +637,13 @@ const ConfirmPayoutDialog = ({
   open,
   onClose,
   onConfirmed,
+  rates,
 }: {
   order: Order | null;
   open: boolean;
   onClose: () => void;
   onConfirmed: () => void;
+  rates: RatesByLocation;
 }) => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -640,8 +651,9 @@ const ConfirmPayoutDialog = ({
   if (!order) return null;
 
   const ref = getOrderReference(order);
-  const amount = getCommissionAmount(order);
+  const amount = getCommissionAmount(rates, order);
   const qty = getTotalQty(order);
+  const rate = getCommissionRate(rates, getLocation(order), qty);
 
   const handleConfirm = async () => {
     setSubmitting(true);
@@ -693,7 +705,7 @@ const ConfirmPayoutDialog = ({
               <span className="font-semibold text-slate-800">{fmtQty(qty)} L</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">Commission (₦{getCommissionRate(order.created_at)}/L)</span>
+              <span className="text-slate-500">Commission (₦{rate}/L)</span>
               <span className="font-bold text-emerald-700">{fmt(amount)}</span>
             </div>
           </div>
@@ -750,6 +762,154 @@ const ConfirmPayoutDialog = ({
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Commission Rates Dialog — per-location, tiered ₦/litre rates
+// ═══════════════════════════════════════════════════════════════════════════
+
+type RateEntry = {
+  location_id: number;
+  location_name: string;
+  rate_below_500k: string;
+  rate_500k_to_1m: string;
+  rate_above_1m: string;
+};
+
+const CommissionRateRow = ({ rate, onSaved }: { rate: RateEntry; onSaved: () => void }) => {
+  const [below, setBelow] = useState(rate.rate_below_500k);
+  const [mid, setMid] = useState(rate.rate_500k_to_1m);
+  const [above, setAbove] = useState(rate.rate_above_1m);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const dirty = below !== rate.rate_below_500k || mid !== rate.rate_500k_to_1m || above !== rate.rate_above_1m;
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await apiClient.admin.setCommissionRate(rate.location_id, {
+        rate_below_500k: below,
+        rate_500k_to_1m: mid,
+        rate_above_1m: above,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save rate.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const applyFlat = () => {
+    // Convenience for "one rate for every order regardless of quantity"
+    // locations — copies the first tier's value into the other two.
+    setMid(below);
+    setAbove(below);
+  };
+
+  return (
+    <TableRow>
+      <TableCell className="font-medium text-slate-800 whitespace-nowrap">{rate.location_name}</TableCell>
+      <TableCell>
+        <Input type="number" step="0.01" min="0" value={below} onChange={e => setBelow(e.target.value)} className="w-24 h-9" />
+      </TableCell>
+      <TableCell>
+        <Input type="number" step="0.01" min="0" value={mid} onChange={e => setMid(e.target.value)} className="w-24 h-9" />
+      </TableCell>
+      <TableCell>
+        <Input type="number" step="0.01" min="0" value={above} onChange={e => setAbove(e.target.value)} className="w-24 h-9" />
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1.5">
+          <Button type="button" variant="outline" size="sm" onClick={applyFlat} title="Copy the first tier's rate into the other two">
+            Flat
+          </Button>
+          <Button type="button" size="sm" disabled={!dirty || saving} onClick={handleSave} className="gap-1.5">
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+            Save
+          </Button>
+        </div>
+        {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      </TableCell>
+    </TableRow>
+  );
+};
+
+const CommissionRatesDialog = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['commission-rates'],
+    queryFn: () => apiClient.admin.getCommissionRates(),
+    staleTime: 30_000,
+    enabled: open,
+  });
+
+  const rates = data?.results ?? [];
+
+  const handleSaved = () => {
+    queryClient.invalidateQueries({ queryKey: ['commission-rates'] });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="sm:max-w-[720px] max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-emerald-100">
+              <Settings2 className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Commission Rates</h2>
+              <p className="text-sm font-normal text-slate-500 mt-0.5">
+                Set the ₦/litre commission per location, by order quantity tier.
+              </p>
+            </div>
+          </DialogTitle>
+          <DialogDescription className="sr-only">Set per-location, tiered commission rates</DialogDescription>
+        </DialogHeader>
+
+        <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+          Want a flat rate for a location regardless of quantity? Set the "Below 500k" rate, then click
+          <span className="font-semibold"> Flat</span> to copy it into the other two tiers.
+        </p>
+
+        {isLoading ? (
+          <div className="py-8 flex justify-center"><Loader2 className="animate-spin text-slate-400" size={22} /></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50/80">
+                  <TableHead className="font-semibold text-slate-700">Location</TableHead>
+                  <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Below 500k (₦/L)</TableHead>
+                  <TableHead className="font-semibold text-slate-700 whitespace-nowrap">500k–1m (₦/L)</TableHead>
+                  <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Above 1m (₦/L)</TableHead>
+                  <TableHead className="font-semibold text-slate-700 w-[140px]">&nbsp;</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rates.map(rate => (
+                  <CommissionRateRow key={rate.location_id} rate={rate} onSaved={handleSaved} />
+                ))}
+                {rates.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-slate-400 py-6">No locations found.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -780,6 +940,26 @@ export default function Commissions() {
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
+
+  const ratesQuery = useQuery({
+    queryKey: ['commission-rates'],
+    queryFn: () => apiClient.admin.getCommissionRates(),
+    staleTime: 30_000,
+  });
+
+  const [ratesDialogOpen, setRatesDialogOpen] = useState(false);
+
+  const ratesByLocation: RatesByLocation = useMemo(() => {
+    const map: RatesByLocation = {};
+    (ratesQuery.data?.results ?? []).forEach(r => {
+      map[r.location_name] = {
+        below: toNum(r.rate_below_500k),
+        mid: toNum(r.rate_500k_to_1m),
+        above: toNum(r.rate_above_1m),
+      };
+    });
+    return map;
+  }, [ratesQuery.data]);
 
   // No eligibility gate — every order shows up here as soon as it's created.
   const eligibleOrders: Order[] = useMemo(() => data?.results ?? [], [data]);
@@ -841,8 +1021,8 @@ export default function Commissions() {
     const totalQty = filteredOrders.reduce((s, o) => s + getTotalQty(o), 0);
     const paidOrders = filteredOrders.filter(isPaid);
     const pendingOrders = filteredOrders.filter(o => !isPaid(o));
-    const totalPaid = paidOrders.reduce((s, o) => s + getCommissionAmount(o), 0);
-    const totalPending = pendingOrders.reduce((s, o) => s + getCommissionAmount(o), 0);
+    const totalPaid = paidOrders.reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
+    const totalPending = pendingOrders.reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
 
     return [
       { title: 'Eligible Orders', value: String(totalOrders), icon: <FileText size={20} />, tone: 'neutral', description: `${totalTrucks} truck${totalTrucks !== 1 ? 's' : ''}` },
@@ -850,7 +1030,7 @@ export default function Commissions() {
       { title: 'Commission Pending', value: fmt(totalPending), icon: <Clock size={20} />, tone: pendingOrders.length > 0 ? 'amber' : 'neutral', description: `${pendingOrders.length} order${pendingOrders.length !== 1 ? 's' : ''}` },
       { title: 'Commission Paid', value: fmt(totalPaid), icon: <Banknote size={20} />, tone: 'green', description: `${paidOrders.length} order${paidOrders.length !== 1 ? 's' : ''}` },
     ];
-  }, [filteredOrders]);
+  }, [filteredOrders, ratesByLocation]);
 
   const handlePayoutConfirmed = () => {
     queryClient.invalidateQueries({ queryKey: ['commissions-orders'] });
@@ -868,9 +1048,9 @@ export default function Commissions() {
     const sortedOrders = [...filteredOrders].sort((a, b) => a.created_at.localeCompare(b.created_at));
 
     const totalQty = filteredOrders.reduce((s, o) => s + getTotalQty(o), 0);
-    const totalCommission = filteredOrders.reduce((s, o) => s + getCommissionAmount(o), 0);
-    const totalPaid = filteredOrders.filter(isPaid).reduce((s, o) => s + getCommissionAmount(o), 0);
-    const totalPending = filteredOrders.filter(o => !isPaid(o)).reduce((s, o) => s + getCommissionAmount(o), 0);
+    const totalCommission = filteredOrders.reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
+    const totalPaid = filteredOrders.filter(isPaid).reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
+    const totalPending = filteredOrders.filter(o => !isPaid(o)).reduce((s, o) => s + getCommissionAmount(ratesByLocation, o), 0);
 
     const headingBlock: Array<[string, string]> = [
       ['Report Generated', generatedAt],
@@ -903,7 +1083,7 @@ export default function Commissions() {
         getPfiNumber(o),
         trucks || '—',
         fmtQty(getTotalQty(o)),
-        `N${getCommissionAmount(o).toLocaleString()}`,
+        `N${getCommissionAmount(ratesByLocation, o).toLocaleString()}`,
         isPaid(o) ? 'PAID' : 'PENDING',
         o.commission_paid_by_name || '—',
         o.commission_bank_name || '—',
@@ -1127,9 +1307,12 @@ export default function Commissions() {
 
             <PageHeader
               title="Commissions"
-              description="₦0.50 Commission per litre paid to facilitators."
+              description="Per-litre commission paid to facilitators — rate depends on location and order quantity."
               actions={
                 <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="gap-2" onClick={() => setRatesDialogOpen(true)}>
+                    <Banknote size={15} /> Commission Rates
+                  </Button>
                   <Button size="sm" className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setDailyReportOpen(true)}>
                     <ClipboardList size={15} /> Enter Report
                   </Button>
@@ -1369,7 +1552,7 @@ export default function Commissions() {
                         const ref = getOrderReference(o);
                         const trucks = getTrucks(o);
                         const qty = getTotalQty(o);
-                        const commission = getCommissionAmount(o);
+                        const commission = getCommissionAmount(ratesByLocation, o);
                         const paid = isPaid(o);
                         const company = getCompanyName(o);
                         const name = getCustomerName(o);
@@ -1490,6 +1673,12 @@ export default function Commissions() {
         open={!!payoutOrder}
         onClose={() => setPayoutOrder(null)}
         onConfirmed={handlePayoutConfirmed}
+        rates={ratesByLocation}
+      />
+
+      <CommissionRatesDialog
+        open={ratesDialogOpen}
+        onClose={() => setRatesDialogOpen(false)}
       />
 
       <DailyReportDialog

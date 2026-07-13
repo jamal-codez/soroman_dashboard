@@ -418,6 +418,40 @@ export const apiClient = {
       return response.json();
     },
 
+    /** GET /api/admin/commissions/rates/ — per-location tiered ₦/litre commission rates */
+    getCommissionRates: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/commissions/rates/`, {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        results: Array<{
+          location_id: number;
+          location_name: string;
+          rate_below_500k: string;
+          rate_500k_to_1m: string;
+          rate_above_1m: string;
+          is_configured: boolean;
+          updated_at: string | null;
+        }>;
+      }>;
+    },
+
+    /** POST /api/admin/commissions/rates/<location_id>/ — upsert a location's tiered commission rate */
+    setCommissionRate: async (locationId: number, data: {
+      rate_below_500k: string | number;
+      rate_500k_to_1m: string | number;
+      rate_above_1m: string | number;
+    }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/commissions/rates/${locationId}/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
     // ── Bank Statements ───────────────────────────────────────────────
     /** POST /api/admin/bank-accounts/<id>/statement-mapping/preview/ — upload a sample file, get back headers + preview rows */
     previewStatementMapping: async (bankAccountId: number | string, file: File, headerRow?: number) => {
