@@ -515,7 +515,7 @@ function VerifyConfirmModalBody({
         (b) => b.acct_no && paidInto.account_number && b.acct_no === paidInto.account_number
       );
       setLines([{
-        amount: originalAmountValue > 0 ? String(originalAmountValue) : '',
+        amount: '',
         payerName: customerName || '',
         bankAccountId: matched ? String(matched.id) : '',
         transactionReference: '',
@@ -654,6 +654,12 @@ function VerifyConfirmModalBody({
           <div className="space-y-2.5">
             <label className="text-xs font-semibold text-slate-700">Payments Received</label>
 
+            <BulkStatementPicker
+              bankAccounts={bankAccounts}
+              excludeIds={pickedStatementIds}
+              onPickMany={handleBulkPick}
+            />
+
             {lines.map((line, idx) => (
               <div key={idx} className="rounded-lg border border-slate-300 bg-slate-50 p-3 space-y-2.5">
                 {lines.length > 1 && (
@@ -693,7 +699,7 @@ function VerifyConfirmModalBody({
 
                 {line.statementLineId && (
                   <p className="text-[11px] font-medium text-emerald-700 flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1.5">
-                    <CheckCheck size={13} /> Filled from bank statement — this row will be locked as matched once you confirm.
+                    <CheckCheck size={13} />
                   </p>
                 )}
 
@@ -743,12 +749,6 @@ function VerifyConfirmModalBody({
                 </div>
               </div>
             ))}
-
-            <BulkStatementPicker
-              bankAccounts={bankAccounts}
-              excludeIds={pickedStatementIds}
-              onPickMany={handleBulkPick}
-            />
 
             <Button
               type="button"
@@ -1775,7 +1775,7 @@ export default function PaymentVerification() {
                     <TableHead>Product</TableHead>
                     <TableHead>Quantity</TableHead>
                     <TableHead>Paid Into</TableHead>
-                    <TableHead>Customer Says</TableHead>
+                    {/* <TableHead>Customer Says</TableHead> */}
                     <TableHead>Expected Amount</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
@@ -1792,7 +1792,7 @@ export default function PaymentVerification() {
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        {/* <TableCell><Skeleton className="h-4 w-28" /></TableCell> */}
                         <TableCell><Skeleton className="h-4 w-20 ml-auto" /></TableCell>
                         <TableCell><Skeleton className="h-8 w-28 ml-auto" /></TableCell>
                        </TableRow>
@@ -1855,7 +1855,7 @@ export default function PaymentVerification() {
                               <span className="text-xs text-slate-500">{paidInto.bank_name || '—'}</span>
                             </div>
                           </TableCell>
-                          <TableCell>
+                          {/* <TableCell>
                             {payment.payment_splits && payment.payment_splits.length > 0 ? (() => {
                               const orderAmt = parseFloat(String(payment.amount || '0'));
                               const splitsTotal = payment.payment_splits.reduce((s, sp) => s + parseFloat(String(sp.amount || '0')), 0);
@@ -1883,7 +1883,7 @@ export default function PaymentVerification() {
                             })() : (
                               <span className="text-slate-400 text-xs">Single payment</span>
                             )}
-                          </TableCell>
+                          </TableCell> */}
                            <TableCell className="text-right font-bold text-slate-950">
                              ₦{parseFloat(String(payment.amount || '0')).toLocaleString()}
                            </TableCell>
