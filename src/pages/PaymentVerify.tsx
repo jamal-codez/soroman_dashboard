@@ -296,13 +296,13 @@ function StatementPicker({
                   onClick={() => { onPick(l); setOpen(false); setSearch(''); }}
                   className="w-full text-left px-3 py-2.5 border-b border-slate-50 last:border-0 hover:bg-blue-50 text-xs"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-800">{l.depositor_name || '—'}</span>
-                    <span className="font-bold text-slate-900">₦{Number(l.amount).toLocaleString()}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-800 truncate min-w-0">{l.depositor_name || '—'}</span>
+                    <span className="font-bold text-slate-900 shrink-0">₦{Number(l.amount).toLocaleString()}</span>
                   </div>
-                  <div className="flex items-center justify-between mt-0.5 text-slate-400">
-                    <span className="font-mono">{l.bank_ref || '—'}</span>
-                    <span>{l.transaction_date}</span>
+                  <div className="flex items-center justify-between gap-2 mt-0.5 text-slate-400">
+                    <span className="font-mono truncate min-w-0">{l.bank_ref || '—'}</span>
+                    <span className="shrink-0">{l.transaction_date}</span>
                   </div>
                 </button>
               ))
@@ -377,7 +377,7 @@ function BulkStatementPicker({
       </Button>
 
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}>
-        <DialogContent className="sm:max-w-[480px]">
+        <DialogContent className="sm:max-w-[480px] w-full">
           <DialogHeader>
             <DialogTitle>Bulk Select Deposits</DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
@@ -385,7 +385,11 @@ function BulkStatementPicker({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2.5">
+          {/* min-w-0 is required here: DialogContent is a grid container, and a
+              grid item's default min-width is "auto" — without this, the nowrap
+              text in truncated rows below bubbles up and forces the whole
+              dialog wider instead of ellipsizing. */}
+          <div className="space-y-2.5 min-w-0">
             <select
               aria-label="Bank account"
               className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -414,21 +418,21 @@ function BulkStatementPicker({
                     <p className="p-3 text-xs text-slate-400 text-center">No unmatched deposits found for this account.</p>
                   ) : (
                     lines.map((l) => (
-                      <label key={l.id} className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-blue-50 cursor-pointer text-xs">
+                      <label key={l.id} className="flex items-start gap-2.5 px-3 py-2.5 hover:bg-blue-50 cursor-pointer text-xs">
                         <input
                           type="checkbox"
                           checked={selected.has(l.id)}
                           onChange={() => toggle(l.id)}
-                          className="h-4 w-4 accent-blue-600 shrink-0"
+                          className="h-4 w-4 accent-blue-600 shrink-0 mt-0.5"
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold text-slate-800 truncate">{l.depositor_name || '—'}</span>
-                            <span className="font-bold text-slate-900 shrink-0 ml-2">₦{Number(l.amount).toLocaleString()}</span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-800 truncate min-w-0">{l.depositor_name || '—'}</span>
+                            <span className="font-bold text-slate-900 shrink-0">₦{Number(l.amount).toLocaleString()}</span>
                           </div>
-                          <div className="flex items-center justify-between mt-0.5 text-slate-400">
-                            <span className="font-mono">{l.bank_ref || '—'}</span>
-                            <span>{l.transaction_date}</span>
+                          <div className="flex items-center justify-between gap-2 mt-0.5 text-slate-400">
+                            <span className="font-mono truncate min-w-0">{l.bank_ref || '—'}</span>
+                            <span className="shrink-0">{l.transaction_date}</span>
                           </div>
                         </div>
                       </label>
