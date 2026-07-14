@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Download, Search, ShoppingCart, Droplets, Banknote, Pencil, CalendarDays, X, Truck, Paperclip, FileText, ImageIcon, ExternalLink, Trash2, Plus, Wallet, ArrowLeftRight, CheckCircle2, RotateCcw, Clock, Ban, AlertTriangle, CheckCheck } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { StatementPicker, BulkStatementPicker, type StatementLineOption } from '@/components/BankStatementPicker';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient, fetchAllPages } from '@/api/client';
@@ -430,6 +431,7 @@ export default function ConfirmedPayments() {
     payerName: string;
     bankAccountId: string;
     transactionReference: string;
+    statementLineId?: number;
   };
   const todayStr = () => new Date().toISOString().slice(0, 10);
   const emptyPaymentLine = (): EditPaymentLine => ({
@@ -458,6 +460,27 @@ export default function ConfirmedPayments() {
   const addNewPaymentLine = () => setNewPaymentLines((prev) => [...prev, emptyPaymentLine()]);
   const removeNewPaymentLine = (idx: number) =>
     setNewPaymentLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+
+  const pickedStatementIds = useMemo(
+    () => new Set(newPaymentLines.map((l) => l.statementLineId).filter((id): id is number => id != null)),
+    [newPaymentLines],
+  );
+
+  const handleBulkPick = (bankAccountId: string, lines: StatementLineOption[]) => {
+    setNewPaymentLines((prev) => {
+      const blankIdx = prev.findIndex((l) => !l.amount && !l.statementLineId);
+      const rest = blankIdx === -1 ? prev : prev.filter((_, i) => i !== blankIdx);
+      const picked: EditPaymentLine[] = lines.map((l) => ({
+        amount: String(l.amount),
+        paymentDate: l.transaction_date,
+        payerName: l.depositor_name || '',
+        bankAccountId,
+        transactionReference: l.bank_ref || '',
+        statementLineId: l.id,
+      }));
+      return [...rest, ...picked];
+    });
+  };
 
   const handleDeletePaymentRecord = async (id: number) => {
     setDeletingPaymentId(id);
@@ -695,6 +718,7 @@ export default function ConfirmedPayments() {
             payer_name: l.payerName.trim() || undefined,
             bank_account: l.bankAccountId || undefined,
             transaction_reference: l.transactionReference.trim(),
+            statement_line_ids: l.statementLineId ? [l.statementLineId] : undefined,
           });
         }
         setNewPaymentLines([emptyPaymentLine()]);
@@ -2030,6 +2054,12 @@ export default function ConfirmedPayments() {
 
                     <div className="h-px bg-slate-200" />
 
+                    <BulkStatementPicker
+                      bankAccounts={bankAccounts}
+                      excludeIds={pickedStatementIds}
+                      onPickMany={handleBulkPick}
+                    />
+
                     {newPaymentLines.map((line, idx) => (
                       <div key={idx} className="rounded-lg border border-slate-300 bg-slate-50 p-3 space-y-2.5">
                         {newPaymentLines.length > 1 && (
@@ -2085,13 +2115,26 @@ export default function ConfirmedPayments() {
                               aria-label="Bank account"
                               className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                               value={line.bankAccountId}
-                              onChange={(e) => updateNewPaymentLine(idx, { bankAccountId: e.target.value })}
+                              onChange={(e) => updateNewPaymentLine(idx, { bankAccountId: e.target.value, statementLineId: undefined })}
                             >
                               <option value="">{'— Select —'}</option>
                               {bankAccounts.map((b) => (
                                 <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
                               ))}
                             </select>
+                          </div>
+                          <div className="mt-2.5">
+                            <StatementPicker
+                              bankAccountId={line.bankAccountId}
+                              excludeIds={pickedStatementIds}
+                              onPick={(picked) => updateNewPaymentLine(idx, {
+                                amount: String(picked.amount),
+                                paymentDate: picked.transaction_date,
+                                payerName: picked.depositor_name || '',
+                                transactionReference: picked.bank_ref || '',
+                                statementLineId: picked.id,
+                              })}
+                            />
                           </div>
                           {/* <div>
                             <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Transaction Reference</label>
