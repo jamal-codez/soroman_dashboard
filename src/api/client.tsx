@@ -589,7 +589,7 @@ export const apiClient = {
       return response.json();
     },
 
-    addLPGPlant: async (data: { name: string; location?: number; capacity_kg?: number; low_stock_threshold_kg?: number; is_active?: boolean }) => {
+    addLPGPlant: async (data: { name: string; code: string; location?: number; capacity_kg?: number; low_stock_threshold_kg?: number; price_per_kg?: number; bulk_threshold_kg?: number; is_active?: boolean }) => {
       const response = await safeFetch(`${ADMIN_BASE}/lpg/plants/`, {
         method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
       });
@@ -597,7 +597,7 @@ export const apiClient = {
       return response.json();
     },
 
-    updateLPGPlant: async (id: number, data: Partial<{ name: string; location: number; capacity_kg: number; low_stock_threshold_kg: number; is_active: boolean }>) => {
+    updateLPGPlant: async (id: number, data: Partial<{ name: string; code: string; location: number; capacity_kg: number; low_stock_threshold_kg: number; price_per_kg: number; bulk_threshold_kg: number; is_active: boolean }>) => {
       const response = await safeFetch(`${ADMIN_BASE}/lpg/plants/${id}/`, {
         method: 'PUT', headers: getHeaders(), body: JSON.stringify(data),
       });
@@ -639,7 +639,11 @@ export const apiClient = {
       return response.json();
     },
 
-    addLPGSale: async (data: { plant: number; date: string; customer_name?: string; kg: number; price_per_kg: number; payment_method: string; invoice_number?: string }) => {
+    /** Note: invoice_number is server-generated (plant code + sequence, e.g. BAU101) — not accepted here. */
+    addLPGSale: async (data: {
+      plant: number; date: string; customer_name?: string; kg: number; price_per_kg: number;
+      payment_method: string; is_bulk?: boolean; bulk_discount_per_kg?: number;
+    }) => {
       const response = await safeFetch(`${ADMIN_BASE}/lpg/sales/`, {
         method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
       });

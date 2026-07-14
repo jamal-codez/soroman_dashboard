@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -13,16 +13,19 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
-import { Flame, Plus, Trash2, AlertTriangle, CheckCircle2, RefreshCw, Building2, Package, AlertOctagon } from 'lucide-react';
+import { Flame, Plus, Trash2, AlertTriangle, CheckCircle2, RefreshCw, Building2, Package, AlertOctagon, Pencil, Tag } from 'lucide-react';
 import { apiClient } from '@/api/client';
 
 interface LPGPlant {
   id: number;
   name: string;
+  code?: string | null;
   location?: number | null;
   location_name?: string | null;
   capacity_kg?: string | number | null;
   low_stock_threshold_kg: string | number;
+  price_per_kg?: string | number | null;
+  bulk_threshold_kg?: string | number | null;
   is_active: boolean;
   latest_closing_stock_kg?: string | number | null;
 }
@@ -38,48 +41,80 @@ const toNum = (v: unknown): number => {
 };
 const fmtN = (n: number) => n.toLocaleString('en-NG', { maximumFractionDigits: 2 });
 
-const AddPlantDialog = ({
-  open, onClose, onSaved, states,
-}: { open: boolean; onClose: () => void; onSaved: () => void; states: StateOption[] }) => {
-  const [name, setName] = useState('');
-  const [locationId, setLocationId] = useState('');
-  const [capacity, setCapacity] = useState('');
-  const [threshold, setThreshold] = useState('5000');
+const EMPTY_PLANT_FORM = {
+  name: '', code: '', locationId: '', capacity: '', threshold: '5000', pricePerKg: '', bulkThreshold: '100',
+};
+
+/** Add when editTarget is null, otherwise edits that plant in place — same
+ * fields either way, since price/threshold/code need to stay editable after
+ * creation (prices change over time). */
+const PlantFormDialog = ({
+  open, onClose, onSaved, states, editTarget,
+}: { open: boolean; onClose: () => void; onSaved: () => void; states: StateOption[]; editTarget: LPGPlant | null }) => {
+  const [form, setForm] = useState(EMPTY_PLANT_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const reset = () => { setName(''); setLocationId(''); setCapacity(''); setThreshold('5000'); setError(null); };
+  useEffect(() => {
+    if (!open) return;
+    if (editTarget) {
+      setForm({
+        name: editTarget.name,
+        code: editTarget.code || '',
+        locationId: editTarget.location ? String(editTarget.location) : '',
+        capacity: editTarget.capacity_kg != null ? String(toNum(editTarget.capacity_kg)) : '',
+        threshold: String(toNum(editTarget.low_stock_threshold_kg)),
+        pricePerKg: editTarget.price_per_kg != null ? String(toNum(editTarget.price_per_kg)) : '',
+        bulkThreshold: editTarget.bulk_threshold_kg != null ? String(toNum(editTarget.bulk_threshold_kg)) : '100',
+      });
+    } else {
+      setForm(EMPTY_PLANT_FORM);
+    }
+    setError(null);
+  }, [open, editTarget]);
+
+  const set = (key: keyof typeof form) => (value: string) => setForm(f => ({ ...f, [key]: value }));
 
   const handleSave = async () => {
-    if (!name.trim()) { setError('Plant name is required.'); return; }
+    if (!form.name.trim()) { setError('Plant name is required.'); return; }
+    if (!form.code.trim()) { setError('Plant code is required (e.g. BAU for Bauchi).'); return; }
     setSaving(true);
     setError(null);
     try {
-      await apiClient.admin.addLPGPlant({
-        name: name.trim(),
-        location: locationId ? Number(locationId) : undefined,
-        capacity_kg: capacity ? Number(capacity) : undefined,
-        low_stock_threshold_kg: threshold ? Number(threshold) : undefined,
-      });
+      const payload = {
+        name: form.name.trim(),
+        code: form.code.trim().toUpperCase(),
+        location: form.locationId ? Number(form.locationId) : undefined,
+        capacity_kg: form.capacity ? Number(form.capacity) : undefined,
+        low_stock_threshold_kg: form.threshold ? Number(form.threshold) : undefined,
+        price_per_kg: form.pricePerKg ? Number(form.pricePerKg) : undefined,
+        bulk_threshold_kg: form.bulkThreshold ? Number(form.bulkThreshold) : undefined,
+      };
+      if (editTarget) {
+        await apiClient.admin.updateLPGPlant(editTarget.id, payload);
+      } else {
+        await apiClient.admin.addLPGPlant(payload);
+      }
       onSaved();
-      reset();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add plant.');
+      setError(err instanceof Error ? err.message : 'Failed to save plant.');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-orange-100"><Flame className="w-5 h-5 text-orange-600" /></div>
-            <h2 className="text-lg font-semibold">Add LPG Plant</h2>
+            <div className="p-2 rounded-lg bg-orange-100">
+              {editTarget ? <Pencil className="w-5 h-5 text-orange-600" /> : <Flame className="w-5 h-5 text-orange-600" />}
+            </div>
+            <h2 className="text-lg font-semibold">{editTarget ? 'Edit LPG Plant' : 'Add LPG Plant'}</h2>
           </DialogTitle>
-          <DialogDescription className="sr-only">Add a new plant to the master list</DialogDescription>
+          <DialogDescription className="sr-only">{editTarget ? 'Edit this plant' : 'Add a new plant to the master list'}</DialogDescription>
         </DialogHeader>
 
         {error && (
@@ -89,13 +124,20 @@ const AddPlantDialog = ({
         )}
 
         <div className="space-y-3">
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">Plant Name *</label>
-            <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Bauchi LPG Plant" className="h-9 text-sm" />
+          <div className="grid grid-cols-[1fr_100px] gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Plant Name *</label>
+              <Input value={form.name} onChange={e => set('name')(e.target.value)} placeholder="e.g. Bauchi LPG Plant" className="h-9 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Code *</label>
+              <Input value={form.code} onChange={e => set('code')(e.target.value.toUpperCase())} placeholder="BAU" maxLength={10} className="h-9 text-sm uppercase" />
+            </div>
           </div>
+          <p className="text-[11px] text-slate-400 -mt-2">Code prefixes receipt numbers, e.g. {form.code || 'BAU'}101.</p>
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">Location</label>
-            <select aria-label="Plant location" value={locationId} onChange={e => setLocationId(e.target.value)} className="w-full h-9 rounded-md border border-slate-200 bg-white px-2 text-sm">
+            <select aria-label="Plant location" value={form.locationId} onChange={e => set('locationId')(e.target.value)} className="w-full h-9 rounded-md border border-slate-200 bg-white px-2 text-sm">
               <option value="">— None —</option>
               {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
@@ -103,20 +145,31 @@ const AddPlantDialog = ({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Capacity (kg)</label>
-              <Input type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="Optional" className="h-9 text-sm" />
+              <Input type="number" value={form.capacity} onChange={e => set('capacity')(e.target.value)} placeholder="Optional" className="h-9 text-sm" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Low Stock Alert (kg)</label>
-              <Input type="number" value={threshold} onChange={e => setThreshold(e.target.value)} className="h-9 text-sm" />
+              <Input type="number" value={form.threshold} onChange={e => set('threshold')(e.target.value)} className="h-9 text-sm" />
+            </div>
+          </div>
+          <div className="h-px bg-slate-100" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Price per kg (₦)</label>
+              <Input type="number" value={form.pricePerKg} onChange={e => set('pricePerKg')(e.target.value)} placeholder="Pre-fills the Sales Register" className="h-9 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Bulk Buyer Min. (kg)</label>
+              <Input type="number" value={form.bulkThreshold} onChange={e => set('bulkThreshold')(e.target.value)} className="h-9 text-sm" />
             </div>
           </div>
         </div>
 
         <DialogFooter className="gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={() => { reset(); onClose(); }} disabled={saving}>Cancel</Button>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" onClick={handleSave} disabled={saving} className="gap-2">
             {saving ? <RefreshCw size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-            Add Plant
+            {editTarget ? 'Save Changes' : 'Add Plant'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -126,7 +179,8 @@ const AddPlantDialog = ({
 
 export default function LPGPlants() {
   const queryClient = useQueryClient();
-  const [addPlantOpen, setAddPlantOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<LPGPlant | null>(null);
   const [deletePlant, setDeletePlant] = useState<LPGPlant | null>(null);
 
   const { data: plantsData, isLoading: plantsLoading, refetch: refetchPlants } = useQuery({
@@ -201,7 +255,7 @@ export default function LPGPlants() {
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-700">Plant Master List</p>
-                <Button size="sm" className="gap-2" onClick={() => setAddPlantOpen(true)}>
+                <Button size="sm" className="gap-2" onClick={() => { setEditTarget(null); setFormOpen(true); }}>
                   <Plus size={14} /> Add Plant
                 </Button>
               </div>
@@ -216,6 +270,8 @@ export default function LPGPlants() {
                       <TableRow className="bg-slate-50/80">
                         <TableHead>Plant</TableHead>
                         <TableHead>Location</TableHead>
+                        <TableHead className="text-right">Price/kg</TableHead>
+                        <TableHead className="text-right">Bulk Min.</TableHead>
                         <TableHead className="text-right">Capacity</TableHead>
                         <TableHead className="text-right">Closing Stock</TableHead>
                         <TableHead className="text-right">Low Stock Alert</TableHead>
@@ -230,9 +286,16 @@ export default function LPGPlants() {
                         return (
                           <TableRow key={p.id} className="hover:bg-slate-50/60">
                             <TableCell className="font-semibold text-slate-800">
-                              <span className="inline-flex items-center gap-2"><Flame size={13} className="text-orange-500" />{p.name}</span>
+                              <span className="inline-flex items-center gap-2">
+                                <Flame size={13} className="text-orange-500" />{p.name}
+                                {p.code && <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 text-slate-600"><Tag size={9} />{p.code}</span>}
+                              </span>
                             </TableCell>
                             <TableCell className="text-slate-600 text-xs">{p.location_name || '—'}</TableCell>
+                            <TableCell className="text-right text-slate-700 font-medium">
+                              {p.price_per_kg != null ? `₦${fmtN(toNum(p.price_per_kg))}` : <span className="text-amber-600 font-normal">Not set</span>}
+                            </TableCell>
+                            <TableCell className="text-right text-slate-500 text-xs">{fmtN(toNum(p.bulk_threshold_kg ?? 100))} kg</TableCell>
                             <TableCell className="text-right text-slate-600">{p.capacity_kg ? `${fmtN(toNum(p.capacity_kg))} kg` : '—'}</TableCell>
                             <TableCell className={`text-right font-semibold ${low ? 'text-red-600' : 'text-slate-800'}`}>
                               {p.latest_closing_stock_kg != null ? `${fmtN(closing)} kg` : '—'}
@@ -246,9 +309,14 @@ export default function LPGPlants() {
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setDeletePlant(p)}>
-                                <Trash2 size={13} /> Delete
-                              </Button>
+                              <div className="flex justify-end gap-1">
+                                <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-xs text-slate-600 hover:text-slate-800" onClick={() => { setEditTarget(p); setFormOpen(true); }}>
+                                  <Pencil size={13} /> Edit
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setDeletePlant(p)}>
+                                  <Trash2 size={13} /> Delete
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -262,7 +330,13 @@ export default function LPGPlants() {
         </div>
       </div>
 
-      <AddPlantDialog open={addPlantOpen} onClose={() => setAddPlantOpen(false)} onSaved={refetchAll} states={states} />
+      <PlantFormDialog
+        open={formOpen}
+        onClose={() => { setFormOpen(false); setEditTarget(null); }}
+        onSaved={refetchAll}
+        states={states}
+        editTarget={editTarget}
+      />
 
       <Dialog open={!!deletePlant} onOpenChange={(v) => { if (!v) setDeletePlant(null); }}>
         <DialogContent className="sm:max-w-[420px]">
