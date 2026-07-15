@@ -69,6 +69,13 @@ const navCategories: NavCategory[] = [
     ],
   },
   {
+    category: 'My Reports',
+    items: [
+      // Each role sees one "My Report" item that goes to the dedicated report page
+      { title: "My Report", icon: ClipboardList, path: "/my-report", allowedRoles: [0, 5, 9, 10, 15, 16, 18] },
+    ],
+  },
+  {
     category: 'Dispatch',
     items: [
       // { title: "Confirm Release", icon: ShieldCheck, path: "/confirm-release", allowedRoles: [0, 1, 7, 8] },
