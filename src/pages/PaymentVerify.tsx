@@ -324,7 +324,8 @@ function VerifyConfirmModalBody({
     const amt = parseFloat(l.amount || '0');
     const ref = l.transactionReference.trim();
     const refOk = ref.length === 0 || /^[A-Za-z0-9]+$/.test(ref);
-    return amt > 0 && refOk;
+    // Every line must come from a picked bank statement deposit — no manual entry.
+    return amt > 0 && refOk && l.statementLineId != null;
   });
   const canConfirm = isPending
     && typeof selectedPfiId === 'number'
@@ -451,56 +452,23 @@ function VerifyConfirmModalBody({
                   })}
                 />
 
-                {line.statementLineId && (
-                  <p className="text-[11px] font-medium text-emerald-700 flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1.5">
-                    <CheckCheck size={13} />
+                {line.statementLineId ? (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 space-y-1">
+                    <p className="text-[11px] font-medium text-emerald-700 flex items-center gap-1.5">
+                      <CheckCheck size={13} /> Picked from bank statement
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                      <div><span className="text-slate-400">Amount:</span> <span className="font-semibold text-slate-800">₦{parseFloat(line.amount || '0').toLocaleString()}</span></div>
+                      <div><span className="text-slate-400">Date:</span> <span className="font-semibold text-slate-800">{line.paymentDate || '—'}</span></div>
+                      <div><span className="text-slate-400">Payer:</span> <span className="font-semibold text-slate-800">{line.payerName || '—'}</span></div>
+                      <div><span className="text-slate-400">Reference:</span> <span className="font-semibold text-slate-800 font-mono">{line.transactionReference || '—'}</span></div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 italic px-1">
+                    Pick a deposit from the bank statement above to fill in this payment — amount, date, payer and reference come from the statement, not manual entry.
                   </p>
                 )}
-
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-px bg-slate-200" />
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">or enter manually</span>
-                  <div className="flex-1 h-px bg-slate-200" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Amount (₦)</label>
-                    <CommaInput
-                      value={line.amount}
-                      onValueChange={(v) => updateLine(idx, { amount: v })}
-                      placeholder="e.g. 5,000,000"
-                      className="h-9 text-sm bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Date</label>
-                    <Input
-                      type="date"
-                      value={line.paymentDate}
-                      onChange={(e) => updateLine(idx, { paymentDate: e.target.value })}
-                      className="h-9 text-sm bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Payer's Name</label>
-                    <Input
-                      value={line.payerName}
-                      onChange={(e) => updateLine(idx, { payerName: e.target.value })}
-                      placeholder="Who sent the money"
-                      className="h-9 text-sm bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-slate-600">Transaction Reference</label>
-                    <Input
-                      value={line.transactionReference}
-                      onChange={(e) => updateLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
-                      // placeholder="Alphanumeric, unique if provided"
-                      className="h-9 text-sm font-mono bg-white"
-                    />
-                  </div>
-                </div>
               </div>
             ))}
 

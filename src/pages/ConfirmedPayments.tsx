@@ -697,6 +697,10 @@ export default function ConfirmedPayments() {
     const linesToSubmit = newPaymentLines.filter((l) => parseFloat(l.amount || '0') > 0);
     if (linesToSubmit.length > 0) {
       for (const l of linesToSubmit) {
+        if (l.statementLineId == null) {
+          toast({ title: 'Pick from bank statement', description: 'Each new payment must be picked from the bank statement — manual entry is not allowed.', variant: 'destructive' });
+          return;
+        }
         const ref = l.transactionReference.trim();
         if (!ref || !/^[A-Za-z0-9]+$/.test(ref)) {
           toast({ title: 'Invalid reference', description: 'Each new payment needs a non-empty alphanumeric transaction reference.', variant: 'destructive' });
@@ -2070,82 +2074,50 @@ export default function ConfirmedPayments() {
                             </button>
                           </div>
                         )}
-                        <div className="grid grid-cols-2 gap-2.5">
-                          <div>
-                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Amount (₦)</label>
-                            <CommaInput
-                              value={line.amount}
-                              onValueChange={(v) => updateNewPaymentLine(idx, { amount: v })}
-                              placeholder="e.g. 2,500,000"
-                              className="h-9 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Depositor</label>
-                            <Input
-                              value={line.payerName}
-                              onChange={(e) => updateNewPaymentLine(idx, { payerName: e.target.value })}
-                              placeholder="e.g. John Doe"
-                              className="h-9 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Date</label>
-                            <Input
-                              type="date"
-                              value={line.paymentDate}
-                              onChange={(e) => updateNewPaymentLine(idx, { paymentDate: e.target.value })}
-                              className="h-9 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Transaction Reference</label>
-                            <Input
-                              value={line.transactionReference}
-                              onChange={(e) => updateNewPaymentLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
-                              // placeholder="Alphanumeric, unique"
-                              className="h-9 text-xs font-mono bg-white"
-                            />
-                          </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Bank Account</label>
+                          <select
+                            aria-label="Bank account"
+                            className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            value={line.bankAccountId}
+                            onChange={(e) => updateNewPaymentLine(idx, { bankAccountId: e.target.value, statementLineId: undefined })}
+                          >
+                            <option value="">{'— Select —'}</option>
+                            {bankAccounts.map((b) => (
+                              <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
+                            ))}
+                          </select>
                         </div>
-                        <div className="">
-                          <div>
-                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Bank Account</label>
-                            <select
-                              aria-label="Bank account"
-                              className="h-9 w-full border border-slate-300 rounded-md bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                              value={line.bankAccountId}
-                              onChange={(e) => updateNewPaymentLine(idx, { bankAccountId: e.target.value, statementLineId: undefined })}
-                            >
-                              <option value="">{'— Select —'}</option>
-                              {bankAccounts.map((b) => (
-                                <option key={b.id} value={b.id}>{b.bank_name} • {b.acct_no} • {b.name}</option>
-                              ))}
-                            </select>
+
+                        <StatementPicker
+                          bankAccountId={line.bankAccountId}
+                          excludeIds={pickedStatementIds}
+                          onPick={(picked) => updateNewPaymentLine(idx, {
+                            amount: String(picked.amount),
+                            paymentDate: picked.transaction_date,
+                            payerName: picked.depositor_name || '',
+                            transactionReference: (picked.bank_ref || '').replace(/[^A-Za-z0-9]/g, ''),
+                            statementLineId: picked.id,
+                          })}
+                        />
+
+                        {line.statementLineId ? (
+                          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 space-y-1">
+                            <p className="text-[11px] font-medium text-emerald-700 flex items-center gap-1.5">
+                              <CheckCheck size={13} /> Picked from bank statement
+                            </p>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                              <div><span className="text-slate-400">Amount:</span> <span className="font-semibold text-slate-800">₦{parseFloat(line.amount || '0').toLocaleString()}</span></div>
+                              <div><span className="text-slate-400">Date:</span> <span className="font-semibold text-slate-800">{line.paymentDate || '—'}</span></div>
+                              <div><span className="text-slate-400">Depositor:</span> <span className="font-semibold text-slate-800">{line.payerName || '—'}</span></div>
+                              <div><span className="text-slate-400">Reference:</span> <span className="font-semibold text-slate-800 font-mono">{line.transactionReference || '—'}</span></div>
+                            </div>
                           </div>
-                          <div className="mt-2.5">
-                            <StatementPicker
-                              bankAccountId={line.bankAccountId}
-                              excludeIds={pickedStatementIds}
-                              onPick={(picked) => updateNewPaymentLine(idx, {
-                                amount: String(picked.amount),
-                                paymentDate: picked.transaction_date,
-                                payerName: picked.depositor_name || '',
-                                transactionReference: picked.bank_ref || '',
-                                statementLineId: picked.id,
-                              })}
-                            />
-                          </div>
-                          {/* <div>
-                            <label className="mb-1 block text-[11px] uppercase font-medium text-slate-600">Transaction Reference</label>
-                            <Input
-                              value={line.transactionReference}
-                              onChange={(e) => updateNewPaymentLine(idx, { transactionReference: e.target.value.replace(/[^A-Za-z0-9]/g, '') })}
-                              // placeholder="Alphanumeric, unique"
-                              className="h-9 text-xs font-mono bg-white"
-                            />
-                          </div> */}
-                        </div>
+                        ) : (
+                          <p className="text-[11px] text-slate-400 italic px-1">
+                            Pick a deposit from the bank statement above to fill in this payment — amount, date, depositor and reference come from the statement, not manual entry.
+                          </p>
+                        )}
                       </div>
                     ))}
 

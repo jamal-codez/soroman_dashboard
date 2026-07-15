@@ -46,7 +46,10 @@ export function StatementPicker({
     queryFn: () => apiClient.admin.getBankAccountStatementLines(Number(bankAccountId), {
       status: 'UNMATCHED',
       search: search || undefined,
-      page_size: 25,
+      // Backend caps at 500 — show every unmatched deposit for this account
+      // instead of silently truncating to a small page that made scrolling
+      // seem broken (search was the only way to reach rows past the cutoff).
+      page_size: 500,
     }),
     enabled: !!bankAccountId,
   });
@@ -85,7 +88,7 @@ export function StatementPicker({
           <div className="p-2 border-b border-slate-100">
             <Input
               autoFocus
-              placeholder="Search depositor, ref…"
+              placeholder="Search depositor, ref, or amount…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-8 text-xs"
@@ -149,7 +152,7 @@ export function BulkStatementPicker({
     queryFn: () => apiClient.admin.getBankAccountStatementLines(Number(bankAccountId), {
       status: 'UNMATCHED',
       search: search || undefined,
-      page_size: 50,
+      page_size: 500,
     }),
     enabled: !!bankAccountId && open,
   });
@@ -214,7 +217,7 @@ export function BulkStatementPicker({
               <>
                 <Input
                   autoFocus
-                  placeholder="Search depositor, ref…"
+                  placeholder="Search depositor, ref, or amount…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="h-8 text-xs"
