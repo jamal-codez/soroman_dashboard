@@ -15,7 +15,7 @@ import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
 import { MobileNav } from '@/components/MobileNav';
 import { apiClient, fetchAllPages } from '@/api/client';
-import { isCurrentUserReadOnly } from '@/roles';
+import { isCurrentUserReadOnly, getCurrentUserRoles, ROLES } from '@/roles';
 import { Skeleton } from '@/components/ui/skeleton';
 import * as XLSX from 'xlsx';
 import { Search, ShieldCheck, Loader2, Download, CheckCircle, DollarSign, PhoneOutgoing, CheckSquare2, CheckCheck, XCircle, CalendarDays, X, Fuel, Clock, Paperclip, FileText, ImageIcon, Trash2, Plus } from 'lucide-react';
@@ -839,7 +839,8 @@ const extractCompanyName = (p: PaymentOrder): string => {
 
 export default function PaymentVerification() {
   const queryClient = useQueryClient();
-  const readOnly = isCurrentUserReadOnly();
+  // Auditors are read-only everywhere else, but are allowed to verify payments here.
+  const readOnly = isCurrentUserReadOnly() && !getCurrentUserRoles().includes(ROLES.AUDITOR);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'today'|'yesterday'|'week'|'month'|'year'|null>(null);
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
