@@ -24,7 +24,8 @@ import {
   CalendarDays, MapPin, ArrowUpDown, RefreshCw, X,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
-import { DailyReportPanel } from '@/components/DailyReportPanel';
+// Report submission now lives exclusively on /my-report — see StaffDailySalesReportForm/MyReportPage.
+// import { DailyReportPanel } from '@/components/DailyReportPanel';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -153,7 +154,8 @@ const STEPS: Array<{ key: string; colLabel: string; check: (o: Order) => boolean
 export default function SalesManagerView() {
   const location = useLocation();
   const navigate = useNavigate();
-  const autoOpenReport = new URLSearchParams(location.search).get('report') === 'true';
+  // Report entry moved to /my-report — no longer auto-opened from this page.
+  // const autoOpenReport = new URLSearchParams(location.search).get('report') === 'true';
 
   const [preset,     setPreset]     = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
@@ -683,7 +685,8 @@ export default function SalesManagerView() {
               </div>
             </div>
 
-            <DailyReportPanel pageRole="SALES_MANAGER" initialOpen={autoOpenReport} />
+            {/* Report submission moved to /my-report — enter reports there only. */}
+            {/* <DailyReportPanel pageRole="SALES_MANAGER" initialOpen={autoOpenReport} /> */}
 
           </div>
         </div>

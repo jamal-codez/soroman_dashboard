@@ -25,7 +25,7 @@ function landingPageForRole(role: number | string): string {
     case 4:  // TICKETING
       return '/pickup-processing';
     case 5:  // SECURITY
-      return '/my-report';
+      return '/security';
     case 6:  // TRANSPORT
       return '/fleet-ledger';
     case 7:  // RELEASE OFFICER
@@ -51,7 +51,7 @@ function landingPageForRole(role: number | string): string {
     case 17: // DISPATCH
       return '/pickup-processing';
     case 18: // IT COMPLIANCE
-      return '/my-report';
+      return '/depot-view';
     default:
       return '/dashboard';
   }
