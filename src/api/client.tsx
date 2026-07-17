@@ -1401,6 +1401,46 @@ export const apiClient = {
     // Use confirmPayment() or releaseOrder() instead.
 
     // Verify Orders
+    /** GET /api/admin/finance/home-summary/ — landing-dashboard snapshot for Finance */
+    getFinanceHomeSummary: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/finance/home-summary/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        tasks: Array<{ key: string; label: string; count: number }>;
+        latest_payments: Array<{ order_ref: string; payer_name: string; amount: string; payment_date: string }>;
+      }>;
+    },
+
+    /** GET /api/admin/sales-manager/home-summary/ — landing-dashboard snapshot for a Sales Manager */
+    getSalesManagerHomeSummary: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/sales-manager/home-summary/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        tasks: Array<{ key: string; label: string; count: number }>;
+        recent_orders: Array<{ order_ref: string; company_name: string; quantity: number; total_price: string; status: string; created_at: string }>;
+      }>;
+    },
+
+    /** GET /api/admin/commissions/home-summary/ — landing-dashboard snapshot for a Commission Officer */
+    getCommissionOfficerHomeSummary: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/commissions/home-summary/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        tasks: Array<{ key: string; label: string; count: number }>;
+        recent_paid: Array<{ order_ref: string; company_name: string; amount: string; paid_at: string }>;
+      }>;
+    },
+
+    /** GET /api/admin/product-manager/home-summary/ — landing-dashboard snapshot for a Product Manager */
+    getProductManagerHomeSummary: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/product-manager/home-summary/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        tasks: Array<{ key: string; label: string; count: number }>;
+        low_stock_pfis: Array<{ pfi_number: string; location_name: string | null; balance: string }>;
+      }>;
+    },
+
     getVerifyOrders: async (params?: {
       search?: string;
       status?: string;
@@ -1769,6 +1809,27 @@ export const apiClient = {
       return true;
     },
 
+    /** GET /api/admin/audit-logs/?page_size= — recent cross-order activity feed (Admin/Superadmin) */
+    getAuditLogs: async (params?: { page?: number; page_size?: number }) => {
+      const url = new URL(`${ADMIN_BASE}/audit-logs/`);
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null) url.searchParams.set(k, String(v)); });
+      }
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        count: number;
+        results: Array<{
+          id: number;
+          order_id: number;
+          action: string;
+          actor_full_name?: string | null;
+          timestamp: string;
+          current_order_status?: string | null;
+        }>;
+      }>;
+    },
+
     getOrderAudit: async (params?: {
       page?: number;
       page_size?: number;
@@ -1980,6 +2041,16 @@ export const apiClient = {
     },
 
     /** GET /api/admin/security/exits-summary/?date_from=&date_to=&pfi=&location= — single range summary, scoped + filtered, with cumulative totals for that scope/filter */
+    /** GET /api/admin/security/home-summary/ — landing-dashboard snapshot for a Security officer */
+    getSecurityHomeSummary: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/security/home-summary/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        tasks: Array<{ key: string; label: string; count: number }>;
+        recent_exits: Array<{ order_ref: string; truck_no: string; quantity_litres: string; exit_time: string }>;
+      }>;
+    },
+
     getSecurityExitsSummary: async (params: { date_from?: string; date_to?: string; pfi?: string | number; location?: string | number }) => {
       const url = new URL(`${ADMIN_BASE}/security/exits-summary/`);
       Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.set(k, String(v)); });

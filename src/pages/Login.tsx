@@ -11,50 +11,14 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 
-/** Map user role to their default landing page after login. */
-function landingPageForRole(role: number | string): string {
-  switch (Number(role)) {
-    case 0:  // SUPERADMIN
-      return '/dashboard';
-    case 1:  // ADMIN
-      return '/dashboard';
-    case 2:  // FINANCE
-      return '/payment-verify';
-    case 3:  // TRUCK SALES
-      return '/delivery-sales-ledger';
-    case 4:  // TICKETING
-      return '/pickup-processing';
-    case 5:  // SECURITY
-      return '/security';
-    case 6:  // TRANSPORT
-      return '/fleet-ledger';
-    case 7:  // RELEASE OFFICER
-      return '/pickup-processing';
-    case 8:  // AUDITOR
-      return '/dashboard';
-    case 9:  // SALES MANAGER
-      return '/sales-manager-view';
-    case 10: // PRODUCT MANAGER
-      return '/product-manager-view';
-    case 11: // LPG DASHBOARD
-      return '/lpg/dashboard';
-    case 12: // LPG PLANTS
-      return '/lpg/plants';
-    case 13: // LPG STOCK
-      return '/lpg/stock';
-    case 14: // LPG SALES
-      return '/lpg/sales';
-    case 15: // COMMISSIONS
-      return '/commissions';
-    case 16: // COMMISSION OFFICER
-      return '/commissions';
-    case 17: // DISPATCH
-      return '/pickup-processing';
-    case 18: // IT COMPLIANCE
-      return '/depot-view';
-    default:
-      return '/dashboard';
-  }
+/**
+ * Every role lands on /home after login — it's the single entry point that
+ * shows a snapshot of what needs attention (or, for roles without one yet,
+ * immediately bounces onward to their real workspace — see
+ * fallbackWorkspaceForRole in roles.tsx, used inside Home.tsx).
+ */
+function landingPageForRole(_role: number | string): string {
+  return '/home';
 }
 
 const Login = () => {

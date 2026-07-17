@@ -54,3 +54,54 @@ export function isCurrentUserReadOnly(): boolean {
     return false;
   }
 }
+
+/**
+ * Each role's real operational workspace — used by Home.tsx (src/pages/Home.tsx)
+ * to redirect a role that doesn't have a dedicated `/home` snapshot yet onto
+ * the page that actually lets them work. Every login lands on `/home` first
+ * (see Login.tsx); this is where roles without a Home view bounce onward to.
+ */
+export function fallbackWorkspaceForRole(role: number | string): string {
+  switch (Number(role)) {
+    case ROLES.SUPERADMIN:
+      return '/dashboard';
+    case ROLES.ADMIN:
+      return '/dashboard';
+    case ROLES.FINANCE:
+      return '/payment-verify';
+    case ROLES.SALES:              // TRUCK SALES
+      return '/delivery-sales-ledger';
+    case ROLES.RELEASE:            // TICKETING
+      return '/pickup-processing';
+    case ROLES.SECURITY:
+      return '/security';
+    case ROLES.TRANSPORT:
+      return '/fleet-ledger';
+    case ROLES.RELEASE_OFFICER:
+      return '/pickup-processing';
+    case ROLES.AUDITOR:
+      return '/dashboard';
+    case ROLES.SALES_MANAGER:
+      return '/sales-manager-view';
+    case ROLES.PRODUCT_MANAGER:
+      return '/product-manager-view';
+    case 11: // LPG DASHBOARD
+      return '/lpg/dashboard';
+    case 12: // LPG PLANTS
+      return '/lpg/plants';
+    case 13: // LPG STOCK
+      return '/lpg/stock';
+    case 14: // LPG SALES
+      return '/lpg/sales';
+    case ROLES.COMMISSIONS:
+      return '/commissions';
+    case ROLES.COMMISSION_OFFICER:
+      return '/commissions';
+    case ROLES.DISPATCH:
+      return '/pickup-processing';
+    case ROLES.IT_COMPLIANCE:
+      return '/depot-view';
+    default:
+      return '/dashboard';
+  }
+}

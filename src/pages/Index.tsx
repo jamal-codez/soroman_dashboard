@@ -123,7 +123,10 @@ const normalizeDepot = (value?: string | null) => {
 };
 
 // ---------- Dashboard ----------
-const Dashboard: React.FC = () => {
+// Extracted so it can be embedded directly inside Home.tsx's admin/superadmin
+// view (merged there instead of living at a separate /dashboard route) as
+// well as rendered standalone below for any other caller.
+export const DashboardOverviewContent: React.FC = () => {
   // Prefetch ALL app data in parallel on dashboard load
   usePrefetchAll();
 
@@ -424,13 +427,7 @@ const Dashboard: React.FC = () => {
   const isOrdersLoading = !allOrdersResp;
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <SidebarNav />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <MobileNav />
-        <TopBar />
-        <div className="flex-1 overflow-auto p-4 sm:p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
 
             {/* Header */}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -626,11 +623,23 @@ const Dashboard: React.FC = () => {
             </div>
 
             <div className="h-8" />
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
+
+// Standalone page wrapper — kept so any direct /dashboard link still works,
+// though Admin/Superadmin now reach this content embedded inside Home.tsx.
+const Dashboard: React.FC = () => (
+  <div className="flex h-screen bg-slate-50">
+    <SidebarNav />
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <MobileNav />
+      <TopBar />
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
+        <DashboardOverviewContent />
+      </div>
+    </div>
+  </div>
+);
 
 export default Dashboard;

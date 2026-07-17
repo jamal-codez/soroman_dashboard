@@ -103,7 +103,8 @@ const navCategories: NavCategory[] = [
   {
     category: '',
     items: [
-      { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [0, 1, 8] },
+      { title: "Overview", icon: GaugeIcon, path: "/dashboard", allowedRoles: [8] },
+      { title: "Home", icon: Home, path: "/home", allowedRoles: ALL_ROLES },
     ],
   },
   {
