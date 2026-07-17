@@ -32,6 +32,7 @@ import {
   Flame,
   RotateCcw,
   ArrowLeftRight,
+  MessageCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -132,6 +133,7 @@ const navCategories: NavCategory[] = [
     category: 'Admin',
     items: [
       { title: "Reports Hub",      icon: FileBarChart2Icon, path: "/admin-reports",   allowedRoles: [0, 1, 8] },
+      { title: "Messaging",        icon: MessageCircle,     path: "/messaging",       allowedRoles: [0, 1] },
       { title: "Assign PFI",       icon: TicketPlusIcon,  path: "/orders-pfi",       allowedRoles: [0] },
       { title: "Product Pricing",  icon: Tag,             path: "/pricing",          allowedRoles: [0, 1] },
       { title: "PFI Tracking",     icon: FileSearch2,     path: "/pfi",              allowedRoles: [0, 1, 2, 7, 8] },

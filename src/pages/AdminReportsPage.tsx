@@ -6,7 +6,7 @@
  */
 import { useMemo, useState } from 'react';
 import { format, subDays } from 'date-fns';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ExcelJS from 'exceljs';
@@ -21,6 +21,7 @@ import {
   Loader2, CalendarDays, FileSpreadsheet, FileText,
   MapPin, Fuel, X, Package, FileBarChart2,
   ShieldCheck, BarChart2, Banknote, TrendingUp, Monitor, Mail,
+  Plus, Trash2, CheckCircle2, CircleSlash,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -557,9 +558,11 @@ export default function AdminReportsPage() {
   const [exportingPDF, setExportingPDF] = useState(false);
   const [exportingXLS, setExportingXLS] = useState(false);
   const [showEmailComposer, setShowEmailComposer] = useState(false);
-  const [recipientEmails, setRecipientEmails] = useState('');
-  const [sendingEmail, setSendingEmail] = useState(false);
+  const [newRecipientEmail, setNewRecipientEmail] = useState('');
+  const [newRecipientName, setNewRecipientName] = useState('');
+  const [sendResult, setSendResult] = useState<{ sent: string[]; failed: Array<{ email: string; error: string }>; staff_entries: number; orders: number } | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const selectedDate = useMemo(() => {
     if (period === 'today')     return todayStr();
@@ -578,6 +581,51 @@ export default function AdminReportsPage() {
     queryFn: () => apiClient.admin.listStaffDailyEntries(selectedDate),
     staleTime: 15_000,
     refetchOnWindowFocus: true,
+  });
+
+  const recipientsQuery = useQuery({
+    queryKey: ['report-recipients'],
+    queryFn: () => apiClient.admin.getReportRecipients(),
+    enabled: showEmailComposer,
+    staleTime: 15_000,
+  });
+  const recipients = recipientsQuery.data ?? [];
+
+  const addRecipientMutation = useMutation({
+    mutationFn: () => apiClient.admin.addReportRecipient({ email: newRecipientEmail.trim(), name: newRecipientName.trim() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['report-recipients'] });
+      setNewRecipientEmail('');
+      setNewRecipientName('');
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Could not add recipient', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const toggleRecipientMutation = useMutation({
+    mutationFn: ({ id, active }: { id: number; active: boolean }) => apiClient.admin.updateReportRecipient(id, { active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['report-recipients'] }),
+  });
+
+  const removeRecipientMutation = useMutation({
+    mutationFn: (id: number) => apiClient.admin.deleteReportRecipient(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['report-recipients'] }),
+  });
+
+  const sendReportMutation = useMutation({
+    mutationFn: () => apiClient.admin.sendCombinedReport(selectedDate),
+    onSuccess: (res) => {
+      setSendResult(res);
+      if (res.failed.length === 0) {
+        toast({ title: 'Report Sent', description: `Sent to ${res.sent.length} recipient${res.sent.length === 1 ? '' : 's'} for ${dateLabel}.` });
+      } else {
+        toast({ title: 'Sent with some failures', description: `${res.sent.length} sent, ${res.failed.length} failed.`, variant: 'destructive' });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Send Failed', description: error.message || 'Could not send the report.', variant: 'destructive' });
+    },
   });
 
   const allEntries: Entry[] = useMemo(() => (data?.reports ?? []) as Entry[], [data]);
@@ -658,35 +706,24 @@ export default function AdminReportsPage() {
   const pfiLabel  = pfiFilter === 'all' ? 'All PFIs' : pfiFilter;
   const hasFilters = locationFilter !== 'all' || pfiFilter !== 'all';
 
-  const handleSendEmail = async () => {
-    const recipients = recipientEmails
-      .split(/[\n,]+/)
-      .map(address => address.trim())
-      .filter(Boolean);
+  const activeRecipientCount = recipients.filter(r => r.active).length;
 
-    if (recipients.length === 0) {
-      toast({ title: 'Add recipients', description: 'Enter at least one email address before sending.', variant: 'destructive' });
+  const handleAddRecipient = () => {
+    const email = newRecipientEmail.trim();
+    if (!email) {
+      toast({ title: 'Email required', description: 'Enter an email address to add.', variant: 'destructive' });
       return;
     }
+    addRecipientMutation.mutate();
+  };
 
-    if (allEntries.length === 0) {
-      toast({ title: 'No report data', description: 'There is nothing to email for this date yet.', variant: 'destructive' });
+  const handleSendReport = () => {
+    if (activeRecipientCount === 0) {
+      toast({ title: 'No active recipients', description: 'Add or re-activate at least one recipient before sending.', variant: 'destructive' });
       return;
     }
-
-    setSendingEmail(true);
-    try {
-      const res = await apiClient.admin.sendStaffDailyReportEmail(selectedDate, recipients);
-      toast({
-        title: 'Report Sent',
-        description: res.message || `The daily report for ${dateLabel} was emailed to ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}.`,
-      });
-      setShowEmailComposer(false);
-    } catch (error: any) {
-      toast({ title: 'Send Failed', description: error.message || 'Could not send the report.', variant: 'destructive' });
-    } finally {
-      setSendingEmail(false);
-    }
+    setSendResult(null);
+    sendReportMutation.mutate();
   };
 
   const handlePDF = async () => {
@@ -743,34 +780,103 @@ export default function AdminReportsPage() {
             />
 
             {showEmailComposer && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">Send this report by email</p>
+                    <p className="text-sm font-semibold text-slate-900">Send the combined daily report</p>
                     <p className="text-xs text-slate-500">
-                      Enter recipients (comma or new-line separated) and we'll email the full report for {dateLabel}.
+                      Sends staff entries + orders for {dateLabel} to every active recipient below.
                     </p>
                   </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="report-recipients" className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Recipients</label>
-                  <textarea
-                    id="report-recipients"
-                    rows={4}
-                    value={recipientEmails}
-                    onChange={e => setRecipientEmails(e.target.value)}
-                    placeholder="name@company.com, another@company.com"
-                    className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-slate-300"
-                  />
-                </div>
-
-                <div className="flex items-center justify-end">
-                  <Button size="sm" className="gap-2" onClick={handleSendEmail} disabled={sendingEmail}>
-                    {sendingEmail
+                  <Button size="sm" className="gap-2 shrink-0" onClick={handleSendReport} disabled={sendReportMutation.isPending}>
+                    {sendReportMutation.isPending
                       ? <Loader2 size={14} className="animate-spin" />
                       : <Mail size={14} />}
-                    {sendingEmail ? 'Sending…' : 'Send Report'}
+                    {sendReportMutation.isPending ? 'Sending…' : `Send to ${activeRecipientCount || 0}`}
+                  </Button>
+                </div>
+
+                {/* Result summary from the last send */}
+                {sendResult && (
+                  <div className={cn(
+                    'rounded-lg border px-3 py-2.5 text-xs space-y-1',
+                    sendResult.failed.length === 0 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'
+                  )}>
+                    <p className="font-semibold text-slate-800">
+                      {sendResult.sent.length} sent{sendResult.failed.length > 0 ? `, ${sendResult.failed.length} failed` : ''}
+                      {' · '}{sendResult.staff_entries} staff entries · {sendResult.orders} orders
+                    </p>
+                    {sendResult.failed.length > 0 && (
+                      <ul className="text-amber-700 space-y-0.5">
+                        {sendResult.failed.map((f) => <li key={f.email}>{f.email}: {f.error}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {/* Recipient list */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Recipients</p>
+                  {recipientsQuery.isLoading ? (
+                    <p className="text-xs text-slate-400 py-2">Loading…</p>
+                  ) : recipients.length === 0 ? (
+                    <p className="text-xs text-slate-400 py-2">No recipients yet — add one below.</p>
+                  ) : (
+                    <div className="rounded-md border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+                      {recipients.map((r) => (
+                        <div key={r.id} className="flex items-center gap-3 px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleRecipientMutation.mutate({ id: r.id, active: !r.active })}
+                            title={r.active ? 'Active — click to pause' : 'Paused — click to activate'}
+                            className={cn('shrink-0', r.active ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-400')}
+                          >
+                            {r.active ? <CheckCircle2 size={16} /> : <CircleSlash size={16} />}
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-slate-800 truncate">{r.email}</p>
+                            {r.name && <p className="text-xs text-slate-400 truncate">{r.name}</p>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeRecipientMutation.mutate(r.id)}
+                            title="Remove"
+                            className="shrink-0 text-slate-300 hover:text-red-600"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Add recipient */}
+                <div className="flex items-end gap-2">
+                  <div className="flex-1 space-y-1">
+                    <label htmlFor="new-recipient-email" className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Email</label>
+                    <input
+                      id="new-recipient-email"
+                      type="email"
+                      value={newRecipientEmail}
+                      onChange={e => setNewRecipientEmail(e.target.value)}
+                      placeholder="name@company.com"
+                      className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-slate-300"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label htmlFor="new-recipient-name" className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Name (optional)</label>
+                    <input
+                      id="new-recipient-name"
+                      value={newRecipientName}
+                      onChange={e => setNewRecipientName(e.target.value)}
+                      placeholder="Jane Doe"
+                      className="w-full h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-slate-300"
+                    />
+                  </div>
+                  <Button size="sm" variant="outline" className="gap-1.5 h-9 shrink-0" onClick={handleAddRecipient} disabled={addRecipientMutation.isPending}>
+                    {addRecipientMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                    Add
                   </Button>
                 </div>
               </div>

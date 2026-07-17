@@ -1718,6 +1718,118 @@ export const apiClient = {
       URL.revokeObjectURL(blobUrl);
     },
 
+    /** GET /api/admin/reports/recipients/ — persisted list of daily-report email recipients */
+    getReportRecipients: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/recipients/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<Array<{ id: number; email: string; name: string; active: boolean }>>;
+    },
+
+    /** POST /api/admin/reports/recipients/ — add (or reactivate) a recipient */
+    addReportRecipient: async (data: { email: string; name?: string }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/recipients/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{ id: number; email: string; name: string; active: boolean; created: boolean }>;
+    },
+
+    /** PATCH /api/admin/reports/recipients/<id>/ — rename or toggle active */
+    updateReportRecipient: async (id: number, data: { name?: string; active?: boolean }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/recipients/${id}/`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{ id: number; email: string; name: string; active: boolean }>;
+    },
+
+    /** DELETE /api/admin/reports/recipients/<id>/ */
+    deleteReportRecipient: async (id: number) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/recipients/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+    },
+
+    /** POST /api/admin/reports/send/ — emails the combined daily report (staff entries + orders) to every active recipient */
+    sendCombinedReport: async (date?: string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/reports/send/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(date ? { date } : {}),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        date: string;
+        sent: string[];
+        failed: Array<{ email: string; error: string }>;
+        staff_entries: number;
+        orders: number;
+      }>;
+    },
+
+    /** GET /api/admin/messaging/whatsapp/template/ — configured price-template id + variable slots */
+    getWhatsAppTemplateInfo: async () => {
+      const response = await safeFetch(`${ADMIN_BASE}/messaging/whatsapp/template/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        template_id: string;
+        device_id_configured: boolean;
+        ready: boolean;
+        variables: Array<{ key: string; label: string }>;
+      }>;
+    },
+
+    /** POST /api/admin/messaging/whatsapp/template/send/ — blast the price template to a phone list */
+    sendWhatsAppTemplate: async (data: { phones: string[]; data: Record<string, string> }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/messaging/whatsapp/template/send/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        sent: number;
+        failed: number;
+        results: Array<{ phone: string; success: boolean; response: unknown }>;
+      }>;
+    },
+
+    /** GET /api/admin/messaging/customer-thankyou/preview/?date= — who would receive the thank-you message */
+    getCustomerThankYouPreview: async (date: string) => {
+      const url = new URL(`${ADMIN_BASE}/messaging/customer-thankyou/preview/`);
+      url.searchParams.set('date', date);
+      const response = await safeFetch(url.toString(), { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        date: string;
+        count: number;
+        recipients: Array<{ name: string; phone: string; phone_normalized: string }>;
+      }>;
+    },
+
+    /** POST /api/admin/messaging/customer-thankyou/send/ — send the thank-you message to the day's customers */
+    sendCustomerThankYou: async (data: { date: string; message: string; channel: 'sms' | 'whatsapp' }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/messaging/customer-thankyou/send/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{
+        date: string;
+        channel: string;
+        sent: number;
+        failed: number;
+        results: Array<{ name: string; phone: string; success: boolean; response: unknown }>;
+      }>;
+    },
+
     /** POST /api/admin/reports/staff/send-email/ — backend emails the full staff report to the given recipients */
     sendStaffDailyReportEmail: async (date: string, recipients: string[]) => {
       const response = await safeFetch(`${ADMIN_BASE}/reports/staff/send-email/`, {
