@@ -752,6 +752,48 @@ export default function DepotView() {
     ];
   }, [filteredOrders]);
 
+  // ── Table rows grouped by day, with a subtotal row closing out each day ──
+  // (filteredOrders is newest-first, so a day's subtotal appears right
+  // before the next, earlier day's orders start — the same reading order
+  // as scrolling down the table). Only worth doing once more than one day
+  // is actually on screen; a single day would just repeat the summary cards.
+  type DepotTableRow =
+    | { kind: 'order'; sn: number; order: Order }
+    | { kind: 'subtotal'; label: string; count: number; qty: number; amount: number };
+
+  const depotTableRows = useMemo((): DepotTableRow[] => {
+    const dayKey = (o: Order) => {
+      try { return format(parseISO(o.created_at), 'yyyy-MM-dd'); }
+      catch { return 'unknown'; }
+    };
+    const distinctDays = new Set(filteredOrders.map(dayKey));
+    if (distinctDays.size <= 1) {
+      return filteredOrders.map((order, idx) => ({ kind: 'order', sn: idx + 1, order }));
+    }
+
+    const out: DepotTableRow[] = [];
+    let sn = 1;
+    let i = 0;
+    while (i < filteredOrders.length) {
+      const key = dayKey(filteredOrders[i]);
+      const dayOrders: Order[] = [];
+      while (i < filteredOrders.length && dayKey(filteredOrders[i]) === key) {
+        dayOrders.push(filteredOrders[i]);
+        out.push({ kind: 'order', sn: sn, order: filteredOrders[i] });
+        sn += 1;
+        i += 1;
+      }
+      out.push({
+        kind: 'subtotal',
+        label: fmtDate(dayOrders[0].created_at),
+        count: dayOrders.length,
+        qty: dayOrders.reduce((s, o) => s + toNum(o.quantity), 0),
+        amount: dayOrders.reduce((s, o) => s + toNum(o.total_price), 0),
+      });
+    }
+    return out;
+  }, [filteredOrders]);
+
   // ── Shared report data builder (used by both Excel and PDF exports) ────
   const buildDepotReportData = () => {
     const generatedAt = format(new Date(), 'dd MMM yyyy, HH:mm');
@@ -795,7 +837,7 @@ export default function DepotView() {
       'Product', 'Qty (L)', 'Trucks Loaded', 'Vol. Loaded (L)', 'Unit Price', 'Amount', 'Paid', 'Status',
     ];
 
-    const rows = sortedOrders.map(order => [
+    const orderRow = (order: Order) => [
       String(getOrderReference(order) || order.id),
       fmtDateTime(order.created_at),
       getCustomerName(order),
@@ -812,7 +854,48 @@ export default function DepotView() {
       `N${toNum(order.total_price).toLocaleString()}`,
       `N${toNum(order.total_paid).toLocaleString()}`,
       String(order.status || ''),
-    ].map(v => String(v).toUpperCase()));
+    ].map(v => String(v).toUpperCase());
+
+    // Group chronologically by calendar day so a subtotal can be inserted
+    // between days — only worth it when the export actually spans more
+    // than one day; a single-day export would just repeat the grand total.
+    const dayKey = (order: Order) => {
+      try { return format(parseISO(order.created_at), 'yyyy-MM-dd'); }
+      catch { return 'unknown'; }
+    };
+    const distinctDays = new Set(sortedOrders.map(dayKey));
+    const showDaySubtotals = distinctDays.size > 1;
+
+    const subtotalRow = (label: string, dayOrders: Order[]) => {
+      const dayQty = dayOrders.reduce((s, o) => s + toNum(o.quantity), 0);
+      const dayAmount = dayOrders.reduce((s, o) => s + toNum(o.total_price), 0);
+      const dayPaid = dayOrders.reduce((s, o) => s + toNum(o.total_paid), 0);
+      const dayTrucks = dayOrders.reduce((s, o) => s + (o.truck_tickets_count || 0), 0);
+      const dayVolLoaded = dayOrders.reduce((s, o) => s + toNum(o.truck_tickets_qty), 0);
+      return [
+        `SUBTOTAL — ${label} (${dayOrders.length} ORDER${dayOrders.length === 1 ? '' : 'S'})`,
+        '', '', '', '', '', '', '',
+        '', dayQty.toLocaleString(), String(dayTrucks), dayVolLoaded.toLocaleString(),
+        '', `N${dayAmount.toLocaleString()}`, `N${dayPaid.toLocaleString()}`, '',
+      ].map(v => String(v).toUpperCase());
+    };
+
+    const rows: string[][] = [];
+    if (showDaySubtotals) {
+      let i = 0;
+      while (i < sortedOrders.length) {
+        const key = dayKey(sortedOrders[i]);
+        const dayOrders: Order[] = [];
+        while (i < sortedOrders.length && dayKey(sortedOrders[i]) === key) {
+          dayOrders.push(sortedOrders[i]);
+          rows.push(orderRow(sortedOrders[i]));
+          i += 1;
+        }
+        rows.push(subtotalRow(fmtDate(dayOrders[0].created_at), dayOrders));
+      }
+    } else {
+      sortedOrders.forEach(order => rows.push(orderRow(order)));
+    }
 
     const totalsRow = [
       'TOTAL', '', '', '', '', '', '', '',
@@ -897,17 +980,23 @@ export default function DepotView() {
       });
       r += 1;
 
+      const SUBTOTAL_FILL = 'FFDCEEFF';
       rows.forEach((row, idx) => {
+        const isSubtotal = row[0]?.startsWith('SUBTOTAL');
         const xlRow = ws.getRow(r);
-        xlRow.height = 16;
+        xlRow.height = isSubtotal ? 18 : 16;
         row.forEach((val, ci) => {
           const cell = xlRow.getCell(ci + 1);
           cell.value = val;
-          cell.font = { name: 'Calibri', size: 9.5 };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? WHITE : BAND } };
+          cell.font = { name: 'Calibri', size: isSubtotal ? 10 : 9.5, bold: isSubtotal, color: { argb: isSubtotal ? 'FF0F172A' : 'FF000000' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isSubtotal ? SUBTOTAL_FILL : (idx % 2 === 0 ? WHITE : BAND) } };
           cell.border = allBorders;
           cell.alignment = { vertical: 'middle', horizontal: COLUMN_ALIGN[ci] || 'left' };
         });
+        if (isSubtotal) {
+          ws.mergeCells(`A${r}:I${r}`);
+          xlRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'right' };
+        }
         r += 1;
       });
 
@@ -995,6 +1084,15 @@ export default function DepotView() {
         alternateRowStyles: { fillColor: [245, 248, 252] },
         headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 6.5, halign: 'center', valign: 'middle', fontStyle: 'bold' },
         footStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 7, valign: 'middle' },
+        didParseCell: (data) => {
+          const raw = data.row.raw as string[] | undefined;
+          if (data.section === 'body' && raw?.[0]?.startsWith('SUBTOTAL')) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [220, 238, 255];
+            data.cell.styles.textColor = [15, 23, 42];
+            if (data.column.index === 0) data.cell.styles.halign = 'right';
+          }
+        },
       });
 
       doc.save(`${fileName}.pdf`);
@@ -1363,7 +1461,26 @@ export default function DepotView() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredOrders.map((o, idx) => {
+                      {depotTableRows.map((row) => {
+                        if (row.kind === 'subtotal') {
+                          return (
+                            <TableRow key={`subtotal-${row.label}`} className="bg-blue-50/70 border-y border-blue-100 hover:bg-blue-50/70">
+                              <TableCell colSpan={7} className="text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Subtotal — {row.label} · {row.count} order{row.count !== 1 ? 's' : ''}
+                              </TableCell>
+                              <TableCell className="font-bold text-slate-900">
+                                {row.qty > 0 ? fmtQty(row.qty) : '—'}
+                              </TableCell>
+                              <TableCell />
+                              <TableCell className="text-right font-bold text-slate-900">
+                                {row.amount > 0 ? fmt(row.amount) : '—'}
+                              </TableCell>
+                              <TableCell colSpan={4} />
+                            </TableRow>
+                          );
+                        }
+
+                        const o = row.order;
                         const qty = toNum(o.quantity);
                         const total = toNum(o.total_price);
                         const unitPrice = getUnitPrice(o);
@@ -1378,7 +1495,7 @@ export default function DepotView() {
                             className={`hover:bg-slate-50/60 transition-colors ${status === 'canceled' ? 'opacity-60' : ''
                               } ${status === 'loaded' ? 'bg-violet-50/20' : ''}`}
                           >
-                            <TableCell className="text-center text-slate-400">{idx + 1}</TableCell>
+                            <TableCell className="text-center text-slate-400">{row.sn}</TableCell>
 
                             <TableCell className="text-sm text-amber-700 font-mono font-semibold whitespace-nowrap">
                               {ref}

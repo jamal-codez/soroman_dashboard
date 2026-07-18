@@ -33,6 +33,7 @@ import {
   RotateCcw,
   ArrowLeftRight,
   MessageCircle,
+  Headphones,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -73,6 +74,7 @@ const navCategories: NavCategory[] = [
       { title: "Orders", icon: ActivityIcon, path: "/sales-manager-view", allowedRoles: [0, 9] },
       { title: "Orders", icon: FileArchiveIcon, path: "/product-manager-view", allowedRoles: [0, 10] },
       { title: "Our Customers", icon: Users, path: "/customers", allowedRoles: [0, 1, 8, 9] },
+      { title: "Customer Desk", icon: Headphones, path: "/customer-desk", allowedRoles: [0, 1] },
       // { title: "Daily Sales Report", icon: FileBarChart2Icon, path: "/daily-sales-report", allowedRoles: [0, 1, 8] },
     ],
   },
