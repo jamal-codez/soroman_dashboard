@@ -53,6 +53,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Flame,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
@@ -75,6 +76,8 @@ type UserType = {
   location_names?: string[];  // resolved names returned by GET — use these for display
   pfis?: number[];            // scoped PFI IDs sent in PATCH
   pfi_numbers?: string[];     // resolved PFI numbers returned by GET — use these for display
+  lpg_plants?: number[];      // scoped LPG plant IDs sent in PATCH
+  lpg_plant_names?: string[]; // resolved LPG plant names returned by GET — use these for display
   plain_password?: string | null;
 };
 
@@ -90,10 +93,9 @@ const roleMap: Record<number, string> = {
   8: 'Audit',
   9: 'Sales Manager',
   10: 'Product Manager',
-  11: 'LPG Dashboard',
-  12: 'LPG Plants',
-  13: 'LPG Stock',
-  14: 'LPG Sales',
+  11: 'LPG Admin',
+  13: 'LPG Plant Manager',
+  14: 'LPG Cashier',
   15: 'Commissions',
   16: 'Commission Officer',
   17: 'Dispatch',
@@ -153,6 +155,7 @@ const Settings = () => {
     location: '',
     locations: [] as number[], // scoped state IDs
     pfis: [] as number[], // scoped PFI IDs
+    lpg_plants: [] as number[], // scoped LPG plant IDs
   });
   const [errors, setErrors] = useState({
     full_name: '',
@@ -189,6 +192,20 @@ const Settings = () => {
   const pfisList: PfiOption[] = Array.isArray(pfisRaw)
     ? pfisRaw
     : ((pfisRaw as { results?: PfiOption[] })?.results ?? []);
+
+  // Fetch LPG plants from API (for LPG plant scope assignment) — only shown
+  // when the user being edited has an LPG role, so this stays out of the
+  // way for everyone else.
+  const { data: lpgPlantsRaw } = useQuery({
+    queryKey: ['lpg-plants-settings'],
+    queryFn: () => apiClient.admin.getLPGPlants({}),
+    staleTime: 5 * 60_000,
+  });
+  type LPGPlantOption = { id: number; name: string; code: string; location_name?: string };
+  const lpgPlantsList: LPGPlantOption[] = Array.isArray(lpgPlantsRaw)
+    ? lpgPlantsRaw
+    : ((lpgPlantsRaw as { results?: LPGPlantOption[] })?.results ?? []);
+  const LPG_ROLE_NUMBERS = [ROLES.LPG_ADMIN, ROLES.LPG_PLANT_MANAGER, ROLES.LPG_CASHIER];
 
   const formatLastLogin = (value?: string | null) => {
     if (!value) return 'N/A';
@@ -293,6 +310,7 @@ const Settings = () => {
         location: user.location || '',
         locations: user.locations ?? [],
         pfis: user.pfis ?? [],
+        lpg_plants: user.lpg_plants ?? [],
       });
     } else {
       setEditingUser(null);
@@ -307,6 +325,7 @@ const Settings = () => {
         location: '',
         locations: [],
         pfis: [],
+        lpg_plants: [],
       });
     }
     setIsDialogOpen(true);
@@ -326,6 +345,7 @@ const Settings = () => {
       location: '',
       locations: [],
       pfis: [],
+      lpg_plants: [],
     });
     setErrors({
       full_name: '',
@@ -357,9 +377,9 @@ const Settings = () => {
           roles: formData.roles,
           suspended: formData.suspended,
           location: formData.location.trim() || undefined,
-          // Only SUPERADMIN can change location/PFI scope; only send if the user isn't a SUPERADMIN
+          // Only SUPERADMIN can change location/PFI/LPG plant scope; only send if the user isn't a SUPERADMIN
           ...(isSuperAdmin && !hasSuperAdminRole
-            ? { locations: formData.locations, pfis: formData.pfis }
+            ? { locations: formData.locations, pfis: formData.pfis, lpg_plants: formData.lpg_plants }
             : {}),
         };
 
@@ -369,12 +389,15 @@ const Settings = () => {
 
         const response = await apiClient.admin.updateUser(editingUser.id, updatedUser);
 
-        // Resolve location_names/pfi_numbers from statesList/pfisList for optimistic display
+        // Resolve location_names/pfi_numbers/lpg_plant_names for optimistic display
         const newLocationNames = isSuperAdmin && !hasSuperAdminRole
           ? formData.locations.map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[]
           : undefined;
         const newPfiNumbers = isSuperAdmin && !hasSuperAdminRole
           ? formData.pfis.map(id => pfisList.find(p => p.id === id)?.pfi_number).filter(Boolean) as string[]
+          : undefined;
+        const newLpgPlantNames = isSuperAdmin && !hasSuperAdminRole
+          ? formData.lpg_plants.map(id => lpgPlantsList.find(p => p.id === id)?.name).filter(Boolean) as string[]
           : undefined;
 
         setUsers(prev => prev.map(user =>
@@ -392,6 +415,8 @@ const Settings = () => {
                 location_names: newLocationNames !== undefined ? newLocationNames : user.location_names,
                 pfis: newPfiNumbers !== undefined ? formData.pfis : user.pfis,
                 pfi_numbers: newPfiNumbers !== undefined ? newPfiNumbers : user.pfi_numbers,
+                lpg_plants: newLpgPlantNames !== undefined ? formData.lpg_plants : user.lpg_plants,
+                lpg_plant_names: newLpgPlantNames !== undefined ? newLpgPlantNames : user.lpg_plant_names,
               }
             : user
         ));
@@ -417,7 +442,7 @@ const Settings = () => {
           roles: formData.roles,
           location: formData.location.trim() || undefined,
           ...(isSuperAdmin && !hasSuperAdminRole
-            ? { locations: formData.locations, pfis: formData.pfis }
+            ? { locations: formData.locations, pfis: formData.pfis, lpg_plants: formData.lpg_plants }
             : {}),
         });
 
@@ -523,6 +548,8 @@ const Settings = () => {
           location_names: u.location_names ?? prevMap.get(u.id)?.location_names ?? [],
           pfis: u.pfis ?? prevMap.get(u.id)?.pfis ?? [],
           pfi_numbers: u.pfi_numbers ?? prevMap.get(u.id)?.pfi_numbers ?? [],
+          lpg_plants: u.lpg_plants ?? prevMap.get(u.id)?.lpg_plants ?? [],
+          lpg_plant_names: u.lpg_plant_names ?? prevMap.get(u.id)?.lpg_plant_names ?? [],
         }));
       });
     } catch {
@@ -1063,6 +1090,73 @@ const Settings = () => {
                           <span className="truncate" title={`${pfi.pfi_number}${pfi.location_name ? ` — ${pfi.location_name}` : ''}${pfi.product_name ? ` (${pfi.product_name})` : ''}`}>
                             {pfi.pfi_number}
                             {pfi.location_name && <span className="text-slate-400"> — {pfi.location_name}</span>}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── LPG Plant Scope (SUPERADMIN only, only relevant once an LPG role is picked) ── */}
+              {isSuperAdmin && !formData.roles.includes(ROLES.SUPERADMIN) && formData.roles.some(r => LPG_ROLE_NUMBERS.includes(r)) && (
+                <div className="space-y-1.5 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <Label className="text-sm font-semibold text-orange-800 flex items-center gap-1.5">
+                    <Flame size={13} /> LPG Plant Scope
+                  </Label>
+                  <p className="text-xs text-orange-700">
+                    Select which LPG plant(s) this user can operate. Unlike location/PFI scope above,
+                    leaving this <strong>empty means no access yet</strong> — LPG Plant Manager and
+                    LPG Cashier are always locked to specific plants, they don't default to Full Access.
+                  </p>
+
+                  {/* Current scope chips */}
+                  <div className="flex flex-wrap gap-1 min-h-[24px]">
+                    {formData.lpg_plants.length === 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">
+                        No plants assigned yet
+                      </span>
+                    ) : (
+                      formData.lpg_plants.map(id => {
+                        const plant = lpgPlantsList.find(p => p.id === id);
+                        return plant ? (
+                          <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 border border-orange-200">
+                            <Flame size={10} /> {plant.name}
+                            <button
+                              type="button"
+                              onClick={() => setFormData(f => ({ ...f, lpg_plants: f.lpg_plants.filter(l => l !== id) }))}
+                              className="ml-0.5 hover:text-red-600"
+                            >×</button>
+                          </span>
+                        ) : null;
+                      })
+                    )}
+                  </div>
+
+                  {/* Checkboxes for each LPG plant */}
+                  <div className="grid grid-cols-2 gap-1.5 mt-2 max-h-40 overflow-y-auto pr-1">
+                    {lpgPlantsList.map(plant => {
+                      const checked = formData.lpg_plants.includes(plant.id);
+                      return (
+                        <label key={plant.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer border transition-colors ${
+                          checked ? 'bg-orange-100 border-orange-300 text-orange-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setFormData(f => ({
+                                ...f,
+                                lpg_plants: checked
+                                  ? f.lpg_plants.filter(l => l !== plant.id)
+                                  : [...f.lpg_plants, plant.id],
+                              }));
+                            }}
+                            className="w-3.5 h-3.5 accent-orange-600"
+                          />
+                          <span className="truncate" title={`${plant.code} — ${plant.name}${plant.location_name ? ` (${plant.location_name})` : ''}`}>
+                            {plant.name}
+                            <span className="text-slate-400"> · {plant.code}</span>
                           </span>
                         </label>
                       );

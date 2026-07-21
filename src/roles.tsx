@@ -11,6 +11,9 @@ export const ROLES = {
   AUDITOR: 8,               // Audit
   SALES_MANAGER: 9,         // Sales Manager
   PRODUCT_MANAGER: 10,      // Product Manager
+  LPG_ADMIN: 11,            // LPG Admin — unrestricted LPG access
+  LPG_PLANT_MANAGER: 13,    // LPG Plant Manager — stock + sales, scoped to assigned plants
+  LPG_CASHIER: 14,          // LPG Cashier — sales only, scoped to assigned plants
   COMMISSIONS: 15,          // Commissions
   COMMISSION_OFFICER: 16,   // Commission Officer
   DISPATCH: 17,             // Dispatch
@@ -85,13 +88,11 @@ export function fallbackWorkspaceForRole(role: number | string): string {
       return '/sales-manager-view';
     case ROLES.PRODUCT_MANAGER:
       return '/product-manager-view';
-    case 11: // LPG DASHBOARD
+    case ROLES.LPG_ADMIN:
       return '/lpg/dashboard';
-    case 12: // LPG PLANTS
-      return '/lpg/plants';
-    case 13: // LPG STOCK
-      return '/lpg/stock';
-    case 14: // LPG SALES
+    case ROLES.LPG_PLANT_MANAGER:
+      return '/lpg/dashboard';
+    case ROLES.LPG_CASHIER:
       return '/lpg/sales';
     case ROLES.COMMISSIONS:
       return '/commissions';

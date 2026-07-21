@@ -138,6 +138,7 @@ export const apiClient = {
       location?: string;
       locations?: number[];
       pfis?: number[];
+      lpg_plants?: number[];
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/users/register/`, {
         method: 'POST',
