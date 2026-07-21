@@ -30,7 +30,7 @@ import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
   startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, isWithinInterval,
 } from 'date-fns';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
 import { isCurrentUserReadOnly } from '@/roles';
@@ -320,7 +320,6 @@ export default function FillingStations() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [truckFilter, setTruckFilter] = useState<string>('all');
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [customerFilter, setCustomerFilter] = useState<string>('all');
@@ -1051,9 +1050,9 @@ export default function FillingStations() {
     const cards: SummaryCard[] = [
       {
         title: 'Active Stations',
-        value: String(totals.truckCount),
-        description: `${totals.customerCount} customer${totals.customerCount === 1 ? '' : 's'} · ${totals.entries} entries logged`,
-        icon: <Truck size={20} />,
+        value: String(totals.customerCount),
+        description: `${totals.truckCount} truck cycle${totals.truckCount === 1 ? '' : 's'} · ${totals.entries} entries logged`,
+        icon: <Building2 size={20} />,
         tone: 'neutral',
       },
       {
@@ -1085,11 +1084,15 @@ export default function FillingStations() {
         tone: 'amber',
       },
       {
-        title: 'Outstanding Balance',
-        value: totals.balance > 0 ? fmt(totals.balance) : totals.balance < 0 ? `+${fmt(Math.abs(totals.balance))}` : '₦0.00 ✓',
-        description: totals.balance > 0 ? 'Yet to be collected from stations' : totals.balance < 0 ? 'Overpaid beyond expected revenue' : 'Fully reconciled — nothing outstanding',
+        title: 'Outstanding (Owed)',
+        value: totals.totalOutstanding > 0 ? fmt(totals.totalOutstanding) : '₦0.00 ✓',
+        description: totals.totalOutstanding > 0
+          ? totals.totalOverpaid > 0
+            ? `Owed by under-paid stations · ${fmt(totals.totalOverpaid)} overpaid elsewhere`
+            : 'Yet to be collected from stations'
+          : 'Fully reconciled — nothing outstanding',
         icon: <Wallet size={20} />,
-        tone: totals.balance > 0 ? 'red' : 'green',
+        tone: totals.totalOutstanding > 0 ? 'red' : 'green',
       },
     ];
 
@@ -1820,119 +1823,138 @@ export default function FillingStations() {
     }
   }, [editTarget, editForm, editAllocationCode, toast]);
 
-  const exportExcel = useCallback(() => {
+  const buildStationDailyLedger = useCallback((groups: LedgerGroup[]) => {
+    type LedgerEvent = {
+      date: string;
+      kind: 'allocation' | 'sale' | 'deposit' | 'expense';
+      qty?: number;
+      salesValue?: number;
+      amount?: number;
+      payer?: string;
+      bank?: string;
+      remarks?: string;
+    };
+    const events: LedgerEvent[] = [];
+
+    groups.forEach(group => {
+      let allocDate = 'unknown';
+      try { if (group.dateLoaded) allocDate = format(parseISO(group.dateLoaded), 'yyyy-MM-dd'); } catch { /* noop */ }
+      if (group.quantity > 0) {
+        events.push({
+          date: allocDate,
+          kind: 'allocation',
+          qty: group.quantity,
+          remarks: `Truck ${group.truckNumber || '—'} allocated ${group.quantity.toLocaleString()}L${group.code ? ` (${group.code})` : ''}`,
+        });
+      }
+
+      group.payments.forEach(p => {
+        const evDateRaw = p.date_of_payment || p.date_loaded;
+        let evDate = 'unknown';
+        try { if (evDateRaw) evDate = format(parseISO(evDateRaw), 'yyyy-MM-dd'); } catch { /* noop */ }
+
+        const qty = toNum(p.quantity);
+        const deposit = toNum(p.payment_amount);
+        const expense = toNum(p.expenses_amount ?? 0);
+
+        if (qty > 0) {
+          events.push({ date: evDate, kind: 'sale', qty, salesValue: toNum(p.sales_value), remarks: p.remarks || '' });
+        }
+        if (deposit > 0) {
+          events.push({ date: evDate, kind: 'deposit', amount: deposit, payer: p.payer_name, bank: p.bank, remarks: p.remarks || '' });
+        }
+        if (expense > 0) {
+          events.push({ date: evDate, kind: 'expense', amount: expense, remarks: p.remarks || 'Expense' });
+        }
+      });
+    });
+
+    const byDate = new Map<string, LedgerEvent[]>();
+    events.forEach(e => {
+      const arr = byDate.get(e.date) ?? [];
+      arr.push(e);
+      byDate.set(e.date, arr);
+    });
+
+    const sortedDates = Array.from(byDate.keys()).sort((a, b) => {
+      if (a === 'unknown') return 1;
+      if (b === 'unknown') return -1;
+      return a.localeCompare(b);
+    });
+
+    const rows: Array<{
+      date: string; openingStock: number; volumeSold: number; rate: number; salesValue: number;
+      closingStock: number; expense: number; deposited: number; depositor: string; bank: string; remarks: string;
+    }> = [];
+    let runningStock = 0;
+
+    sortedDates.forEach(date => {
+      const dayEvents = byDate.get(date)!;
+      const opening = runningStock;
+
+      const allocQty = dayEvents.filter(e => e.kind === 'allocation').reduce((s, e) => s + (e.qty || 0), 0);
+      const sales = dayEvents.filter(e => e.kind === 'sale');
+      const deposits = dayEvents.filter(e => e.kind === 'deposit');
+      const expenses = dayEvents.filter(e => e.kind === 'expense');
+
+      const soldQty = sales.reduce((s, e) => s + (e.qty || 0), 0);
+      const salesValue = sales.reduce((s, e) => s + (e.salesValue || 0), 0);
+      const rate = soldQty > 0 ? salesValue / soldQty : 0;
+      const expenseTotal = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+      const depositTotal = deposits.reduce((s, e) => s + (e.amount || 0), 0);
+
+      runningStock = opening + allocQty - soldQty;
+
+      const depositorNames = Array.from(new Set(deposits.map(e => (e.payer || '').trim()).filter(Boolean)));
+      const bankNames = Array.from(new Set(deposits.map(e => (e.bank || '').trim()).filter(Boolean)));
+      const remarksParts = dayEvents.map(e => e.remarks).filter((r): r is string => Boolean(r && r.trim()));
+
+      rows.push({
+        date,
+        openingStock: opening,
+        volumeSold: soldQty,
+        rate,
+        salesValue,
+        closingStock: runningStock,
+        expense: expenseTotal,
+        deposited: depositTotal,
+        depositor: depositorNames.join('; ') || '—',
+        bank: bankNames.join('; ') || '—',
+        remarks: remarksParts.join(' | ') || '—',
+      });
+    });
+
+    return rows;
+  }, []);
+
+  const exportExcel = useCallback(async () => {
     if (!filteredLedgerGroups.length) return;
     const period = timePreset === 'custom'
       ? `${customFrom || '?'}_TO_${customTo || '?'}`
       : timePreset.toUpperCase();
 
-    const fmtNaira = (v: number) => v !== 0 ? `₦${v.toLocaleString('en-NG', { minimumFractionDigits: 2 })}` : '₦0.00';
-    const u = (s: string) => (s || '').toUpperCase();
-
-    const wb = XLSX.utils.book_new();
-
-    // ── helpers ────────────────────────────────────────────────────────
-    const entryColHeaders = [
-      'S/N', 'TRUCK NO.', 'ALLOC CODE', 'ALLOC DATE', 'ALLOCATED (L)',
-      'ENTRY DATE', 'ENTRY TYPE', 'VOLUME (L)', 'RATE (₦/L)',
-      'EXPECTED (₦)', 'DEPOSITED (₦)', 'EXPENSES (₦)', 'NET AMOUNT (₦)',
-      'PAYER NAME', 'BANK ACCOUNT', 'REMARKS',
-    ];
-
-    const buildEntryRows = (groups: typeof filteredLedgerGroups) => {
-      const rows: (string | number)[][] = [];
-      let sn = 0;
-      groups.forEach(group => {
-        const truckNo = u(group.truckNumber);
-        const allocCode = u(group.code || '—');
-        let allocDateStr = '—';
-        try { if (group.dateLoaded) allocDateStr = format(parseISO(group.dateLoaded), 'dd/MM/yyyy'); } catch { }
-
-        const actualEntries = group.payments.filter(p =>
-          (toNum(p.quantity) > 0 && toNum(p.quantity) < group.quantity) ||
-          toNum(p.payment_amount) > 0 ||
-          toNum(p.expenses_amount ?? 0) > 0,
-        ).sort((a, b) => {
-          const dA = a.date_of_payment || a.date_loaded || '';
-          const dB = b.date_of_payment || b.date_loaded || '';
-          return dA.localeCompare(dB) || a.id - b.id;
-        });
-
-        if (actualEntries.length === 0) {
-          sn += 1;
-          rows.push([sn, truckNo, allocCode, allocDateStr, group.quantity > 0 ? group.quantity : 0,
-            '—', 'INITIAL ALLOC (NO ENTRIES)', 0, 0, 0, 0, 0, 0, '—', '—',
-            'No sales, deposits or expenses recorded yet.']);
-        } else {
-          actualEntries.forEach(entry => {
-            sn += 1;
-            const entryDate = entry.date_of_payment || entry.date_loaded || '';
-            let entryDateStr = '—';
-            try { if (entryDate) entryDateStr = format(parseISO(entryDate), 'dd/MM/yyyy'); } catch { }
-
-            const dailyQty = toNum(entry.quantity);
-            const dailyRate = toNum(entry.rate);
-            const dailyDeposit = toNum(entry.payment_amount);
-            const dailyExpense = toNum(entry.expenses_amount ?? 0);
-            const isSale = dailyQty > 0 && dailyQty < group.quantity;
-            const isExpense = dailyExpense > 0;
-            const isDeposit = dailyDeposit > 0;
-
-            let entryType = 'OTHER';
-            if (isSale) entryType = 'DAILY SALE';
-            else if (isExpense) entryType = 'EXPENSE';
-            else if (isDeposit) entryType = 'BANK DEPOSIT';
-
-            const netAmount = dailyDeposit - dailyExpense;
-
-            rows.push([
-              sn, truckNo, allocCode, allocDateStr, group.quantity > 0 ? group.quantity : 0,
-              entryDateStr, entryType,
-              isSale ? dailyQty : '—',
-              isSale ? dailyRate : '—',
-              isSale ? toNum(entry.sales_value) : '—',
-              isDeposit || isSale ? dailyDeposit : '—',
-              isExpense ? dailyExpense : '—',
-              isDeposit || isExpense ? netAmount : '—',
-              u(entry.payer_name || '—'),
-              u(entry.bank || '—'),
-              u(entry.remarks || ''),
-            ]);
-          });
-        }
-
-        // Subtotal row per truck cycle within station sheet
-        const netPaid = group.totalPaid - group.totalExpenses;
-        const outstandingBal = group.expected - netPaid;
-        rows.push([
-          '', `SUBTOTAL: ${truckNo} (${allocCode})`, '', '', group.quantity > 0 ? group.quantity : 0,
-          '', 'SUBTOTALS',
-          group.totalQtySold, '',
-          group.expected, group.totalPaid, group.totalExpenses, netPaid,
-          '', '',
-          outstandingBal > 0
-            ? `Outstanding: ₦${outstandingBal.toLocaleString()}`
-            : outstandingBal < 0
-              ? `Overpaid: +₦${Math.abs(outstandingBal).toLocaleString()}`
-              : 'Fully Settled ✓',
-        ]);
-        rows.push([]);
-      });
-      return rows;
+    const fmtNaira = (v: number) => `₦${v.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const fmtDateCell = (iso: string) => {
+      if (iso === 'unknown') return '—';
+      try { return format(parseISO(iso), 'dd/MM/yyyy'); } catch { return iso; }
     };
 
-    // ════════════════════════════════════════════════════════════════
-    // SHEET 1 — Summary (one row per station)
-    // ════════════════════════════════════════════════════════════════
-    const summaryAoa: (string | number)[][] = [];
-    summaryAoa.push([`FILLING STATIONS — SUMMARY REPORT — ${period}`]);
-    summaryAoa.push([]);
-    summaryAoa.push([
-      'S/N', 'STATION NAME', 'NO. CYCLES',
-      'QTY ALLOCATED (L)', 'QTY SOLD (L)',
-      'EXPECTED (₦)', 'DEPOSITED (₦)', 'EXPENSES (₦)',
-      'NET COLLECTED (₦)', 'OUTSTANDING (₦)', 'STATUS',
-    ]);
+    // ── house palette (matches DepotView / ConfirmedPayments / AdminReports exports) ──
+    const NAVY = 'FF1E293B';
+    const SLATE = 'FF334155';
+    const WHITE = 'FFFFFFFF';
+    const LIGHT = 'FFF5F8FC';
+    const BAND = 'FFEFF3F8';
+    const TOTAL_FILL = 'FFE2E8F0';
+    const GREEN_FILL = 'FFDCFCE7';
+    const RED_FILL = 'FFFEE2E2';
+    const BORDER_COLOR = 'FFB0C4DE';
+    const thinBorder = { style: 'thin' as const, color: { argb: BORDER_COLOR } };
+    const allBorders = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Soroman Dashboard';
+    workbook.created = new Date();
 
     // Group filteredLedgerGroups by customer name
     const byStation = new Map<string, typeof filteredLedgerGroups>();
@@ -1942,6 +1964,38 @@ export default function FillingStations() {
       arr.push(group);
       byStation.set(key, arr);
     });
+
+    // ════════════════════════════════════════════════════════════════
+    // SHEET 1 — Summary (one row per station)
+    // ════════════════════════════════════════════════════════════════
+    const summaryWs = workbook.addWorksheet('Summary', { views: [{ showGridLines: false }] });
+    const summaryHeaders = [
+      'S/N', 'STATION NAME', 'NO. CYCLES', 'QTY ALLOCATED (L)', 'QTY SOLD (L)',
+      'EXPECTED (₦)', 'DEPOSITED (₦)', 'EXPENSES (₦)', 'NET COLLECTED (₦)', 'OUTSTANDING (₦)', 'STATUS',
+    ];
+    const summaryAlign: Array<'left' | 'right' | 'center'> = ['center', 'left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'center'];
+    const summaryLastCol = summaryWs.getColumn(summaryHeaders.length).letter;
+
+    summaryWs.mergeCells(`A1:${summaryLastCol}1`);
+    const summaryTitleCell = summaryWs.getCell('A1');
+    summaryTitleCell.value = `FILLING STATIONS — SUMMARY REPORT — ${period}`;
+    summaryTitleCell.font = { name: 'Calibri', bold: true, size: 16, color: { argb: WHITE } };
+    summaryTitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+    summaryTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    summaryWs.getRow(1).height = 26;
+
+    let r = 3;
+    const summaryHeaderRow = summaryWs.getRow(r);
+    summaryHeaderRow.height = 20;
+    summaryHeaders.forEach((h, i) => {
+      const cell = summaryHeaderRow.getCell(i + 1);
+      cell.value = h;
+      cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      cell.border = allBorders;
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    });
+    r += 1;
 
     let sumQtyAllocated = 0, sumQtySold = 0, sumExpected = 0;
     let sumDeposited = 0, sumExpenses = 0, sumNet = 0, sumOutstanding = 0;
@@ -1956,48 +2010,72 @@ export default function FillingStations() {
       const stExpenses = groups.reduce((s, g) => s + g.totalExpenses, 0);
       const stNet = stDeposited - stExpenses;
       const stOutstanding = Math.max(0, stExpected - stNet);
-      const stStatus = stOutstanding === 0
-        ? 'SETTLED ✓'
-        : stDeposited === 0 ? 'NO DEPOSIT' : 'OUTSTANDING';
+      const stStatus = stOutstanding === 0 ? 'SETTLED ✓' : stDeposited === 0 ? 'NO DEPOSIT' : 'OUTSTANDING';
 
-      summaryAoa.push([
-        summaryRowSn, stationName, groups.length,
-        stQtyAlloc, stQtySold,
-        stExpected, stDeposited, stExpenses,
-        stNet, stOutstanding, stStatus,
-      ]);
+      const values: (string | number)[] = [summaryRowSn, stationName, groups.length, stQtyAlloc, stQtySold, stExpected, stDeposited, stExpenses, stNet, stOutstanding, stStatus];
+      const xlRow = summaryWs.getRow(r);
+      xlRow.height = 16;
+      values.forEach((val, ci) => {
+        const cell = xlRow.getCell(ci + 1);
+        cell.value = val;
+        cell.font = { name: 'Calibri', size: 9.5 };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: (summaryRowSn % 2 === 0) ? BAND : WHITE } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: summaryAlign[ci] };
+      });
+      const statusCell = xlRow.getCell(11);
+      statusCell.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: stStatus === 'SETTLED ✓' ? 'FF166534' : 'FF991B1B' } };
+      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: stStatus === 'SETTLED ✓' ? GREEN_FILL : RED_FILL } };
+      r += 1;
 
-      sumQtyAllocated += stQtyAlloc;
-      sumQtySold += stQtySold;
-      sumExpected += stExpected;
-      sumDeposited += stDeposited;
-      sumExpenses += stExpenses;
-      sumNet += stNet;
-      sumOutstanding += stOutstanding;
+      sumQtyAllocated += stQtyAlloc; sumQtySold += stQtySold; sumExpected += stExpected;
+      sumDeposited += stDeposited; sumExpenses += stExpenses; sumNet += stNet; sumOutstanding += stOutstanding;
     });
 
-    summaryAoa.push([]);
-    summaryAoa.push([
-      'GRAND TOTAL', '', byStation.size > 0 ? filteredLedgerGroups.length : 0,
-      sumQtyAllocated, sumQtySold,
-      sumExpected, sumDeposited, sumExpenses,
-      sumNet, sumOutstanding, '',
-    ]);
-    summaryAoa.push([]);
-    summaryAoa.push(['Generated:', new Date().toLocaleString('en-NG')]);
+    const totalsValues: (string | number)[] = ['', 'GRAND TOTAL', filteredLedgerGroups.length, sumQtyAllocated, sumQtySold, sumExpected, sumDeposited, sumExpenses, sumNet, sumOutstanding, ''];
+    const totalsRowXl = summaryWs.getRow(r);
+    totalsRowXl.height = 18;
+    totalsValues.forEach((val, ci) => {
+      const cell = totalsRowXl.getCell(ci + 1);
+      cell.value = val;
+      cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF0F172A' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } };
+      cell.border = allBorders;
+      cell.alignment = { vertical: 'middle', horizontal: summaryAlign[ci] };
+    });
+    r += 2;
+    summaryWs.getCell(`A${r}`).value = `Generated: ${new Date().toLocaleString('en-NG')}`;
+    summaryWs.getCell(`A${r}`).font = { name: 'Calibri', italic: true, size: 9, color: { argb: 'FF64748B' } };
 
-    const summaryWs = XLSX.utils.aoa_to_sheet(summaryAoa);
-    XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
+    summaryWs.columns = [
+      { width: 6 }, { width: 26 }, { width: 12 }, { width: 16 }, { width: 14 },
+      { width: 16 }, { width: 16 }, { width: 15 }, { width: 16 }, { width: 15 }, { width: 14 },
+    ];
+    summaryWs.views = [{ state: 'frozen', ySplit: 3, showGridLines: false }];
 
     // ════════════════════════════════════════════════════════════════
-    // SHEETS 2+ — One sheet per station
+    // SHEETS 2+ — One sheet per station: STATION SUMMARY + TRANSACTION DETAILS
     // ════════════════════════════════════════════════════════════════
+    const detailHeaders = ['S/N', 'DATE', 'OPENING STOCK', 'VOLUME SOLD', 'RATE', 'SALES VALUE', 'CLOSING STOCK', 'EXPENSE', 'DEPOSITED (₦)', 'DEPOSITOR', 'BANK', 'REMARKS'];
+    const detailAlign: Array<'left' | 'right' | 'center'> = ['center', 'center', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left', 'left', 'left'];
+    const usedSheetNames = new Set<string>();
+
     byStation.forEach((groups, stationName) => {
-      const sheetAoa: (string | number)[][] = [];
-      sheetAoa.push([`STATION: ${stationName} — ${period}`]);
-      sheetAoa.push([]);
+      let safeSheetName = stationName.replace(/[\\/*?[\]:]/g, '').slice(0, 31) || 'STATION';
+      while (usedSheetNames.has(safeSheetName)) safeSheetName = `${safeSheetName.slice(0, 28)}-${usedSheetNames.size}`;
+      usedSheetNames.add(safeSheetName);
 
-      // Station-level summary block at top
+      const ws = workbook.addWorksheet(safeSheetName, { views: [{ showGridLines: false }] });
+      const lastColLetter = ws.getColumn(detailHeaders.length).letter;
+
+      ws.mergeCells(`A1:${lastColLetter}1`);
+      const titleCell = ws.getCell('A1');
+      titleCell.value = `STATION: ${stationName} — ${period}`;
+      titleCell.font = { name: 'Calibri', bold: true, size: 15, color: { argb: WHITE } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 24;
+
       const stQtyAlloc = groups.reduce((s, g) => s + Math.max(0, g.quantity), 0);
       const stQtySold = groups.reduce((s, g) => s + Math.max(0, g.totalQtySold), 0);
       const stExpected = groups.reduce((s, g) => s + Math.max(0, g.expected), 0);
@@ -2005,37 +2083,140 @@ export default function FillingStations() {
       const stExpenses = groups.reduce((s, g) => s + g.totalExpenses, 0);
       const stNet = stDeposited - stExpenses;
       const stOutstanding = stExpected - stNet;
+      const truckNumbers = Array.from(new Set(groups.map(g => g.truckNumber).filter(Boolean)));
+      const pfiNumbers = Array.from(new Set(groups.map(g => g.pfiNumber).filter(Boolean)));
 
-      sheetAoa.push(['STATION SUMMARY']);
-      sheetAoa.push(['Qty Allocated (L)', stQtyAlloc]);
-      sheetAoa.push(['Qty Sold (L)', stQtySold]);
-      sheetAoa.push(['Expected Revenue', fmtNaira(stExpected)]);
-      sheetAoa.push(['Total Deposited', fmtNaira(stDeposited)]);
-      sheetAoa.push(['Total Expenses', fmtNaira(stExpenses)]);
-      sheetAoa.push(['Net Collected', fmtNaira(stNet)]);
-      sheetAoa.push([
-        'Outstanding / Balance',
-        stOutstanding > 0
-          ? fmtNaira(stOutstanding) + ' OUTSTANDING'
-          : stOutstanding < 0
-            ? fmtNaira(Math.abs(stOutstanding)) + ' OVERPAID'
-            : 'FULLY SETTLED ✓',
-      ]);
-      sheetAoa.push([]);
-      sheetAoa.push(['TRANSACTION DETAIL']);
-      sheetAoa.push(entryColHeaders);
+      let rr = 3;
+      ws.mergeCells(`B${rr}:${lastColLetter}${rr}`);
+      const bannerCell = ws.getCell(`B${rr}`);
+      bannerCell.value = 'STATION SUMMARY';
+      bannerCell.font = { name: 'Calibri', bold: true, size: 11, color: { argb: WHITE } };
+      bannerCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SLATE } };
+      bannerCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      ws.getRow(rr).height = 20;
+      rr += 1;
 
-      const entryRows = buildEntryRows(groups);
-      entryRows.forEach(row => sheetAoa.push(row));
+      const summaryPairs: Array<[string, string | number]> = [
+        ['Stations Name', stationName],
+        ['Qty Allocated (L)', stQtyAlloc],
+        ['Qty Sold (L)', stQtySold],
+        ['Expected Revenue', fmtNaira(stExpected)],
+        ['Total Deposited', fmtNaira(stDeposited)],
+        ['Total Expenses', fmtNaira(stExpenses)],
+        ['Net Collected', fmtNaira(stNet)],
+        ['Outstanding / Balance', stOutstanding > 0 ? `${fmtNaira(stOutstanding)} OUTSTANDING` : stOutstanding < 0 ? `${fmtNaira(Math.abs(stOutstanding))} OVERPAID` : 'FULLY SETTLED ✓'],
+        ['Truck No', truckNumbers.join(', ') || '—'],
+        ['PFI No', pfiNumbers.join(', ') || '—'],
+      ];
+      summaryPairs.forEach(([label, value]) => {
+        const row = ws.getRow(rr);
+        row.height = 17;
+        const labelCell = row.getCell(2);
+        labelCell.value = label;
+        labelCell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF1E3A5F' } };
+        labelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LIGHT } };
+        labelCell.border = allBorders;
+        labelCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
 
-      // Safe sheet name: max 31 chars, no special chars
-      const safeSheetName = stationName.replace(/[\\/*?[\]:]/g, '').slice(0, 31);
-      const stationWs = XLSX.utils.aoa_to_sheet(sheetAoa);
-      XLSX.utils.book_append_sheet(wb, stationWs, safeSheetName);
+        const valueCell = row.getCell(3);
+        valueCell.value = value;
+        valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: WHITE } };
+        valueCell.border = allBorders;
+        valueCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        valueCell.font = label === 'Outstanding / Balance'
+          ? { name: 'Calibri', size: 10, bold: true, color: { argb: stOutstanding > 0 ? 'FF991B1B' : stOutstanding < 0 ? 'FFB45309' : 'FF166534' } }
+          : { name: 'Calibri', size: 10 };
+        rr += 1;
+      });
+
+      rr += 1;
+
+      ws.mergeCells(`A${rr}:${lastColLetter}${rr}`);
+      const detailBanner = ws.getCell(`A${rr}`);
+      detailBanner.value = 'TRANSACTION DETAILS';
+      detailBanner.font = { name: 'Calibri', bold: true, size: 11, color: { argb: WHITE } };
+      detailBanner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SLATE } };
+      detailBanner.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+      ws.getRow(rr).height = 20;
+      rr += 1;
+
+      const headerRowIdx = rr;
+      const headerRow = ws.getRow(rr);
+      headerRow.height = 20;
+      detailHeaders.forEach((h, i) => {
+        const cell = headerRow.getCell(i + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      });
+      rr += 1;
+
+      const dailyRows = buildStationDailyLedger(groups);
+      dailyRows.forEach((row, idx) => {
+        const values: (string | number)[] = [
+          idx + 1,
+          fmtDateCell(row.date),
+          row.openingStock > 0 ? row.openingStock : 0,
+          row.volumeSold > 0 ? row.volumeSold : '—',
+          row.rate > 0 ? row.rate : '—',
+          row.salesValue > 0 ? row.salesValue : '—',
+          row.closingStock,
+          row.expense > 0 ? row.expense : '—',
+          row.deposited > 0 ? row.deposited : '—',
+          row.depositor,
+          row.bank,
+          row.remarks,
+        ];
+        const xlRow = ws.getRow(rr);
+        xlRow.height = 16;
+        values.forEach((val, ci) => {
+          const cell = xlRow.getCell(ci + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 9.5 };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? WHITE : BAND } };
+          cell.border = allBorders;
+          cell.alignment = { vertical: 'middle', horizontal: detailAlign[ci], wrapText: ci === 11 };
+        });
+        rr += 1;
+      });
+
+      const totalVolume = dailyRows.reduce((s, d) => s + d.volumeSold, 0);
+      const totalSalesValue = dailyRows.reduce((s, d) => s + d.salesValue, 0);
+      const totalExpenseSum = dailyRows.reduce((s, d) => s + d.expense, 0);
+      const totalDepositSum = dailyRows.reduce((s, d) => s + d.deposited, 0);
+      const finalClosing = dailyRows.length > 0 ? dailyRows[dailyRows.length - 1].closingStock : 0;
+      const detailTotals: (string | number)[] = ['', 'TOTAL', '', totalVolume, '', totalSalesValue, finalClosing, totalExpenseSum, totalDepositSum, '', '', ''];
+      const detailTotalsRow = ws.getRow(rr);
+      detailTotalsRow.height = 18;
+      detailTotals.forEach((val, ci) => {
+        const cell = detailTotalsRow.getCell(ci + 1);
+        cell.value = val;
+        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF0F172A' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } };
+        cell.border = allBorders;
+        cell.alignment = { vertical: 'middle', horizontal: detailAlign[ci] };
+      });
+
+      ws.columns = [
+        { width: 6 }, { width: 12 }, { width: 14 }, { width: 13 }, { width: 10 },
+        { width: 14 }, { width: 14 }, { width: 12 }, { width: 14 }, { width: 20 }, { width: 16 }, { width: 34 },
+      ];
+      ws.views = [{ state: 'frozen', ySplit: headerRowIdx, showGridLines: false }];
     });
 
-    XLSX.writeFile(wb, `FILLING-STATION-LEDGER-${period}.xlsx`);
-  }, [filteredLedgerGroups, totals, timePreset, customFrom, customTo]);
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `FILLING-STATION-LEDGER-${period}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [filteredLedgerGroups, timePreset, customFrom, customTo, buildStationDailyLedger]);
 
   const activeBankAccounts = useMemo(
     () => BANK_ACCOUNTS.filter(b => b.is_active),
@@ -2111,25 +2292,16 @@ export default function FillingStations() {
                   ))}
                 </div>
 
-                {/* Advanced filters toggle */}
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedFilters(f => !f)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-                    showAdvancedFilters || [truckFilter, locationFilter, customerFilter, allocationCodeFilter, rateFilter].some(f => f !== 'all')
-                      ? 'bg-slate-900 text-white border-slate-900'
-                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                  }`}
-                >
-                  <Filter size={11} />
-                  Filters
-                  {[truckFilter, locationFilter, customerFilter, allocationCodeFilter, rateFilter].filter(f => f !== 'all').length > 0 && (
+                {/* Active filter count badge (informational — filters below are always visible) */}
+                {[truckFilter, locationFilter, customerFilter, allocationCodeFilter, rateFilter].some(f => f !== 'all') && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border bg-slate-900 text-white border-slate-900">
+                    <Filter size={11} />
+                    Filters
                     <span className="ml-0.5 bg-white text-slate-900 rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">
                       {[truckFilter, locationFilter, customerFilter, allocationCodeFilter, rateFilter].filter(f => f !== 'all').length}
                     </span>
-                  )}
-                  <ChevronDown size={11} className={`transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`} />
-                </button>
+                  </span>
+                )}
               </div>
 
               {/* Custom date range */}
@@ -2146,55 +2318,53 @@ export default function FillingStations() {
                 </div>
               )}
 
-              {/* Advanced dropdown filters — collapsible */}
-              {showAdvancedFilters && (
-                <div className="border-t border-slate-100 px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                  <div className="space-y-1">
-                    <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><Truck size={10} /> Truck</label>
-                    <select aria-label="Truck" value={truckFilter} onChange={e => setTruckFilter(e.target.value)}
-                      className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${truckFilter !== 'all' ? 'border-slate-700 font-semibold' : 'border-slate-200 text-slate-600'}`}>
-                      <option value="all">All</option>
-                      {uniqueTruckNumbers.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><MapPin size={10} /> Destination</label>
-                    <select aria-label="Destination" value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
-                      className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${locationFilter !== 'all' ? 'border-slate-700 font-semibold' : 'border-slate-200 text-slate-600'}`}>
-                      <option value="all">All</option>
-                      {uniqueLocations.map(l => <option key={l} value={l}>{l}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><Users size={10} /> Station</label>
-                    <select aria-label="Station" value={customerFilter} onChange={e => setCustomerFilter(e.target.value)}
-                      className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${customerFilter !== 'all' ? 'border-slate-700 font-semibold' : 'border-slate-200 text-slate-600'}`}>
-                      <option value="all">All</option>
-                      {uniqueCustomerOptions.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-                    </select>
-                  </div>
-                  {uniqueAllocationCodes.length > 0 && (
-                    <div className="space-y-1">
-                      <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><Tag size={10} /> Code</label>
-                      <select aria-label="Code" value={allocationCodeFilter} onChange={e => setAllocationCodeFilter(e.target.value)}
-                        className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${allocationCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-600'}`}>
-                        <option value="all">All</option>
-                        {uniqueAllocationCodes.map(code => <option key={code} value={code}>{code}</option>)}
-                      </select>
-                    </div>
-                  )}
-                  {uniqueRates.length > 0 && (
-                    <div className="space-y-1">
-                      <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><TrendingUp size={10} /> Rate</label>
-                      <select aria-label="Rate" value={rateFilter} onChange={e => setRateFilter(e.target.value)}
-                        className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${rateFilter !== 'all' ? 'border-indigo-600 font-semibold text-indigo-900 bg-indigo-50' : 'border-slate-200 text-slate-600'}`}>
-                        <option value="all">All</option>
-                        {uniqueRates.map(r => <option key={r} value={String(r)}>₦{r.toLocaleString()}/L</option>)}
-                      </select>
-                    </div>
-                  )}
+              {/* Dropdown filters — always visible */}
+              <div className="border-t border-slate-100 px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <div className="space-y-1">
+                  <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><Truck size={10} /> Truck</label>
+                  <select aria-label="Truck" value={truckFilter} onChange={e => setTruckFilter(e.target.value)}
+                    className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${truckFilter !== 'all' ? 'border-slate-700 font-semibold' : 'border-slate-200 text-slate-600'}`}>
+                    <option value="all">All</option>
+                    {uniqueTruckNumbers.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </div>
-              )}
+                <div className="space-y-1">
+                  <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><MapPin size={10} /> Destination</label>
+                  <select aria-label="Destination" value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
+                    className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${locationFilter !== 'all' ? 'border-slate-700 font-semibold' : 'border-slate-200 text-slate-600'}`}>
+                    <option value="all">All</option>
+                    {uniqueLocations.map(l => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><Users size={10} /> Station</label>
+                  <select aria-label="Station" value={customerFilter} onChange={e => setCustomerFilter(e.target.value)}
+                    className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${customerFilter !== 'all' ? 'border-slate-700 font-semibold' : 'border-slate-200 text-slate-600'}`}>
+                    <option value="all">All</option>
+                    {uniqueCustomerOptions.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                  </select>
+                </div>
+                {uniqueAllocationCodes.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><Tag size={10} /> Code</label>
+                    <select aria-label="Code" value={allocationCodeFilter} onChange={e => setAllocationCodeFilter(e.target.value)}
+                      className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${allocationCodeFilter !== 'all' ? 'border-purple-600 font-semibold text-purple-900 bg-purple-50' : 'border-slate-200 text-slate-600'}`}>
+                      <option value="all">All</option>
+                      {uniqueAllocationCodes.map(code => <option key={code} value={code}>{code}</option>)}
+                    </select>
+                  </div>
+                )}
+                {uniqueRates.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider"><TrendingUp size={10} /> Rate</label>
+                    <select aria-label="Rate" value={rateFilter} onChange={e => setRateFilter(e.target.value)}
+                      className={`h-8 w-full rounded-md border bg-white px-2 text-xs ${rateFilter !== 'all' ? 'border-indigo-600 font-semibold text-indigo-900 bg-indigo-50' : 'border-slate-200 text-slate-600'}`}>
+                      <option value="all">All</option>
+                      {uniqueRates.map(r => <option key={r} value={String(r)}>₦{r.toLocaleString()}/L</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
 
               {/* Active filter chips */}
               {(truckFilter !== 'all' || locationFilter !== 'all' || customerFilter !== 'all' || allocationCodeFilter !== 'all' || rateFilter !== 'all') && (

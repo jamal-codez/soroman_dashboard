@@ -54,6 +54,7 @@ import {
   ArrowUp,
   ArrowDown,
   Flame,
+  Fuel,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
@@ -78,6 +79,8 @@ type UserType = {
   pfi_numbers?: string[];     // resolved PFI numbers returned by GET — use these for display
   lpg_plants?: number[];      // scoped LPG plant IDs sent in PATCH
   lpg_plant_names?: string[]; // resolved LPG plant names returned by GET — use these for display
+  filling_stations?: number[];      // scoped filling station IDs sent in PATCH
+  filling_station_names?: string[]; // resolved station names returned by GET — use these for display
   plain_password?: string | null;
 };
 
@@ -94,6 +97,7 @@ const roleMap: Record<number, string> = {
   9: 'Sales Manager',
   10: 'Product Manager',
   11: 'LPG Admin',
+  12: 'Filling Station Manager',
   13: 'LPG Plant Manager',
   14: 'LPG Cashier',
   15: 'Commissions',
@@ -106,10 +110,10 @@ const roleMap: Record<number, string> = {
 // old single-select optgroups used.
 const ROLE_GROUPS: { label: string; roles: number[] }[] = [
   { label: 'Administration', roles: [1, 8] },
-  { label: 'Sales', roles: [9, 10, 3] },
+  { label: 'Sales', roles: [9, 10, 3, 12] },
   { label: 'Finance', roles: [2, 15, 16] },
   { label: 'Operations', roles: [4, 7, 17, 5, 6] },
-  { label: 'LPG Division', roles: [11, 12, 13, 14] },
+  { label: 'LPG Division', roles: [11, 13, 14] },
   { label: 'Other', roles: [18] },
 ];
 
@@ -125,7 +129,7 @@ const roleColorMap: Record<number, string> = {
   9: 'text-indigo-600',
   10: 'text-teal-600',
   11: 'text-orange-600',
-  12: 'text-orange-600',
+  12: 'text-cyan-600',
   13: 'text-orange-600',
   14: 'text-orange-600',
   15: 'text-emerald-700',
@@ -156,6 +160,7 @@ const Settings = () => {
     locations: [] as number[], // scoped state IDs
     pfis: [] as number[], // scoped PFI IDs
     lpg_plants: [] as number[], // scoped LPG plant IDs
+    filling_stations: [] as number[], // scoped filling station IDs
   });
   const [errors, setErrors] = useState({
     full_name: '',
@@ -206,6 +211,20 @@ const Settings = () => {
     ? lpgPlantsRaw
     : ((lpgPlantsRaw as { results?: LPGPlantOption[] })?.results ?? []);
   const LPG_ROLE_NUMBERS = [ROLES.LPG_ADMIN, ROLES.LPG_PLANT_MANAGER, ROLES.LPG_CASHIER];
+
+  // Fetch filling stations from API (for station scope assignment) — only
+  // shown when the user being edited has the Station Manager role.
+  const { data: stationsRaw } = useQuery({
+    queryKey: ['filling-stations-settings'],
+    queryFn: () => apiClient.admin.getDeliveryCustomers({ page_size: 500 }),
+    staleTime: 5 * 60_000,
+  });
+  type StationOption = { id: number; customer_name: string; customer_type?: string };
+  const fillingStationsList: StationOption[] = (Array.isArray(stationsRaw)
+    ? stationsRaw
+    : ((stationsRaw as { results?: StationOption[] })?.results ?? [])
+  ).filter(c => c.customer_type === 'filling_station');
+  const STATION_ROLE_NUMBERS = [ROLES.STATION_MANAGER];
 
   const formatLastLogin = (value?: string | null) => {
     if (!value) return 'N/A';
@@ -311,6 +330,7 @@ const Settings = () => {
         locations: user.locations ?? [],
         pfis: user.pfis ?? [],
         lpg_plants: user.lpg_plants ?? [],
+        filling_stations: user.filling_stations ?? [],
       });
     } else {
       setEditingUser(null);
@@ -326,6 +346,7 @@ const Settings = () => {
         locations: [],
         pfis: [],
         lpg_plants: [],
+        filling_stations: [],
       });
     }
     setIsDialogOpen(true);
@@ -346,6 +367,7 @@ const Settings = () => {
       locations: [],
       pfis: [],
       lpg_plants: [],
+      filling_stations: [],
     });
     setErrors({
       full_name: '',
@@ -377,9 +399,9 @@ const Settings = () => {
           roles: formData.roles,
           suspended: formData.suspended,
           location: formData.location.trim() || undefined,
-          // Only SUPERADMIN can change location/PFI/LPG plant scope; only send if the user isn't a SUPERADMIN
+          // Only SUPERADMIN can change location/PFI/LPG plant/station scope; only send if the user isn't a SUPERADMIN
           ...(isSuperAdmin && !hasSuperAdminRole
-            ? { locations: formData.locations, pfis: formData.pfis, lpg_plants: formData.lpg_plants }
+            ? { locations: formData.locations, pfis: formData.pfis, lpg_plants: formData.lpg_plants, filling_stations: formData.filling_stations }
             : {}),
         };
 
@@ -389,7 +411,7 @@ const Settings = () => {
 
         const response = await apiClient.admin.updateUser(editingUser.id, updatedUser);
 
-        // Resolve location_names/pfi_numbers/lpg_plant_names for optimistic display
+        // Resolve location_names/pfi_numbers/lpg_plant_names/filling_station_names for optimistic display
         const newLocationNames = isSuperAdmin && !hasSuperAdminRole
           ? formData.locations.map(id => statesList.find(s => s.id === id)?.name).filter(Boolean) as string[]
           : undefined;
@@ -398,6 +420,9 @@ const Settings = () => {
           : undefined;
         const newLpgPlantNames = isSuperAdmin && !hasSuperAdminRole
           ? formData.lpg_plants.map(id => lpgPlantsList.find(p => p.id === id)?.name).filter(Boolean) as string[]
+          : undefined;
+        const newStationNames = isSuperAdmin && !hasSuperAdminRole
+          ? formData.filling_stations.map(id => fillingStationsList.find(s => s.id === id)?.customer_name).filter(Boolean) as string[]
           : undefined;
 
         setUsers(prev => prev.map(user =>
@@ -417,6 +442,8 @@ const Settings = () => {
                 pfi_numbers: newPfiNumbers !== undefined ? newPfiNumbers : user.pfi_numbers,
                 lpg_plants: newLpgPlantNames !== undefined ? formData.lpg_plants : user.lpg_plants,
                 lpg_plant_names: newLpgPlantNames !== undefined ? newLpgPlantNames : user.lpg_plant_names,
+                filling_stations: newStationNames !== undefined ? formData.filling_stations : user.filling_stations,
+                filling_station_names: newStationNames !== undefined ? newStationNames : user.filling_station_names,
               }
             : user
         ));
@@ -442,7 +469,7 @@ const Settings = () => {
           roles: formData.roles,
           location: formData.location.trim() || undefined,
           ...(isSuperAdmin && !hasSuperAdminRole
-            ? { locations: formData.locations, pfis: formData.pfis, lpg_plants: formData.lpg_plants }
+            ? { locations: formData.locations, pfis: formData.pfis, lpg_plants: formData.lpg_plants, filling_stations: formData.filling_stations }
             : {}),
         });
 
@@ -550,6 +577,8 @@ const Settings = () => {
           pfi_numbers: u.pfi_numbers ?? prevMap.get(u.id)?.pfi_numbers ?? [],
           lpg_plants: u.lpg_plants ?? prevMap.get(u.id)?.lpg_plants ?? [],
           lpg_plant_names: u.lpg_plant_names ?? prevMap.get(u.id)?.lpg_plant_names ?? [],
+          filling_stations: u.filling_stations ?? prevMap.get(u.id)?.filling_stations ?? [],
+          filling_station_names: u.filling_station_names ?? prevMap.get(u.id)?.filling_station_names ?? [],
         }));
       });
     } catch {
@@ -1157,6 +1186,72 @@ const Settings = () => {
                           <span className="truncate" title={`${plant.code} — ${plant.name}${plant.location_name ? ` (${plant.location_name})` : ''}`}>
                             {plant.name}
                             <span className="text-slate-400"> · {plant.code}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Filling Station Scope (SUPERADMIN only, only relevant once Station Manager is picked) ── */}
+              {isSuperAdmin && !formData.roles.includes(ROLES.SUPERADMIN) && formData.roles.some(r => STATION_ROLE_NUMBERS.includes(r)) && (
+                <div className="space-y-1.5 p-3 bg-cyan-50 border border-cyan-200 rounded-lg">
+                  <Label className="text-sm font-semibold text-cyan-800 flex items-center gap-1.5">
+                    <Fuel size={13} /> Filling Station Scope
+                  </Label>
+                  <p className="text-xs text-cyan-700">
+                    Select which filling station(s) this user can operate. Unlike location/PFI scope above,
+                    leaving this <strong>empty means no access yet</strong> — Station Managers are always
+                    locked to specific stations, they don't default to Full Access.
+                  </p>
+
+                  {/* Current scope chips */}
+                  <div className="flex flex-wrap gap-1 min-h-[24px]">
+                    {formData.filling_stations.length === 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">
+                        No stations assigned yet
+                      </span>
+                    ) : (
+                      formData.filling_stations.map(id => {
+                        const station = fillingStationsList.find(s => s.id === id);
+                        return station ? (
+                          <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-700 border border-cyan-200">
+                            <Fuel size={10} /> {station.customer_name}
+                            <button
+                              type="button"
+                              onClick={() => setFormData(f => ({ ...f, filling_stations: f.filling_stations.filter(l => l !== id) }))}
+                              className="ml-0.5 hover:text-red-600"
+                            >×</button>
+                          </span>
+                        ) : null;
+                      })
+                    )}
+                  </div>
+
+                  {/* Checkboxes for each filling station */}
+                  <div className="grid grid-cols-2 gap-1.5 mt-2 max-h-40 overflow-y-auto pr-1">
+                    {fillingStationsList.map(station => {
+                      const checked = formData.filling_stations.includes(station.id);
+                      return (
+                        <label key={station.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer border transition-colors ${
+                          checked ? 'bg-cyan-100 border-cyan-300 text-cyan-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setFormData(f => ({
+                                ...f,
+                                filling_stations: checked
+                                  ? f.filling_stations.filter(l => l !== station.id)
+                                  : [...f.filling_stations, station.id],
+                              }));
+                            }}
+                            className="w-3.5 h-3.5 accent-cyan-600"
+                          />
+                          <span className="truncate" title={station.customer_name}>
+                            {station.customer_name}
                           </span>
                         </label>
                       );

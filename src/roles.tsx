@@ -12,6 +12,7 @@ export const ROLES = {
   SALES_MANAGER: 9,         // Sales Manager
   PRODUCT_MANAGER: 10,      // Product Manager
   LPG_ADMIN: 11,            // LPG Admin — unrestricted LPG access
+  STATION_MANAGER: 12,      // Filling Station Manager — scoped to assigned stations
   LPG_PLANT_MANAGER: 13,    // LPG Plant Manager — stock + sales, scoped to assigned plants
   LPG_CASHIER: 14,          // LPG Cashier — sales only, scoped to assigned plants
   COMMISSIONS: 15,          // Commissions
@@ -90,6 +91,8 @@ export function fallbackWorkspaceForRole(role: number | string): string {
       return '/product-manager-view';
     case ROLES.LPG_ADMIN:
       return '/lpg/dashboard';
+    case ROLES.STATION_MANAGER:
+      return '/filling-stations';
     case ROLES.LPG_PLANT_MANAGER:
       return '/lpg/dashboard';
     case ROLES.LPG_CASHIER:
