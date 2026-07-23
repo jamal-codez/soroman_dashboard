@@ -705,6 +705,22 @@ export const apiClient = {
       return response.json();
     },
 
+    confirmTruckEntry: async (
+      orderId: string | number,
+      details: { entry_time: string; driver_name: string; driver_phone: string },
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/orders/${orderId}/entry-truck/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(details),
+      });
+      if (!response.ok) {
+        const msg = await safeReadError(response);
+        throw new Error(`Failed to confirm truck entry (${response.status}): ${msg}`);
+      }
+      return response.json();
+    },
+
     confirmTruckExit: async (
       orderId: string | number,
       details: { exit_time: string; gantry: string; loader_name: string },
@@ -2119,6 +2135,11 @@ export const apiClient = {
           ticket_status: string;
           created_at: string;
           updated_at: string;
+          entered_at: string | null;
+          entered_by: number | null;
+          entered_by_name: string | null;
+          entry_driver_name: string | null;
+          entry_driver_phone: string | null;
           exited_at: string | null;
           exited_by: number | null;
           exited_by_name: string | null;
@@ -2126,6 +2147,20 @@ export const apiClient = {
           loader_name: string | null;
         }>
       >;
+    },
+
+    /** POST /api/admin/truck-tickets/<id>/entry/ — mark a single truck/ticket as entered */
+    enterTruckTicket: async (
+      ticketId: number,
+      details: { entry_time: string; driver_name: string; driver_phone: string },
+    ) => {
+      const response = await safeFetch(`${ADMIN_BASE}/truck-tickets/${ticketId}/entry/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(details),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<{ success: boolean; already_entered?: boolean }>;
     },
 
     /** POST /api/admin/truck-tickets/<id>/exit/ — mark a single truck/ticket as exited */
