@@ -27,7 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/api/client';
 import {
   ClipboardList, Plus, Loader2, CheckCircle2, Download, FileText,
-  Trash2, ChevronLeft, ChevronRight, FileBarChart2, ShieldCheck, Banknote,
+  Trash2, ChevronLeft, ChevronRight, FileBarChart2, ShieldCheck, Banknote, Edit3,
 } from 'lucide-react';
 
 // ─── Shared helpers ─────────────────────────────────────────────────────────
@@ -158,11 +158,24 @@ function GateReportPanel() {
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<GateForm>(EMPTY_GATE);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [histPage, setHistPage] = useState(1);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [viewEntry, setViewEntry] = useState<ReportEntry | null>(null);
 
   const set = (f: keyof GateForm) => (v: string) => setForm(p => ({ ...p, [f]: v }));
+
+  const openEdit = (r: ReportEntry) => {
+    setEditingId(r.id);
+    setForm({
+      location: String(r.location ?? ''), pfi: String(r.pfi_number ?? ''), date: String(r.date ?? today()),
+      carriedOverYesterday: String(r.yesterday_carried_over_loading ?? ''),
+      trucksExitedToday: String(r.num_trucks_sold ?? ''),
+      trucksLeftOverToday: String(r.loading_left_over ?? ''),
+      remarks: String(r.remarks ?? ''),
+    });
+    setShowForm(true);
+  };
 
   const scopedLocations = useMemo(() => readScopedLocations(), []);
   const scopedPfis = useMemo(() => readScopedPfis(), []);
@@ -191,21 +204,30 @@ function GateReportPanel() {
   const totalPages = Math.ceil(history.length / 10) || 1;
 
   const mutation = useMutation({
-    mutationFn: () => apiClient.admin.submitStaffDailyReport({
-      date: form.date,
-      location: form.location,
-      pfi_number: form.pfi,
-      submitted_by_name: `${staffName} [SECURITY]`,
-      yesterday_carried_over_loading: form.carriedOverYesterday || '0',
-      num_trucks_sold: form.trucksExitedToday || '0',
-      loading_left_over: form.trucksLeftOverToday || '0',
-      remarks: form.remarks,
-    }),
+    mutationFn: () => editingId != null
+      ? apiClient.admin.updateStaffDailyReport(editingId, {
+          date: form.date,
+          yesterday_carried_over_loading: form.carriedOverYesterday || '0',
+          num_trucks_sold: form.trucksExitedToday || '0',
+          loading_left_over: form.trucksLeftOverToday || '0',
+          remarks: form.remarks,
+        })
+      : apiClient.admin.submitStaffDailyReport({
+          date: form.date,
+          location: form.location,
+          pfi_number: form.pfi,
+          submitted_by_name: `${staffName} [SECURITY]`,
+          yesterday_carried_over_loading: form.carriedOverYesterday || '0',
+          num_trucks_sold: form.trucksExitedToday || '0',
+          loading_left_over: form.trucksLeftOverToday || '0',
+          remarks: form.remarks,
+        }),
     onSuccess: () => {
       generateGatePDF(form);
-      toast({ title: 'Gate report saved', description: `${form.location} · ${form.date}` });
+      toast({ title: editingId != null ? 'Gate report updated' : 'Gate report saved', description: `${form.location} · ${form.date}` });
       setShowForm(false);
       setForm(EMPTY_GATE);
+      setEditingId(null);
       qc.invalidateQueries({ queryKey: ['my-report-history', 'SECURITY'] });
     },
     onError: (err: Error) => toast({ title: 'Failed', description: err.message, variant: 'destructive' }),
@@ -265,19 +287,19 @@ function GateReportPanel() {
       )}
 
       {/* Form dialog */}
-      <Dialog open={showForm} onOpenChange={open => { if (!open) { setShowForm(false); setForm(EMPTY_GATE); } }}>
+      <Dialog open={showForm} onOpenChange={open => { if (!open) { setShowForm(false); setForm(EMPTY_GATE); setEditingId(null); } }}>
         <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck size={18} className="text-blue-600" /> Daily Gate Report
+              <ShieldCheck size={18} className="text-blue-600" /> {editingId != null ? 'Edit Gate Report' : 'Daily Gate Report'}
             </DialogTitle>
-            <DialogDescription>Enter today's gate figures.</DialogDescription>
+            <DialogDescription>{editingId != null ? 'Update this report\'s figures.' : "Enter today's gate figures."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Location <span className="text-red-500">*</span></Label>
-                <select aria-label="Location" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                <select aria-label="Location" disabled={editingId != null} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
                   value={form.location} onChange={e => set('location')(e.target.value)}>
                   <option value="">Select location</option>
                   {locations.map(l => <option key={l} value={l}>{l}</option>)}
@@ -285,13 +307,16 @@ function GateReportPanel() {
               </div>
               <div className="space-y-1.5">
                 <Label>PFI</Label>
-                <select aria-label="PFI" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                <select aria-label="PFI" disabled={editingId != null} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
                   value={form.pfi} onChange={e => set('pfi')(e.target.value)}>
                   <option value="">Select PFI</option>
                   {pfis.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
             </div>
+            {editingId != null && (
+              <p className="text-xs text-slate-400 -mt-2">Location and PFI can't be changed on an existing report. Delete and re-submit if these need to change.</p>
+            )}
             <div className="space-y-1.5">
               <Label>Date <span className="text-red-500">*</span></Label>
               <Input type="date" value={form.date} onChange={e => set('date')(e.target.value)} />
@@ -317,10 +342,12 @@ function GateReportPanel() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowForm(false); setForm(EMPTY_GATE); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setShowForm(false); setForm(EMPTY_GATE); setEditingId(null); }}>Cancel</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.location || !form.date}
               className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
-              {mutation.isPending ? <><Loader2 size={13} className="animate-spin" /> Saving…</> : <><CheckCircle2 size={13} /> Submit &amp; Download</>}
+              {mutation.isPending
+                ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                : editingId != null ? <><CheckCircle2 size={13} /> Save Changes</> : <><CheckCircle2 size={13} /> Submit &amp; Download</>}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -334,7 +361,7 @@ function GateReportPanel() {
             <h2 className="text-sm font-semibold text-slate-800">My Gate Reports</h2>
             {history.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{history.length}</span>}
           </div>
-          <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-sm" onClick={() => { setForm(EMPTY_GATE); setShowForm(true); }}>
+          <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-sm" onClick={() => { setForm(EMPTY_GATE); setEditingId(null); setShowForm(true); }}>
             <Plus size={13} /> Enter Report
           </Button>
         </div>
@@ -352,6 +379,7 @@ function GateReportPanel() {
           onSetDeleteId={setConfirmDeleteId}
           onConfirmDelete={id => deleteMutation.mutate(id)}
           onView={r => setViewEntry(r)}
+          onEdit={openEdit}
           onDownload={redownload}
         />
         <HistoryPager page={histPage} total={totalPages} onPrev={() => setHistPage(p => p - 1)} onNext={() => setHistPage(p => p + 1)} count={history.length} />
@@ -412,6 +440,7 @@ function CommissionReportPanel() {
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<CommForm>(EMPTY_COMM);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [histPage, setHistPage] = useState(1);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [viewEntry, setViewEntry] = useState<ReportEntry | null>(null);
@@ -445,22 +474,49 @@ function CommissionReportPanel() {
     return f.remarks.trim() ? `${meta}\n\n${f.remarks.trim()}` : meta;
   };
 
+  const openEdit = (r: ReportEntry) => {
+    const remarksStr = String(r.remarks ?? '');
+    const custMatch = remarksStr.match(/Customers:\s*(\d+)/);
+    const ordMatch = remarksStr.match(/Orders:\s*(\d+)/);
+    const cleanRemarks = remarksStr.replace(/Customers:\s*\d+\s*\|\s*Orders:\s*\d+\s*\n?\n?/, '');
+    setEditingId(r.id);
+    setForm({
+      location: String(r.location ?? ''), pfi: String(r.pfi_number ?? ''), date: String(r.date ?? today()),
+      litresSoldToday: String(r.litres_sold_today ?? ''),
+      numberOfTrucks: String(r.num_trucks_sold ?? ''),
+      numberOfCustomers: custMatch?.[1] ?? '',
+      numberOfOrders: ordMatch?.[1] ?? '',
+      totalCommissionPaid: String(r.amount_paid ?? ''),
+      remarks: cleanRemarks.trim(),
+    });
+    setShowForm(true);
+  };
+
   const mutation = useMutation({
-    mutationFn: () => apiClient.admin.submitStaffDailyReport({
-      date: form.date,
-      location: form.location,
-      pfi_number: form.pfi,
-      submitted_by_name: `${staffName} [COMMISSIONS]`,
-      litres_sold_today: form.litresSoldToday || '0',
-      num_trucks_sold: form.numberOfTrucks || '0',
-      amount_paid: form.totalCommissionPaid || '0',
-      remarks: buildRemarks(form),
-    }),
+    mutationFn: () => editingId != null
+      ? apiClient.admin.updateStaffDailyReport(editingId, {
+          date: form.date,
+          litres_sold_today: form.litresSoldToday || '0',
+          num_trucks_sold: form.numberOfTrucks || '0',
+          amount_paid: form.totalCommissionPaid || '0',
+          remarks: buildRemarks(form),
+        })
+      : apiClient.admin.submitStaffDailyReport({
+          date: form.date,
+          location: form.location,
+          pfi_number: form.pfi,
+          submitted_by_name: `${staffName} [COMMISSIONS]`,
+          litres_sold_today: form.litresSoldToday || '0',
+          num_trucks_sold: form.numberOfTrucks || '0',
+          amount_paid: form.totalCommissionPaid || '0',
+          remarks: buildRemarks(form),
+        }),
     onSuccess: () => {
       generateCommissionPDF(form, staffName);
-      toast({ title: 'Commission report saved', description: `${form.location} · ${form.date}` });
+      toast({ title: editingId != null ? 'Commission report updated' : 'Commission report saved', description: `${form.location} · ${form.date}` });
       setShowForm(false);
       setForm(EMPTY_COMM);
+      setEditingId(null);
       qc.invalidateQueries({ queryKey: ['my-report-history', 'COMMISSIONS'] });
     },
     onError: (err: Error) => toast({ title: 'Failed', description: err.message, variant: 'destructive' }),
@@ -528,19 +584,19 @@ function CommissionReportPanel() {
         </Dialog>
       )}
 
-      <Dialog open={showForm} onOpenChange={open => { if (!open) { setShowForm(false); setForm(EMPTY_COMM); } }}>
+      <Dialog open={showForm} onOpenChange={open => { if (!open) { setShowForm(false); setForm(EMPTY_COMM); setEditingId(null); } }}>
         <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Banknote size={18} className="text-emerald-600" /> Daily Commission Report
+              <Banknote size={18} className="text-emerald-600" /> {editingId != null ? 'Edit Commission Report' : 'Daily Commission Report'}
             </DialogTitle>
-            <DialogDescription>Enter today's commission figures.</DialogDescription>
+            <DialogDescription>{editingId != null ? 'Update this report\'s figures.' : "Enter today's commission figures."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Location <span className="text-red-500">*</span></Label>
-                <select aria-label="Location" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                <select aria-label="Location" disabled={editingId != null} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
                   value={form.location} onChange={e => set('location')(e.target.value)}>
                   <option value="">Select location</option>
                   {locations.map(l => <option key={l} value={l}>{l}</option>)}
@@ -548,13 +604,16 @@ function CommissionReportPanel() {
               </div>
               <div className="space-y-1.5">
                 <Label>PFI</Label>
-                <select aria-label="PFI" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                <select aria-label="PFI" disabled={editingId != null} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
                   value={form.pfi} onChange={e => set('pfi')(e.target.value)}>
                   <option value="">Select PFI</option>
                   {pfis.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
             </div>
+            {editingId != null && (
+              <p className="text-xs text-slate-400 -mt-2">Location and PFI can't be changed on an existing report. Delete and re-submit if these need to change.</p>
+            )}
             <div className="space-y-1.5">
               <Label>Date <span className="text-red-500">*</span></Label>
               <Input type="date" value={form.date} onChange={e => set('date')(e.target.value)} />
@@ -585,10 +644,12 @@ function CommissionReportPanel() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowForm(false); setForm(EMPTY_COMM); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setShowForm(false); setForm(EMPTY_COMM); setEditingId(null); }}>Cancel</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.location || !form.date}
               className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
-              {mutation.isPending ? <><Loader2 size={13} className="animate-spin" /> Saving…</> : <><CheckCircle2 size={13} /> Submit &amp; Download</>}
+              {mutation.isPending
+                ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                : editingId != null ? <><CheckCircle2 size={13} /> Save Changes</> : <><CheckCircle2 size={13} /> Submit &amp; Download</>}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -601,7 +662,7 @@ function CommissionReportPanel() {
             <h2 className="text-sm font-semibold text-slate-800">My Commission Reports</h2>
             {history.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{history.length}</span>}
           </div>
-          <Button size="sm" className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm" onClick={() => { setForm(EMPTY_COMM); setShowForm(true); }}>
+          <Button size="sm" className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm" onClick={() => { setForm(EMPTY_COMM); setEditingId(null); setShowForm(true); }}>
             <Plus size={13} /> Enter Report
           </Button>
         </div>
@@ -619,6 +680,7 @@ function CommissionReportPanel() {
           onSetDeleteId={setConfirmDeleteId}
           onConfirmDelete={id => deleteMutation.mutate(id)}
           onView={r => setViewEntry(r)}
+          onEdit={openEdit}
           onDownload={redownload}
         />
         <HistoryPager page={histPage} total={totalPages} onPrev={() => setHistPage(p => p - 1)} onNext={() => setHistPage(p => p + 1)} count={history.length} />
@@ -681,6 +743,7 @@ function ComplianceReportPanel() {
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<CompForm>(EMPTY_COMP);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [histPage, setHistPage] = useState(1);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [viewEntry, setViewEntry] = useState<ReportEntry | null>(null);
@@ -725,21 +788,41 @@ function ComplianceReportPanel() {
     return { rates, remarks };
   };
 
+  const openEdit = (r: ReportEntry) => {
+    const { rates, remarks } = parseEntry(r);
+    setEditingId(r.id);
+    setForm({
+      location: String(r.location ?? ''), pfi: String(r.pfi_number ?? ''), date: String(r.date ?? today()),
+      numberOfOrders: String(r.num_trucks_sold ?? ''),
+      totalLitres: String(r.litres_sold_today ?? ''),
+      rates, remarks,
+    });
+    setShowForm(true);
+  };
+
   const mutation = useMutation({
-    mutationFn: () => apiClient.admin.submitStaffDailyReport({
-      date: form.date,
-      location: form.location,
-      pfi_number: form.pfi,
-      submitted_by_name: `${staffName} [IT_COMPLIANCE]`,
-      num_trucks_sold: form.numberOfOrders || '0',
-      litres_sold_today: form.totalLitres || '0',
-      remarks: buildRemarks(form),
-    }),
+    mutationFn: () => editingId != null
+      ? apiClient.admin.updateStaffDailyReport(editingId, {
+          date: form.date,
+          num_trucks_sold: form.numberOfOrders || '0',
+          litres_sold_today: form.totalLitres || '0',
+          remarks: buildRemarks(form),
+        })
+      : apiClient.admin.submitStaffDailyReport({
+          date: form.date,
+          location: form.location,
+          pfi_number: form.pfi,
+          submitted_by_name: `${staffName} [IT_COMPLIANCE]`,
+          num_trucks_sold: form.numberOfOrders || '0',
+          litres_sold_today: form.totalLitres || '0',
+          remarks: buildRemarks(form),
+        }),
     onSuccess: () => {
       generateCompliancePDF(form, staffName);
-      toast({ title: 'Compliance report saved', description: `${form.location} · ${form.date}` });
+      toast({ title: editingId != null ? 'Compliance report updated' : 'Compliance report saved', description: `${form.location} · ${form.date}` });
       setShowForm(false);
       setForm(EMPTY_COMP);
+      setEditingId(null);
       qc.invalidateQueries({ queryKey: ['my-report-history', 'IT_COMPLIANCE'] });
     },
     onError: (err: Error) => toast({ title: 'Failed', description: err.message, variant: 'destructive' }),
@@ -806,19 +889,19 @@ function ComplianceReportPanel() {
         </Dialog>
       )}
 
-      <Dialog open={showForm} onOpenChange={open => { if (!open) { setShowForm(false); setForm(EMPTY_COMP); } }}>
+      <Dialog open={showForm} onOpenChange={open => { if (!open) { setShowForm(false); setForm(EMPTY_COMP); setEditingId(null); } }}>
         <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ClipboardList size={18} className="text-slate-600" /> IT Compliance Report
+              <ClipboardList size={18} className="text-slate-600" /> {editingId != null ? 'Edit Compliance Report' : 'IT Compliance Report'}
             </DialogTitle>
-            <DialogDescription>Record today's compliance figures for this location.</DialogDescription>
+            <DialogDescription>{editingId != null ? 'Update this report\'s figures.' : "Record today's compliance figures for this location."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Location <span className="text-red-500">*</span></Label>
-                <select aria-label="Location" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                <select aria-label="Location" disabled={editingId != null} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
                   value={form.location} onChange={e => set('location')(e.target.value)}>
                   <option value="">Select location</option>
                   {locations.map(l => <option key={l} value={l}>{l}</option>)}
@@ -826,13 +909,16 @@ function ComplianceReportPanel() {
               </div>
               <div className="space-y-1.5">
                 <Label>PFI</Label>
-                <select aria-label="PFI" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                <select aria-label="PFI" disabled={editingId != null} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
                   value={form.pfi} onChange={e => set('pfi')(e.target.value)}>
                   <option value="">All PFIs</option>
                   {pfis.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
             </div>
+            {editingId != null && (
+              <p className="text-xs text-slate-400">Location and PFI can't be changed on an existing report. Delete and re-submit if these need to change.</p>
+            )}
 
             <div className="space-y-1.5">
               <Label>Date <span className="text-red-500">*</span></Label>
@@ -871,10 +957,12 @@ function ComplianceReportPanel() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowForm(false); setForm(EMPTY_COMP); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setShowForm(false); setForm(EMPTY_COMP); setEditingId(null); }}>Cancel</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.location || !form.date}
               className="gap-1.5">
-              {mutation.isPending ? <><Loader2 size={13} className="animate-spin" /> Saving…</> : <><CheckCircle2 size={13} /> Submit &amp; Download</>}
+              {mutation.isPending
+                ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                : editingId != null ? <><CheckCircle2 size={13} /> Save Changes</> : <><CheckCircle2 size={13} /> Submit &amp; Download</>}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -887,7 +975,7 @@ function ComplianceReportPanel() {
             <h2 className="text-sm font-semibold text-slate-800">My Compliance Reports</h2>
             {history.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{history.length}</span>}
           </div>
-          <Button size="sm" className="gap-1.5 shadow-sm" onClick={() => { setForm(EMPTY_COMP); setShowForm(true); }}>
+          <Button size="sm" className="gap-1.5 shadow-sm" onClick={() => { setForm(EMPTY_COMP); setEditingId(null); setShowForm(true); }}>
             <Plus size={13} /> Enter Report
           </Button>
         </div>
@@ -906,6 +994,7 @@ function ComplianceReportPanel() {
           onSetDeleteId={setConfirmDeleteId}
           onConfirmDelete={id => deleteMutation.mutate(id)}
           onView={r => setViewEntry(r)}
+          onEdit={openEdit}
           onDownload={redownload}
         />
         <HistoryPager page={histPage} total={totalPages} onPrev={() => setHistPage(p => p - 1)} onNext={() => setHistPage(p => p + 1)} count={history.length} />
@@ -922,7 +1011,7 @@ type ColDef = {
   render: (r: ReportEntry) => React.ReactNode;
 };
 
-function ReportHistoryTable({ rows, loading, columns, confirmDeleteId, onSetDeleteId, onConfirmDelete, onView, onDownload }: {
+function ReportHistoryTable({ rows, loading, columns, confirmDeleteId, onSetDeleteId, onConfirmDelete, onView, onEdit, onDownload }: {
   rows: ReportEntry[];
   loading: boolean;
   columns: ColDef[];
@@ -930,6 +1019,7 @@ function ReportHistoryTable({ rows, loading, columns, confirmDeleteId, onSetDele
   onSetDeleteId: (id: number | null) => void;
   onConfirmDelete: (id: number) => void;
   onView: (r: ReportEntry) => void;
+  onEdit: (r: ReportEntry) => void;
   onDownload: (r: ReportEntry) => void;
 }) {
   if (loading) {
@@ -978,6 +1068,9 @@ function ReportHistoryTable({ rows, loading, columns, confirmDeleteId, onSetDele
                   <span className="inline-flex items-center gap-3">
                     <button type="button" onClick={() => onView(r)} className="inline-flex items-center gap-1 text-xs font-medium text-blue-500 hover:text-blue-700">
                       <FileText size={12} /> View
+                    </button>
+                    <button type="button" title="Edit report" onClick={() => onEdit(r)} className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-800">
+                      <Edit3 size={12} /> Edit
                     </button>
                     <button type="button" onClick={() => onDownload(r)} className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
                       <Download size={12} /> PDF
