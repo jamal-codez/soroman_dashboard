@@ -42,6 +42,14 @@ type BackendPfi = {
   product_unit?: string;
   product_unit_label?: string;
   starting_qty_litres?: number;
+  bl_qty_litres?: number | string | null;
+  price_per_litre?: number | string | null;
+  surplus_deficit_litres?: number | string | null;
+  pfi_value?: number | string | null;
+  total_expenses?: number | string | null;
+  total_cost?: number | string | null;
+  revenue?: number | string | null;
+  profit_loss?: number | string | null;
   notes?: string | null;
   description?: string | null;
   sold_qty_litres?: number;
@@ -150,6 +158,8 @@ const EMPTY_CREATE_FORM = {
   product: '',
   startingQty: '',
   startingQtyMt: '',
+  blQty: '',
+  pricePerLitre: '',
   auditOfficer: '',
   productOfficer: '',
   itComplianceOfficer: '',
@@ -258,6 +268,11 @@ export default function PFIPage() {
   // ── Detail view (click row) ────────────────────────────────────────
   const [viewTarget, setViewTarget] = useState<(typeof enriched)[number] | null>(null);
 
+  // ── Expenses (within detail view) ──────────────────────────────────
+  const [expenseForm, setExpenseForm] = useState({ description: '', amount: '', date: new Date().toISOString().split('T')[0] });
+  const [addingExpense, setAddingExpense] = useState(false);
+  const [deletingExpenseId, setDeletingExpenseId] = useState<number | null>(null);
+
   // ── Edit PFI ──────────────────────────────────────────────────────
   const [editTarget, setEditTarget] = useState<BackendPfi | null>(null);
   const [editForm, setEditForm] = useState(EMPTY_CREATE_FORM);
@@ -349,6 +364,14 @@ export default function PFIPage() {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [usersQuery.data]);
 
+  const expensesQuery = useQuery({
+    queryKey: ['pfi-expenses', viewTarget?.id],
+    queryFn: async () => apiClient.admin.getPfiExpenses(viewTarget!.id),
+    enabled: viewTarget != null,
+    staleTime: 10_000,
+  });
+  const expenses = expensesQuery.data ?? [];
+
   // ═══════════════════════════════════════════════════════════════════
   // Derived data
   // ═══════════════════════════════════════════════════════════════════
@@ -375,9 +398,21 @@ export default function PFIPage() {
       const unitLabel = p.product_unit_label || (p.product_unit ? p.product_unit : 'Litres');
       const createdAtStr = String(p.created_at ?? p.createdAt ?? '');
       const finishedAtStr = String(p.finished_at ?? p.finishedAt ?? '');
+
+      // Cargo cost / profit tracking — hasCostData is false until BL qty +
+      // price are both entered, so we can show "—" instead of a misleading 0.
+      const hasCostData = p.pfi_value != null;
+      const pfiValue = hasCostData ? coerceNumber(p.pfi_value) : 0;
+      const totalExpenses = coerceNumber(p.total_expenses);
+      const totalCost = hasCostData ? coerceNumber(p.total_cost) : 0;
+      const revenue = coerceNumber(p.revenue ?? totalAmount);
+      const profitLoss = hasCostData ? coerceNumber(p.profit_loss) : 0;
+      const surplusDeficit = p.surplus_deficit_litres != null ? coerceNumber(p.surplus_deficit_litres) : null;
+
       return {
         ...p, starting, sold, remaining, pct, totalAmount, orders,
         locationLabel, productLabel, unitLabel, createdAtStr, finishedAtStr,
+        hasCostData, pfiValue, totalExpenses, totalCost, revenue, profitLoss, surplusDeficit,
       };
     });
   }, [pfis, pfiSoldQtyMap]);
@@ -477,6 +512,8 @@ export default function PFIPage() {
     pfi_date: form.pfiDate || undefined,
     description: form.description.trim() || undefined,
     qty_volume_mt: form.startingQtyMt ? Number(form.startingQtyMt.replace(/,/g, '')) || undefined : undefined,
+    bl_qty_litres: form.blQty ? `${Number(form.blQty.replace(/,/g, '')).toFixed(2)}` : undefined,
+    price_per_litre: form.pricePerLitre ? `${Number(form.pricePerLitre.replace(/,/g, '')).toFixed(2)}` : undefined,
     audit_officer: form.auditOfficer ? Number(form.auditOfficer) : null,
     product_officer: form.productOfficer ? Number(form.productOfficer) : null,
     it_compliance_officer: form.itComplianceOfficer ? Number(form.itComplianceOfficer) : null,
@@ -573,6 +610,8 @@ export default function PFIPage() {
       product: String(p.product ?? ''),
       startingQty: p.starting_qty_litres != null ? String(p.starting_qty_litres) : '',
       startingQtyMt: p.qty_volume_mt != null ? String(p.qty_volume_mt) : '',
+      blQty: p.bl_qty_litres != null ? String(p.bl_qty_litres) : '',
+      pricePerLitre: p.price_per_litre != null ? String(p.price_per_litre) : '',
       auditOfficer: p.audit_officer != null ? String(p.audit_officer) : '',
       productOfficer: p.product_officer != null ? String(p.product_officer) : '',
       itComplianceOfficer: p.it_compliance_officer != null ? String(p.it_compliance_officer) : '',
@@ -676,6 +715,47 @@ export default function PFIPage() {
       setClosureSaving(false);
     }
   }, [closureTarget, closureForm, queryClient, toast]);
+
+  const addExpense = useCallback(async () => {
+    if (!viewTarget) return;
+    const description = expenseForm.description.trim();
+    const amount = expenseForm.amount.replace(/,/g, '').trim();
+    const amountNum = Number(amount);
+    if (!description || !Number.isFinite(amountNum) || amountNum <= 0) {
+      toast({ title: 'Missing information', description: 'Provide a description and a valid amount.', variant: 'destructive' });
+      return;
+    }
+    setAddingExpense(true);
+    try {
+      await apiClient.admin.createPfiExpense(viewTarget.id, {
+        description,
+        amount: amountNum.toFixed(2),
+        date: expenseForm.date || undefined,
+      });
+      setExpenseForm({ description: '', amount: '', date: new Date().toISOString().split('T')[0] });
+      await queryClient.invalidateQueries({ queryKey: ['pfi-expenses', viewTarget.id] });
+      await queryClient.invalidateQueries({ queryKey: ['pfis'] });
+      toast({ title: 'Expense added' });
+    } catch (e) {
+      toast({ title: 'Failed to add expense', description: (e as Error)?.message || 'Request failed', variant: 'destructive' });
+    } finally {
+      setAddingExpense(false);
+    }
+  }, [viewTarget, expenseForm, queryClient, toast]);
+
+  const deleteExpense = useCallback(async (expenseId: number) => {
+    if (!viewTarget) return;
+    setDeletingExpenseId(expenseId);
+    try {
+      await apiClient.admin.deletePfiExpense(expenseId);
+      await queryClient.invalidateQueries({ queryKey: ['pfi-expenses', viewTarget.id] });
+      await queryClient.invalidateQueries({ queryKey: ['pfis'] });
+    } catch (e) {
+      toast({ title: 'Failed to delete expense', description: (e as Error)?.message || 'Request failed', variant: 'destructive' });
+    } finally {
+      setDeletingExpenseId(null);
+    }
+  }, [viewTarget, queryClient, toast]);
 
   const selectedFinishPfi = useMemo(
     () => enriched.find(p => p.id === finishConfirm.pfiId),
@@ -789,6 +869,45 @@ export default function PFIPage() {
         </div>
 
         <div className="h-px bg-slate-100" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Cargo Cost</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="BL Figures (Ltr)" error={errors?.bl_qty_litres?.join(' ')}>
+            <CommaInput placeholder="e.g. 980,000" value={form.blQty} onValueChange={v => setForm(f => ({ ...f, blQty: v }))} />
+          </Field>
+          <Field label="Price / Litre (₦)" error={errors?.price_per_litre?.join(' ')}>
+            <CommaInput placeholder="e.g. 850" value={form.pricePerLitre} onValueChange={v => setForm(f => ({ ...f, pricePerLitre: v }))} />
+          </Field>
+        </div>
+
+        {(form.blQty || form.startingQty) && (
+          <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs">
+            <div>
+              <p className="text-slate-400 font-semibold uppercase">Surplus / Deficit</p>
+              {(() => {
+                const tank = coerceNumber(form.startingQty);
+                const bl = coerceNumber(form.blQty);
+                if (!form.blQty) return <p className="text-slate-400 mt-0.5">— (enter BL figures)</p>;
+                const diff = tank - bl;
+                return (
+                  <p className={`font-bold mt-0.5 ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-red-600' : 'text-slate-600'}`}>
+                    {diff > 0 ? '+' : ''}{fmtQty(diff)} L {diff > 0 ? '(Surplus)' : diff < 0 ? '(Deficit)' : ''}
+                  </p>
+                );
+              })()}
+            </div>
+            <div>
+              <p className="text-slate-400 font-semibold uppercase">PFI Value (Cargo Cost)</p>
+              {form.blQty && form.pricePerLitre ? (
+                <p className="font-bold mt-0.5 text-slate-700">{fmtCurrency(coerceNumber(form.blQty) * coerceNumber(form.pricePerLitre))}</p>
+              ) : (
+                <p className="text-slate-400 mt-0.5">— (enter BL figures &amp; price)</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="h-px bg-slate-100" />
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Officers</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -900,6 +1019,7 @@ export default function PFIPage() {
                   <Table className="text-sm">
                     <TableHeader>
                       <TableRow className="bg-slate-50/80">
+                        {/* Identity */}
                         <TableHead className="font-semibold text-slate-700 w-[40px]">S/N</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Date</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">
@@ -908,12 +1028,19 @@ export default function PFIPage() {
                           </button>
                         </TableHead>
                         <TableHead className="font-semibold text-slate-700">Description</TableHead>
+
+                        {/* Cargo cost breakdown, left to right: BL -> Tank -> Surplus/Deficit -> Price -> Value */}
+                        <TableHead className="font-semibold text-slate-700 whitespace-nowrap">BL Figures</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">
                           <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort('starting')}>
-                            Qty (Ltr) <SortIcon col="starting" />
+                            Tank Qty <SortIcon col="starting" />
                           </button>
                         </TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Qty (MT)</TableHead>
+                        <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Surplus / Deficit</TableHead>
+                        <TableHead className="font-semibold text-slate-700 text-right whitespace-nowrap">Price / Ltr</TableHead>
+                        <TableHead className="font-semibold text-slate-700 text-right whitespace-nowrap">PFI Value</TableHead>
+
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">
                           <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort('location')}>
                             Location <SortIcon col="location" />
@@ -924,16 +1051,20 @@ export default function PFIPage() {
                             Product <SortIcon col="product" />
                           </button>
                         </TableHead>
+                        {/* Officer columns — shown in the detail dialog only, not the table
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Audit Officer</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Product Officer</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">IT Compliance</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Security Exit</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Commission Offr.</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Sales Manager</TableHead>
+                        */}
+                        {/* Vessel/surveyor columns — shown in the detail dialog only, not the table
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Vessel Broker</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Vessel Name</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Surveyor</TableHead>
                         <TableHead className="font-semibold text-slate-700 whitespace-nowrap">Surveyor Phone</TableHead>
+                        */}
                         <TableHead className="font-semibold text-emerald-700 whitespace-nowrap">
                           <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort('sold')}>
                             Sold <SortIcon col="sold" />
@@ -949,11 +1080,16 @@ export default function PFIPage() {
                             Progress <SortIcon col="pct" />
                           </button>
                         </TableHead>
+
+                        {/* Financial outcome: Revenue -> Total Cost -> Profit/Loss */}
                         <TableHead className="font-semibold text-emerald-700 text-right whitespace-nowrap">
                           <button type="button" className="inline-flex items-center gap-1 ml-auto" onClick={() => toggleSort('amount')}>
-                            Amount <SortIcon col="amount" />
+                            Revenue <SortIcon col="amount" />
                           </button>
                         </TableHead>
+                        <TableHead className="font-semibold text-slate-700 text-right whitespace-nowrap">Total Cost</TableHead>
+                        <TableHead className="font-semibold text-slate-700 text-right whitespace-nowrap">Profit / Loss</TableHead>
+
                         <TableHead className="font-semibold text-slate-700">
                           <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort('status')}>
                             Status <SortIcon col="status" />
@@ -985,6 +1121,10 @@ export default function PFIPage() {
                             <TableCell className={`max-w-[160px] truncate ${cell}`} title={p.description ?? p.notes ?? ''}>
                               {p.description ?? p.notes ?? dash}
                             </TableCell>
+
+                            <TableCell className={`whitespace-nowrap ${cell}`}>
+                              {p.bl_qty_litres != null ? `${fmtQty(coerceNumber(p.bl_qty_litres))} L` : dash}
+                            </TableCell>
                             <TableCell className={`whitespace-nowrap font-medium ${isActive ? 'text-slate-800' : 'text-red-700'}`}>
                               {fmtQty(p.starting)} L
                             </TableCell>
@@ -993,18 +1133,34 @@ export default function PFIPage() {
                                 ? `${fmtQty(coerceNumber(p.qty_volume_mt))} MT`
                                 : dash}
                             </TableCell>
+                            <TableCell className={`whitespace-nowrap font-medium ${
+                              p.surplusDeficit == null ? 'text-slate-300' : p.surplusDeficit > 0 ? 'text-emerald-600' : p.surplusDeficit < 0 ? 'text-red-600' : cell
+                            }`}>
+                              {p.surplusDeficit != null ? `${p.surplusDeficit > 0 ? '+' : ''}${fmtQty(p.surplusDeficit)} L` : dash}
+                            </TableCell>
+                            <TableCell className={`text-right whitespace-nowrap ${cell}`}>
+                              {p.price_per_litre != null ? fmtCurrency(coerceNumber(p.price_per_litre)) : dash}
+                            </TableCell>
+                            <TableCell className={`text-right font-medium whitespace-nowrap ${cell}`}>
+                              {p.hasCostData ? fmtCurrency(p.pfiValue) : dash}
+                            </TableCell>
+
                             <TableCell className={`whitespace-nowrap ${cell}`}>{p.locationLabel || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap ${cell}`}>{p.productLabel || dash}</TableCell>
+                            {/* Officer cells — shown in the detail dialog only, not the table
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.audit_officer_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.product_officer_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.it_compliance_officer_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.security_exit_officer_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.commission_officer_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.sales_manager_name || dash}</TableCell>
+                            */}
+                            {/* Vessel/surveyor cells — shown in the detail dialog only, not the table
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.vessel_broker || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.vessel_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.surveyor_name || dash}</TableCell>
                             <TableCell className={`whitespace-nowrap text-xs ${cell}`}>{p.surveyor_phone || dash}</TableCell>
+                            */}
                             <TableCell className={`whitespace-nowrap font-medium ${isActive ? 'text-emerald-700' : 'text-red-600'}`}>
                               {p.sold > 0 ? `${fmtQty(p.sold)} ${p.unitLabel}` : dash}
                             </TableCell>
@@ -1019,9 +1175,21 @@ export default function PFIPage() {
                                 </span>
                               </div>
                             </TableCell>
+
                             <TableCell className={`text-right font-medium whitespace-nowrap ${isActive ? 'text-emerald-700' : 'text-red-600'}`}>
                               {p.totalAmount > 0 ? fmtCurrency(p.totalAmount) : dash}
                             </TableCell>
+                            <TableCell className={`text-right font-medium whitespace-nowrap ${cell}`}>
+                              {p.hasCostData ? fmtCurrency(p.totalCost) : dash}
+                            </TableCell>
+                            <TableCell className={`text-right font-bold whitespace-nowrap ${
+                              !p.hasCostData ? 'text-slate-300' : p.profitLoss > 0 ? 'text-emerald-600' : p.profitLoss < 0 ? 'text-red-600' : 'text-slate-500'
+                            }`}>
+                              {p.hasCostData
+                                ? `${p.profitLoss > 0 ? '+' : ''}${fmtCurrency(p.profitLoss)}`
+                                : dash}
+                            </TableCell>
+
                             <TableCell>
                               <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
                                 isActive ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-700 bg-rose-50 border-rose-200'
@@ -1178,6 +1346,120 @@ export default function PFIPage() {
                           <p className="text-base font-bold text-slate-800 mt-0.5">{c.value}</p>
                         </div>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Financials — cargo cost / expenses / profit or loss */}
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Cargo Cost &amp; Profit/Loss</p>
+
+                    {!viewTarget.hasCostData ? (
+                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                        Enter BL figures and price/litre (via Edit) to track this cargo's cost and profit/loss.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-3 mb-3">
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
+                          <p className="text-xs text-slate-400 font-semibold uppercase">BL Figures</p>
+                          <p className="text-sm font-bold text-slate-800 mt-0.5">{fmtQty(coerceNumber(viewTarget.bl_qty_litres))} L</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
+                          <p className="text-xs text-slate-400 font-semibold uppercase">Surplus / Deficit</p>
+                          <p className={`text-sm font-bold mt-0.5 ${
+                            viewTarget.surplusDeficit == null ? 'text-slate-400' : viewTarget.surplusDeficit > 0 ? 'text-emerald-600' : viewTarget.surplusDeficit < 0 ? 'text-red-600' : 'text-slate-600'
+                          }`}>
+                            {viewTarget.surplusDeficit != null ? `${viewTarget.surplusDeficit > 0 ? '+' : ''}${fmtQty(viewTarget.surplusDeficit)} L` : dash}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
+                          <p className="text-xs text-slate-400 font-semibold uppercase">Price / Litre</p>
+                          <p className="text-sm font-bold text-slate-800 mt-0.5">{fmtCurrency(coerceNumber(viewTarget.price_per_litre))}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
+                          <p className="text-xs text-slate-400 font-semibold uppercase">PFI Value</p>
+                          <p className="text-sm font-bold text-slate-800 mt-0.5">{fmtCurrency(viewTarget.pfiValue)}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
+                          <p className="text-xs text-slate-400 font-semibold uppercase">Total Expenses</p>
+                          <p className="text-sm font-bold text-amber-600 mt-0.5">{fmtCurrency(viewTarget.totalExpenses)}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
+                          <p className="text-xs text-slate-400 font-semibold uppercase">Total Cost</p>
+                          <p className="text-sm font-bold text-slate-800 mt-0.5">{fmtCurrency(viewTarget.totalCost)}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
+                          <p className="text-xs text-slate-400 font-semibold uppercase">Revenue</p>
+                          <p className="text-sm font-bold text-emerald-700 mt-0.5">{fmtCurrency(viewTarget.revenue)}</p>
+                        </div>
+                        <div className={`col-span-2 rounded-lg border p-3 text-center ${
+                          viewTarget.profitLoss > 0 ? 'border-emerald-200 bg-emerald-50' : viewTarget.profitLoss < 0 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'
+                        }`}>
+                          <p className="text-xs text-slate-400 font-semibold uppercase">{viewTarget.profitLoss >= 0 ? 'Profit' : 'Loss'}</p>
+                          <p className={`text-base font-bold mt-0.5 ${
+                            viewTarget.profitLoss > 0 ? 'text-emerald-700' : viewTarget.profitLoss < 0 ? 'text-red-700' : 'text-slate-600'
+                          }`}>
+                            {viewTarget.profitLoss > 0 ? '+' : ''}{fmtCurrency(viewTarget.profitLoss)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Expenses list */}
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Expenses</p>
+                    <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 mb-2 max-h-40 overflow-y-auto">
+                      {expensesQuery.isLoading ? (
+                        <div className="p-3 text-xs text-slate-400">Loading…</div>
+                      ) : expenses.length === 0 ? (
+                        <div className="p-3 text-xs text-slate-400">No expenses recorded yet.</div>
+                      ) : (
+                        expenses.map(exp => (
+                          <div key={exp.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                            <div className="min-w-0">
+                              <p className="font-medium text-slate-800 truncate">{exp.description}</p>
+                              <p className="text-xs text-slate-400">
+                                {new Date(exp.date).toLocaleDateString()}{exp.added_by_name ? ` · ${exp.added_by_name}` : ''}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="font-semibold text-amber-700">{fmtCurrency(coerceNumber(exp.amount))}</span>
+                              <button
+                                type="button"
+                                title="Delete expense"
+                                className="text-slate-300 hover:text-red-600 disabled:opacity-50"
+                                disabled={deletingExpenseId === exp.id}
+                                onClick={() => deleteExpense(exp.id)}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Input
+                        placeholder="Description"
+                        className="flex-1"
+                        value={expenseForm.description}
+                        onChange={e => setExpenseForm(f => ({ ...f, description: e.target.value }))}
+                      />
+                      <CommaInput
+                        placeholder="Amount (₦)"
+                        className="sm:w-[140px]"
+                        value={expenseForm.amount}
+                        onValueChange={v => setExpenseForm(f => ({ ...f, amount: v }))}
+                      />
+                      <Input
+                        type="date"
+                        className="sm:w-[150px]"
+                        value={expenseForm.date}
+                        onChange={e => setExpenseForm(f => ({ ...f, date: e.target.value }))}
+                      />
+                      <Button size="sm" onClick={addExpense} disabled={addingExpense} className="gap-1 shrink-0">
+                        {addingExpense ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                        Add
+                      </Button>
                     </div>
                   </div>
 

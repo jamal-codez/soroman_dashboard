@@ -2056,6 +2056,8 @@ export const apiClient = {
       location: number;
       product: number;
       starting_qty_litres: string;
+      bl_qty_litres?: string;
+      price_per_litre?: string;
       notes?: string;
       marketing_person?: number | null;
       finance_person?: number | null;
@@ -2083,6 +2085,8 @@ export const apiClient = {
       product?: number;
       allowed_locations?: number[];
       starting_qty_litres?: string;
+      bl_qty_litres?: string;
+      price_per_litre?: string;
       notes?: string;
       marketing_person?: number | null;
       finance_person?: number | null;
@@ -2103,6 +2107,44 @@ export const apiClient = {
       });
       if (!response.ok) throw new Error(await safeReadError(response));
       return response.json();
+    },
+
+    /** GET /api/admin/pfis/<id>/expenses/ — list expense lines for a PFI */
+    getPfiExpenses: async (pfiId: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/pfis/${pfiId}/expenses/`, { headers: getHeaders() });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json() as Promise<
+        Array<{
+          id: number;
+          pfi: number;
+          description: string;
+          amount: string;
+          date: string;
+          added_by: number | null;
+          added_by_name: string | null;
+          created_at: string;
+        }>
+      >;
+    },
+
+    /** POST /api/admin/pfis/<id>/expenses/ — add an expense line to a PFI */
+    createPfiExpense: async (pfiId: number | string, data: { description: string; amount: string; date?: string }) => {
+      const response = await safeFetch(`${ADMIN_BASE}/pfis/${pfiId}/expenses/`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
+      return response.json();
+    },
+
+    /** DELETE /api/admin/pfi-expenses/<id>/ — remove an expense line */
+    deletePfiExpense: async (id: number | string) => {
+      const response = await safeFetch(`${ADMIN_BASE}/pfi-expenses/${id}/`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new Error(await safeReadError(response));
     },
 
     assignOrdersToPfi: async (data: { order_ids: number[]; pfi_id: number }) => {
