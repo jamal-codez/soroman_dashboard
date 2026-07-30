@@ -181,6 +181,7 @@ const navCategories: NavCategory[] = [
       { title: "Assign PFI",       icon: TicketPlusIcon,  path: "/orders-pfi",       allowedRoles: [0] },
       { title: "Product Pricing",  icon: Tag,             path: "/pricing",          allowedRoles: [0, 1] },
       { title: "PFI Tracking",     icon: FileSearch2,     path: "/pfi",              allowedRoles: [0, 1, 2, 7, 8] },
+      { title: "Expenses",         icon: FileSearch2,     path: "/expenses",         allowedRoles: [0, 1, 2, 7, 8] },
       { title: "Stock Management", icon: DropletIcon,     path: "/inventory",        allowedRoles: [0] },
       { title: "Users Log",        icon: ActivityIcon,    path: "/order-audit",      allowedRoles: [0, 1, 8] },
       { title: "Manage Users",     icon: Users2Icon,      path: "/users-management", allowedRoles: [0, 1, 8] },

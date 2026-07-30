@@ -74,6 +74,7 @@ const OverpaymentRefunds = lazy(() => import("./pages/OverpaymentRefunds"));
 
 const FeedbackForm = lazy(() => import("./pages/FeedbackForm") as Promise<{ default: React.ComponentType }>);
 const FeedbackDashboard = lazy(() => import("./pages/FeedbackDashboard") as Promise<{ default: React.ComponentType }>);
+const ExpensesPage = lazy(() => import("./pages/ExpensesPage"));
 
 // ---------------------------------------------------------------------------
 // QueryClient with sane global defaults
@@ -177,6 +178,7 @@ const App = () => (
 
               {/* All authenticated routes */}
               <Route path="/pfi" element={<Protected><PFIPage /></Protected>} />
+              <Route path="/expenses" element={<Protected><ExpensesPage /></Protected>} />
               <Route path="/confirmed-payments" element={<Protected><ConfirmedPayments /></Protected>} />
               <Route path="/overpayment-requests" element={<Protected><OverpaymentRequests /></Protected>} />
               <Route path="/overpayment-refunds" element={<Protected><OverpaymentRefunds /></Protected>} />

@@ -2117,9 +2117,13 @@ export const apiClient = {
         Array<{
           id: number;
           pfi: number;
+          category: number | null;
+          category_name: string | null;
           description: string;
           amount: string;
           date: string;
+          vendor: string;
+          bank_paid_from: string;
           added_by: number | null;
           added_by_name: string | null;
           created_at: string;
@@ -2127,8 +2131,13 @@ export const apiClient = {
       >;
     },
 
-    /** POST /api/admin/pfis/<id>/expenses/ — add an expense line to a PFI */
-    createPfiExpense: async (pfiId: number | string, data: { description: string; amount: string; date?: string }) => {
+    /** POST /api/admin/pfis/<id>/expenses/ — add an expense line to a PFI.
+     *  The PFI's own expense category is stamped server-side, so the line is
+     *  identical to one added from the Expenses page. */
+    createPfiExpense: async (
+      pfiId: number | string,
+      data: { description: string; amount: string; date?: string; vendor?: string; bank_paid_from?: string },
+    ) => {
       const response = await safeFetch(`${ADMIN_BASE}/pfis/${pfiId}/expenses/`, {
         method: 'POST',
         headers: getHeaders(),
@@ -3237,4 +3246,61 @@ export const submitFeedbackPublic = async (data: {
     throw new Error(err?.detail || err?.error || 'Submission failed');
   }
   return response.json();
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Simple HTTP Client for internal API calls
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Paths are relative to ADMIN_BASE (which already ends in `/api/admin`), so
+ * `client.get('/expenses/')` hits `<base>/expenses/`. A caller-supplied
+ * `/api/admin` prefix is stripped rather than doubled.
+ */
+const adminUrl = (path: string) => {
+  const clean = path.startsWith('/') ? path : `/${path}`;
+  return `${ADMIN_BASE}${clean.replace(/^\/api\/admin/, '')}`;
+};
+
+export const client = {
+  get: async (path: string) => {
+    const url = adminUrl(path);
+    const response = await safeFetch(url, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    if (!response.ok) throw new Error(await safeReadError(response));
+    return response.json();
+  },
+
+  post: async (path: string, data: any) => {
+    const url = adminUrl(path);
+    const response = await safeFetch(url, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error(await safeReadError(response));
+    return response.json();
+  },
+
+  patch: async (path: string, data: any) => {
+    const url = adminUrl(path);
+    const response = await safeFetch(url, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error(await safeReadError(response));
+    return response.json();
+  },
+
+  delete: async (path: string) => {
+    const url = adminUrl(path);
+    const response = await safeFetch(url, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    if (!response.ok) throw new Error(await safeReadError(response));
+    return response.status === 204 ? null : response.json();
+  },
 };

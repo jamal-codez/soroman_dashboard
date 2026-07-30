@@ -1371,6 +1371,11 @@ export default function DeliverySalesLedger() {
     const uniqueCustomers = new Set<number>();
     const dailySoldMap: Record<string, number> = {};
 
+    // Track unique trucks per payment status to avoid double-counting when same truck appears in multiple groups
+    const trucksByFullyPaid = new Set<string>();
+    const trucksByWithBalance = new Set<string>();
+    const trucksByNotSold = new Set<string>();
+
     // Compute summaries per allocation code (PFI code)
     const codeSummaries: Record<string, {
       code: string;
@@ -1385,6 +1390,9 @@ export default function DeliverySalesLedger() {
       withBalanceCount: number;
       notSoldCount: number;
       truckSet: Set<string>;
+      fullyPaidSet: Set<string>;
+      withBalanceSet: Set<string>;
+      notSoldSet: Set<string>;
     }> = {};
 
     tripCodes.forEach(code => {
@@ -1401,6 +1409,9 @@ export default function DeliverySalesLedger() {
         withBalanceCount: 0,
         notSoldCount: 0,
         truckSet: new Set<string>(),
+        fullyPaidSet: new Set<string>(),
+        withBalanceSet: new Set<string>(),
+        notSoldSet: new Set<string>(),
       };
     });
 
@@ -1432,20 +1443,33 @@ export default function DeliverySalesLedger() {
       const hasBalanceWithPayment = hasPaymentEntered && bal > 0;
 
       if (isLoadedTruck) {
+        const truckKey = (group.truckNumber || '').trim().toUpperCase();
+
         if (isFullyPaid) {
-          fullyPaidCount += 1;
-          soldCount += 1;
-          const dayKey = (group.dateLoaded || '').split('T')[0];
-          if (dayKey) dailySoldMap[dayKey] = (dailySoldMap[dayKey] || 0) + 1;
+          // Only count this truck once for fully paid, even if it appears in multiple groups
+          if (!trucksByFullyPaid.has(truckKey)) {
+            fullyPaidCount += 1;
+            soldCount += 1;
+            trucksByFullyPaid.add(truckKey);
+            const dayKey = (group.dateLoaded || '').split('T')[0];
+            if (dayKey) dailySoldMap[dayKey] = (dailySoldMap[dayKey] || 0) + 1;
+          }
         } else {
           pendingPaymentCount += 1;
         }
 
         // Not Sold = no payment recorded yet; With Balance = partial payment
+        // Only count each truck once per status, even if it appears in multiple groups
         if (hasNoPayout) {
-          notSoldCount += 1;
+          if (!trucksByNotSold.has(truckKey)) {
+            notSoldCount += 1;
+            trucksByNotSold.add(truckKey);
+          }
         } else if (hasBalanceWithPayment) {
-          withBalanceCount += 1;
+          if (!trucksByWithBalance.has(truckKey)) {
+            withBalanceCount += 1;
+            trucksByWithBalance.add(truckKey);
+          }
         }
       }
 
@@ -1467,11 +1491,29 @@ export default function DeliverySalesLedger() {
         if (group.truckNumber) sumObj.truckSet.add(group.truckNumber);
 
         if (isLoadedTruck) {
-          if (isFullyPaid) { sumObj.fullyPaidCount += 1; sumObj.soldCount += 1; }
-          else sumObj.pendingCount += 1;
+          const truckKey = (group.truckNumber || '').trim().toUpperCase();
 
-          if (hasNoPayout) sumObj.notSoldCount += 1;
-          else if (hasBalanceWithPayment) sumObj.withBalanceCount += 1;
+          if (isFullyPaid) {
+            if (!sumObj.fullyPaidSet.has(truckKey)) {
+              sumObj.fullyPaidCount += 1;
+              sumObj.soldCount += 1;
+              sumObj.fullyPaidSet.add(truckKey);
+            }
+          } else {
+            sumObj.pendingCount += 1;
+          }
+
+          if (hasNoPayout) {
+            if (!sumObj.notSoldSet.has(truckKey)) {
+              sumObj.notSoldCount += 1;
+              sumObj.notSoldSet.add(truckKey);
+            }
+          } else if (hasBalanceWithPayment) {
+            if (!sumObj.withBalanceSet.has(truckKey)) {
+              sumObj.withBalanceCount += 1;
+              sumObj.withBalanceSet.add(truckKey);
+            }
+          }
         }
       }
     });
@@ -1501,8 +1543,8 @@ export default function DeliverySalesLedger() {
       }
     });
 
-    // Finalize codeSummaries counts
-    const codeSummariesList = Object.values(codeSummaries).map(s => ({
+    // Finalize codeSummaries counts — exclude internal tracking Sets from output
+    const codeSummariesList = Object.values(codeSummaries).map(({ fullyPaidSet, withBalanceSet, notSoldSet, ...s }) => ({
       ...s,
       trucksCount: s.truckSet.size,
     }));

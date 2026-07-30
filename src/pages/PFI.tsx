@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SidebarNav } from '@/components/SidebarNav';
 import { TopBar } from '@/components/TopBar';
@@ -22,8 +23,11 @@ import {
   Download, Plus, Search, ArrowUpDown, ArrowUp, ArrowDown,
   DropletIcon, FileSearch2, Package, Banknote, Loader2, CheckCircle2, Pencil,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import { apiClient } from '@/api/client';
+import { apiClient, client } from '@/api/client';
+import {
+  downloadPfiReport, downloadAllPfisReport,
+  type PfiReport, type PfiSummaryData, type AllPfisExpense,
+} from '@/lib/pfiReportExcel';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -269,9 +273,13 @@ export default function PFIPage() {
   const [viewTarget, setViewTarget] = useState<(typeof enriched)[number] | null>(null);
 
   // ── Expenses (within detail view) ──────────────────────────────────
-  const [expenseForm, setExpenseForm] = useState({ description: '', amount: '', date: new Date().toISOString().split('T')[0] });
+  const [expenseForm, setExpenseForm] = useState({ description: '', amount: '', date: new Date().toISOString().split('T')[0], vendor: '', bank: '' });
   const [addingExpense, setAddingExpense] = useState(false);
   const [deletingExpenseId, setDeletingExpenseId] = useState<number | null>(null);
+
+  // ── Report downloads ───────────────────────────────────────────────
+  const [exportingAll, setExportingAll] = useState(false);
+  const [downloadingPfiId, setDownloadingPfiId] = useState<number | null>(null);
 
   // ── Edit PFI ──────────────────────────────────────────────────────
   const [editTarget, setEditTarget] = useState<BackendPfi | null>(null);
@@ -731,8 +739,10 @@ export default function PFIPage() {
         description,
         amount: amountNum.toFixed(2),
         date: expenseForm.date || undefined,
+        vendor: expenseForm.vendor.trim() || undefined,
+        bank_paid_from: expenseForm.bank.trim() || undefined,
       });
-      setExpenseForm({ description: '', amount: '', date: new Date().toISOString().split('T')[0] });
+      setExpenseForm({ description: '', amount: '', date: new Date().toISOString().split('T')[0], vendor: '', bank: '' });
       await queryClient.invalidateQueries({ queryKey: ['pfi-expenses', viewTarget.id] });
       await queryClient.invalidateQueries({ queryKey: ['pfis'] });
       toast({ title: 'Expense added' });
@@ -766,41 +776,51 @@ export default function PFIPage() {
   // Excel export
   // ═══════════════════════════════════════════════════════════════════
 
-  const exportExcel = useCallback(() => {
-    if (!sorted.length) return;
-    const rows = sorted.map((p, idx) => ({
-      'S/N': idx + 1,
-      'Date': p.pfi_date ? new Date(p.pfi_date).toLocaleDateString() : (p.createdAtStr ? new Date(p.createdAtStr).toLocaleDateString() : ''),
-      'PFI Number': p.pfi_number,
-      'Description': p.description ?? p.notes ?? '',
-      [`Qty Volume (Ltr)`]: p.starting,
-      'Qty Volume (MT)': p.qty_volume_mt != null ? coerceNumber(p.qty_volume_mt) : '',
-      'Location': p.locationLabel,
-      'Product': p.productLabel,
-      'Audit Officer': p.audit_officer_name ?? '',
-      'Product Officer': p.product_officer_name ?? '',
-      'IT Compliance Officer': p.it_compliance_officer_name ?? '',
-      'Security Exit Officer': p.security_exit_officer_name ?? '',
-      'Commission Officer': p.commission_officer_name ?? '',
-      'Sales Manager': p.sales_manager_name ?? '',
-      'Vessel Broker': p.vessel_broker ?? '',
-      'Vessel Name': p.vessel_name ?? '',
-      'Surveyor Name': p.surveyor_name ?? '',
-      'Surveyor Phone': p.surveyor_phone ?? '',
-      [`Sold (${p.unitLabel})`]: p.sold,
-      [`Remaining (${p.unitLabel})`]: p.remaining,
-      '% Sold': `${p.pct.toFixed(1)}%`,
-      'Orders': p.orders,
-      'Total Amount (₦)': p.totalAmount,
-      'Status': p.status.charAt(0).toUpperCase() + p.status.slice(1),
-      'Created': p.createdAtStr ? new Date(p.createdAtStr).toLocaleDateString() : '',
-      'Finished': p.finishedAtStr ? new Date(p.finishedAtStr).toLocaleDateString() : '',
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'PFI Tracking');
-    XLSX.writeFile(wb, 'PFI-TRACKING.xlsx');
-  }, [sorted]);
+  /** Master workbook covering every PFI currently in view. */
+  const exportAllPfis = useCallback(async () => {
+    if (!sorted.length || exportingAll) return;
+    setExportingAll(true);
+    try {
+      // Expenses come from the expenses API rather than per-PFI calls so the
+      // whole workbook costs one extra request regardless of PFI count.
+      let expenses: AllPfisExpense[] = [];
+      try {
+        const res = await client.get('/expenses/?page=1&page_size=1000');
+        expenses = (res?.results ?? []) as AllPfisExpense[];
+      } catch {
+        // An expense-service hiccup shouldn't block the PFI figures; the sheet
+        // simply reports none rather than failing the whole download.
+        expenses = [];
+      }
+
+      const scope = [
+        status === 'all' ? 'All statuses' : status === 'active' ? 'Active PFIs' : 'Finished PFIs',
+        search.trim() ? `Search: "${search.trim()}"` : '',
+      ].filter(Boolean).join(' · ');
+
+      await downloadAllPfisReport(sorted as unknown as PfiSummaryData[], expenses, scope);
+      toast({ title: 'Master report downloaded', description: `${sorted.length} PFI(s) exported.` });
+    } catch (e) {
+      toast({ title: 'Export failed', description: (e as Error)?.message || 'Could not build the workbook', variant: 'destructive' });
+    } finally {
+      setExportingAll(false);
+    }
+  }, [sorted, exportingAll, status, search, toast]);
+
+  /** Full workbook for one PFI — summary, confirmed payments and expenses. */
+  const exportSinglePfi = useCallback(async (pfiId: number, pfiNumber: string) => {
+    if (downloadingPfiId !== null) return;
+    setDownloadingPfiId(pfiId);
+    try {
+      const report = await client.get(`/pfis/${pfiId}/report/`);
+      await downloadPfiReport(report as PfiReport);
+      toast({ title: 'PFI report downloaded', description: pfiNumber });
+    } catch (e) {
+      toast({ title: 'Download failed', description: (e as Error)?.message || 'Could not build the report', variant: 'destructive' });
+    } finally {
+      setDownloadingPfiId(null);
+    }
+  }, [downloadingPfiId, toast]);
 
   // ═══════════════════════════════════════════════════════════════════
   // Shared form body (used in both create and edit dialogs)
@@ -960,8 +980,14 @@ export default function PFIPage() {
               description="Track PFIs by location and product — monitor sold & remaining litres, orders, and total amounts."
               actions={
                 <>
-                  <Button variant="outline" className="gap-2" onClick={exportExcel} disabled={sorted.length === 0}>
-                    <Download size={16} /> Export
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={exportAllPfis}
+                    disabled={sorted.length === 0 || exportingAll}
+                  >
+                    {exportingAll ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                    Download Report
                   </Button>
                   <Button className="gap-2" onClick={() => setCreateOpen(true)}>
                     <Plus size={16} /> Add PFI
@@ -1206,6 +1232,19 @@ export default function PFIPage() {
                                 <Button size="sm" variant="outline" className="text-xs gap-1" onClick={() => openEditPfi(p)}>
                                   <Pencil size={12} /> Edit
                                 </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-xs gap-1"
+                                  title="Download this PFI's full report"
+                                  disabled={downloadingPfiId !== null}
+                                  onClick={() => exportSinglePfi(p.id, p.pfi_number)}
+                                >
+                                  {downloadingPfiId === p.id
+                                    ? <Loader2 size={12} className="animate-spin" />
+                                    : <Download size={12} />}
+                                  Report
+                                </Button>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1405,7 +1444,15 @@ export default function PFIPage() {
                     )}
 
                     {/* Expenses list */}
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Expenses</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Expenses</p>
+                      <Link
+                        to="/expenses"
+                        className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                      >
+                        Open in Expenses →
+                      </Link>
+                    </div>
                     <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 mb-2 max-h-40 overflow-y-auto">
                       {expensesQuery.isLoading ? (
                         <div className="p-3 text-xs text-slate-400">Loading…</div>
@@ -1416,8 +1463,11 @@ export default function PFIPage() {
                           <div key={exp.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
                             <div className="min-w-0">
                               <p className="font-medium text-slate-800 truncate">{exp.description}</p>
-                              <p className="text-xs text-slate-400">
-                                {new Date(exp.date).toLocaleDateString()}{exp.added_by_name ? ` · ${exp.added_by_name}` : ''}
+                              <p className="text-xs text-slate-400 truncate">
+                                {new Date(exp.date).toLocaleDateString()}
+                                {exp.vendor ? ` · ${exp.vendor}` : ''}
+                                {exp.bank_paid_from ? ` · ${exp.bank_paid_from}` : ''}
+                                {exp.added_by_name ? ` · ${exp.added_by_name}` : ''}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
@@ -1437,29 +1487,45 @@ export default function PFIPage() {
                       )}
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <Input
-                        placeholder="Description"
-                        className="flex-1"
-                        value={expenseForm.description}
-                        onChange={e => setExpenseForm(f => ({ ...f, description: e.target.value }))}
-                      />
-                      <CommaInput
-                        placeholder="Amount (₦)"
-                        className="sm:w-[140px]"
-                        value={expenseForm.amount}
-                        onValueChange={v => setExpenseForm(f => ({ ...f, amount: v }))}
-                      />
-                      <Input
-                        type="date"
-                        className="sm:w-[150px]"
-                        value={expenseForm.date}
-                        onChange={e => setExpenseForm(f => ({ ...f, date: e.target.value }))}
-                      />
-                      <Button size="sm" onClick={addExpense} disabled={addingExpense} className="gap-1 shrink-0">
-                        {addingExpense ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                        Add
-                      </Button>
+                    <div className="space-y-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Input
+                          placeholder="Description"
+                          className="flex-1"
+                          value={expenseForm.description}
+                          onChange={e => setExpenseForm(f => ({ ...f, description: e.target.value }))}
+                        />
+                        <CommaInput
+                          placeholder="Amount (₦)"
+                          className="sm:w-[140px]"
+                          value={expenseForm.amount}
+                          onValueChange={v => setExpenseForm(f => ({ ...f, amount: v }))}
+                        />
+                        <Input
+                          type="date"
+                          className="sm:w-[150px]"
+                          value={expenseForm.date}
+                          onChange={e => setExpenseForm(f => ({ ...f, date: e.target.value }))}
+                        />
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Input
+                          placeholder="Vendor (optional)"
+                          className="flex-1"
+                          value={expenseForm.vendor}
+                          onChange={e => setExpenseForm(f => ({ ...f, vendor: e.target.value }))}
+                        />
+                        <Input
+                          placeholder="Bank paid from (optional)"
+                          className="flex-1"
+                          value={expenseForm.bank}
+                          onChange={e => setExpenseForm(f => ({ ...f, bank: e.target.value }))}
+                        />
+                        <Button size="sm" onClick={addExpense} disabled={addingExpense} className="gap-1 shrink-0">
+                          {addingExpense ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                          Add
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
@@ -1508,6 +1574,17 @@ export default function PFIPage() {
 
                 <DialogFooter className="gap-2 sm:gap-0">
                   <Button variant="outline" onClick={() => setViewTarget(null)}>Close</Button>
+                  <Button
+                    variant="outline"
+                    className="gap-1"
+                    disabled={downloadingPfiId !== null}
+                    onClick={() => exportSinglePfi(viewTarget.id, viewTarget.pfi_number)}
+                  >
+                    {downloadingPfiId === viewTarget.id
+                      ? <Loader2 size={13} className="animate-spin" />
+                      : <Download size={13} />}
+                    Download Report
+                  </Button>
                   <Button variant="outline" className="gap-1" onClick={() => { setViewTarget(null); openEditPfi(viewTarget); }}>
                     <Pencil size={13} /> Edit
                   </Button>
