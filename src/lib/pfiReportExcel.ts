@@ -375,7 +375,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, report: PfiReport) {
   let row = titleBar(
     ws, 1, SUMMARY_SPAN,
     `PFI Report — ${p.pfi_number}`,
-    `Generated ${format(new Date(report.generated_at || Date.now()), 'dd MMM yyyy, HH:mm')}`,
+    // `Generated ${format(new Date(report.generated_at || Date.now()), 'dd MMM yyyy, HH:mm')}`,
   );
   row += 1;
 
@@ -387,29 +387,29 @@ function buildSummarySheet(wb: ExcelJS.Workbook, report: PfiReport) {
     ['Product', text(p.product_name)],
     ['PFI Date', dateOnly(p.pfi_date)],
     ['Created', dateTime(p.created_at)],
-    ['Finished', dateTime(p.finished_at)],
+    ['Date Completed', dateTime(p.finished_at)],
     ['Quantity (MT)', qty(p.qty_volume_mt)],
     ['Vessel Name', text(p.vessel_name)],
     ['Vessel Broker', text(p.vessel_broker)],
     ['Surveyor', text(p.surveyor_name)],
     ['Surveyor Phone', text(p.surveyor_phone)],
-    ['Allowed Locations', p.allowed_location_names?.length ? p.allowed_location_names.join(', ') : 'Any'],
-    ['Notes', text(p.notes)],
+    // ['Allowed Locations', p.allowed_location_names?.length ? p.allowed_location_names.join(', ') : 'Any'],
+    // ['Notes', text(p.notes)],
   ], 3);
   row += 1;
 
-  row = sectionBar(ws, row, SUMMARY_SPAN, 'BL Figures (Documented)');
+  row = sectionBar(ws, row, SUMMARY_SPAN, 'BL Figures');
   row = factGrid(ws, row, [
     [`BL Quantity (${unit})`, qty(p.bl_qty_litres)],
     ['Price per Litre', money(p.price_per_litre)],
-    ['PFI (Cargo) Value', money(p.pfi_value)],
-  ], 3, { 'PFI (Cargo) Value': NAVY });
+    ['PFI Value', money(p.pfi_value)],
+  ], 3, { 'PFI Value': NAVY });
   row += 1;
 
-  row = sectionBar(ws, row, SUMMARY_SPAN, 'Tank Figures (Measured)');
+  row = sectionBar(ws, row, SUMMARY_SPAN, 'Tank Figures');
   row = factGrid(ws, row, [
     [`Tank Quantity (${unit})`, qty(p.starting_qty_litres)],
-    [`Surplus / Deficit (${unit})`, qty(p.surplus_deficit_litres)],
+    [`Surplus/Deficit (${unit})`, qty(p.surplus_deficit_litres)],
     ['Reading', has(p.surplus_deficit_litres) ? (num(p.surplus_deficit_litres) >= 0 ? 'SURPLUS' : 'DEFICIT') : '—'],
   ], 3, {
     'Reading': has(p.surplus_deficit_litres) && num(p.surplus_deficit_litres) < 0 ? RED : GREEN,
@@ -499,7 +499,7 @@ function buildPaymentsSheet(wb: ExcelJS.Workbook, report: PfiReport) {
   let row = titleBar(
     ws, 1, span,
     `Confirmed Payments — ${p.pfi_number}`,
-    `${t.orders_count} order(s) · Generated ${format(new Date(report.generated_at || Date.now()), 'dd MMM yyyy, HH:mm')}`,
+    // `${t.orders_count} order(s) · Generated ${format(new Date(report.generated_at || Date.now()), 'dd MMM yyyy, HH:mm')}`,
   );
   row += 1;
 
@@ -595,7 +595,7 @@ function buildExpensesSheet(wb: ExcelJS.Workbook, report: PfiReport) {
   let row = titleBar(
     ws, 1, span,
     `Expenses — ${p.pfi_number}`,
-    `${report.expenses.length} entr${report.expenses.length === 1 ? 'y' : 'ies'} · ${moneyText(total)}`,
+    // `${report.expenses.length} entr${report.expenses.length === 1 ? 'y' : 'ies'} · ${moneyText(total)}`,
   );
   row += 1;
 
