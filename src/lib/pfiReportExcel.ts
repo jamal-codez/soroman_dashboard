@@ -436,13 +436,13 @@ function buildSummarySheet(wb: ExcelJS.Workbook, report: PfiReport) {
     ['Total Expenses', money(p.total_expenses)],
     ['Total Cost', money(p.total_cost)],
     ['Revenue', money(p.revenue)],
-    [has(pl) && num(pl) < 0 ? 'Loss' : 'Profit', money(pl)],
+    [has(pl) && num(pl) < 0 ? 'Balance' : 'Profit', money(pl)],
     ['Margin', has(pl) ? pct(num(pl), num(p.revenue)) : '—'],
   ], 3, {
     'Total Cost': NAVY,
     'Revenue': GREEN,
     'Profit': GREEN,
-    'Loss': RED,
+    'Balance': RED,
   });
   row += 1;
 
