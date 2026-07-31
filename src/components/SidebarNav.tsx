@@ -140,8 +140,8 @@ const navCategories: NavCategory[] = [
     items: [
       { title: "Verify Payments", icon: HourglassIcon,      path: "/payment-verify",     allowedRoles: [0, 1, 2, 8] },
       { title: "Finance Report",       icon: FileBarChart2Icon, path: "/confirmed-payments",    allowedRoles: [0, 1, 2, 8] },
-      { title: "Overpayment Refunds",  icon: RotateCcw,         path: "/overpayment-refunds",   allowedRoles: [0, 1, 2, 8, 15, 16] },
-      { title: "Transfer Requests",    icon: ArrowLeftRight,    path: "/overpayment-requests",  allowedRoles: [0, 1, 2, 8] },
+      { title: "Overpayment Refunds",  icon: RotateCcw,         path: "/overpayment-refunds",   allowedRoles: [0] },
+      { title: "Transfer Requests",    icon: ArrowLeftRight,    path: "/overpayment-requests",  allowedRoles: [0] },
       { title: "Commissions",          icon: Banknote,          path: "/commissions",           allowedRoles: [0, 1, 15, 16] },
       { title: "Bank Accounts",   icon: LandmarkIcon,       path: "/finance",            allowedRoles: [0, 1, 2, 8] },
       { title: "Bank Statements", icon: FileText,           path: "/bank-statements",    allowedRoles: [0, 1, 8] },
