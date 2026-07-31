@@ -1628,7 +1628,7 @@ export default function PaymentVerification() {
                                  Confirm
                                </Button>
 
-                               <Button
+                               {/* <Button
                                  variant="destructive"
                                  size="sm"
                                  disabled={cancelingOrderId === Number(payment.order_id)}
@@ -1641,7 +1641,7 @@ export default function PaymentVerification() {
                                    <XCircle className="h-3.5 w-3.5" />
                                  )}
                                  Cancel
-                               </Button>
+                               </Button> */}
                              </div>
                              )}
                            </TableCell>
