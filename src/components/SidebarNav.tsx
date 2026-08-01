@@ -98,7 +98,9 @@ type OrdersResults = { results?: Array<{ status?: string | null }> };
 type NavItem = { title: string; icon: React.ComponentType<{ size?: string | number; className?: string }>; path: string; allowedRoles: number[] };
 type NavCategory = { category: string; items: NavItem[] };
 
-// Every active role number — used for pages visible to all staff
+// Pages visible to all staff. Deliberately excludes the Expenditure Officer
+// (19), whose whole workspace is the Expenses page — adding them here would
+// put a Home entry in their nav that only bounces them back to /expenses.
 const ALL_ROLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
 const navCategories: NavCategory[] = [
@@ -181,7 +183,7 @@ const navCategories: NavCategory[] = [
       { title: "Assign PFI",       icon: TicketPlusIcon,  path: "/orders-pfi",       allowedRoles: [0] },
       { title: "Product Pricing",  icon: Tag,             path: "/pricing",          allowedRoles: [0, 1] },
       { title: "PFI Tracking",     icon: FileSearch2,     path: "/pfi",              allowedRoles: [0, 1, 2, 7, 8] },
-      { title: "Expenses",         icon: FileSearch2,     path: "/expenses",         allowedRoles: [0, 1, 2, 7, 8] },
+      { title: "Expenses",         icon: FileSearch2,     path: "/expenses",         allowedRoles: [0, 1, 2, 7, 8, 19] },
       { title: "Stock Management", icon: DropletIcon,     path: "/inventory",        allowedRoles: [0] },
       { title: "Users Log",        icon: ActivityIcon,    path: "/order-audit",      allowedRoles: [0, 1, 8] },
       { title: "Manage Users",     icon: Users2Icon,      path: "/users-management", allowedRoles: [0, 1, 8] },

@@ -19,6 +19,7 @@ export const ROLES = {
   COMMISSION_OFFICER: 16,   // Commission Officer
   DISPATCH: 17,             // Dispatch
   IT_COMPLIANCE: 18,        // IT Compliance (depot view read-only)
+  EXPENDITURE_OFFICER: 19,  // Expenditure Officer — Expenses page only
 };
 
 /**
@@ -105,6 +106,8 @@ export function fallbackWorkspaceForRole(role: number | string): string {
       return '/pickup-processing';
     case ROLES.IT_COMPLIANCE:
       return '/depot-view';
+    case ROLES.EXPENDITURE_OFFICER:
+      return '/expenses';
     default:
       return '/dashboard';
   }

@@ -104,6 +104,7 @@ const roleMap: Record<number, string> = {
   16: 'Commission Officer',
   17: 'Dispatch',
   18: 'IT Compliance',
+  19: 'Expenditure Officer',
 };
 
 // Grouped role options for the multi-select role picker — same grouping the
@@ -111,7 +112,7 @@ const roleMap: Record<number, string> = {
 const ROLE_GROUPS: { label: string; roles: number[] }[] = [
   { label: 'Administration', roles: [1, 8] },
   { label: 'Sales', roles: [9, 10, 3, 12] },
-  { label: 'Finance', roles: [2, 15, 16] },
+  { label: 'Finance', roles: [2, 15, 16, 19] },
   { label: 'Operations', roles: [4, 7, 17, 5, 6] },
   { label: 'LPG Division', roles: [11, 13, 14] },
   { label: 'Other', roles: [18] },
@@ -136,6 +137,7 @@ const roleColorMap: Record<number, string> = {
   16: 'text-green-700',
   17: 'text-sky-600',
   18: 'text-slate-600',
+  19: 'text-rose-600',
 };
 
 const Settings = () => {
