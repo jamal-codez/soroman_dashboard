@@ -52,6 +52,7 @@ type BackendPfi = {
   pfi_value?: number | string | null;
   total_expenses?: number | string | null;
   total_cost?: number | string | null;
+  landing_cost_per_litre?: number | string | null;
   revenue?: number | string | null;
   profit_loss?: number | string | null;
   notes?: string | null;
@@ -416,11 +417,15 @@ export default function PFIPage() {
       const revenue = coerceNumber(p.revenue ?? totalAmount);
       const profitLoss = hasCostData ? coerceNumber(p.profit_loss) : 0;
       const surplusDeficit = p.surplus_deficit_litres != null ? coerceNumber(p.surplus_deficit_litres) : null;
+      // All-in cost of each sellable litre: total cost spread over the TANK
+      // quantity. Null (not 0) until the cargo is costed, so it reads "—".
+      const landingPerLitre = p.landing_cost_per_litre != null ? coerceNumber(p.landing_cost_per_litre) : null;
 
       return {
         ...p, starting, sold, remaining, pct, totalAmount, orders,
         locationLabel, productLabel, unitLabel, createdAtStr, finishedAtStr,
         hasCostData, pfiValue, totalExpenses, totalCost, revenue, profitLoss, surplusDeficit,
+        landingPerLitre,
       };
     });
   }, [pfis, pfiSoldQtyMap]);
@@ -1425,6 +1430,21 @@ export default function PFIPage() {
                         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
                           <p className="text-xs text-slate-400 font-semibold uppercase">Total Cost</p>
                           <p className="text-sm font-bold text-slate-800 mt-0.5">{fmtCurrency(viewTarget.totalCost)}</p>
+                        </div>
+                        {/* Landing cost — what each sellable litre actually cost,
+                            all-in. Shown against the purchase price so the uplift
+                            from expenses and any discharge deficit is explicit. */}
+                        <div className="col-span-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-center">
+                          <p className="text-xs text-amber-700/70 font-semibold uppercase">Landing Cost / Litre</p>
+                          <p className="text-base font-bold text-amber-800 mt-0.5">
+                            {viewTarget.landingPerLitre != null ? fmtCurrency(viewTarget.landingPerLitre) : dash}
+                          </p>
+                          {viewTarget.landingPerLitre != null && coerceNumber(viewTarget.price_per_litre) > 0 && (
+                            <p className="text-[11px] text-amber-700/80 mt-1">
+                              {fmtCurrency(viewTarget.landingPerLitre - coerceNumber(viewTarget.price_per_litre))} above the
+                              {' '}{fmtCurrency(coerceNumber(viewTarget.price_per_litre))} purchase price · total cost ÷ {fmtQty(viewTarget.starting)} L tank
+                            </p>
+                          )}
                         </div>
                         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
                           <p className="text-xs text-slate-400 font-semibold uppercase">Revenue</p>

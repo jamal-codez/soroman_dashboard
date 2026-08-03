@@ -278,6 +278,7 @@ export interface PfiSummaryData {
   pfi_value?: string | number | null;
   total_expenses?: string | number | null;
   total_cost?: string | number | null;
+  landing_cost_per_litre?: string | number | null;
   revenue?: string | number | null;
   profit_loss?: string | number | null;
   sold_qty_litres?: string | number | null;
@@ -435,11 +436,13 @@ function buildSummarySheet(wb: ExcelJS.Workbook, report: PfiReport) {
     ['PFI (Cargo) Value', money(p.pfi_value)],
     ['Total Expenses', money(p.total_expenses)],
     ['Total Cost', money(p.total_cost)],
+    ['Landing Cost / Litre', money(p.landing_cost_per_litre)],
     ['Revenue', money(p.revenue)],
     [has(pl) && num(pl) < 0 ? 'Balance' : 'Profit', money(pl)],
     ['Margin', has(pl) ? pct(num(pl), num(p.revenue)) : '—'],
   ], 3, {
     'Total Cost': NAVY,
+    'Landing Cost / Litre': NAVY,
     'Revenue': GREEN,
     'Profit': GREEN,
     'Balance': RED,
@@ -641,17 +644,17 @@ const OVERVIEW_HEADERS = [
   'S/N', 'PFI Number', 'Location', 'Product', 'Status', 'PFI Date',
   'BL Qty', 'Price/Litre', 'PFI Value', 'Tank Qty', 'Surplus/Deficit',
   'Sold', 'Remaining', '% Sold', 'Orders',
-  'Revenue', 'Expenses', 'Total Cost', 'Profit/Loss',
+  'Revenue', 'Expenses', 'Total Cost', 'Landing/Litre', 'Profit/Loss',
 ];
 
 const OVERVIEW_ALIGN: Align[] = [
   'center', 'left', 'left', 'left', 'center', 'left',
   'right', 'right', 'right', 'right', 'right',
   'right', 'right', 'right', 'right',
-  'right', 'right', 'right', 'right',
+  'right', 'right', 'right', 'right', 'right',
 ];
 
-const OVERVIEW_WIDTHS = [6, 34, 20, 12, 12, 14, 16, 13, 20, 16, 16, 16, 16, 10, 9, 20, 18, 20, 20];
+const OVERVIEW_WIDTHS = [6, 34, 20, 12, 12, 14, 16, 13, 20, 16, 16, 16, 16, 10, 9, 20, 18, 20, 18, 20];
 
 const DETAIL_HEADERS = [
   'S/N', 'PFI Number', 'Vessel Name', 'Vessel Broker', 'Qty (MT)', 'Surveyor', 'Surveyor Phone',
@@ -761,6 +764,7 @@ export async function downloadAllPfisReport(
       money(p.revenue),
       money(p.total_expenses),
       money(p.total_cost),
+      money(p.landing_cost_per_litre),
       money(p.profit_loss),
     ];
   }), OVERVIEW_ALIGN);
@@ -773,6 +777,7 @@ export async function downloadAllPfisReport(
     qty(sum(p => p.orders_count)),
     money(totalRevenue), money(totalExpenses),
     costed.length ? money(totalCost) : '—',
+    '',   // landing cost is a per-litre rate — summing it would be meaningless
     costed.length ? money(totalProfit) : '—',
   ], OVERVIEW_ALIGN);
 
