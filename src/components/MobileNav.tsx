@@ -61,6 +61,11 @@ type NavCategory = {
 // put a Home entry in their nav that only bounces them back to /expenses.
 const ALL_ROLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
+// Literally every role, including the Expenditure Officer. Expenses is open to
+// all staff — the API scopes each person to their own entries, and only
+// SuperAdmin/Admin/Audit see everyone's.
+const EVERY_ROLE = [...ALL_ROLES, 19];
+
 const navCategories: NavCategory[] = [
   {
     category: '',
@@ -141,7 +146,7 @@ const navCategories: NavCategory[] = [
       { title: "Assign PFI",       icon: TicketPlusIcon,  path: "/orders-pfi",       allowedRoles: [0] },
       { title: "Product Pricing",  icon: Tag,             path: "/pricing",          allowedRoles: [0, 1] },
       { title: "PFI Tracking",     icon: FileSearch2,     path: "/pfi",              allowedRoles: [0, 1, 2, 7, 8] },
-      { title: "Expenses",         icon: FileSearch2,     path: "/expenses",         allowedRoles: [0, 1, 2, 7, 8, 19] },
+      { title: "Expenses",         icon: FileSearch2,     path: "/expenses",         allowedRoles: EVERY_ROLE },
       { title: "Stock Management", icon: DropletIcon,     path: "/inventory",        allowedRoles: [0] },
       { title: "Users Log",        icon: ActivityIcon,    path: "/order-audit",      allowedRoles: [0, 1, 8] },
       { title: "Manage Users",     icon: Users2Icon,      path: "/users-management", allowedRoles: [0, 1, 8] },

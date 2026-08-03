@@ -57,6 +57,8 @@ interface ExpenseListResponse {
   page: number;
   page_size: number;
   total_pages: number;
+  /** 'own' = only this user's entries; 'all' = every entry (oversight roles). */
+  scope?: 'own' | 'all';
   total_amount: string;
   total_pfi_amount: string;
   total_general_amount: string;
@@ -192,6 +194,10 @@ export default function ExpensesPage() {
   const totalCount = expensesQuery.data?.count ?? 0;
   const totalPages = expensesQuery.data?.total_pages ?? 1;
   const banks = expensesQuery.data?.banks ?? [];
+  // Oversight roles (SuperAdmin/Admin/Audit) get everyone's entries back from
+  // the API; everyone else is scoped to their own. The API decides — this only
+  // controls how the page describes what's on screen.
+  const seesAllEntries = expensesQuery.data?.scope !== 'own';
 
   const saveMutation = useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
@@ -541,6 +547,7 @@ export default function ExpensesPage() {
                       <th className="px-4 py-3 text-left font-semibold">Vendor</th>
                       <th className="px-4 py-3 text-left font-semibold">Description</th>
                       <th className="px-4 py-3 text-left font-semibold">Bank Paid From</th>
+                      {seesAllEntries && <th className="px-4 py-3 text-left font-semibold">Added By</th>}
                       <th className="px-4 py-3 text-right font-semibold">Amount</th>
                       <th className="px-4 py-3 text-right font-semibold">Actions</th>
                     </tr>
@@ -548,19 +555,19 @@ export default function ExpensesPage() {
                   <tbody className="divide-y divide-slate-100">
                     {expensesQuery.isLoading ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                        <td colSpan={seesAllEntries ? 8 : 7} className="px-4 py-12 text-center text-slate-400">
                           <Loader2 className="animate-spin inline mr-2" size={16} /> Loading expenses…
                         </td>
                       </tr>
                     ) : expensesQuery.isError ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-12 text-center text-red-500">
+                        <td colSpan={seesAllEntries ? 8 : 7} className="px-4 py-12 text-center text-red-500">
                           {(expensesQuery.error as Error)?.message || 'Could not load expenses'}
                         </td>
                       </tr>
                     ) : expenses.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                        <td colSpan={seesAllEntries ? 8 : 7} className="px-4 py-12 text-center text-slate-400">
                           {hasFilters ? 'No expenses match these filters.' : 'No expenses recorded yet.'}
                         </td>
                       </tr>
@@ -590,6 +597,9 @@ export default function ExpensesPage() {
                             <span className="block truncate" title={exp.description}>{exp.description || '—'}</span>
                           </td>
                           <td className="px-4 py-3 text-slate-600">{exp.bank_paid_from || '—'}</td>
+                          {seesAllEntries && (
+                            <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{exp.added_by_name || '—'}</td>
+                          )}
                           <td className="px-4 py-3 text-right font-semibold text-slate-900 whitespace-nowrap tabular-nums">
                             {fmtNaira(exp.amount)}
                           </td>
