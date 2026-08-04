@@ -3261,6 +3261,17 @@ const adminUrl = (path: string) => {
   return `${ADMIN_BASE}${clean.replace(/^\/api\/admin/, '')}`;
 };
 
+/** Multipart upload — no Content-Type header so the browser sets the boundary. */
+export const uploadFiles = async (path: string, files: File[], field = 'files') => {
+  const form = new FormData();
+  files.forEach(f => form.append(field, f));
+  const headers = getHeaders() as Record<string, string>;
+  delete headers['Content-Type'];
+  const response = await safeFetch(adminUrl(path), { method: 'POST', headers, body: form });
+  if (!response.ok) throw new Error(await safeReadError(response));
+  return response.json();
+};
+
 export const client = {
   get: async (path: string) => {
     const url = adminUrl(path);

@@ -14,14 +14,24 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   Plus, X, Pencil, Trash2, Search, CalendarDays, Tags, Landmark,
-  Package, Receipt, Wallet, FileDown, Loader2, Layers,
+  Package, Receipt, Wallet, FileDown, Loader2, Layers, Paperclip, Upload,
 } from 'lucide-react';
-import { client } from '@/api/client';
+import { client, uploadFiles } from '@/api/client';
 import { toast } from 'sonner';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
+
+interface ExpenseAttachment {
+  id: number;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+  url: string;
+  uploaded_by_name: string | null;
+  uploaded_at: string;
+}
 
 interface Expense {
   id: number;
@@ -38,6 +48,8 @@ interface Expense {
   receipt_reference: string;
   added_by_name: string | null;
   edited_by_name: string | null;
+  attachments: ExpenseAttachment[];
+  attachment_count: number;
 }
 
 interface Category {
@@ -82,6 +94,13 @@ const fmtNaira = (value: string | number | null | undefined) => {
   const n = typeof value === 'number' ? value : parseFloat(String(value ?? '0'));
   if (!Number.isFinite(n)) return '₦0';
   return `₦${n.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const fmtBytes = (n: number) => {
+  if (!n) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  return `${(n / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 };
 
 const fmtDate = (iso: string) => {
@@ -200,10 +219,25 @@ export default function ExpensesPage() {
   const seesAllEntries = expensesQuery.data?.scope !== 'own';
 
   const saveMutation = useMutation({
-    mutationFn: (payload: Record<string, unknown>) =>
-      editing
-        ? client.patch(`/expenses/${editing.id}/update/`, payload)
-        : client.post('/expenses/create/', payload),
+    mutationFn: async ({ payload, files }: { payload: Record<string, unknown>; files: File[] }) => {
+      const saved = editing
+        ? await client.patch(`/expenses/${editing.id}/update/`, payload)
+        : await client.post('/expenses/create/', payload);
+
+      // Files go up after the expense exists, since they hang off its id. A
+      // failed upload must not read as a failed expense — the row is already
+      // saved, so surface it separately rather than throwing.
+      if (files.length) {
+        try {
+          await uploadFiles(`/expenses/${saved.id}/attachments/`, files);
+        } catch (err) {
+          toast.error(
+            `Expense saved, but ${files.length} file${files.length > 1 ? 's' : ''} failed to upload: ${(err as Error).message}`,
+          );
+        }
+      }
+      return saved;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
       queryClient.invalidateQueries({ queryKey: ['expense-categories'] });
@@ -256,13 +290,13 @@ export default function ExpensesPage() {
         icon: <Layers size={18} />,
         tone: 'neutral',
       },
-      {
-        title: 'Categories',
-        value: String(categories.length),
-        description: `${pfiCategories.length} PFI · ${generalCategories.length} general`,
-        icon: <Tags size={18} />,
-        tone: 'green',
-      },
+      // {
+      //   title: 'Categories',
+      //   value: String(categories.length),
+      //   description: `${pfiCategories.length} PFI · ${generalCategories.length} general`,
+      //   icon: <Tags size={18} />,
+      //   tone: 'green',
+      // },
     ];
   }, [expensesQuery.data, totalCount, categories.length, pfiCategories.length, generalCategories.length]);
 
@@ -594,7 +628,17 @@ export default function ExpensesPage() {
                           </td>
                           <td className="px-4 py-3 text-slate-700">{exp.vendor || '—'}</td>
                           <td className="px-4 py-3 text-slate-600 max-w-[320px]">
-                            <span className="block truncate" title={exp.description}>{exp.description || '—'}</span>
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              <span className="block truncate min-w-0" title={exp.description}>{exp.description || '—'}</span>
+                              {exp.attachment_count > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 text-[11px] text-slate-500 bg-slate-100 rounded px-1.5 py-0.5 shrink-0"
+                                  title={`${exp.attachment_count} attachment${exp.attachment_count > 1 ? 's' : ''}`}
+                                >
+                                  <Paperclip size={10} />{exp.attachment_count}
+                                </span>
+                              )}
+                            </span>
                           </td>
                           <td className="px-4 py-3 text-slate-600">{exp.bank_paid_from || '—'}</td>
                           {seesAllEntries && (
@@ -654,7 +698,7 @@ export default function ExpensesPage() {
         generalCategories={generalCategories}
         pfiCategories={pfiCategories}
         editing={editing}
-        onSubmit={payload => saveMutation.mutate(payload)}
+        onSubmit={(payload, files) => saveMutation.mutate({ payload, files })}
         isSaving={saveMutation.isPending}
       />
 
@@ -718,7 +762,7 @@ interface ExpenseFormDialogProps {
   generalCategories: Category[];
   pfiCategories: Category[];
   editing: Expense | null;
-  onSubmit: (payload: Record<string, unknown>) => void;
+  onSubmit: (payload: Record<string, unknown>, files: File[]) => void;
   isSaving: boolean;
 }
 
@@ -735,9 +779,17 @@ function ExpenseFormDialog({
   open, onOpenChange, generalCategories, pfiCategories, editing, onSubmit, isSaving,
 }: ExpenseFormDialogProps) {
   const [form, setForm] = useState(emptyForm);
+  // Files chosen but not yet uploaded — they go up after the expense is saved,
+  // since attachments hang off its id.
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const [existing, setExisting] = useState<ExpenseAttachment[]>([]);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!open) return;
+    setPendingFiles([]);
+    setExisting(editing?.attachments ?? []);
     setForm(editing
       ? {
           date: editing.date,
@@ -749,6 +801,29 @@ function ExpenseFormDialog({
         }
       : emptyForm());
   }, [editing, open]);
+
+  const addFiles = (list: FileList | null) => {
+    if (!list?.length) return;
+    // Append rather than replace, so picking twice keeps both batches.
+    setPendingFiles(prev => [...prev, ...Array.from(list)]);
+  };
+
+  const removePending = (idx: number) =>
+    setPendingFiles(prev => prev.filter((_, i) => i !== idx));
+
+  const removeExisting = async (att: ExpenseAttachment) => {
+    setRemovingId(att.id);
+    try {
+      await client.delete(`/expense-attachments/${att.id}/`);
+      setExisting(prev => prev.filter(a => a.id !== att.id));
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      toast.success('File removed');
+    } catch (err) {
+      toast.error((err as Error).message || 'Could not remove the file');
+    } finally {
+      setRemovingId(null);
+    }
+  };
 
   const set = (key: keyof ReturnType<typeof emptyForm>, value: string) =>
     setForm(prev => ({ ...prev, [key]: value }));
@@ -770,17 +845,17 @@ function ExpenseFormDialog({
       description: form.description.trim(),
       amount,
       bank_paid_from: form.bank_paid_from.trim(),
-    });
+    }, pendingFiles);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit Expense' : 'Add New Expense'}</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 min-w-0">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label htmlFor="expense-date" className={labelClass}>Date *</label>
@@ -872,6 +947,75 @@ function ExpenseFormDialog({
             />
           </div>
 
+          {/* Attachments — receipts, invoices, photos. Any type, any size, any number. */}
+          <div className="space-y-2 min-w-0">
+            <label className={labelClass}><Paperclip size={12} /> Attachments</label>
+
+            {existing.length > 0 && (
+              <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                {existing.map(att => (
+                  <div key={att.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 min-w-0">
+                    <Paperclip size={13} className="text-slate-400 shrink-0" />
+                    <a
+                      href={att.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm text-blue-600 hover:underline truncate flex-1 min-w-0"
+                      title={att.file_name}
+                    >
+                      {att.file_name}
+                    </a>
+                    <span className="text-xs text-slate-400 shrink-0 tabular-nums">{fmtBytes(att.size_bytes)}</span>
+                    <button
+                      type="button"
+                      title="Remove file"
+                      className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 shrink-0 disabled:opacity-50"
+                      disabled={removingId === att.id}
+                      onClick={() => removeExisting(att)}
+                    >
+                      {removingId === att.id ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pendingFiles.length > 0 && (
+              <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                {pendingFiles.map((f, i) => (
+                  <div key={`${f.name}-${i}`} className="flex items-center gap-2 rounded-md border border-dashed border-blue-200 bg-blue-50/50 px-3 py-2 min-w-0">
+                    <Upload size={13} className="text-blue-500 shrink-0" />
+                    <span className="text-sm text-slate-700 truncate flex-1 min-w-0" title={f.name}>{f.name}</span>
+                    <span className="text-xs text-slate-400 shrink-0 tabular-nums">{fmtBytes(f.size)}</span>
+                    <button
+                      type="button"
+                      title="Remove"
+                      className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 shrink-0"
+                      onClick={() => removePending(i)}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <label className="flex flex-wrap items-center justify-center gap-2 rounded-md border-2 border-dashed border-slate-200 bg-slate-50/60 px-3 py-3 text-center text-sm text-slate-500 cursor-pointer hover:bg-slate-100 hover:border-slate-300 transition-colors">
+              <Upload size={14} />
+              {pendingFiles.length || existing.length ? 'Add more files' : 'Attach receipts, invoices or photos'}
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={e => { addFiles(e.target.files); e.target.value = ''; }}
+              />
+            </label>
+            <p className="text-[11px] text-slate-400">
+              Any file type, any size, as many as you like.
+              {!editing && pendingFiles.length > 0 && ' They upload once the expense is saved.'}
+            </p>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" disabled={isSaving} className="gap-2">
@@ -934,8 +1078,8 @@ function CategoryManagerDialog({
           <DialogTitle>Expense Categories</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5">
-          <form onSubmit={handleCreate} className="space-y-3 p-4 rounded-lg border border-slate-200 bg-slate-50">
+        <div className="space-y-5 min-w-0">
+          <form onSubmit={handleCreate} className="space-y-3 p-4 rounded-lg border border-slate-200 bg-slate-50 min-w-0">
             <p className="text-sm font-semibold text-slate-800">Add a general category</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input
@@ -964,7 +1108,7 @@ function CategoryManagerDialog({
             ) : (
               <div className="space-y-2">
                 {generalCategories.map(cat => (
-                  <div key={cat.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-200">
+                  <div key={cat.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-200 min-w-0">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-800 truncate">{cat.name}</p>
                       {cat.description && <p className="text-xs text-slate-500 truncate">{cat.description}</p>}
@@ -992,7 +1136,7 @@ function CategoryManagerDialog({
             </p>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {pfiCategories.map(cat => (
-                <div key={cat.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-100 bg-amber-50/40">
+                <div key={cat.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-100 bg-amber-50/40 min-w-0">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-800 truncate">{cat.name}</p>
                     <p className="text-xs text-slate-400 mt-0.5">
