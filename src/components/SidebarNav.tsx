@@ -51,6 +51,7 @@ import {
   ArrowLeftRight,
   MessageCircle,
   Headphones,
+  SidebarIcon,
 } from "lucide-react";
 import { Button } from './ui/button';
 import { apiClient } from '@/api/client';
@@ -315,7 +316,7 @@ export const SidebarNav = React.memo(function SidebarNav() {
           aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
           title={expanded ? "Collapse" : "Expand"}
         >
-          {expanded ? <ChevronsLeft size={18} /> : <ChevronsRight size={18} />}
+          {expanded ? <SidebarIcon size={18} /> : <ChevronsRight size={18} />}
         </Button>
       </div>
 

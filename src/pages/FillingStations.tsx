@@ -30,7 +30,7 @@ import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
   startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, isWithinInterval,
 } from 'date-fns';
-import { buildStationDailyLedger } from '@/lib/stationDailyLedger';
+import { buildAllocationLedger } from '@/lib/stationDailyLedger';
 import ExcelJS from 'exceljs';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
@@ -1827,7 +1827,8 @@ export default function FillingStations() {
   // buildStationDailyLedger now lives in @/lib/stationDailyLedger so the
   // opening/closing carry-forward can be unit-tested independently.
 
-  const exportExcel = useCallback(async () => {
+  /** Export the ledger. Pass a group key to export just that one allocation entry. */
+  const exportExcel = useCallback(async (onlyGroupKey?: string) => {
     if (!filteredLedgerGroups.length) return;
     const period = timePreset === 'custom'
       ? `${customFrom || '?'}_TO_${customTo || '?'}`
@@ -1857,13 +1858,18 @@ export default function FillingStations() {
     workbook.created = new Date();
 
     // Group filteredLedgerGroups by customer name
+    const scoped = onlyGroupKey
+      ? filteredLedgerGroups.filter(g => g.key === onlyGroupKey)
+      : filteredLedgerGroups;
     const byStation = new Map<string, typeof filteredLedgerGroups>();
-    filteredLedgerGroups.forEach(group => {
+    scoped.forEach(group => {
       const key = (group.customerName || 'UNKNOWN').trim().toUpperCase();
       const arr = byStation.get(key) ?? [];
       arr.push(group);
       byStation.set(key, arr);
     });
+    if (byStation.size === 0) return;
+    const singleEntry = onlyGroupKey ? scoped[0] : null;
 
     // ════════════════════════════════════════════════════════════════
     // SHEET 1 — Summary (one row per station)
@@ -2033,97 +2039,104 @@ export default function FillingStations() {
 
       ws.mergeCells(`A${rr}:${lastColLetter}${rr}`);
       const detailBanner = ws.getCell(`A${rr}`);
-      detailBanner.value = 'TRANSACTION DETAILS';
+      detailBanner.value = 'TRANSACTION DETAILS — BY ALLOCATION ENTRY';
       detailBanner.font = { name: 'Calibri', bold: true, size: 11, color: { argb: WHITE } };
-      detailBanner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SLATE } };
+      detailBanner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
       detailBanner.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
       ws.getRow(rr).height = 20;
-      rr += 1;
+      rr += 2;
 
-      const headerRowIdx = rr;
-      const headerRow = ws.getRow(rr);
-      headerRow.height = 20;
-      detailHeaders.forEach((h, i) => {
-        const cell = headerRow.getCell(i + 1);
-        cell.value = h;
-        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
-        cell.border = allBorders;
-        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-      });
-      rr += 1;
+      // ── One ledger block per allocation entry ──────────────────────
+      // Each truck's allocation is its own batch: it opens at the allocated
+      // quantity and is drawn down by that entry's sales. Balances never carry
+      // between entries, so every block reconciles on its own.
+      const entries = [...groups].sort((a, b) => String(a.dateLoaded || '').localeCompare(String(b.dateLoaded || '')));
+      let headerRowIdx = rr;
 
-      // Build the running balance from this station's ENTIRE history, not just
-      // the filtered rows, then show only the days in range. Otherwise the first
-      // exported day opens at 0 instead of carrying the balance in from before
-      // the date range — the opening/closing chain has to survive filtering.
-      const stationKey = stationName;
-      const fullHistory = ledgerGroups.filter(
-        g => g.isFillingStation && (g.customerName || 'UNKNOWN').trim().toUpperCase() === stationKey,
-      );
-      const visibleDates = new Set(buildStationDailyLedger(groups).map(r => r.date));
-      const dailyRows = buildStationDailyLedger(fullHistory.length ? fullHistory : groups)
-        .filter(r => visibleDates.has(r.date));
+      entries.forEach((entry, entryIdx) => {
+        const entryRows = buildAllocationLedger(entry);
+        const allocated = Number(entry.quantity) || 0;
+        const loadedLabel = entry.dateLoaded
+          ? (() => { try { return format(parseISO(entry.dateLoaded), 'dd MMM yyyy'); } catch { return entry.dateLoaded; } })()
+          : '—';
 
-      dailyRows.forEach((row, idx) => {
-        const values: (string | number)[] = [
-          idx + 1,
-          fmtDateCell(row.date),
-          // Printed as-is: a negative opening is a real oversold position, and
-          // clamping it to 0 was what broke opening === previous closing.
-          row.openingStock,
-          row.volumeSold > 0 ? row.volumeSold : '—',
-          row.rate > 0 ? row.rate : '—',
-          row.salesValue > 0 ? row.salesValue : '—',
-          row.closingStock,
-          row.expense > 0 ? row.expense : '—',
-          row.deposited > 0 ? row.deposited : '—',
-          row.depositor,
-          row.bank,
-          row.remarks,
-        ];
-        const xlRow = ws.getRow(rr);
-        xlRow.height = 16;
-        values.forEach((val, ci) => {
-          const cell = xlRow.getCell(ci + 1);
-          cell.value = val;
-          cell.font = { name: 'Calibri', size: 9.5 };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? WHITE : BAND } };
-          cell.border = allBorders;
-          cell.alignment = { vertical: 'middle', horizontal: detailAlign[ci], wrapText: ci === 11 };
-        });
+        // Entry banner
+        ws.mergeCells(`A${rr}:${lastColLetter}${rr}`);
+        const entryBanner = ws.getCell(`A${rr}`);
+        entryBanner.value = `ENTRY ${entryIdx + 1} — TRUCK ${entry.truckNumber || '—'}`
+          + `${entry.code ? `  ·  ${entry.code}` : ''}`
+          + `  ·  ALLOCATED ${allocated.toLocaleString()} L  ·  LOADED ${loadedLabel}`;
+        entryBanner.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+        entryBanner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SLATE } };
+        entryBanner.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        ws.getRow(rr).height = 18;
         rr += 1;
-      });
 
-      const totalVolume = dailyRows.reduce((s, d) => s + d.volumeSold, 0);
-      const totalSalesValue = dailyRows.reduce((s, d) => s + d.salesValue, 0);
-      const totalExpenseSum = dailyRows.reduce((s, d) => s + d.expense, 0);
-      const totalDepositSum = dailyRows.reduce((s, d) => s + d.deposited, 0);
-      // The totals row reads as a period summary: opened at X, sold N litres at
-      // a blended rate for value V, closed at Y. Opening is the first day's
-      // opening (not a sum) and rate is value/volume — summing either would be
-      // meaningless.
-      const openingBalance = dailyRows.length > 0 ? dailyRows[0].openingStock : 0;
-      const finalClosing = dailyRows.length > 0 ? dailyRows[dailyRows.length - 1].closingStock : 0;
-      const blendedRate = totalVolume > 0 ? totalSalesValue / totalVolume : 0;
-      const detailTotals: (string | number)[] = [
-        '', 'TOTAL',
-        openingBalance,
-        totalVolume,
-        blendedRate > 0 ? blendedRate : '',
-        totalSalesValue,
-        finalClosing,
-        totalExpenseSum, totalDepositSum, '', '', '',
-      ];
-      const detailTotalsRow = ws.getRow(rr);
-      detailTotalsRow.height = 18;
-      detailTotals.forEach((val, ci) => {
-        const cell = detailTotalsRow.getCell(ci + 1);
-        cell.value = val;
-        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF0F172A' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } };
-        cell.border = allBorders;
-        cell.alignment = { vertical: 'middle', horizontal: detailAlign[ci] };
+        // Column headers for this entry
+        const entryHeaderRow = ws.getRow(rr);
+        entryHeaderRow.height = 20;
+        detailHeaders.forEach((h, i) => {
+          const cell = entryHeaderRow.getCell(i + 1);
+          cell.value = h;
+          cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: WHITE } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+          cell.border = allBorders;
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        });
+        if (entryIdx === 0) headerRowIdx = rr;
+        rr += 1;
+
+        entryRows.forEach((row, idx) => {
+          const values: (string | number)[] = [
+            idx + 1,
+            fmtDateCell(row.date),
+            row.openingStock,
+            row.volumeSold > 0 ? row.volumeSold : '—',
+            row.rate > 0 ? row.rate : '—',
+            row.salesValue > 0 ? row.salesValue : '—',
+            row.closingStock,
+            row.expense > 0 ? row.expense : '—',
+            row.deposited > 0 ? row.deposited : '—',
+            row.depositor,
+            row.bank,
+            row.remarks,
+          ];
+          const xlRow = ws.getRow(rr);
+          xlRow.height = 16;
+          values.forEach((val, ci) => {
+            const cell = xlRow.getCell(ci + 1);
+            cell.value = val;
+            cell.font = { name: 'Calibri', size: 9.5 };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? WHITE : BAND } };
+            cell.border = allBorders;
+            cell.alignment = { vertical: 'middle', horizontal: detailAlign[ci], wrapText: ci === 11 };
+          });
+          rr += 1;
+        });
+
+        // Per-entry totals: opened at the allocation, closed at what's left.
+        const eVolume = entryRows.reduce((a, d) => a + d.volumeSold, 0);
+        const eValue = entryRows.reduce((a, d) => a + d.salesValue, 0);
+        const eExpense = entryRows.reduce((a, d) => a + d.expense, 0);
+        const eDeposit = entryRows.reduce((a, d) => a + d.deposited, 0);
+        const eOpening = entryRows.length ? entryRows[0].openingStock : allocated;
+        const eClosing = entryRows.length ? entryRows[entryRows.length - 1].closingStock : allocated;
+        const eRate = eVolume > 0 ? eValue / eVolume : 0;
+        const entryTotals: (string | number)[] = [
+          '', 'TOTAL', eOpening, eVolume, eRate > 0 ? eRate : '', eValue, eClosing,
+          eExpense, eDeposit, '', '', `Balance remaining ${eClosing.toLocaleString()} L of ${allocated.toLocaleString()} L allocated`,
+        ];
+        const eTotalsRow = ws.getRow(rr);
+        eTotalsRow.height = 18;
+        entryTotals.forEach((val, ci) => {
+          const cell = eTotalsRow.getCell(ci + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF0F172A' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_FILL } };
+          cell.border = allBorders;
+          cell.alignment = { vertical: 'middle', horizontal: detailAlign[ci] };
+        });
+        rr += 2;   // breathing room before the next entry
       });
 
       ws.columns = [
@@ -2138,7 +2151,10 @@ export default function FillingStations() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `FILLING-STATION-LEDGER-${period}.xlsx`;
+    const clean = (v: string) => v.replace(/[\\/*?[\]:]/g, '').trim();
+    a.download = singleEntry
+      ? `${clean(singleEntry.customerName || 'STATION')} - ${clean(singleEntry.truckNumber || 'TRUCK')}${singleEntry.code ? ` - ${clean(singleEntry.code)}` : ''}.xlsx`
+      : `FILLING-STATION-LEDGER-${period}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2173,7 +2189,7 @@ export default function FillingStations() {
               description="Fuel allocated to filling stations. Each card is one delivery allocation — record daily sales as the station sells."
               actions={
                 <>
-                  <Button variant="default" className="gap-2" onClick={exportExcel} disabled={filteredLedgerGroups.length === 0}>
+                  <Button variant="default" className="gap-2" onClick={() => exportExcel()} disabled={filteredLedgerGroups.length === 0}>
                     <Download size={16} /> Download Report
                   </Button>
                 </>
@@ -2382,9 +2398,11 @@ export default function FillingStations() {
                               </div>
                             </div>
 
-                            {/* Right: actions */}
-                            {!readOnly && (
-                              <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Right: actions — download is read-only and stays
+                                available to Audit; the rest is edit-gated. */}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {!readOnly && (
+                                <>
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">
@@ -2406,8 +2424,19 @@ export default function FillingStations() {
                                 <Button type="button" size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700" onClick={() => openSetupDialog(group)} title="Edit setup">
                                   <Pencil size={13} />
                                 </Button>
-                              </div>
-                            )}
+                                </>
+                              )}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-slate-400 hover:text-emerald-700"
+                                onClick={() => exportExcel(group.key)}
+                                title={`Download this entry — ${group.truckNumber || 'truck'}${group.code ? ` (${group.code})` : ''}`}
+                              >
+                                <Download size={13} />
+                              </Button>
+                            </div>
                           </div>
 
                           {/* Summary — full card breakdown: quantities, value, rate breakdown, accounts */}
