@@ -277,6 +277,8 @@ export interface PfiSummaryData {
   surplus_deficit_litres?: string | number | null;
   pfi_value?: string | number | null;
   total_expenses?: string | number | null;
+  pending_expenses?: string | number | null;
+  pending_expense_count?: number | null;
   total_cost?: string | number | null;
   landing_cost_per_litre?: string | number | null;
   revenue?: string | number | null;
@@ -434,7 +436,8 @@ function buildSummarySheet(wb: ExcelJS.Workbook, report: PfiReport) {
   const pl = p.profit_loss;
   row = factGrid(ws, row, [
     ['PFI (Cargo) Value', money(p.pfi_value)],
-    ['Total Expenses', money(p.total_expenses)],
+    ['Total Expenses (approved)', money(p.total_expenses)],
+    ['Awaiting Approval', money(p.pending_expenses)],
     ['Total Cost', money(p.total_cost)],
     ['Landing Cost / Litre', money(p.landing_cost_per_litre)],
     ['Revenue', money(p.revenue)],
@@ -443,6 +446,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, report: PfiReport) {
   ], 3, {
     'Total Cost': NAVY,
     'Landing Cost / Litre': NAVY,
+    'Awaiting Approval': '#B45309',
     'Revenue': GREEN,
     'Profit': GREEN,
     'Balance': RED,

@@ -51,6 +51,8 @@ type BackendPfi = {
   surplus_deficit_litres?: number | string | null;
   pfi_value?: number | string | null;
   total_expenses?: number | string | null;
+  pending_expenses?: number | string | null;
+  pending_expense_count?: number | null;
   total_cost?: number | string | null;
   landing_cost_per_litre?: number | string | null;
   revenue?: number | string | null;
@@ -413,6 +415,9 @@ export default function PFIPage() {
       const hasCostData = p.pfi_value != null;
       const pfiValue = hasCostData ? coerceNumber(p.pfi_value) : 0;
       const totalExpenses = coerceNumber(p.total_expenses);
+      // Submitted but not yet approved — deliberately outside total cost.
+      const pendingExpenses = coerceNumber(p.pending_expenses);
+      const pendingExpenseCount = coerceNumber(p.pending_expense_count);
       const totalCost = hasCostData ? coerceNumber(p.total_cost) : 0;
       const revenue = coerceNumber(p.revenue ?? totalAmount);
       const profitLoss = hasCostData ? coerceNumber(p.profit_loss) : 0;
@@ -425,7 +430,7 @@ export default function PFIPage() {
         ...p, starting, sold, remaining, pct, totalAmount, orders,
         locationLabel, productLabel, unitLabel, createdAtStr, finishedAtStr,
         hasCostData, pfiValue, totalExpenses, totalCost, revenue, profitLoss, surplusDeficit,
-        landingPerLitre,
+        landingPerLitre, pendingExpenses, pendingExpenseCount,
       };
     });
   }, [pfis, pfiSoldQtyMap]);
@@ -1426,6 +1431,11 @@ export default function PFIPage() {
                         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
                           <p className="text-xs text-slate-400 font-semibold uppercase">Total Expenses</p>
                           <p className="text-sm font-bold text-amber-600 mt-0.5">{fmtCurrency(viewTarget.totalExpenses)}</p>
+                          {viewTarget.pendingExpenseCount > 0 && (
+                            <p className="text-[10px] text-orange-600 mt-0.5 font-medium">
+                              +{fmtCurrency(viewTarget.pendingExpenses)} awaiting approval
+                            </p>
+                          )}
                         </div>
                         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
                           <p className="text-xs text-slate-400 font-semibold uppercase">Total Cost</p>

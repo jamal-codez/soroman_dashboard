@@ -14,14 +14,95 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   Plus, X, Pencil, Trash2, Search, CalendarDays, Tags, Landmark,
-  Package, Receipt, Wallet, FileDown, Loader2, Layers, Paperclip, Upload,
+  Package, Receipt, Wallet, FileDown, Loader2, Layers, Paperclip, Upload, Check,
+  CheckCircle2, ShieldCheck, BadgeCheck, Banknote, XCircle, CornerUpLeft, Info, MoreHorizontal,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { client, uploadFiles } from '@/api/client';
 import { toast } from 'sonner';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
+
+type ExpenseStatus =
+  | 'pending' | 'verified' | 'audit_approved' | 'admin_approved'
+  | 'paid' | 'rejected' | 'changes_requested';
+
+type ExpenseAction =
+  | 'verify' | 'audit_approve' | 'admin_approve' | 'mark_paid'
+  | 'reject' | 'request_changes';
+
+/** Only PAID expenses reach a PFI's cost — the badge has to make that legible. */
+const STATUS_STYLE: Record<ExpenseStatus, { label: string; cls: string; step: string }> = {
+  pending:           { label: 'Pending',              step: '1 of 4', cls: 'bg-slate-100 text-slate-700 ring-1 ring-slate-200' },
+  verified:          { label: 'Verified',             step: '2 of 4', cls: 'bg-sky-50 text-sky-800 ring-1 ring-sky-200' },
+  audit_approved:    { label: 'CFO Approved',       step: '3 of 4', cls: 'bg-indigo-50 text-indigo-800 ring-1 ring-indigo-200' },
+  admin_approved:    { label: 'Approved for Payment', step: '4 of 4', cls: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' },
+  paid:              { label: 'Paid',                 step: 'done',   cls: 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200' },
+  rejected:          { label: 'Rejected',             step: 'stopped', cls: 'bg-red-50 text-red-800 ring-1 ring-red-200' },
+  changes_requested: { label: 'Changes Needed',       step: 'returned', cls: 'bg-orange-50 text-orange-800 ring-1 ring-orange-200' },
+};
+
+/** Button label, tone and icon for each transition the API says is available. */
+/** Each transition gets the colour of the stage it moves the request INTO, so
+ *  the button and the resulting badge always agree. `solid` is the filled
+ *  button in the detail view; `subtle` is the compact one in the table row. */
+const ACTION_META: Record<ExpenseAction, {
+  label: string;
+  title: string;
+  icon: LucideIcon;
+  solid: string;   // filled button in the detail dialog
+  menu: string;    // tinted row in the table's action menu
+}> = {
+  verify: {
+    label: 'Verify',
+    title: 'Confirm the details are correct and send it to the CFO for approval',
+    icon: CheckCircle2,
+    solid: 'bg-sky-600 hover:bg-sky-700 text-white border-sky-600',
+    menu: 'text-sky-700 focus:text-sky-700 focus:bg-sky-50',
+  },
+  audit_approve: {
+    label: 'CFO Approve',
+    title: 'Approve for payment and send it to the Admin for final sign-off',
+    icon: ShieldCheck,
+    solid: 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600',
+    menu: 'text-indigo-700 focus:text-indigo-700 focus:bg-indigo-50',
+  },
+  admin_approve: {
+    label: 'Final Approve',
+    title: 'Give final approval — the Expenditure Officer can then pay it',
+    icon: BadgeCheck,
+    solid: 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600',
+    menu: 'text-amber-800 focus:text-amber-800 focus:bg-amber-50',
+  },
+  mark_paid: {
+    label: 'Mark as Paid',
+    title: 'Payment has been made — this adds the amount to the PFI cost',
+    icon: Banknote,
+    solid: 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600',
+    menu: 'text-emerald-700 focus:text-emerald-700 focus:bg-emerald-50',
+  },
+  reject: {
+    label: 'Reject',
+    title: 'Stop this request — the submitter and all approvers are notified',
+    icon: XCircle,
+    solid: 'bg-white hover:bg-red-50 text-red-700 border border-red-300',
+    menu: 'text-red-700 focus:text-red-700 focus:bg-red-50',
+  },
+  request_changes: {
+    label: 'Send Back',
+    title: 'Return it to the submitter to fix and resubmit',
+    icon: CornerUpLeft,
+    solid: 'bg-white hover:bg-orange-50 text-orange-700 border border-orange-300',
+    menu: 'text-orange-700 focus:text-orange-700 focus:bg-orange-50',
+  },
+};
+
 
 interface ExpenseAttachment {
   id: number;
@@ -50,6 +131,25 @@ interface Expense {
   edited_by_name: string | null;
   attachments: ExpenseAttachment[];
   attachment_count: number;
+  status: ExpenseStatus;
+  status_label: string;
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
+  review_note: string;
+  payee_bank_name: string;
+  payee_account_number: string;
+  payee_account_name: string;
+  verified_by_name: string | null;
+  audit_approved_by_name: string | null;
+  admin_approved_by_name: string | null;
+  paid_by_name: string | null;
+  available_actions: ExpenseAction[];
+  action_blocked_reason: string;
+  created_at: string;
+  verified_at: string | null;
+  audit_approved_at: string | null;
+  admin_approved_at: string | null;
+  paid_at: string | null;
 }
 
 interface Category {
@@ -71,6 +171,8 @@ interface ExpenseListResponse {
   total_pages: number;
   /** 'own' = only this user's entries; 'all' = every entry (oversight roles). */
   scope?: 'own' | 'all';
+  can_review?: boolean;
+  status_counts?: Record<string, number>;
   total_amount: string;
   total_pfi_amount: string;
   total_general_amount: string;
@@ -162,6 +264,9 @@ export default function ExpensesPage() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [bankFilter, setBankFilter] = useState('all');
   const [kindFilter, setKindFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [reviewing, setReviewing] = useState<{ expense: Expense; action: ExpenseAction } | null>(null);
+  const [reviewNote, setReviewNote] = useState('');
   const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -171,6 +276,7 @@ export default function ExpensesPage() {
   const [showCategories, setShowCategories] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Expense | null>(null);
+  const [viewing, setViewing] = useState<Expense | null>(null);
   const [exporting, setExporting] = useState(false);
 
   // Debounce the search box so typing doesn't fire a request per keystroke.
@@ -187,16 +293,17 @@ export default function ExpensesPage() {
     if (categoryFilter !== 'all') params.set('category', categoryFilter);
     if (bankFilter !== 'all') params.set('bank', bankFilter);
     if (kindFilter !== 'all') params.set('kind', kindFilter);
+    if (statusFilter !== 'all') params.set('status', statusFilter);
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
     params.set('page', String(page));
     params.set('page_size', String(PAGE_SIZE));
     Object.entries(overrides).forEach(([k, v]) => params.set(k, v));
     return params;
-  }, [search, categoryFilter, bankFilter, kindFilter, dateFrom, dateTo, page]);
+  }, [search, categoryFilter, bankFilter, kindFilter, statusFilter, dateFrom, dateTo, page]);
 
   const expensesQuery = useQuery<ExpenseListResponse>({
-    queryKey: ['expenses', { search, categoryFilter, bankFilter, kindFilter, dateFrom, dateTo, page }],
+    queryKey: ['expenses', { search, categoryFilter, bankFilter, kindFilter, statusFilter, dateFrom, dateTo, page }],
     queryFn: () => client.get(`/expenses/?${buildParams()}`),
   });
 
@@ -210,6 +317,9 @@ export default function ExpensesPage() {
   const pfiCategories = useMemo(() => categories.filter(c => c.is_system_category), [categories]);
 
   const expenses = expensesQuery.data?.results ?? [];
+  // The modal holds a snapshot; re-point it at the refreshed row after any
+  // action so its badge and buttons move with the request.
+  const viewingLive = viewing ? expenses.find(e => e.id === viewing.id) ?? viewing : null;
   const totalCount = expensesQuery.data?.count ?? 0;
   const totalPages = expensesQuery.data?.total_pages ?? 1;
   const banks = expensesQuery.data?.banks ?? [];
@@ -217,6 +327,9 @@ export default function ExpensesPage() {
   // the API; everyone else is scoped to their own. The API decides — this only
   // controls how the page describes what's on screen.
   const seesAllEntries = expensesQuery.data?.scope !== 'own';
+  // The API decides who may review; this only controls whether the buttons show.
+  const canReview = !!expensesQuery.data?.can_review;
+  const statusCounts = expensesQuery.data?.status_counts ?? {};
 
   const saveMutation = useMutation({
     mutationFn: async ({ payload, files }: { payload: Record<string, unknown>; files: File[] }) => {
@@ -248,6 +361,28 @@ export default function ExpensesPage() {
       setEditing(null);
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to save expense'),
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: ({ id, action, note }: { id: number; action: string; note?: string }) =>
+      client.post(`/expenses/${id}/review/`, { action, note: note ?? '' }),
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      // Approving changes a PFI's cost, so its screens must refresh too.
+      queryClient.invalidateQueries({ queryKey: ['pfis'] });
+      queryClient.invalidateQueries({ queryKey: ['pfi-expenses'] });
+      toast.success(
+        vars.action === 'mark_paid' ? 'Marked paid — it now counts towards the PFI cost'
+        : vars.action === 'verify' ? 'Verified — sent to the CFO'
+        : vars.action === 'audit_approve' ? 'CFO approved — sent to Admin for final approval'
+        : vars.action === 'admin_approve' ? 'Approved for payment — sent to the Expenditure Officer'
+        : vars.action === 'reject' ? 'Rejected — the submitter has been notified'
+        : 'Sent back — the submitter has been notified',
+      );
+      setReviewing(null);
+      setReviewNote('');
+    },
+    onError: (err: Error) => toast.error(err.message || 'Could not complete the review'),
   });
 
   const deleteMutation = useMutation({
@@ -302,11 +437,11 @@ export default function ExpensesPage() {
 
   const hasFilters =
     !!search || categoryFilter !== 'all' || bankFilter !== 'all' ||
-    kindFilter !== 'all' || timePreset !== 'all';
+    kindFilter !== 'all' || statusFilter !== 'all' || timePreset !== 'all';
 
   const clearFilters = () => {
     setSearchInput(''); setSearch('');
-    setCategoryFilter('all'); setBankFilter('all'); setKindFilter('all');
+    setCategoryFilter('all'); setBankFilter('all'); setKindFilter('all'); setStatusFilter('all');
     setTimePreset('all'); setCustomFrom(''); setCustomTo('');
     setPage(1);
   };
@@ -363,7 +498,7 @@ export default function ExpensesPage() {
               title="Expenses"
               description="Every cost logged in one place. Filing an expense under a PFI category adds it to that PFI's running cost in PFI Tracking."
               actions={
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
                   <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowCategories(true)}>
                     <Tags size={15} />
                     Categories
@@ -380,13 +515,48 @@ export default function ExpensesPage() {
                   </Button>
                   <Button size="sm" className="gap-2" onClick={() => { setEditing(null); setShowForm(true); }}>
                     <Plus size={15} />
-                    Add Expense
+                    New Expense Request
                   </Button>
                 </div>
               }
             />
 
             <SummaryCards cards={summaryCards} />
+
+            {/* Status tabs — awaiting first, because that's the queue that needs work */}
+            <div className="flex flex-wrap gap-1.5">
+              {([
+                ['all', 'All'],
+                ['awaiting', 'In Progress'],
+                ['pending', 'To Verify'],
+                ['verified', 'With CFO'],
+                ['audit_approved', 'With Admin'],
+                ['admin_approved', 'To Pay'],
+                ['paid', 'Paid'],
+                ['rejected', 'Rejected'],
+              ] as const).map(([key, label]) => {
+                const n = statusCounts[key];
+                const active = statusFilter === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => { setStatusFilter(key); setPage(1); }}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
+                      active
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                        : (key === 'awaiting' || key === 'admin_approved') && n > 0
+                          ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {label}
+                    {typeof n === 'number' && n > 0 && (
+                      <span className={`ml-1.5 ${active ? 'text-slate-300' : 'text-slate-400'}`}>{n}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
 
             {/* ── Filters ───────────────────────────────────────────── */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-4">
@@ -577,6 +747,7 @@ export default function ExpensesPage() {
                   <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold">Date</th>
+                      <th className="px-4 py-3 text-left font-semibold">Status</th>
                       <th className="px-4 py-3 text-left font-semibold">Category</th>
                       <th className="px-4 py-3 text-left font-semibold">Vendor</th>
                       <th className="px-4 py-3 text-left font-semibold">Description</th>
@@ -589,26 +760,43 @@ export default function ExpensesPage() {
                   <tbody className="divide-y divide-slate-100">
                     {expensesQuery.isLoading ? (
                       <tr>
-                        <td colSpan={seesAllEntries ? 8 : 7} className="px-4 py-12 text-center text-slate-400">
+                        <td colSpan={seesAllEntries ? 9 : 8} className="px-4 py-12 text-center text-slate-400">
                           <Loader2 className="animate-spin inline mr-2" size={16} /> Loading expenses…
                         </td>
                       </tr>
                     ) : expensesQuery.isError ? (
                       <tr>
-                        <td colSpan={seesAllEntries ? 8 : 7} className="px-4 py-12 text-center text-red-500">
+                        <td colSpan={seesAllEntries ? 9 : 8} className="px-4 py-12 text-center text-red-500">
                           {(expensesQuery.error as Error)?.message || 'Could not load expenses'}
                         </td>
                       </tr>
                     ) : expenses.length === 0 ? (
                       <tr>
-                        <td colSpan={seesAllEntries ? 8 : 7} className="px-4 py-12 text-center text-slate-400">
+                        <td colSpan={seesAllEntries ? 9 : 8} className="px-4 py-12 text-center text-slate-400">
                           {hasFilters ? 'No expenses match these filters.' : 'No expenses recorded yet.'}
                         </td>
                       </tr>
                     ) : (
                       expenses.map(exp => (
-                        <tr key={exp.id} className="hover:bg-slate-50/70">
+                        <tr
+                          key={exp.id}
+                          className="hover:bg-slate-50/70 cursor-pointer"
+                          onClick={() => setViewing(exp)}
+                        >
                           <td className="px-4 py-3 whitespace-nowrap text-slate-700">{fmtDate(exp.date)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span
+                              className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${STATUS_STYLE[exp.status]?.cls ?? 'bg-slate-100 text-slate-600'}`}
+                              title={exp.review_note || undefined}
+                            >
+                              {STATUS_STYLE[exp.status]?.label ?? exp.status}
+                            </span>
+                            {exp.review_note && (
+                              <p className="mt-0.5 text-[11px] text-slate-500 max-w-[180px] truncate" title={exp.review_note}>
+                                {exp.review_note}
+                              </p>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             {exp.category_name ? (
                               <span
@@ -640,29 +828,72 @@ export default function ExpensesPage() {
                               )}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-slate-600">{exp.bank_paid_from || '—'}</td>
+                          <td className="px-4 py-3 text-slate-600 min-w-0">
+                            <span className="block truncate" title={exp.bank_paid_from || undefined}>{exp.bank_paid_from || '—'}</span>
+                            {exp.payee_account_name && (
+                              <span
+                                className="block text-[11px] text-slate-400 truncate"
+                                title={`Pay to ${exp.payee_account_name} · ${exp.payee_bank_name} · ${exp.payee_account_number}`}
+                              >
+                                → {exp.payee_account_name}
+                              </span>
+                            )}
+                          </td>
                           {seesAllEntries && (
                             <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{exp.added_by_name || '—'}</td>
                           )}
                           <td className="px-4 py-3 text-right font-semibold text-slate-900 whitespace-nowrap tabular-nums">
                             {fmtNaira(exp.amount)}
                           </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                title="Edit expense"
-                                className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-                                onClick={() => { setEditing(exp); setShowForm(true); }}
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              <button
-                                title="Delete expense"
-                                className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50"
-                                onClick={() => setPendingDelete(exp)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                          <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                            <div className="flex justify-end">
+                              {/* One menu instead of a row of buttons — the table
+                                  stays readable and every action is one click in. */}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    title="Actions"
+                                    className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                                  >
+                                    <MoreHorizontal size={16} />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-52">
+                                  {(exp.available_actions ?? []).map(action => {
+                                    const meta = ACTION_META[action];
+                                    if (!meta) return null;
+                                    const Icon = meta.icon;
+                                    const needsNote = action === 'reject' || action === 'request_changes';
+                                    return (
+                                      <DropdownMenuItem
+                                        key={action}
+                                        className={`gap-2 text-[13px] cursor-pointer font-medium ${meta.menu}`}
+                                        onClick={() => needsNote
+                                          ? (setReviewing({ expense: exp, action }), setReviewNote(''))
+                                          : reviewMutation.mutate({ id: exp.id, action })}
+                                      >
+                                        <Icon size={14} /> {meta.label}
+                                      </DropdownMenuItem>
+                                    );
+                                  })}
+
+                                  {(exp.available_actions ?? []).length > 0 && <DropdownMenuSeparator />}
+
+                                  <DropdownMenuItem className="gap-2 text-[13px] cursor-pointer" onClick={() => setViewing(exp)}>
+                                    <Info size={14} /> View details
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem className="gap-2 text-[13px] cursor-pointer" onClick={() => { setEditing(exp); setShowForm(true); }}>
+                                    <Pencil size={14} /> Edit
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="gap-2 text-[13px] cursor-pointer text-red-600 focus:text-red-700 focus:bg-red-50"
+                                    onClick={() => setPendingDelete(exp)}
+                                  >
+                                    <Trash2 size={14} /> Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           </td>
                         </tr>
@@ -709,6 +940,228 @@ export default function ExpensesPage() {
         pfiCategories={pfiCategories}
       />
 
+
+      {/* ── Detail view — everything about one request, plus its actions ── */}
+      <Dialog open={!!viewingLive} onOpenChange={open => { if (!open) setViewing(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto min-w-0">
+          {viewingLive && (() => {
+            const v = viewingLive;
+            const st = STATUS_STYLE[v.status];
+            const trail: Array<[string, string | null, string | null]> = [
+              ['Submitted', v.added_by_name, v.created_at],
+              ['Verified', v.verified_by_name, v.verified_at],
+              ['CFO approved', v.audit_approved_by_name, v.audit_approved_at],
+              ['Final approved', v.admin_approved_by_name, v.admin_approved_at],
+              ['Paid', v.paid_by_name, v.paid_at],
+            ];
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-start justify-between gap-3 min-w-0">
+                    <span className="min-w-0">
+                      <span className="block text-xl font-bold text-slate-900">{fmtNaira(v.amount)}</span>
+                      <span className="block text-sm font-normal text-slate-500 truncate" title={v.category_name || ''}>
+                        {v.category_name || 'Uncategorised'}
+                      </span>
+                    </span>
+                    <span className={`shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold ${st?.cls}`}>
+                      {st?.label} <span className="opacity-60">· {st?.step}</span>
+                    </span>
+                  </DialogTitle>
+                </DialogHeader>
+
+                <div className="space-y-4 min-w-0">
+                  {v.review_note && (
+                    <div className={`rounded-md border-l-2 p-3 text-sm ${
+                      v.status === 'rejected' ? 'border-red-400 bg-red-50 text-red-900' : 'border-orange-400 bg-orange-50 text-orange-900'
+                    }`}>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide opacity-70 mb-0.5">Reviewer note</p>
+                      {v.review_note}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm min-w-0">
+                    <Detail label="Date" value={fmtDate(v.date)} />
+                    <Detail label="PFI" value={v.pfi_number || '—'} />
+                    <Detail label="Vendor" value={v.vendor || '—'} />
+                    <Detail label="Paid from" value={v.bank_paid_from || '—'} />
+                    <div className="col-span-2">
+                      <Detail label="Description" value={v.description || '—'} />
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 space-y-2 min-w-0">
+                    <p className={labelClass}><Landmark size={12} /> Payment Destination</p>
+                    {v.payee_account_name || v.payee_bank_name || v.payee_account_number ? (
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm min-w-0">
+                        <div className="col-span-2"><Detail label="Account name" value={v.payee_account_name || '—'} /></div>
+                        <Detail label="Bank" value={v.payee_bank_name || '—'} />
+                        <Detail label="Account number" value={v.payee_account_number || '—'} />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-400">No payment destination recorded.</p>
+                    )}
+                  </div>
+
+                  {v.attachments?.length > 0 && (
+                    <div className="space-y-1.5 min-w-0">
+                      <p className={labelClass}><Paperclip size={12} /> Attachments ({v.attachments.length})</p>
+                      {v.attachments.map(att => (
+                        <a
+                          key={att.id}
+                          href={att.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 min-w-0"
+                        >
+                          <Paperclip size={13} className="text-slate-400 shrink-0" />
+                          <span className="text-sm text-blue-600 truncate flex-1 min-w-0">{att.file_name}</span>
+                          <span className="text-xs text-slate-400 shrink-0">{fmtBytes(att.size_bytes)}</span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Approval trail — who moved it and when */}
+                  <div className="space-y-1.5 min-w-0">
+                    <p className={labelClass}><Check size={12} /> Approval Trail</p>
+                    <div className="rounded-md border border-slate-200 divide-y divide-slate-100">
+                      {trail.map(([step, who, when]) => (
+                        <div key={step} className="flex items-center gap-3 px-3 py-2 min-w-0">
+                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${when ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                          <span className={`text-sm shrink-0 w-32 ${when ? 'text-slate-800 font-medium' : 'text-slate-400'}`}>{step}</span>
+                          <span className="text-sm text-slate-500 truncate flex-1 min-w-0">{who || (when ? '—' : 'Not yet')}</span>
+                          <span className="text-xs text-slate-400 shrink-0">{when ? fmtDate(when.slice(0, 10)) : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Actions the API says this user may take right now. When
+                      there are none, say why rather than showing an empty row. */}
+                  {(v.available_actions ?? []).length === 0 && v.action_blocked_reason && (
+                    <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5">
+                      <Info size={14} className="text-slate-400 shrink-0 mt-0.5" />
+                      <p className="text-sm text-slate-600">{v.action_blocked_reason}</p>
+                    </div>
+                  )}
+
+                  {(v.available_actions ?? []).length > 0 && (
+                    <div className="pt-3 border-t border-slate-200 space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        Decision
+                      </p>
+                      <div className="flex gap-2">
+                        {(v.available_actions ?? []).map(action => {
+                          const meta = ACTION_META[action];
+                          if (!meta) return null;
+                          const Icon = meta.icon;
+                          const needsNote = action === 'reject' || action === 'request_changes';
+                          // Only the button actually in flight spins.
+                          const busy = reviewMutation.isPending
+                            && reviewMutation.variables?.id === v.id
+                            && reviewMutation.variables?.action === action;
+                          return (
+                            <button
+                              key={action}
+                              type="button"
+                              title={meta.title}
+                              disabled={reviewMutation.isPending}
+                              onClick={() => needsNote
+                                ? (setReviewing({ expense: v, action }), setReviewNote(''))
+                                : reviewMutation.mutate({ id: v.id, action })}
+                              className={`flex-1 min-w-0 inline-flex items-center justify-center gap-1.5
+                                rounded-md px-3 py-2.5 text-[13px] font-semibold shadow-sm transition-colors
+                                disabled:opacity-50 disabled:cursor-not-allowed ${meta.solid}`}
+                            >
+                              {busy ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Icon size={14} className="shrink-0" />}
+                              <span className="truncate">{meta.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Record management, filled and colour-coded so each one is
+                      unmistakable — Delete sits apart from the decision row above. */}
+                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => { setViewing(null); setEditing(v); setShowForm(true); }}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2.5 text-[13px] font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow-sm transition-colors"
+                    >
+                      <Pencil size={14} /> Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewing(null)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2.5 text-[13px] font-semibold text-white bg-slate-600 hover:bg-slate-700 shadow-sm transition-colors"
+                    >
+                      <X size={14} /> Close
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setViewing(null); setPendingDelete(v); }}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2.5 text-[13px] font-semibold text-white bg-red-600 hover:bg-red-700 shadow-sm transition-colors"
+                    >
+                      <Trash2 size={14} /> Delete
+                    </button>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Turning something down needs a reason the submitter can act on. */}
+      <Dialog open={!!reviewing} onOpenChange={open => { if (!open) { setReviewing(null); setReviewNote(''); } }}>
+        <DialogContent className="max-w-md min-w-0">
+          <DialogHeader>
+            <DialogTitle>
+              {reviewing?.action === 'reject' ? 'Reject this request' : 'Send back for changes'}
+            </DialogTitle>
+          </DialogHeader>
+          {reviewing && (
+            <div className="space-y-3 min-w-0">
+              <div className="rounded-md bg-slate-50 border border-slate-200 p-3 text-sm min-w-0">
+                <p className="font-semibold text-slate-900">{fmtNaira(reviewing.expense.amount)}</p>
+                <p className="text-slate-500 truncate" title={reviewing.expense.category_name || ''}>
+                  {reviewing.expense.category_name || 'Uncategorised'} · {fmtDate(reviewing.expense.date)}
+                </p>
+                {reviewing.expense.added_by_name && (
+                  <p className="text-xs text-slate-400 mt-0.5">Submitted by {reviewing.expense.added_by_name}</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="review-note" className={labelClass}>
+                  {reviewing.action === 'reject' ? 'Why is this rejected?' : 'What needs changing?'} *
+                </label>
+                <Input
+                  id="review-note"
+                  className="h-9 text-sm"
+                  placeholder={reviewing.action === 'reject' ? 'e.g. Duplicate of expense #42' : 'e.g. Attach the receipt'}
+                  value={reviewNote}
+                  onChange={e => setReviewNote(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => { setReviewing(null); setReviewNote(''); }}>Cancel</Button>
+                <Button
+                  className={reviewing.action === 'reject' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-600 hover:bg-orange-700'}
+                  disabled={!reviewNote.trim() || reviewMutation.isPending}
+                  onClick={() => reviewMutation.mutate({ id: reviewing.expense.id, action: reviewing.action, note: reviewNote.trim() })}
+                >
+                  {reviewMutation.isPending && <Loader2 size={14} className="animate-spin mr-1.5" />}
+                  {reviewing.action === 'reject' ? 'Reject' : 'Request Changes'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={!!pendingDelete} onOpenChange={open => { if (!open) setPendingDelete(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -742,6 +1195,15 @@ export default function ExpensesPage() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">{label}</p>
+      <p className="text-sm text-slate-800 break-words">{value}</p>
+    </div>
+  );
+}
+
 function FilterChip({ icon, label, onClear }: { icon: ReactNode; label: string; onClear: () => void }) {
   return (
     <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full max-w-[280px]">
@@ -773,6 +1235,9 @@ const emptyForm = () => ({
   description: '',
   amount: '',
   bank_paid_from: '',
+  payee_bank_name: '',
+  payee_account_number: '',
+  payee_account_name: '',
 });
 
 function ExpenseFormDialog({
@@ -798,6 +1263,9 @@ function ExpenseFormDialog({
           description: editing.description ?? '',
           amount: editing.amount ?? '',
           bank_paid_from: editing.bank_paid_from ?? '',
+          payee_bank_name: editing.payee_bank_name ?? '',
+          payee_account_number: editing.payee_account_number ?? '',
+          payee_account_name: editing.payee_account_name ?? '',
         }
       : emptyForm());
   }, [editing, open]);
@@ -845,6 +1313,9 @@ function ExpenseFormDialog({
       description: form.description.trim(),
       amount,
       bank_paid_from: form.bank_paid_from.trim(),
+      payee_bank_name: form.payee_bank_name.trim(),
+      payee_account_number: form.payee_account_number.trim(),
+      payee_account_name: form.payee_account_name.trim(),
     }, pendingFiles);
   };
 
@@ -945,6 +1416,28 @@ function ExpenseFormDialog({
               value={form.bank_paid_from}
               onChange={e => set('bank_paid_from', e.target.value)}
             />
+          </div>
+
+          {/* Where the money is going — approvers see this before authorising. */}
+          <div className="space-y-2 min-w-0 rounded-md border border-slate-200 bg-slate-50/60 p-3">
+            <p className={labelClass}><Landmark size={12} /> Payment Destination</p>
+            <div className="space-y-1.5">
+              <label htmlFor="payee-name" className="text-[11px] font-medium text-slate-500">Account Name</label>
+              <Input id="payee-name" className="h-9 text-sm bg-white" placeholder="Who is being paid"
+                value={form.payee_account_name} onChange={e => set('payee_account_name', e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="payee-bank" className="text-[11px] font-medium text-slate-500">Bank Name</label>
+                <Input id="payee-bank" className="h-9 text-sm bg-white" placeholder="e.g. Zenith Bank"
+                  value={form.payee_bank_name} onChange={e => set('payee_bank_name', e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="payee-acct" className="text-[11px] font-medium text-slate-500">Account Number</label>
+                <Input id="payee-acct" className="h-9 text-sm bg-white" placeholder="10 digits"
+                  value={form.payee_account_number} onChange={e => set('payee_account_number', e.target.value)} />
+              </div>
+            </div>
           </div>
 
           {/* Attachments — receipts, invoices, photos. Any type, any size, any number. */}
