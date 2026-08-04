@@ -30,6 +30,7 @@ import {
   format, parseISO, startOfDay, endOfDay, startOfWeek, endOfWeek,
   startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, isWithinInterval,
 } from 'date-fns';
+import { buildStationDailyLedger } from '@/lib/stationDailyLedger';
 import ExcelJS from 'exceljs';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/hooks/use-toast';
@@ -1823,109 +1824,8 @@ export default function FillingStations() {
     }
   }, [editTarget, editForm, editAllocationCode, toast]);
 
-  const buildStationDailyLedger = useCallback((groups: LedgerGroup[]) => {
-    type LedgerEvent = {
-      date: string;
-      kind: 'allocation' | 'sale' | 'deposit' | 'expense';
-      qty?: number;
-      salesValue?: number;
-      amount?: number;
-      payer?: string;
-      bank?: string;
-      remarks?: string;
-    };
-    const events: LedgerEvent[] = [];
-
-    groups.forEach(group => {
-      let allocDate = 'unknown';
-      try { if (group.dateLoaded) allocDate = format(parseISO(group.dateLoaded), 'yyyy-MM-dd'); } catch { /* noop */ }
-      if (group.quantity > 0) {
-        events.push({
-          date: allocDate,
-          kind: 'allocation',
-          qty: group.quantity,
-          remarks: `Truck ${group.truckNumber || '—'} allocated ${group.quantity.toLocaleString()}L${group.code ? ` (${group.code})` : ''}`,
-        });
-      }
-
-      group.payments.forEach(p => {
-        const evDateRaw = p.date_of_payment || p.date_loaded;
-        let evDate = 'unknown';
-        try { if (evDateRaw) evDate = format(parseISO(evDateRaw), 'yyyy-MM-dd'); } catch { /* noop */ }
-
-        const qty = toNum(p.quantity);
-        const deposit = toNum(p.payment_amount);
-        const expense = toNum(p.expenses_amount ?? 0);
-
-        if (qty > 0) {
-          events.push({ date: evDate, kind: 'sale', qty, salesValue: toNum(p.sales_value), remarks: p.remarks || '' });
-        }
-        if (deposit > 0) {
-          events.push({ date: evDate, kind: 'deposit', amount: deposit, payer: p.payer_name, bank: p.bank, remarks: p.remarks || '' });
-        }
-        if (expense > 0) {
-          events.push({ date: evDate, kind: 'expense', amount: expense, remarks: p.remarks || 'Expense' });
-        }
-      });
-    });
-
-    const byDate = new Map<string, LedgerEvent[]>();
-    events.forEach(e => {
-      const arr = byDate.get(e.date) ?? [];
-      arr.push(e);
-      byDate.set(e.date, arr);
-    });
-
-    const sortedDates = Array.from(byDate.keys()).sort((a, b) => {
-      if (a === 'unknown') return 1;
-      if (b === 'unknown') return -1;
-      return a.localeCompare(b);
-    });
-
-    const rows: Array<{
-      date: string; openingStock: number; volumeSold: number; rate: number; salesValue: number;
-      closingStock: number; expense: number; deposited: number; depositor: string; bank: string; remarks: string;
-    }> = [];
-    let runningStock = 0;
-
-    sortedDates.forEach(date => {
-      const dayEvents = byDate.get(date)!;
-      const opening = runningStock;
-
-      const allocQty = dayEvents.filter(e => e.kind === 'allocation').reduce((s, e) => s + (e.qty || 0), 0);
-      const sales = dayEvents.filter(e => e.kind === 'sale');
-      const deposits = dayEvents.filter(e => e.kind === 'deposit');
-      const expenses = dayEvents.filter(e => e.kind === 'expense');
-
-      const soldQty = sales.reduce((s, e) => s + (e.qty || 0), 0);
-      const salesValue = sales.reduce((s, e) => s + (e.salesValue || 0), 0);
-      const rate = soldQty > 0 ? salesValue / soldQty : 0;
-      const expenseTotal = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-      const depositTotal = deposits.reduce((s, e) => s + (e.amount || 0), 0);
-
-      runningStock = opening + allocQty - soldQty;
-
-      const depositorNames = Array.from(new Set(deposits.map(e => (e.payer || '').trim()).filter(Boolean)));
-      const bankNames = Array.from(new Set(deposits.map(e => (e.bank || '').trim()).filter(Boolean)));
-      const remarksParts = dayEvents.map(e => e.remarks).filter((r): r is string => Boolean(r && r.trim()));
-
-      rows.push({
-        date,
-        openingStock: opening,
-        volumeSold: soldQty,
-        rate,
-        salesValue,
-        closingStock: runningStock,
-        expense: expenseTotal,
-        deposited: depositTotal,
-        depositor: depositorNames.join('; ') || '—',
-        bank: bankNames.join('; ') || '—',
-        remarks: remarksParts.join(' | ') || '—',
-      });
-    });
-
-    return rows;
-  }, []);
+  // buildStationDailyLedger now lives in @/lib/stationDailyLedger so the
+  // opening/closing carry-forward can be unit-tested independently.
 
   const exportExcel = useCallback(async () => {
     if (!filteredLedgerGroups.length) return;
@@ -2153,12 +2053,25 @@ export default function FillingStations() {
       });
       rr += 1;
 
-      const dailyRows = buildStationDailyLedger(groups);
+      // Build the running balance from this station's ENTIRE history, not just
+      // the filtered rows, then show only the days in range. Otherwise the first
+      // exported day opens at 0 instead of carrying the balance in from before
+      // the date range — the opening/closing chain has to survive filtering.
+      const stationKey = stationName;
+      const fullHistory = ledgerGroups.filter(
+        g => g.isFillingStation && (g.customerName || 'UNKNOWN').trim().toUpperCase() === stationKey,
+      );
+      const visibleDates = new Set(buildStationDailyLedger(groups).map(r => r.date));
+      const dailyRows = buildStationDailyLedger(fullHistory.length ? fullHistory : groups)
+        .filter(r => visibleDates.has(r.date));
+
       dailyRows.forEach((row, idx) => {
         const values: (string | number)[] = [
           idx + 1,
           fmtDateCell(row.date),
-          row.openingStock > 0 ? row.openingStock : 0,
+          // Printed as-is: a negative opening is a real oversold position, and
+          // clamping it to 0 was what broke opening === previous closing.
+          row.openingStock,
           row.volumeSold > 0 ? row.volumeSold : '—',
           row.rate > 0 ? row.rate : '—',
           row.salesValue > 0 ? row.salesValue : '—',
@@ -2186,8 +2099,22 @@ export default function FillingStations() {
       const totalSalesValue = dailyRows.reduce((s, d) => s + d.salesValue, 0);
       const totalExpenseSum = dailyRows.reduce((s, d) => s + d.expense, 0);
       const totalDepositSum = dailyRows.reduce((s, d) => s + d.deposited, 0);
+      // The totals row reads as a period summary: opened at X, sold N litres at
+      // a blended rate for value V, closed at Y. Opening is the first day's
+      // opening (not a sum) and rate is value/volume — summing either would be
+      // meaningless.
+      const openingBalance = dailyRows.length > 0 ? dailyRows[0].openingStock : 0;
       const finalClosing = dailyRows.length > 0 ? dailyRows[dailyRows.length - 1].closingStock : 0;
-      const detailTotals: (string | number)[] = ['', 'TOTAL', '', totalVolume, '', totalSalesValue, finalClosing, totalExpenseSum, totalDepositSum, '', '', ''];
+      const blendedRate = totalVolume > 0 ? totalSalesValue / totalVolume : 0;
+      const detailTotals: (string | number)[] = [
+        '', 'TOTAL',
+        openingBalance,
+        totalVolume,
+        blendedRate > 0 ? blendedRate : '',
+        totalSalesValue,
+        finalClosing,
+        totalExpenseSum, totalDepositSum, '', '', '',
+      ];
       const detailTotalsRow = ws.getRow(rr);
       detailTotalsRow.height = 18;
       detailTotals.forEach((val, ci) => {
@@ -2216,7 +2143,7 @@ export default function FillingStations() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [filteredLedgerGroups, timePreset, customFrom, customTo, buildStationDailyLedger]);
+  }, [filteredLedgerGroups, ledgerGroups, timePreset, customFrom, customTo]);
 
   const activeBankAccounts = useMemo(
     () => BANK_ACCOUNTS.filter(b => b.is_active),
