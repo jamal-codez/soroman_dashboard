@@ -8,6 +8,7 @@ import { SummaryCards, type SummaryCard } from '@/components/SummaryCards';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { CommaInput } from '@/components/ui/comma-input';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -1415,15 +1416,12 @@ function ExpenseFormDialog({
             </div>
             <div className="space-y-1.5">
               <label htmlFor="expense-amount" className={labelClass}>Amount (₦) *</label>
-              <Input
+              <CommaInput
                 id="expense-amount"
-                type="number"
-                step="0.01"
-                min="0"
                 placeholder="0.00"
                 className="h-9 text-sm"
                 value={form.amount}
-                onChange={e => set('amount', e.target.value)}
+                onValueChange={value => set('amount', value)}
               />
             </div>
           </div>
@@ -1498,7 +1496,7 @@ function ExpenseFormDialog({
             <p className={labelClass}><Landmark size={12} /> Payment Destination</p>
             <div className="space-y-1.5">
               <label htmlFor="payee-name" className="text-[11px] font-medium text-slate-500">Account Name</label>
-              <Input id="payee-name" className="h-9 text-sm bg-white" placeholder="Name of the account being paid"
+              <Input id="payee-name" className="h-9 text-sm bg-white" placeholder=" "
                 value={form.payee_account_name} onChange={e => set('payee_account_name', e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
