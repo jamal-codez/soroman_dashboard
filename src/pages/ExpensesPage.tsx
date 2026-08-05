@@ -136,6 +136,13 @@ interface Expense {
   reviewed_by_name: string | null;
   reviewed_at: string | null;
   review_note: string;
+  review_history: Array<{
+    action: string;
+    action_label: string;
+    note: string;
+    by: string | null;
+    at: string;
+  }>;
   payee_bank_name: string;
   payee_account_number: string;
   payee_account_name: string;
@@ -267,6 +274,8 @@ export default function ExpensesPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [reviewing, setReviewing] = useState<{ expense: Expense; action: ExpenseAction } | null>(null);
   const [reviewNote, setReviewNote] = useState('');
+  // After a reject/send-back, offer to correct the entry immediately.
+  const [offerEdit, setOfferEdit] = useState<Expense | null>(null);
   const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -379,6 +388,12 @@ export default function ExpensesPage() {
         : vars.action === 'reject' ? 'Rejected — the submitter has been notified'
         : 'Sent back — the submitter has been notified',
       );
+      // A reason was just recorded — the reviewer usually knows the fix, so
+      // give them the chance to make it rather than waiting on a round trip.
+      if (vars.action === 'reject' || vars.action === 'request_changes') {
+        const target = reviewing?.expense ?? null;
+        setOfferEdit(target);
+      }
       setReviewing(null);
       setReviewNote('');
     },
@@ -1022,6 +1037,33 @@ export default function ExpensesPage() {
                     </div>
                   )}
 
+                  {/* Every reason ever given, permanently. Kept separate from
+                      the current note, which is overwritten on each transition. */}
+                  {v.review_history?.length > 0 && (
+                    <div className="space-y-1.5 min-w-0">
+                      <p className={labelClass}><Info size={12} /> Reasons Given ({v.review_history.length})</p>
+                      <div className="rounded-md border border-slate-200 divide-y divide-slate-100">
+                        {v.review_history.map((h, i) => (
+                          <div key={i} className="px-3 py-2 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase shrink-0 ${
+                                h.action === 'rejected' ? 'bg-red-100 text-red-700'
+                                : h.action === 'changes_requested' ? 'bg-orange-100 text-orange-700'
+                                : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {h.action_label}
+                              </span>
+                              <span className="text-[11px] text-slate-400 truncate">
+                                {h.by || '—'} · {fmtDate(h.at.slice(0, 10))}
+                              </span>
+                            </div>
+                            <p className="text-sm text-slate-700 mt-1 break-words">{h.note}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Approval trail — who moved it and when */}
                   <div className="space-y-1.5 min-w-0">
                     <p className={labelClass}><Check size={12} /> Approval Trail</p>
@@ -1161,6 +1203,39 @@ export default function ExpensesPage() {
           )}
         </DialogContent>
       </Dialog>
+
+
+      {/* Reason recorded — offer to fix the entry there and then. */}
+      <AlertDialog open={!!offerEdit} onOpenChange={open => { if (!open) setOfferEdit(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reason saved. Edit this entry now?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {offerEdit && (
+                <>
+                  Your reason has been recorded permanently against{' '}
+                  {fmtNaira(offerEdit.amount)} · {offerEdit.category_name || 'Uncategorised'}.
+                  You can correct the entry yourself now, or leave it for{' '}
+                  {offerEdit.added_by_name || 'the submitter'} to fix.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Leave it to them</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const target = offerEdit;
+                setOfferEdit(null);
+                setViewing(null);
+                if (target) { setEditing(target); setShowForm(true); }
+              }}
+            >
+              Edit it now
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!pendingDelete} onOpenChange={open => { if (!open) setPendingDelete(null); }}>
         <AlertDialogContent>
