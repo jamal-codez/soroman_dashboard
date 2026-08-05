@@ -1465,7 +1465,7 @@ function ExpenseFormDialog({
             <Input
               id="expense-vendor"
               className="h-9 text-sm"
-              placeholder="Who was paid, e.g. Ace Haulage"
+              placeholder="Who is to be paid e.g ACME Ltd"
               value={form.vendor}
               onChange={e => set('vendor', e.target.value)}
             />
@@ -1476,7 +1476,7 @@ function ExpenseFormDialog({
             <Input
               id="expense-description"
               className="h-9 text-sm"
-              placeholder="What the payment was for"
+              placeholder="Payment for..."
               value={form.description}
               onChange={e => set('description', e.target.value)}
             />
@@ -1498,7 +1498,7 @@ function ExpenseFormDialog({
             <p className={labelClass}><Landmark size={12} /> Payment Destination</p>
             <div className="space-y-1.5">
               <label htmlFor="payee-name" className="text-[11px] font-medium text-slate-500">Account Name</label>
-              <Input id="payee-name" className="h-9 text-sm bg-white" placeholder="Who is being paid"
+              <Input id="payee-name" className="h-9 text-sm bg-white" placeholder="Name of the account being paid"
                 value={form.payee_account_name} onChange={e => set('payee_account_name', e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
