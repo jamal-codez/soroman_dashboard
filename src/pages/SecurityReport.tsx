@@ -473,7 +473,7 @@ export default function SecurityReportPage() {
   const todayKey = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
   const autoOpenReport = new URLSearchParams(routeLocation.search).get("report") === "true";
 
-  const [period, setPeriod] = useState<Period>("today");
+  const [period, setPeriod] = useState<Period>("month");
   const [customMode, setCustomMode] = useState<CustomMode>("day");
   const [customDay, setCustomDay] = useState(todayKey);
   const [customFrom, setCustomFrom] = useState(todayKey);
@@ -526,6 +526,53 @@ export default function SecurityReportPage() {
   });
   const detailRows = detailQuery.data?.results ?? [];
 
+  const orderIds = useMemo(
+    () => Array.from(new Set(detailRows.map((row) => row.order_id).filter(Boolean))),
+    [detailRows],
+  );
+
+  const ticketFallbackQuery = useQuery({
+    queryKey: ["security-report-ticket-fallback", orderIds.join(",")],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        orderIds.map(async (orderId) => {
+          const [tickets, order] = await Promise.all([
+            apiClient.admin.getOrderTickets(orderId),
+            apiClient.admin.getAdminOrderById(orderId).catch(() => null),
+          ]);
+          return [orderId, { tickets, order }] as const;
+        }),
+      );
+      return Object.fromEntries(entries) as Record<number, { tickets: Awaited<ReturnType<typeof apiClient.admin.getOrderTickets>>; order: Awaited<ReturnType<typeof apiClient.admin.getAdminOrderById>> | null }>;
+    },
+    enabled: orderIds.length > 0,
+    staleTime: 60_000,
+  });
+
+  const rowsWithDriverFallback = useMemo(() => {
+    const fallbackMap = ticketFallbackQuery.data ?? {};
+
+    return detailRows.map((row) => {
+      const fallback = fallbackMap[row.order_id];
+      const tickets = fallback?.tickets ?? [];
+      const order = fallback?.order;
+      const matchingTicket =
+        tickets.find((ticket) => String(ticket.truck_number) === String(row.truck_no)) ||
+        tickets.find((ticket) => Boolean(ticket.driver_name || ticket.driver_phone || ticket.entry_driver_name || ticket.entry_driver_phone)) ||
+        tickets[0];
+      const customerDetails = (order as { customer_details?: { driverName?: string; driver_name?: string; driverPhone?: string; driver_phone?: string } } | null)?.customer_details;
+      const orderRecord = order as { driver_name?: string; driver_phone?: string; driverName?: string; driverPhone?: string } | null;
+      const driverName = row.driver_name || row.entry_driver_name || matchingTicket?.driver_name || matchingTicket?.entry_driver_name || customerDetails?.driverName || customerDetails?.driver_name || orderRecord?.driver_name || orderRecord?.driverName || "—";
+      const driverPhone = row.driver_phone || row.entry_driver_phone || matchingTicket?.driver_phone || matchingTicket?.entry_driver_phone || customerDetails?.driverPhone || customerDetails?.driver_phone || orderRecord?.driver_phone || orderRecord?.driverPhone || "—";
+
+      return {
+        ...row,
+        driver_name: driverName,
+        driver_phone: driverPhone,
+      };
+    });
+  }, [detailRows, ticketFallbackQuery.data]);
+
   const summaryQuery = useQuery({
     queryKey: ["security-exits-summary", dateFrom, dateTo, effectivePfiId, effectiveLocationId],
     queryFn: () => apiClient.admin.getSecurityExitsSummary(filterParams),
@@ -568,9 +615,9 @@ export default function SecurityReportPage() {
     }
   }
 
-  const isLoading = detailQuery.isLoading || summaryQuery.isLoading;
-  const isError = detailQuery.isError || summaryQuery.isError;
-  const noData = detailRows.length === 0;
+  const isLoading = detailQuery.isLoading || summaryQuery.isLoading || (orderIds.length > 0 && ticketFallbackQuery.isLoading);
+  const isError = detailQuery.isError || summaryQuery.isError || ticketFallbackQuery.isError;
+  const noData = rowsWithDriverFallback.length === 0;
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -767,6 +814,8 @@ export default function SecurityReportPage() {
                       <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Date</TableHead>
                       <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Truck No</TableHead>
                       <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Order Ref</TableHead>
+                      <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Driver Name</TableHead>
+                      <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Driver Phone</TableHead>
                       <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-right">Quantity</TableHead>
                       <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Time of Exit</TableHead>
                       <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Gantry</TableHead>
@@ -776,25 +825,25 @@ export default function SecurityReportPage() {
                   <TableBody>
                     {isLoading ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-400">
+                        <TableCell colSpan={10} className="py-10 text-center text-sm text-slate-400">
                           <Loader2 className="inline h-4 w-4 animate-spin mr-2" /> Loading…
                         </TableCell>
                       </TableRow>
                     ) : isError ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="py-10 text-center text-sm text-red-600">
+                        <TableCell colSpan={10} className="py-10 text-center text-sm text-red-600">
                           Failed to load report: {((detailQuery.error || summaryQuery.error) as Error)?.message || "Unknown error"}
                         </TableCell>
                       </TableRow>
-                    ) : detailRows.length === 0 ? (
+                    ) : rowsWithDriverFallback.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="py-12 text-center">
+                        <TableCell colSpan={10} className="py-12 text-center">
                           <TruckIcon className="mx-auto h-7 w-7 text-slate-200 mb-2" />
-                          <p className="text-sm text-slate-400">No truck exits recorded for this period.</p>
+                          <p className="text-sm text-slate-400">No truck exits recorded for this period. Try a wider date range or confirm the clearance was saved.</p>
                         </TableCell>
                       </TableRow>
                     ) : (
-                      detailRows.map((r, idx) => (
+                      rowsWithDriverFallback.map((r, idx) => (
                         <TableRow key={`${r.order_id}-${r.truck_no}-${r.exit_time}`} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/40"}>
                           <TableCell className="text-sm text-slate-500">{idx + 1}</TableCell>
                           <TableCell className="text-sm text-slate-800">
@@ -802,6 +851,8 @@ export default function SecurityReportPage() {
                           </TableCell>
                           <TableCell className="text-sm text-slate-700">{r.truck_no}</TableCell>
                           <TableCell className="text-sm font-mono font-semibold text-slate-700">{r.order_ref}</TableCell>
+                          <TableCell className="text-sm text-slate-700">{r.driver_name === "—" ? "No driver data" : r.driver_name}</TableCell>
+                          <TableCell className="text-sm text-slate-700">{r.driver_phone === "—" ? "No phone data" : r.driver_phone}</TableCell>
                           <TableCell className="text-sm text-right text-slate-700">{fmt(r.quantity_litres)} Litres</TableCell>
                           <TableCell className="text-sm text-slate-600">{format(new Date(r.exit_time), "HH:mm")}</TableCell>
                           <TableCell className="text-sm text-slate-600">{r.gantry ? `Arm ${r.gantry}` : "—"}</TableCell>
@@ -815,14 +866,14 @@ export default function SecurityReportPage() {
                   {summary && !isLoading && !isError && (
                     <tfoot>
                       <TableRow className="border-t-2 border-slate-200 bg-blue-900">
-                        <TableCell colSpan={8} className="py-2 text-center text-xs font-bold uppercase tracking-wide text-white">
+                        <TableCell colSpan={10} className="py-2 text-center text-xs font-bold uppercase tracking-wide text-white">
                           Summary
                         </TableCell>
                       </TableRow>
                       {summaryPairs.map(([label, value]) => (
                         <TableRow key={label} className="bg-blue-50/60">
-                          <TableCell colSpan={3} className="text-sm font-semibold text-slate-700">{label}</TableCell>
-                          <TableCell colSpan={5} className="text-sm font-bold text-slate-900 text-right">{value}</TableCell>
+                          <TableCell colSpan={4} className="text-sm font-semibold text-slate-700">{label}</TableCell>
+                          <TableCell colSpan={6} className="text-sm font-bold text-slate-900 text-right">{value}</TableCell>
                         </TableRow>
                       ))}
                     </tfoot>

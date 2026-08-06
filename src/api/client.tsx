@@ -2282,6 +2282,10 @@ export const apiClient = {
           exit_time: string;
           gantry: string;
           loader_name: string;
+          driver_name?: string | null;
+          driver_phone?: string | null;
+          entry_driver_name?: string | null;
+          entry_driver_phone?: string | null;
         }>;
       }>;
     },
