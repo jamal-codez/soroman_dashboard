@@ -47,6 +47,7 @@ type BackendPfi = {
   product_unit_label?: string;
   starting_qty_litres?: number;
   bl_qty_litres?: number | string | null;
+  bl_qty_mt?: number | string | null;
   price_per_litre?: number | string | null;
   surplus_deficit_litres?: number | string | null;
   pfi_value?: number | string | null;
@@ -166,6 +167,7 @@ const EMPTY_CREATE_FORM = {
   startingQty: '',
   startingQtyMt: '',
   blQty: '',
+  blQtyMt: '',
   pricePerLitre: '',
   auditOfficer: '',
   productOfficer: '',
@@ -531,6 +533,7 @@ export default function PFIPage() {
     description: form.description.trim() || undefined,
     qty_volume_mt: form.startingQtyMt ? Number(form.startingQtyMt.replace(/,/g, '')) || undefined : undefined,
     bl_qty_litres: form.blQty ? `${Number(form.blQty.replace(/,/g, '')).toFixed(2)}` : undefined,
+    bl_qty_mt: form.blQtyMt ? `${Number(form.blQtyMt.replace(/,/g, '')).toFixed(2)}` : undefined,
     price_per_litre: form.pricePerLitre ? `${Number(form.pricePerLitre.replace(/,/g, '')).toFixed(2)}` : undefined,
     audit_officer: form.auditOfficer ? Number(form.auditOfficer) : null,
     product_officer: form.productOfficer ? Number(form.productOfficer) : null,
@@ -629,6 +632,7 @@ export default function PFIPage() {
       startingQty: p.starting_qty_litres != null ? String(p.starting_qty_litres) : '',
       startingQtyMt: p.qty_volume_mt != null ? String(p.qty_volume_mt) : '',
       blQty: p.bl_qty_litres != null ? String(p.bl_qty_litres) : '',
+      blQtyMt: p.bl_qty_mt != null ? String(p.bl_qty_mt) : '',
       pricePerLitre: p.price_per_litre != null ? String(p.price_per_litre) : '',
       auditOfficer: p.audit_officer != null ? String(p.audit_officer) : '',
       productOfficer: p.product_officer != null ? String(p.product_officer) : '',
@@ -901,9 +905,12 @@ export default function PFIPage() {
         <div className="h-px bg-slate-100" />
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Cargo Cost</p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Field label="BL Figures (Ltr)" error={errors?.bl_qty_litres?.join(' ')}>
             <CommaInput placeholder="e.g. 980,000" value={form.blQty} onValueChange={v => setForm(f => ({ ...f, blQty: v }))} />
+          </Field>
+          <Field label="BL Figures (MT)">
+            <CommaInput placeholder="e.g. 820" value={form.blQtyMt} onValueChange={v => setForm(f => ({ ...f, blQtyMt: v }))} />
           </Field>
           <Field label="Price / Litre (₦)" error={errors?.price_per_litre?.join(' ')}>
             <CommaInput placeholder="e.g. 850" value={form.pricePerLitre} onValueChange={v => setForm(f => ({ ...f, pricePerLitre: v }))} />
@@ -1410,7 +1417,16 @@ export default function PFIPage() {
                       <div className="grid grid-cols-3 gap-3 mb-3">
                         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
                           <p className="text-xs text-slate-400 font-semibold uppercase">BL Figures</p>
-                          <p className="text-sm font-bold text-slate-800 mt-0.5">{fmtQty(coerceNumber(viewTarget.bl_qty_litres))} L</p>
+                          <p className="text-sm font-bold text-slate-800 mt-0.5">
+                            {viewTarget.bl_qty_litres != null && coerceNumber(viewTarget.bl_qty_litres) > 0
+                              ? `${fmtQty(coerceNumber(viewTarget.bl_qty_litres))} L`
+                              : '—'}
+                          </p>
+                          {viewTarget.bl_qty_mt != null && coerceNumber(viewTarget.bl_qty_mt) > 0 && (
+                            <p className="text-xs font-medium text-slate-600 mt-1">
+                              {fmtQty(coerceNumber(viewTarget.bl_qty_mt))} MT
+                            </p>
+                          )}
                         </div>
                         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
                           <p className="text-xs text-slate-400 font-semibold uppercase">Surplus / Deficit</p>

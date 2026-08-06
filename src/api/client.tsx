@@ -2057,6 +2057,7 @@ export const apiClient = {
       product: number;
       starting_qty_litres: string;
       bl_qty_litres?: string;
+      bl_qty_mt?: string;
       price_per_litre?: string;
       notes?: string;
       marketing_person?: number | null;
@@ -2086,6 +2087,7 @@ export const apiClient = {
       allowed_locations?: number[];
       starting_qty_litres?: string;
       bl_qty_litres?: string;
+      bl_qty_mt?: string;
       price_per_litre?: string;
       notes?: string;
       marketing_person?: number | null;

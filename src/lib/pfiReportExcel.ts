@@ -404,6 +404,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, report: PfiReport) {
   row = sectionBar(ws, row, SUMMARY_SPAN, 'BL Figures');
   row = factGrid(ws, row, [
     [`BL Quantity (${unit})`, qty(p.bl_qty_litres)],
+    ['BL Quantity (MT)', qty(p.bl_qty_mt)],
     ['Price per Litre', money(p.price_per_litre)],
     ['PFI Value', money(p.pfi_value)],
   ], 3, { 'PFI Value': NAVY });
