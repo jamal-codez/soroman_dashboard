@@ -59,7 +59,8 @@ type BackendPfi = {
   product_unit?: string | null;
   product_unit_label?: string | null;
   starting_qty_litres?: number | null;
-  sold_qty_litres?: number | null;
+  sold_qty_litres?: number | string | null;
+  remaining_qty_litres?: number | string | null;
   sold_qty?: number | null;
   total_quantity_litres?: number | string | null;
 };
@@ -170,11 +171,14 @@ const inDate = (iso: string | null | undefined, date: Date): boolean => {
 
 const distinct = (arr: string[]) => Array.from(new Set(arr));
 
-const getActivePfiRemainingLitres = (pfi: BackendPfi): number => {
-  const starting = toNum(pfi.starting_qty_litres);
-  const sold = toNum(pfi.sold_qty_litres) || toNum(pfi.total_quantity_litres) || toNum(pfi.sold_qty);
-  return Math.max(0, starting - sold);
-};
+/** Tank balance as the API reports it — the same figure PFI tracking shows.
+ *
+ * This used to pick a source with `sold_qty_litres || total_quantity_litres ||
+ * sold_qty`, which fell through to the next field whenever a PFI had genuinely
+ * sold nothing, since 0 is falsy. The server now computes remaining directly
+ * (confirmed orders + delivery allocations, floored at zero). */
+const getActivePfiRemainingLitres = (pfi: BackendPfi): number =>
+  toNum(pfi.remaining_qty_litres);
 
 /** Returns the number of truck tickets generated for an order (falls back to 1). */
 const getOrderTicketCount = (o: OrderLike): number => {

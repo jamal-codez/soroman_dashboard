@@ -60,7 +60,10 @@ type BackendPfi = {
   profit_loss?: number | string | null;
   notes?: string | null;
   description?: string | null;
-  sold_qty_litres?: number;
+  // Server-computed: confirmed orders + delivery allocations, and the tank
+  // balance floored at zero. Shared by every PFI figure across the app.
+  sold_qty_litres?: number | string;
+  remaining_qty_litres?: number | string;
   sold_qty?: number;
   created_at?: string;
   createdAt?: string;
@@ -135,13 +138,6 @@ const fmtQty = (n: number) =>
 
 const fmtCurrency = (n: number) =>
   `₦${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const coerceSoldLitres = (p: BackendPfi): number => {
-  const fromOrders = p.total_quantity_litres;
-  const n = Number(String(fromOrders ?? '').replace(/,/g, ''));
-  if (Number.isFinite(n) && n >= 0) return n;
-  return coerceNumber(p.sold_qty_litres ?? p.sold_qty);
-};
 
 const coerceAmount = (p: BackendPfi, soldLitres: number): number => {
   const direct = p.total_amount ?? p.totalAmount ?? p.amount;
@@ -304,28 +300,6 @@ export default function PFIPage() {
     retry: 1,
   });
 
-  const ordersQuery = useQuery<{ results?: Array<{ pfi_number?: string | null; quantity?: number | string; status?: string }> }>({
-    queryKey: ['all-orders'],
-    queryFn: async () => apiClient.admin.getAllAdminOrders({ page: 1, page_size: 10000 }),
-    staleTime: 30_000,
-    retry: 1,
-  });
-
-  const pfiSoldQtyMap = useMemo(() => {
-    const map = new Map<string, number>();
-    const orders = ordersQuery.data?.results ?? [];
-    const CONFIRMED = new Set(['paid', 'released', 'loaded', 'sold']);
-    orders.forEach(o => {
-      const pfiNum = String(o.pfi_number ?? '').trim();
-      if (!pfiNum) return;
-      const st = String(o.status ?? '').toLowerCase();
-      if (!CONFIRMED.has(st)) return;
-      const q = Number(String(o.quantity ?? '').replace(/,/g, ''));
-      if (Number.isFinite(q) && q > 0) map.set(pfiNum, (map.get(pfiNum) ?? 0) + q);
-    });
-    return map;
-  }, [ordersQuery.data]);
-
   const productsQuery = useQuery<{ results?: BackendProduct[] } & Record<string, unknown>>({
     queryKey: ['products'],
     queryFn: async () => apiClient.admin.getProducts({ page: 1, page_size: 500 }),
@@ -398,11 +372,12 @@ export default function PFIPage() {
   const enriched = useMemo(() => {
     return pfis.map(p => {
       const starting = coerceNumber(p.starting_qty_litres);
-      const soldFromOrders = pfiSoldQtyMap.get(p.pfi_number);
-      let sold = soldFromOrders !== undefined ? soldFromOrders : coerceSoldLitres(p);
-      const deliveryAllocated = coerceNumber(p.delivery_allocated_qty);
-      sold += deliveryAllocated;
-      const remaining = Math.max(0, starting - sold);
+      // Both come straight from the API. `sold_qty_litres` already covers
+      // confirmed orders plus delivery allocations, and `remaining_qty_litres`
+      // is floored at zero — the same figures the daily reports and the finance
+      // stock summary read, so the screens can't disagree.
+      const sold = coerceNumber(p.sold_qty_litres);
+      const remaining = coerceNumber(p.remaining_qty_litres);
       const pct = starting > 0 ? Math.min(100, (sold / starting) * 100) : 0;
       const totalAmount = coerceAmount(p, sold);
       const orders = coerceNumber(p.orders_count);
@@ -435,7 +410,7 @@ export default function PFIPage() {
         landingPerLitre, pendingExpenses, pendingExpenseCount,
       };
     });
-  }, [pfis, pfiSoldQtyMap]);
+  }, [pfis]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
