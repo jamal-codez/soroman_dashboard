@@ -273,6 +273,7 @@ export interface PfiSummaryData {
   surveyor_phone?: string | null;
   starting_qty_litres?: string | number | null;
   bl_qty_litres?: string | number | null;
+  bl_qty_mt?: string | number | null;
   price_per_litre?: string | number | null;
   surplus_deficit_litres?: string | number | null;
   pfi_value?: string | number | null;
