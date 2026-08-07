@@ -179,7 +179,7 @@ const BANK_ACCOUNTS: BankAccount[] = [
   { id: 2, account_name: 'Action Energy', account_number: '1017185599', bank_name: 'Zenith Bank', is_active: true },
   { id: 3, account_name: 'Soroman Nigeria Ltd', account_number: '1000102110', bank_name: 'Optimus Bank', is_active: true },
   { id: 4, account_name: 'Soroman Nigeria Ltd', account_number: '0001732331', bank_name: 'Jaiz Bank', is_active: true },
-  // { id: 5, account_name: 'Soroman Energy Ltd', account_number: '6677889900', bank_name: 'UBA', is_active: true },
+  { id: 5, account_name: 'Soroman Stations', account_number: '1312295830', bank_name: 'Zenith Bank', is_active: true },
 ];
 
 // Stored bank strings are "ACCOUNT_NUMBER · BANK_NAME" (account name isn't
