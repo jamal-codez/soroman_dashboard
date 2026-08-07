@@ -55,6 +55,8 @@ type BackendPfi = {
   pending_expenses?: number | string | null;
   pending_expense_count?: number | null;
   total_cost?: number | string | null;
+  credit_balance?: number | string | null;
+  grand_total_cost?: number | string | null;
   landing_cost_per_litre?: number | string | null;
   revenue?: number | string | null;
   profit_loss?: number | string | null;
@@ -165,6 +167,7 @@ const EMPTY_CREATE_FORM = {
   blQty: '',
   blQtyMt: '',
   pricePerLitre: '',
+  creditBalance: '',
   auditOfficer: '',
   productOfficer: '',
   itComplianceOfficer: '',
@@ -396,6 +399,10 @@ export default function PFIPage() {
       const pendingExpenses = coerceNumber(p.pending_expenses);
       const pendingExpenseCount = coerceNumber(p.pending_expense_count);
       const totalCost = hasCostData ? coerceNumber(p.total_cost) : 0;
+      // Credit taken back against the cargo, and the net cost after it. Landing
+      // cost and profit are both worked out from the grand total server-side.
+      const creditBalance = coerceNumber(p.credit_balance);
+      const grandTotalCost = hasCostData ? coerceNumber(p.grand_total_cost) : 0;
       const revenue = coerceNumber(p.revenue ?? totalAmount);
       const profitLoss = hasCostData ? coerceNumber(p.profit_loss) : 0;
       const surplusDeficit = p.surplus_deficit_litres != null ? coerceNumber(p.surplus_deficit_litres) : null;
@@ -406,7 +413,8 @@ export default function PFIPage() {
       return {
         ...p, starting, sold, remaining, pct, totalAmount, orders,
         locationLabel, productLabel, unitLabel, createdAtStr, finishedAtStr,
-        hasCostData, pfiValue, totalExpenses, totalCost, revenue, profitLoss, surplusDeficit,
+        hasCostData, pfiValue, totalExpenses, totalCost, creditBalance, grandTotalCost,
+        revenue, profitLoss, surplusDeficit,
         landingPerLitre, pendingExpenses, pendingExpenseCount,
       };
     });
@@ -510,6 +518,7 @@ export default function PFIPage() {
     bl_qty_litres: form.blQty ? `${Number(form.blQty.replace(/,/g, '')).toFixed(2)}` : undefined,
     bl_qty_mt: form.blQtyMt ? `${Number(form.blQtyMt.replace(/,/g, '')).toFixed(2)}` : undefined,
     price_per_litre: form.pricePerLitre ? `${Number(form.pricePerLitre.replace(/,/g, '')).toFixed(2)}` : undefined,
+    credit_balance: form.creditBalance ? `${Number(form.creditBalance.replace(/,/g, '')).toFixed(2)}` : undefined,
     audit_officer: form.auditOfficer ? Number(form.auditOfficer) : null,
     product_officer: form.productOfficer ? Number(form.productOfficer) : null,
     it_compliance_officer: form.itComplianceOfficer ? Number(form.itComplianceOfficer) : null,
@@ -609,6 +618,7 @@ export default function PFIPage() {
       blQty: p.bl_qty_litres != null ? String(p.bl_qty_litres) : '',
       blQtyMt: p.bl_qty_mt != null ? String(p.bl_qty_mt) : '',
       pricePerLitre: p.price_per_litre != null ? String(p.price_per_litre) : '',
+      creditBalance: p.credit_balance != null ? String(p.credit_balance) : '',
       auditOfficer: p.audit_officer != null ? String(p.audit_officer) : '',
       productOfficer: p.product_officer != null ? String(p.product_officer) : '',
       itComplianceOfficer: p.it_compliance_officer != null ? String(p.it_compliance_officer) : '',
@@ -892,6 +902,16 @@ export default function PFIPage() {
           </Field>
         </div>
 
+        {/* A credit taken back against the cargo — rebate, discount, or a
+            demurrage/quality claim. Entered positive; it is subtracted to give
+            the grand total cost, and feeds landing cost and profit from there. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Field label="Credit Balance (₦)" error={errors?.credit_balance?.join(' ')}>
+            <CommaInput placeholder="e.g. 3,000,000" value={form.creditBalance} onValueChange={v => setForm(f => ({ ...f, creditBalance: v }))} />
+            <p className="mt-1 text-[11px] text-slate-400">Rebate, discount or claim credited back. Reduces the grand total cost.</p>
+          </Field>
+        </div>
+
         {(form.blQty || form.startingQty) && (
           <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs">
             <div>
@@ -1105,7 +1125,9 @@ export default function PFIPage() {
                             Revenue <SortIcon col="amount" />
                           </button>
                         </TableHead>
-                        <TableHead className="font-semibold text-slate-700 text-right whitespace-nowrap">Total Cost</TableHead>
+                        {/* The net figure, so the row reads straight across:
+                            Revenue − Grand Total Cost = Profit / Loss. */}
+                        <TableHead className="font-semibold text-slate-700 text-right whitespace-nowrap">Grand Total Cost</TableHead>
                         <TableHead className="font-semibold text-slate-700 text-right whitespace-nowrap">Profit / Loss</TableHead>
 
                         <TableHead className="font-semibold text-slate-700">
@@ -1198,7 +1220,12 @@ export default function PFIPage() {
                               {p.totalAmount > 0 ? fmtCurrency(p.totalAmount) : dash}
                             </TableCell>
                             <TableCell className={`text-right font-medium whitespace-nowrap ${cell}`}>
-                              {p.hasCostData ? fmtCurrency(p.totalCost) : dash}
+                              {p.hasCostData ? fmtCurrency(p.grandTotalCost) : dash}
+                              {p.hasCostData && p.creditBalance > 0 && (
+                                <span className="block text-[10px] font-medium text-emerald-600">
+                                  after {fmtCurrency(p.creditBalance)} credit
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell className={`text-right font-bold whitespace-nowrap ${
                               !p.hasCostData ? 'text-slate-300' : p.profitLoss > 0 ? 'text-emerald-600' : p.profitLoss < 0 ? 'text-red-600' : 'text-slate-500'
@@ -1431,6 +1458,24 @@ export default function PFIPage() {
                         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
                           <p className="text-xs text-slate-400 font-semibold uppercase">Total Cost</p>
                           <p className="text-sm font-bold text-slate-800 mt-0.5">{fmtCurrency(viewTarget.totalCost)}</p>
+                        </div>
+                        {/* Credit taken back against the cargo, then the net
+                            cost after it. Both landing cost and profit below are
+                            worked out from the grand total, not the gross. */}
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-center">
+                          <p className="text-xs text-slate-400 font-semibold uppercase">Credit Balance</p>
+                          <p className={`text-sm font-bold mt-0.5 ${viewTarget.creditBalance > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                            {viewTarget.creditBalance > 0 ? `− ${fmtCurrency(viewTarget.creditBalance)}` : dash}
+                          </p>
+                        </div>
+                        <div className="col-span-2 rounded-lg border border-slate-300 bg-slate-100 p-3 text-center">
+                          <p className="text-xs text-slate-500 font-semibold uppercase">Grand Total Cost</p>
+                          <p className="text-base font-bold text-slate-900 mt-0.5">{fmtCurrency(viewTarget.grandTotalCost)}</p>
+                          {viewTarget.creditBalance > 0 && (
+                            <p className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                              after {fmtCurrency(viewTarget.creditBalance)} credit
+                            </p>
+                          )}
                         </div>
                         {/* Landing cost — what each sellable litre actually cost,
                             all-in. Shown against the purchase price so the uplift

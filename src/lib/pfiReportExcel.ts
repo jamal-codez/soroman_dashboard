@@ -281,6 +281,8 @@ export interface PfiSummaryData {
   pending_expenses?: string | number | null;
   pending_expense_count?: number | null;
   total_cost?: string | number | null;
+  credit_balance?: string | number | null;
+  grand_total_cost?: string | number | null;
   landing_cost_per_litre?: string | number | null;
   revenue?: string | number | null;
   profit_loss?: string | number | null;
@@ -441,14 +443,19 @@ function buildSummarySheet(wb: ExcelJS.Workbook, report: PfiReport) {
     ['Total Expenses (approved)', money(p.total_expenses)],
     ['Awaiting Approval', money(p.pending_expenses)],
     ['Total Cost', money(p.total_cost)],
+    // Credit taken back against the cargo, then the net cost after it. Landing
+    // cost, profit and margin below all derive from the grand total.
+    ['Credit Balance', money(p.credit_balance)],
+    ['Grand Total Cost', money(p.grand_total_cost)],
     ['Landing Cost / Litre', money(p.landing_cost_per_litre)],
     ['Revenue', money(p.revenue)],
     [has(pl) && num(pl) < 0 ? 'Balance' : 'Profit', money(pl)],
     ['Margin', has(pl) ? pct(num(pl), num(p.revenue)) : '—'],
   ], 3, {
-    'Total Cost': NAVY,
+    'Grand Total Cost': NAVY,
     'Landing Cost / Litre': NAVY,
     'Awaiting Approval': '#B45309',
+    'Credit Balance': GREEN,
     'Revenue': GREEN,
     'Profit': GREEN,
     'Balance': RED,
@@ -721,7 +728,10 @@ export async function downloadAllPfisReport(
   // Cost and P/L are only meaningful for PFIs that have both BL qty and price,
   // so they are summed over that subset rather than treating blanks as zero.
   const costed = pfis.filter(p => has(p.pfi_value));
-  const totalCost = costed.reduce((s, p) => s + num(p.total_cost), 0);
+  // Net of credits, so the portfolio total is the same basis the per-PFI
+  // profit figures are worked out from and the two reconcile.
+  const totalCost = costed.reduce((s, p) => s + num(p.grand_total_cost), 0);
+  const totalCredit = costed.reduce((s, p) => s + num(p.credit_balance), 0);
   const totalProfit = costed.reduce((s, p) => s + num(p.profit_loss), 0);
 
   row = sectionBar(ws, row, span, 'Portfolio Summary');
@@ -735,11 +745,13 @@ export async function downloadAllPfisReport(
     ['Total Revenue', money(totalRevenue)],
     ['Total Expenses', money(totalExpenses)],
     ['Total Orders', qty(sum(p => p.orders_count))],
-    ['Total Cost (costed PFIs)', costed.length ? money(totalCost) : '—'],
+    ['Total Credit Balance', costed.length ? money(totalCredit) : '—'],
+    ['Grand Total Cost (costed PFIs)', costed.length ? money(totalCost) : '—'],
     [totalProfit < 0 ? 'Net Loss (costed PFIs)' : 'Net Profit (costed PFIs)', costed.length ? money(totalProfit) : '—'],
     ['PFIs Awaiting Cost Data', qty(pfis.length - costed.length)],
   ], 3, {
     'Total Revenue': GREEN,
+    'Total Credit Balance': GREEN,
     'Net Profit (costed PFIs)': GREEN,
     'Net Loss (costed PFIs)': RED,
   });

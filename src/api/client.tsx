@@ -2059,6 +2059,7 @@ export const apiClient = {
       bl_qty_litres?: string;
       bl_qty_mt?: string;
       price_per_litre?: string;
+      credit_balance?: string;
       notes?: string;
       marketing_person?: number | null;
       finance_person?: number | null;
@@ -2089,9 +2090,20 @@ export const apiClient = {
       bl_qty_litres?: string;
       bl_qty_mt?: string;
       price_per_litre?: string;
+      credit_balance?: string;
       notes?: string;
       marketing_person?: number | null;
       finance_person?: number | null;
+      // Closure summary — sent by the PFI closure dialog before finishPfi.
+      // The backend serializer has always accepted these; this type just never
+      // listed them, so that call site failed to typecheck.
+      closure_date?: string;
+      total_inflow?: number;
+      closure_bank?: string;
+      purchase_cost?: number;
+      aggregate_expenses?: number;
+      closure_handler?: string;
+      closure_remarks?: string;
     }) => {
       const response = await safeFetch(`${ADMIN_BASE}/pfis/${id}/`, {
         method: 'PATCH',
